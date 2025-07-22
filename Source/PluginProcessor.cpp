@@ -415,6 +415,12 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
         if (positionInfo.hasValue())
         {
             isCurrentlyPlaying = positionInfo->getIsPlaying();
+
+            // NEW: Get BPM from DAW
+            if (auto bpm = positionInfo->getBpm())
+            {
+                currentBPM = *bpm;  // Store in atomic variable
+            }
         }
     }
 
@@ -429,6 +435,8 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     }
 
     wasPlaying = isCurrentlyPlaying;
+
+
 
     // Record audio if we're recording and have space in buffer
     // Use atomic check first (fast path)

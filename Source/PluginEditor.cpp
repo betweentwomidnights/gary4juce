@@ -8,49 +8,37 @@
 
 //==============================================================================
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
-    : AudioProcessorEditor(&p), audioProcessor(p)
+    : AudioProcessorEditor(&p), audioProcessor(p),
+    cropButton("Crop", juce::DrawableButton::ImageFitted)
+
 {
-    setSize(400, 850);  // Made taller to accommodate Gary controls
+    setSize(400, 850);  // Made taller to accommodate controls
 
     // Check initial backend connection status
     isConnected = audioProcessor.isBackendConnected();
     DBG("Editor created, backend connection status: " + juce::String(isConnected ? "Connected" : "Disconnected"));
 
-    // Set up the "Check Connection" button
-    checkConnectionButton.setButtonText("Check Backend Connection");
-    checkConnectionButton.onClick = [this]() {
-        DBG("Manual backend health check requested");
-        audioProcessor.checkBackendHealth();
+    // ========== TAB BUTTONS SETUP ==========
+    garyTabButton.setButtonText("Gary");
+    garyTabButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    garyTabButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    garyTabButton.onClick = [this]() { switchToTab(ModelTab::Gary); };
+    addAndMakeVisible(garyTabButton);
 
-        // Show immediate feedback
-        checkConnectionButton.setButtonText("Checking...");
-        checkConnectionButton.setEnabled(false);
+    jerryTabButton.setButtonText("Jerry");
+    jerryTabButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
+    jerryTabButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    jerryTabButton.onClick = [this]() { switchToTab(ModelTab::Jerry); };
+    addAndMakeVisible(jerryTabButton);
 
-        // Re-enable button after a delay
-        juce::Timer::callAfterDelay(3000, [this]() {
-            checkConnectionButton.setButtonText("Check Backend Connection");
-            checkConnectionButton.setEnabled(true);
-            });
-        };
+    terryTabButton.setButtonText("Terry");
+    terryTabButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
+    terryTabButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    terryTabButton.onClick = [this]() { switchToTab(ModelTab::Terry); };
+    // terryTabButton.setEnabled(false);  // Disabled until implemented
+    addAndMakeVisible(terryTabButton);
 
-    // Set up the "Save Buffer" button
-    saveBufferButton.setButtonText("Save Recording Buffer");
-    saveBufferButton.onClick = [this]() {
-        saveRecordingBuffer();
-        };
-    saveBufferButton.setEnabled(false); // Initially disabled
-
-    // Set up the "Clear Buffer" button
-    clearBufferButton.setButtonText("Clear Buffer");
-    clearBufferButton.onClick = [this]() {
-        clearRecordingBuffer();
-        };
-
-    addAndMakeVisible(checkConnectionButton);
-    addAndMakeVisible(saveBufferButton);
-    addAndMakeVisible(clearBufferButton);
-
-    // Set up Gary (MusicGen) controls
+    // ========== GARY CONTROLS SETUP ==========
     garyLabel.setText("Gary (MusicGen)", juce::dontSendNotification);
     garyLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     garyLabel.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -65,7 +53,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     promptDurationSlider.setTextValueSuffix("s");
     promptDurationSlider.onValueChange = [this]() {
         currentPromptDuration = (float)promptDurationSlider.getValue();
-        };
+    };
     addAndMakeVisible(promptDurationSlider);
 
     promptDurationLabel.setText("Prompt Duration", juce::dontSendNotification);
@@ -82,7 +70,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     modelComboBox.setSelectedId(1);
     modelComboBox.onChange = [this]() {
         currentModelIndex = modelComboBox.getSelectedId() - 1;
-        };
+    };
     addAndMakeVisible(modelComboBox);
 
     modelLabel.setText("Model", juce::dontSendNotification);
@@ -95,11 +83,294 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sendToGaryButton.setButtonText("Send to Gary");
     sendToGaryButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
     sendToGaryButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    sendToGaryButton.onClick = [this]() {
-        sendToGary();
-        };
+    sendToGaryButton.onClick = [this]() { sendToGary(); };
     sendToGaryButton.setEnabled(false); // Initially disabled until we have audio
     addAndMakeVisible(sendToGaryButton);
+
+    // Continue button for Gary
+    continueButton.setButtonText("Continue");
+    continueButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkblue);
+    continueButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    continueButton.onClick = [this]() { continueMusic(); };
+    continueButton.setEnabled(false); // Initially disabled
+    addAndMakeVisible(continueButton);
+
+    // ========== JERRY CONTROLS SETUP ==========
+    jerryLabel.setText("Jerry (Stable Audio)", juce::dontSendNotification);
+    jerryLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    jerryLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    jerryLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(jerryLabel);
+
+    // Text prompt editor
+    jerryPromptEditor.setMultiLine(true);
+    jerryPromptEditor.setReturnKeyStartsNewLine(true);
+    jerryPromptEditor.setTextToShowWhenEmpty("Enter your audio generation prompt here...", juce::Colours::darkgrey);
+    jerryPromptEditor.onTextChange = [this]() {
+        currentJerryPrompt = jerryPromptEditor.getText();
+        // Update button state whenever prompt changes
+        generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
+        };
+    addAndMakeVisible(jerryPromptEditor);
+
+    jerryPromptLabel.setText("Text Prompt", juce::dontSendNotification);
+    jerryPromptLabel.setFont(juce::FontOptions(12.0f));
+    jerryPromptLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    jerryPromptLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(jerryPromptLabel);
+
+    // CFG slider (0.5 to 2.0 in 0.1 increments)
+    jerryCfgSlider.setRange(0.5, 2.0, 0.1);
+    jerryCfgSlider.setValue(1.0);
+    jerryCfgSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    jerryCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    jerryCfgSlider.onValueChange = [this]() {
+        currentJerryCfg = (float)jerryCfgSlider.getValue();
+        };
+    addAndMakeVisible(jerryCfgSlider);
+
+    jerryCfgLabel.setText("CFG Scale", juce::dontSendNotification);
+    jerryCfgLabel.setFont(juce::FontOptions(12.0f));
+    jerryCfgLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    jerryCfgLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(jerryCfgLabel);
+
+    // Steps slider (4 to 16 in increments of 1)
+    jerryStepsSlider.setRange(4.0, 16.0, 1.0);
+    jerryStepsSlider.setValue(8.0);
+    jerryStepsSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    jerryStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    jerryStepsSlider.onValueChange = [this]() {
+        currentJerrySteps = (int)jerryStepsSlider.getValue();
+        };
+    addAndMakeVisible(jerryStepsSlider);
+
+    jerryStepsLabel.setText("Steps", juce::dontSendNotification);
+    jerryStepsLabel.setFont(juce::FontOptions(12.0f));
+    jerryStepsLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    jerryStepsLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(jerryStepsLabel);
+
+    // BPM info label (will show DAW BPM)
+    jerryBpmLabel.setText("BPM: " + juce::String((int)audioProcessor.getCurrentBPM()),
+        juce::dontSendNotification);
+    jerryBpmLabel.setFont(juce::FontOptions(11.0f));
+    jerryBpmLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    jerryBpmLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(jerryBpmLabel);
+
+    // Generate with Jerry button
+    generateWithJerryButton.setButtonText("Generate with Jerry");
+    generateWithJerryButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
+    generateWithJerryButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    generateWithJerryButton.onClick = [this]() { sendToJerry(); };
+    generateWithJerryButton.setEnabled(false); // Initially disabled until connected
+    addAndMakeVisible(generateWithJerryButton);
+
+    // Smart loop button (rectangular toggle style) - HORIZONTAL LAYOUT
+    generateAsLoopButton.setButtonText("smart loop");  // SHORTER text for horizontal layout
+    generateAsLoopButton.setClickingTogglesState(true);
+    generateAsLoopButton.onClick = [this]() {
+        generateAsLoop = generateAsLoopButton.getToggleState();
+        updateLoopTypeVisibility();  // Show/hide the three type buttons
+        styleSmartLoopButton();      // Update visual styling
+        };
+    addAndMakeVisible(generateAsLoopButton);
+
+    // Loop type buttons (compact rectangular buttons for horizontal layout)
+    loopTypeAutoButton.setButtonText("Auto");
+    loopTypeAutoButton.onClick = [this]() { setLoopType("auto"); };
+
+    loopTypeDrumsButton.setButtonText("Drums");
+    loopTypeDrumsButton.onClick = [this]() { setLoopType("drums"); };
+
+    loopTypeInstrumentsButton.setButtonText("Instr");  // SHORTENED for compact layout
+    loopTypeInstrumentsButton.onClick = [this]() { setLoopType("instruments"); };
+
+    addAndMakeVisible(loopTypeAutoButton);
+    addAndMakeVisible(loopTypeDrumsButton);
+    addAndMakeVisible(loopTypeInstrumentsButton);
+
+    // Initial styling and state
+    styleSmartLoopButton();
+    setLoopType("auto");  // This will style the segmented control
+    updateLoopTypeVisibility();  // Initially hide loop type controls
+
+    // Make buttons perfectly rectangular (remove default JUCE rounding)
+    generateAsLoopButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+    loopTypeAutoButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+    loopTypeDrumsButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+    loopTypeInstrumentsButton.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+
+    // ========== TERRY CONTROLS SETUP ==========
+    terryLabel.setText("Terry (MelodyFlow Transform)", juce::dontSendNotification);
+    terryLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    terryLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    terryLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(terryLabel);
+
+    // Variation dropdown - populate with all variations
+    terryVariationComboBox.addItem("accordion_folk", 1);
+    terryVariationComboBox.addItem("banjo_bluegrass", 2);
+    terryVariationComboBox.addItem("piano_classical", 3);
+    terryVariationComboBox.addItem("celtic", 4);
+    terryVariationComboBox.addItem("strings_quartet", 5);
+    terryVariationComboBox.addItem("synth_retro", 6);
+    terryVariationComboBox.addItem("synth_modern", 7);
+    terryVariationComboBox.addItem("synth_edm", 8);
+    terryVariationComboBox.addItem("lofi_chill", 9);
+    terryVariationComboBox.addItem("synth_bass", 10);
+    terryVariationComboBox.addItem("rock_band", 11);
+    terryVariationComboBox.addItem("cinematic_epic", 12);
+    terryVariationComboBox.addItem("retro_rpg", 13);
+    terryVariationComboBox.addItem("chiptune", 14);
+    terryVariationComboBox.addItem("steel_drums", 15);
+    terryVariationComboBox.addItem("gamelan_fusion", 16);
+    terryVariationComboBox.addItem("music_box", 17);
+    terryVariationComboBox.addItem("trap_808", 18);
+    terryVariationComboBox.addItem("lo_fi_drums", 19);
+    terryVariationComboBox.addItem("boom_bap", 20);
+    terryVariationComboBox.addItem("percussion_ensemble", 21);
+    terryVariationComboBox.addItem("future_bass", 22);
+    terryVariationComboBox.addItem("synthwave_retro", 23);
+    terryVariationComboBox.addItem("melodic_techno", 24);
+    terryVariationComboBox.addItem("dubstep_wobble", 25);
+    terryVariationComboBox.addItem("glitch_hop", 26);
+    terryVariationComboBox.addItem("digital_disruption", 27);
+    terryVariationComboBox.addItem("circuit_bent", 28);
+    terryVariationComboBox.addItem("orchestral_glitch", 29);
+    terryVariationComboBox.addItem("vapor_drums", 30);
+    terryVariationComboBox.addItem("industrial_textures", 31);
+    terryVariationComboBox.addItem("jungle_breaks", 32);
+    terryVariationComboBox.setSelectedId(1); // Default to first variation
+    terryVariationComboBox.onChange = [this]() {
+        currentTerryVariation = terryVariationComboBox.getSelectedId() - 1;
+        // Clear custom prompt when variation is selected
+        if (currentTerryVariation >= 0) {
+            terryCustomPromptEditor.clear();
+            currentTerryCustomPrompt = "";
+        }
+        };
+    addAndMakeVisible(terryVariationComboBox);
+
+    terryVariationLabel.setText("Variation", juce::dontSendNotification);
+    terryVariationLabel.setFont(juce::FontOptions(12.0f));
+    terryVariationLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    terryVariationLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terryVariationLabel);
+
+    // Custom prompt editor (alternative to variations)
+    terryCustomPromptEditor.setMultiLine(false);
+    terryCustomPromptEditor.setReturnKeyStartsNewLine(false);
+    terryCustomPromptEditor.setTextToShowWhenEmpty("Or enter custom prompt...", juce::Colours::darkgrey);
+    terryCustomPromptEditor.onTextChange = [this]() {
+        currentTerryCustomPrompt = terryCustomPromptEditor.getText();
+        // Clear variation selection when custom prompt is used
+        if (!currentTerryCustomPrompt.trim().isEmpty()) {
+            terryVariationComboBox.setSelectedId(0); // Deselect
+            currentTerryVariation = -1;
+        }
+        };
+    addAndMakeVisible(terryCustomPromptEditor);
+
+    terryCustomPromptLabel.setText("Custom Prompt", juce::dontSendNotification);
+    terryCustomPromptLabel.setFont(juce::FontOptions(12.0f));
+    terryCustomPromptLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    terryCustomPromptLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terryCustomPromptLabel);
+
+    // Flowstep slider (0.050 to 0.150, default 0.130)
+    terryFlowstepSlider.setRange(0.050, 0.150, 0.001);
+    terryFlowstepSlider.setValue(0.130);
+    terryFlowstepSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    terryFlowstepSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
+    terryFlowstepSlider.setNumDecimalPlacesToDisplay(3);
+    terryFlowstepSlider.onValueChange = [this]() {
+        currentTerryFlowstep = (float)terryFlowstepSlider.getValue();
+        };
+    addAndMakeVisible(terryFlowstepSlider);
+
+    terryFlowstepLabel.setText("Flowstep", juce::dontSendNotification);
+    terryFlowstepLabel.setFont(juce::FontOptions(12.0f));
+    terryFlowstepLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    terryFlowstepLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terryFlowstepLabel);
+
+    // Solver toggle (euler/midpoint)
+    terrySolverToggle.setButtonText("Use Midpoint Solver");
+    terrySolverToggle.setToggleState(false, juce::dontSendNotification); // Default to euler
+    terrySolverToggle.onClick = [this]() {
+        useMidpointSolver = terrySolverToggle.getToggleState();
+        DBG("Solver changed to: " + juce::String(useMidpointSolver ? "midpoint" : "euler"));
+        };
+    addAndMakeVisible(terrySolverToggle);
+
+    terrySolverLabel.setText("Solver", juce::dontSendNotification);
+    terrySolverLabel.setFont(juce::FontOptions(12.0f));
+    terrySolverLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    terrySolverLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terrySolverLabel);
+
+    // Audio source selection
+    terrySourceLabel.setText("Transform", juce::dontSendNotification);
+    terrySourceLabel.setFont(juce::FontOptions(12.0f));
+    terrySourceLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    terrySourceLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terrySourceLabel);
+
+    transformRecordingButton.setButtonText("Recording");
+    transformRecordingButton.setRadioGroupId(1001); // Same group for mutual exclusion
+    transformRecordingButton.onClick = [this]() { setTerryAudioSource(true); };
+    addAndMakeVisible(transformRecordingButton);
+
+    transformOutputButton.setButtonText("Output");
+    transformOutputButton.setRadioGroupId(1001); // Same group for mutual exclusion
+    transformOutputButton.setToggleState(true, juce::dontSendNotification); // Default selection
+    transformOutputButton.onClick = [this]() { setTerryAudioSource(false); };
+    addAndMakeVisible(transformOutputButton);
+
+    // Transform button
+    transformWithTerryButton.setButtonText("Transform with Terry");
+    transformWithTerryButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkblue);
+    transformWithTerryButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    transformWithTerryButton.onClick = [this]() { sendToTerry(); };
+    transformWithTerryButton.setEnabled(false); // Initially disabled until we have audio
+    addAndMakeVisible(transformWithTerryButton);
+
+    // Undo button  
+    undoTransformButton.setButtonText("Undo Transform");
+    undoTransformButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkorange);
+    undoTransformButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    undoTransformButton.onClick = [this]() { undoTerryTransform(); };
+    undoTransformButton.setEnabled(false); // Initially disabled
+    addAndMakeVisible(undoTransformButton);
+
+    // ========== REMAINING SETUP (unchanged) ==========
+    // Set up the "Check Connection" button
+    checkConnectionButton.setButtonText("Check Backend Connection");
+    checkConnectionButton.onClick = [this]() {
+        DBG("Manual backend health check requested");
+        audioProcessor.checkBackendHealth();
+        checkConnectionButton.setButtonText("Checking...");
+        checkConnectionButton.setEnabled(false);
+        juce::Timer::callAfterDelay(3000, [this]() {
+            checkConnectionButton.setButtonText("Check Backend Connection");
+            checkConnectionButton.setEnabled(true);
+        });
+    };
+
+    // Set up the "Save Buffer" button
+    saveBufferButton.setButtonText("Save Recording Buffer");
+    saveBufferButton.onClick = [this]() { saveRecordingBuffer(); };
+    saveBufferButton.setEnabled(false); // Initially disabled
+
+    // Set up the "Clear Buffer" button
+    clearBufferButton.setButtonText("Clear Buffer");
+    clearBufferButton.onClick = [this]() { clearRecordingBuffer(); };
+
+    addAndMakeVisible(checkConnectionButton);
+    addAndMakeVisible(saveBufferButton);
+    addAndMakeVisible(clearBufferButton);
 
     // Start timer to update recording status (refresh every 50ms for smooth waveform)
     startTimer(50);
@@ -118,17 +389,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     playOutputButton.setButtonText("Play Output");
     playOutputButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
     playOutputButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    playOutputButton.onClick = [this]() {
-        playOutputAudio();  // Let the smart function handle play/pause/resume logic
-        };
+    playOutputButton.onClick = [this]() { playOutputAudio(); };
     playOutputButton.setEnabled(false);
     addAndMakeVisible(playOutputButton);
 
     // Clear output button
     clearOutputButton.setButtonText("Clear Output");
-    clearOutputButton.onClick = [this]() {
-        clearOutputAudio();
-        };
+    clearOutputButton.onClick = [this]() { clearOutputAudio(); };
     clearOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(clearOutputButton);
 
@@ -136,11 +403,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     stopOutputButton.setButtonText("Stop");
     stopOutputButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
     stopOutputButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    stopOutputButton.onClick = [this]() {
-        fullStopOutputPlayback();
-        };
+    stopOutputButton.onClick = [this]() { fullStopOutputPlayback(); };
     stopOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(stopOutputButton);
+
+    // Crop button - simple approach with custom drawing
+    createCropIcon();
+    
+    cropButton.setTooltip("Crop audio at current playback position");
+    cropButton.onClick = [this]() { cropAudioAtCurrentPosition(); };
+    cropButton.setEnabled(false);
+    cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(cropButton);
 
     // Initialize output file path
     auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
@@ -152,6 +427,17 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         loadOutputAudioFile();
     }
+
+    // Enable drag and drop for this component
+    setWantsKeyboardFocus(false); // Don't steal focus during drag operations
+    outputLabel.setTooltip("Drag generated audio to your DAW timeline");
+    setInterceptsMouseClicks(true, true);
+
+    // Set initial tab state
+    updateTabButtonStates();
+    
+    // CRITICAL: Set initial visibility state for tabs
+    switchToTab(ModelTab::Gary);
 }
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
@@ -192,11 +478,258 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     DBG("Audio playback safely cleaned up");
 }
 
+// ========== TAB SWITCHING IMPLEMENTATION ==========
+
+void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
+{
+    if (currentTab == tab) return; // Already on this tab
+
+    currentTab = tab;
+    updateTabButtonStates();
+
+    // Show/hide appropriate controls
+    bool showGary = (tab == ModelTab::Gary);
+    bool showJerry = (tab == ModelTab::Jerry);
+
+    // Gary controls visibility
+    garyLabel.setVisible(showGary);
+    promptDurationSlider.setVisible(showGary);
+    promptDurationLabel.setVisible(showGary);
+    modelComboBox.setVisible(showGary);
+    modelLabel.setVisible(showGary);
+    sendToGaryButton.setVisible(showGary);
+    continueButton.setVisible(showGary);
+
+    // Jerry controls visibility
+    jerryLabel.setVisible(showJerry);
+    jerryPromptEditor.setVisible(showJerry);
+    jerryPromptLabel.setVisible(showJerry);
+    jerryCfgSlider.setVisible(showJerry);
+    jerryCfgLabel.setVisible(showJerry);
+    jerryStepsSlider.setVisible(showJerry);
+    jerryStepsLabel.setVisible(showJerry);
+    jerryBpmLabel.setVisible(showJerry);
+    generateWithJerryButton.setVisible(showJerry);
+
+    // FIXED: Show/hide the smart loop toggle button
+    generateAsLoopButton.setVisible(showJerry);
+
+    // Loop type controls follow the smart loop toggle visibility
+    if (showJerry) {
+        updateLoopTypeVisibility();  // This will show/hide based on toggle state
+    }
+    else {
+        // Hide loop type controls when Jerry tab is hidden
+        loopTypeAutoButton.setVisible(false);
+        loopTypeDrumsButton.setVisible(false);
+        loopTypeInstrumentsButton.setVisible(false);
+    }
+
+    // Terry controls visibility
+    bool showTerry = (tab == ModelTab::Terry);
+
+    terryLabel.setVisible(showTerry);
+    terryVariationComboBox.setVisible(showTerry);
+    terryVariationLabel.setVisible(showTerry);
+    terryCustomPromptEditor.setVisible(showTerry);
+    terryCustomPromptLabel.setVisible(showTerry);
+    terryFlowstepSlider.setVisible(showTerry);
+    terryFlowstepLabel.setVisible(showTerry);
+    terrySolverToggle.setVisible(showTerry);
+    terrySolverLabel.setVisible(showTerry);
+    terrySourceLabel.setVisible(showTerry);
+    transformRecordingButton.setVisible(showTerry);
+    transformOutputButton.setVisible(showTerry);
+    transformWithTerryButton.setVisible(showTerry);
+    undoTransformButton.setVisible(showTerry);
+
+    // ========== ADD TERRY LAYOUT TO resized() METHOD ==========
+    // Add this after the Jerry FlexBox section:
+
+    // ========== TERRY CONTROLS LAYOUT (FlexBox Implementation) ==========
+    auto terryBounds = modelControlsArea;
+
+    // Create main FlexBox for Terry controls (vertical layout)
+    juce::FlexBox terryFlexBox;
+    terryFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    terryFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    // 1. Terry section title
+    juce::FlexItem terryTitleItem(terryLabel);
+    terryTitleItem.height = 30;
+    terryTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    // 2. Variation controls row
+    juce::Component terryVariationRowComponent;
+    juce::FlexItem terryVariationRowItem(terryVariationRowComponent);
+    terryVariationRowItem.height = 30;
+    terryVariationRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
+    // 3. Custom prompt label
+    juce::FlexItem terryCustomPromptLabelItem(terryCustomPromptLabel);
+    terryCustomPromptLabelItem.height = 15;
+    terryCustomPromptLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+
+    // 4. Custom prompt editor
+    juce::FlexItem terryCustomPromptEditorItem(terryCustomPromptEditor);
+    terryCustomPromptEditorItem.height = 25;
+    terryCustomPromptEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
+
+    // 5. Flowstep controls row
+    juce::Component terryFlowstepRowComponent;
+    juce::FlexItem terryFlowstepRowItem(terryFlowstepRowComponent);
+    terryFlowstepRowItem.height = 30;
+    terryFlowstepRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
+    // 6. Solver controls row
+    juce::Component terrySolverRowComponent;
+    juce::FlexItem terrySolverRowItem(terrySolverRowComponent);
+    terrySolverRowItem.height = 25;
+    terrySolverRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
+    // 7. Audio source selection row
+    juce::Component terrySourceRowComponent;
+    juce::FlexItem terrySourceRowItem(terrySourceRowComponent);
+    terrySourceRowItem.height = 25;
+    terrySourceRowItem.margin = juce::FlexItem::Margin(3, 0, 8, 0);
+
+    // 8. Transform button
+    juce::FlexItem transformTerryItem(transformWithTerryButton);
+    transformTerryItem.height = 35;
+    transformTerryItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+
+    // 9. Undo button
+    juce::FlexItem undoTerryItem(undoTransformButton);
+    undoTerryItem.height = 35;
+    undoTerryItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+
+    // Add all items to Terry FlexBox
+    terryFlexBox.items.add(terryTitleItem);
+    terryFlexBox.items.add(terryVariationRowItem);
+    terryFlexBox.items.add(terryCustomPromptLabelItem);
+    terryFlexBox.items.add(terryCustomPromptEditorItem);
+    terryFlexBox.items.add(terryFlowstepRowItem);
+    terryFlexBox.items.add(terrySolverRowItem);
+    terryFlexBox.items.add(terrySourceRowItem);
+    terryFlexBox.items.add(transformTerryItem);
+    terryFlexBox.items.add(undoTerryItem);
+
+    // Perform layout for Terry controls
+    terryFlexBox.performLayout(terryBounds);
+
+    // Extract calculated bounds for control rows
+    auto terryVariationRowBounds = terryFlexBox.items[1].currentBounds.toNearestInt();
+    auto terryFlowstepRowBounds = terryFlexBox.items[4].currentBounds.toNearestInt();
+    auto terrySolverRowBounds = terryFlexBox.items[5].currentBounds.toNearestInt();
+    auto terrySourceRowBounds = terryFlexBox.items[6].currentBounds.toNearestInt();
+
+    // Layout variation controls (horizontal FlexBox)
+    juce::FlexBox terryVariationFlexBox;
+    terryVariationFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    terryVariationFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem terryVariationLabelItem(terryVariationLabel);
+    terryVariationLabelItem.width = 80;
+    terryVariationLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+
+    juce::FlexItem terryVariationComboItem(terryVariationComboBox);
+    terryVariationComboItem.flexGrow = 1;
+    terryVariationComboItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
+
+    terryVariationFlexBox.items.add(terryVariationLabelItem);
+    terryVariationFlexBox.items.add(terryVariationComboItem);
+    terryVariationFlexBox.performLayout(terryVariationRowBounds);
+
+    // Layout flowstep controls (horizontal FlexBox)
+    juce::FlexBox terryFlowstepFlexBox;
+    terryFlowstepFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    terryFlowstepFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem terryFlowstepLabelItem(terryFlowstepLabel);
+    terryFlowstepLabelItem.width = 80;
+    terryFlowstepLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+
+    juce::FlexItem terryFlowstepSliderItem(terryFlowstepSlider);
+    terryFlowstepSliderItem.flexGrow = 1;
+    terryFlowstepSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
+
+    terryFlowstepFlexBox.items.add(terryFlowstepLabelItem);
+    terryFlowstepFlexBox.items.add(terryFlowstepSliderItem);
+    terryFlowstepFlexBox.performLayout(terryFlowstepRowBounds);
+
+    // Layout solver controls (horizontal FlexBox)
+    juce::FlexBox terrySolverFlexBox;
+    terrySolverFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    terrySolverFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem terrySolverLabelItem(terrySolverLabel);
+    terrySolverLabelItem.width = 80;
+    terrySolverLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+
+    juce::FlexItem terrySolverToggleItem(terrySolverToggle);
+    terrySolverToggleItem.flexGrow = 1;
+    terrySolverToggleItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
+
+    terrySolverFlexBox.items.add(terrySolverLabelItem);
+    terrySolverFlexBox.items.add(terrySolverToggleItem);
+    terrySolverFlexBox.performLayout(terrySolverRowBounds);
+
+    // Layout audio source controls (horizontal FlexBox)
+    juce::FlexBox terrySourceFlexBox;
+    terrySourceFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    terrySourceFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem terrySourceLabelItem(terrySourceLabel);
+    terrySourceLabelItem.width = 80;
+    terrySourceLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+
+    juce::FlexItem transformRecordingItem(transformRecordingButton);
+    transformRecordingItem.width = 80;
+    transformRecordingItem.margin = juce::FlexItem::Margin(0, 5, 0, 5);
+
+    juce::FlexItem transformOutputItem(transformOutputButton);
+    transformOutputItem.width = 80;
+    transformOutputItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
+
+    terrySourceFlexBox.items.add(terrySourceLabelItem);
+    terrySourceFlexBox.items.add(transformRecordingItem);
+    terrySourceFlexBox.items.add(transformOutputItem);
+    terrySourceFlexBox.performLayout(terrySourceRowBounds);
+
+    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : "Terry")));
+
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::updateTabButtonStates()
+{
+    // Update tab button appearances
+    garyTabButton.setColour(juce::TextButton::buttonColourId,
+        currentTab == ModelTab::Gary ? juce::Colours::darkred : juce::Colours::darkgrey);
+    garyTabButton.setColour(juce::TextButton::textColourOffId,
+        currentTab == ModelTab::Gary ? juce::Colours::white : juce::Colours::lightgrey);
+
+    jerryTabButton.setColour(juce::TextButton::buttonColourId,
+        currentTab == ModelTab::Jerry ? juce::Colours::darkgreen : juce::Colours::darkgrey);
+    jerryTabButton.setColour(juce::TextButton::textColourOffId,
+        currentTab == ModelTab::Jerry ? juce::Colours::white : juce::Colours::lightgrey);
+
+    terryTabButton.setColour(juce::TextButton::buttonColourId,
+        currentTab == ModelTab::Terry ? juce::Colours::darkblue : juce::Colours::darkgrey);
+    terryTabButton.setColour(juce::TextButton::textColourOffId,
+        currentTab == ModelTab::Terry ? juce::Colours::white : juce::Colours::lightgrey);
+}
+
 //==============================================================================
 // Updated timerCallback() with smooth progress animation:
 void Gary4juceAudioProcessorEditor::timerCallback()
 {
     updateRecordingStatus();
+
+    // Update Jerry BPM display with current DAW BPM
+    double currentBPM = audioProcessor.getCurrentBPM();
+    jerryBpmLabel.setText("BPM: " + juce::String((int)currentBPM) + " (from DAW)",
+        juce::dontSendNotification);
 
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
     if (isPlayingOutput)
@@ -274,8 +807,8 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     // Update Gary button state - need saved audio to send to Gary
     sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
 
-    // Update Gary button state - need saved audio to send to Gary
-    sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
+    // Update Terry button states
+    updateTerrySourceButtons();
 
     // Check if status message has expired
     if (hasStatusMessage)
@@ -550,7 +1083,7 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
 void Gary4juceAudioProcessorEditor::stopPolling()
 {
     isPolling = false;
-    currentSessionId = "";
+    //currentSessionId = "";
     DBG("Stopped polling");
 }
 
@@ -615,6 +1148,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 stopPolling();
                 showStatusMessage("Processing failed", 3000);
+                continueButton.setEnabled(hasOutputAudio); // Re-enable continue button
                 return;
             }
 
@@ -634,34 +1168,85 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                 smoothProgressAnimation = true;          // Start smooth animation
 
-                showStatusMessage("Generating: " + juce::String(serverProgress) + "%", 1000);
-                DBG("Server progress: " + juce::String(serverProgress) + "%, animating from " +
-                    juce::String(lastKnownProgress));
+                // FIXED: Check current tab instead of server transformInProgress flag
+                if (currentTab == ModelTab::Terry)
+                {
+                    showStatusMessage("Transforming: " + juce::String(serverProgress) + "%", 1000);
+                    DBG("Transform progress: " + juce::String(serverProgress) + "%, animating from " +
+                        juce::String(lastKnownProgress));
+                }
+                else
+                {
+                    showStatusMessage("Generating: " + juce::String(serverProgress) + "%", 1000);
+                    DBG("Generation progress: " + juce::String(serverProgress) + "%, animating from " +
+                        juce::String(lastKnownProgress));
+                }
                 return;
             }
 
-            // ... rest of the function stays the same for completion handling
+            // COMPLETED - Check what TYPE of completion this is FIRST
             auto audioData = responseObj->getProperty("audio_data").toString();
+            auto status = responseObj->getProperty("status").toString();
+
             if (audioData.isNotEmpty())
             {
                 stopPolling();
-                showStatusMessage("Audio generation complete!", 3000);
-                saveGeneratedAudio(audioData);
-                DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
+
+                // DIFFERENTIATE: Check if we're completing a transform vs generation
+                if (transformInProgress || currentTab == ModelTab::Terry)
+                {
+                    // TRANSFORM COMPLETION - Keep session ID for undo
+                    showStatusMessage("Transform complete!", 3000);
+                    saveGeneratedAudio(audioData);
+                    DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
+
+                    // Enable undo button now that transform is complete
+                    undoTransformButton.setEnabled(true);
+                    // DON'T clear currentSessionId - we need it for undo!
+                }
+                else
+                {
+                    // GENERATION COMPLETION (Gary/Jerry) - Clear session ID since no undo needed
+                    showStatusMessage("Audio generation complete!", 3000);
+                    saveGeneratedAudio(audioData);
+                    DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
+
+                    // Clear session ID for generation since we don't need it anymore
+                    currentSessionId = "";  // Clear here for generation
+                    continueButton.setEnabled(hasOutputAudio);
+                }
             }
             else
             {
-                auto status = responseObj->getProperty("status").toString();
+                // COMPLETED but no audio data
                 if (status == "failed")
                 {
                     auto error = responseObj->getProperty("error").toString();
                     stopPolling();
-                    showStatusMessage("Generation failed: " + error, 5000);
+
+                    if (transformInProgress || currentTab == ModelTab::Terry)
+                    {
+                        showStatusMessage("Transform failed: " + error, 5000);
+                    }
+                    else
+                    {
+                        showStatusMessage("Generation failed: " + error, 5000);
+                        continueButton.setEnabled(hasOutputAudio); // Re-enable continue button
+                    }
                 }
                 else if (status == "completed")
                 {
                     stopPolling();
-                    showStatusMessage("Generation completed but no audio received", 3000);
+
+                    if (transformInProgress || currentTab == ModelTab::Terry)
+                    {
+                        showStatusMessage("Transform completed but no audio received", 3000);
+                    }
+                    else
+                    {
+                        showStatusMessage("Generation completed but no audio received", 3000);
+                        continueButton.setEnabled(hasOutputAudio); // Re-enable continue button
+                    }
                 }
             }
         }
@@ -712,6 +1297,9 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
             // Load the audio file into our buffer for waveform display
             loadOutputAudioFile();
 
+            // FIXED: Reset continue button text after successful generation
+            continueButton.setButtonText("Continue");
+
             // Reset generation state
             isGenerating = false;
             generationProgress = 0;
@@ -732,14 +1320,24 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
 void Gary4juceAudioProcessorEditor::sendToGary()
 {
+    // Reset generation state immediately
+    isGenerating = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    repaint(); // Force immediate UI update
+    
     if (savedSamples <= 0)
     {
+        isGenerating = false; // Reset if we're returning early
         showStatusMessage("Please save your recording first!");
         return;
     }
 
     if (!isConnected)
     {
+        isGenerating = false; // Reset if we're returning early
         showStatusMessage("Backend not connected - check connection first");
         return;
     }
@@ -928,6 +1526,712 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         });
 }
 
+void Gary4juceAudioProcessorEditor::styleSmartLoopButton()
+{
+    // Remove rounded corners and make rectangular
+    generateAsLoopButton.setRadioGroupId(0);  // Clear any radio group
+
+    if (generateAsLoop)
+    {
+        // Active state - enabled smart loop
+        generateAsLoopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::orange);
+        generateAsLoopButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        generateAsLoopButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    }
+    else
+    {
+        // Inactive state - regular generation
+        generateAsLoopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
+        generateAsLoopButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+        generateAsLoopButton.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
+    }
+}
+
+void Gary4juceAudioProcessorEditor::styleLoopTypeButton(juce::TextButton& button, bool selected)
+{
+    // Make buttons perfectly rectangular (no rounded corners)
+    button.setRadioGroupId(0);  // Clear any radio group
+
+    if (selected)
+    {
+        // Selected state - matches smart loop button when active
+        button.setColour(juce::TextButton::buttonColourId, juce::Colours::orange);
+        button.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    }
+    else
+    {
+        // Unselected state - darker to contrast with selected
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour(0x50, 0x50, 0x50));  // Medium grey
+        button.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
+    }
+}
+
+void Gary4juceAudioProcessorEditor::setLoopType(const juce::String& type)
+{
+    currentLoopType = type;
+
+    // Update button styling to show selection
+    styleLoopTypeButton(loopTypeAutoButton, type == "auto");
+    styleLoopTypeButton(loopTypeDrumsButton, type == "drums");
+    styleLoopTypeButton(loopTypeInstrumentsButton, type == "instruments");
+
+    DBG("Loop type set to: " + type);
+}
+
+// Replace your entire sendToJerry() function with this updated version:
+
+void Gary4juceAudioProcessorEditor::sendToJerry()
+{
+    if (!isConnected)
+    {
+        showStatusMessage("Backend not connected - check connection first");
+        return;
+    }
+
+    if (currentJerryPrompt.trim().isEmpty())
+    {
+        showStatusMessage("Please enter a text prompt for Jerry");
+        return;
+    }
+
+    // 1. Get DAW BPM from processor
+    double bpm = audioProcessor.getCurrentBPM();
+
+    // 2. Append BPM to prompt (same pattern as Max for Live)
+    juce::String fullPrompt = currentJerryPrompt + " " + juce::String((int)bpm) + "bpm";
+
+    // 3. Determine endpoint based on smart loop toggle
+    juce::String endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
+    juce::String statusText = generateAsLoop ?
+        "Generating smart loop with Jerry..." : "Generating with Jerry...";
+
+    DBG("Jerry generating with prompt: " + fullPrompt);
+    DBG("Endpoint: " + endpoint);
+    DBG("CFG: " + juce::String(currentJerryCfg, 1) + ", Steps: " + juce::String(currentJerrySteps));
+    if (generateAsLoop) {
+        DBG("Loop Type: " + currentLoopType);
+    }
+
+    // Disable button and show processing state
+    generateWithJerryButton.setEnabled(false);
+    generateWithJerryButton.setButtonText("Generating...");
+    showStatusMessage(statusText, 2000);
+
+    // Create HTTP request in background thread
+    juce::Thread::launch([this, fullPrompt, endpoint]() {
+
+        auto startTime = juce::Time::getCurrentTime();
+
+        // Create JSON payload - different structure based on endpoint
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("prompt", fullPrompt);
+        jsonRequest->setProperty("steps", currentJerrySteps);
+        jsonRequest->setProperty("cfg_scale", currentJerryCfg);
+        jsonRequest->setProperty("return_format", "base64");
+        jsonRequest->setProperty("seed", -1);  // Random seed
+
+        // Add loop-specific parameters if using smart loop
+        if (generateAsLoop) {
+            jsonRequest->setProperty("loop_type", currentLoopType);
+            // Note: bars parameter is omitted - backend will auto-calculate based on BPM
+        }
+
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        DBG("Jerry JSON payload: " + jsonString);
+
+        // Use the appropriate endpoint
+        juce::URL url("https://g4l.thecollabagepatch.com" + endpoint);
+
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
+            juce::URL postUrl = url.withPOSTData(jsonString);
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(30000)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+
+            auto requestTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Jerry HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
+
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+
+                auto totalTime = juce::Time::getCurrentTime() - startTime;
+                DBG("Jerry HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
+                DBG("Jerry response length: " + juce::String(responseText.length()) + " characters");
+
+                statusCode = 200; // Assume success if we got data
+            }
+            else
+            {
+                DBG("Failed to create input stream for Jerry request");
+                responseText = "";
+                statusCode = 0;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Jerry HTTP request exception: " + juce::String(e.what()));
+            responseText = "";
+            statusCode = 0;
+        }
+        catch (...)
+        {
+            DBG("Unknown Jerry HTTP request exception");
+            responseText = "";
+            statusCode = 0;
+        }
+
+        // Handle response on main thread
+        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+
+            auto totalTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Total Jerry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
+
+            if (statusCode == 200 && responseText.isNotEmpty())
+            {
+                DBG("Jerry response: " + responseText.substring(0, 200) + "...");
+
+                // Parse response JSON
+                auto responseVar = juce::JSON::parse(responseText);
+                if (auto* responseObj = responseVar.getDynamicObject())
+                {
+                    bool success = responseObj->getProperty("success");
+                    if (success)
+                    {
+                        // Get the base64 audio data
+                        auto audioBase64 = responseObj->getProperty("audio_base64").toString();
+
+                        if (audioBase64.isNotEmpty())
+                        {
+                            // Save generated audio (same as Gary's saveGeneratedAudio function)
+                            saveGeneratedAudio(audioBase64);
+
+                            // Get metadata if available
+                            if (auto* metadata = responseObj->getProperty("metadata").getDynamicObject())
+                            {
+                                auto genTime = metadata->getProperty("generation_time").toString();
+                                auto rtFactor = metadata->getProperty("realtime_factor").toString();
+
+                                // Show different success message based on generation type
+                                if (generateAsLoop) {
+                                    auto bars = (int)metadata->getProperty("bars");
+                                    auto loopDuration = (double)metadata->getProperty("loop_duration_seconds");
+                                    showStatusMessage("Smart loop complete! " + juce::String(bars) + " bars (" +
+                                        juce::String(loopDuration, 1) + "s) " + genTime + "s", 5000);
+                                    DBG("Jerry loop metadata - Bars: " + juce::String(bars) +
+                                        ", Duration: " + juce::String(loopDuration, 1) + "s");
+                                }
+                                else {
+                                    showStatusMessage("Jerry complete! " + genTime + "s (" + rtFactor + "x RT)", 4000);
+                                }
+
+                                DBG("Jerry metadata - Generation time: " + genTime + "s, RT factor: " + rtFactor + "x");
+                            }
+                            else
+                            {
+                                juce::String successMsg = generateAsLoop ?
+                                    "Smart loop generation complete!" : "Jerry generation complete!";
+                                showStatusMessage(successMsg, 3000);
+                            }
+                        }
+                        else
+                        {
+                            showStatusMessage("Jerry completed but no audio received", 3000);
+                            DBG("Jerry success but missing audio_base64");
+                        }
+                    }
+                    else
+                    {
+                        auto error = responseObj->getProperty("error").toString();
+                        showStatusMessage("Jerry error: " + error, 5000);
+                        DBG("Jerry server error: " + error);
+                    }
+                }
+                else
+                {
+                    showStatusMessage("Invalid JSON response from Jerry", 4000);
+                    DBG("Failed to parse Jerry JSON response");
+                }
+            }
+            else
+            {
+                juce::String errorMsg;
+                if (statusCode == 0)
+                    errorMsg = "Failed to connect to Jerry";
+                else if (statusCode >= 400)
+                    errorMsg = "Jerry server error (HTTP " + juce::String(statusCode) + ")";
+                else
+                    errorMsg = "Empty response from Jerry";
+
+                showStatusMessage(errorMsg, 4000);
+                DBG("Jerry request failed: " + errorMsg);
+            }
+
+            // Re-enable button
+            generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
+            generateWithJerryButton.setButtonText("Generate with Jerry");
+            });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::updateLoopTypeVisibility()
+{
+    // In the horizontal layout, the type buttons are only visible when:
+    // 1. We're on Jerry tab (handled by switchToTab)
+    // 2. Smart loop toggle is enabled
+    bool showLoopType = generateAsLoop;
+
+    DBG("updateLoopTypeVisibility() - Smart loop enabled: " + juce::String(showLoopType ? "true" : "false"));
+
+    loopTypeAutoButton.setVisible(showLoopType);
+    loopTypeDrumsButton.setVisible(showLoopType);
+    loopTypeInstrumentsButton.setVisible(showLoopType);
+
+    // Since we're in a horizontal layout, we need to trigger a layout update
+    // when visibility changes to ensure proper spacing
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
+{
+    transformRecording = useRecording;
+    DBG("Terry audio source set to: " + juce::String(useRecording ? "Recording" : "Output"));
+    updateTerrySourceButtons();
+}
+
+void Gary4juceAudioProcessorEditor::updateTerrySourceButtons()
+{
+    // Update transform button availability
+    bool canTransform = false;
+
+    if (transformRecording)
+    {
+        canTransform = (savedSamples > 0 && isConnected);
+    }
+    else
+    {
+        canTransform = (hasOutputAudio && isConnected);
+    }
+
+    transformWithTerryButton.setEnabled(canTransform && !isGenerating);
+
+    // Enable/disable radio buttons
+    transformRecordingButton.setEnabled(savedSamples > 0);
+    transformOutputButton.setEnabled(hasOutputAudio);
+
+    // REMOVE THIS LINE - let transform operations handle undo button:
+    // undoTransformButton.setEnabled(!currentSessionId.isEmpty() && !isGenerating);
+}
+
+void Gary4juceAudioProcessorEditor::sendToTerry()
+{
+    // Reset generation state immediately (like Gary)
+    isGenerating = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+
+    // Clear any previous session ID since we're starting fresh
+    currentSessionId = "";  // Clear previous session
+
+    repaint(); // Force immediate UI update
+
+    // Basic validation checks (like Gary and Jerry)
+    if (!isConnected)
+    {
+        isGenerating = false;
+        showStatusMessage("Backend not connected - check connection first");
+        return;
+    }
+
+    // Check that we have either a variation selected OR a custom prompt
+    bool hasVariation = (currentTerryVariation >= 0);
+    bool hasCustomPrompt = !currentTerryCustomPrompt.trim().isEmpty();
+
+    if (!hasVariation && !hasCustomPrompt)
+    {
+        isGenerating = false;
+        showStatusMessage("Please select a variation OR enter a custom prompt");
+        return;
+    }
+
+    // Check that we have the selected audio source
+    if (transformRecording)
+    {
+        if (savedSamples <= 0)
+        {
+            isGenerating = false;
+            showStatusMessage("No recording available - save your recording first");
+            return;
+        }
+    }
+    else // transforming output
+    {
+        if (!hasOutputAudio)
+        {
+            isGenerating = false;
+            showStatusMessage("No output audio available - generate with Gary or Jerry first");
+            return;
+        }
+    }
+
+    // Get the variation names array (matches your backend list)
+    const juce::StringArray variationNames = {
+        "accordion_folk", "banjo_bluegrass", "piano_classical", "celtic",
+        "strings_quartet", "synth_retro", "synth_modern", "synth_edm",
+        "lofi_chill", "synth_bass", "rock_band", "cinematic_epic",
+        "retro_rpg", "chiptune", "steel_drums", "gamelan_fusion",
+        "music_box", "trap_808", "lo_fi_drums", "boom_bap",
+        "percussion_ensemble", "future_bass", "synthwave_retro", "melodic_techno",
+        "dubstep_wobble", "glitch_hop", "digital_disruption", "circuit_bent",
+        "orchestral_glitch", "vapor_drums", "industrial_textures", "jungle_breaks"
+    };
+
+    // Determine which audio file to read
+    juce::File audioFile;
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+
+    if (transformRecording)
+    {
+        audioFile = garyDir.getChildFile("myBuffer.wav");
+        DBG("Terry transforming recording: myBuffer.wav");
+    }
+    else
+    {
+        audioFile = garyDir.getChildFile("myOutput.wav");
+        DBG("Terry transforming output: myOutput.wav");
+    }
+
+    if (!audioFile.exists())
+    {
+        isGenerating = false;
+        showStatusMessage("Audio file not found - " + audioFile.getFileName());
+        return;
+    }
+
+    // Read and encode audio file (same as Gary)
+    juce::MemoryBlock audioData;
+    if (!audioFile.loadFileAsData(audioData))
+    {
+        isGenerating = false;
+        showStatusMessage("Failed to read audio file");
+        return;
+    }
+
+    if (audioData.getSize() == 0)
+    {
+        isGenerating = false;
+        showStatusMessage("Audio file is empty");
+        return;
+    }
+
+    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+
+    // Debug: Log audio data size
+    DBG("Terry audio file size: " + juce::String(audioData.getSize()) + " bytes");
+    DBG("Terry base64 length: " + juce::String(base64Audio.length()) + " chars");
+    DBG("Terry flowstep: " + juce::String(currentTerryFlowstep, 3));
+    DBG("Terry solver: " + juce::String(useMidpointSolver ? "midpoint" : "euler"));
+
+    // Disable button and show processing state (like Gary and Jerry)
+    transformWithTerryButton.setEnabled(false);
+    transformWithTerryButton.setButtonText("Transforming...");
+    showStatusMessage("Sending audio to Terry for transformation...");
+
+    // Create HTTP request in background thread (same pattern as Gary and Jerry)
+    juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt]() {
+
+        auto startTime = juce::Time::getCurrentTime();
+
+        // Create JSON payload
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("audio_data", base64Audio);
+        jsonRequest->setProperty("flowstep", currentTerryFlowstep);
+        jsonRequest->setProperty("solver", useMidpointSolver ? "midpoint" : "euler");
+
+        // Add either variation or custom_prompt (not both)
+        if (hasVariation && currentTerryVariation < variationNames.size())
+        {
+            jsonRequest->setProperty("variation", variationNames[currentTerryVariation]);
+            DBG("Terry using variation: " + variationNames[currentTerryVariation]);
+        }
+        else if (hasCustomPrompt)
+        {
+            jsonRequest->setProperty("custom_prompt", currentTerryCustomPrompt);
+            DBG("Terry using custom prompt: " + currentTerryCustomPrompt);
+        }
+
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        DBG("Terry JSON payload size: " + juce::String(jsonString.length()) + " characters");
+
+        juce::URL url("https://g4l.thecollabagepatch.com/api/juce/transform_audio");
+
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions (same as Gary/Jerry)
+            juce::URL postUrl = url.withPOSTData(jsonString);
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(30000)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+
+            auto requestTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Terry HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
+
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+
+                auto totalTime = juce::Time::getCurrentTime() - startTime;
+                DBG("Terry HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
+                DBG("Terry response length: " + juce::String(responseText.length()) + " characters");
+
+                statusCode = 200; // Assume success if we got data
+            }
+            else
+            {
+                DBG("Failed to create input stream for Terry request");
+                responseText = "";
+                statusCode = 0;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Terry HTTP request exception: " + juce::String(e.what()));
+            responseText = "";
+            statusCode = 0;
+        }
+        catch (...)
+        {
+            DBG("Unknown Terry HTTP request exception");
+            responseText = "";
+            statusCode = 0;
+        }
+
+        // Handle response on main thread (same pattern as Gary)
+        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+
+            auto totalTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Total Terry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
+
+            if (statusCode == 200 && responseText.isNotEmpty())
+            {
+                DBG("Terry response preview: " + responseText.substring(0, 200) + (responseText.length() > 200 ? "..." : ""));
+
+                // Parse response JSON (same as Gary)
+                auto responseVar = juce::JSON::parse(responseText);
+                if (auto* responseObj = responseVar.getDynamicObject())
+                {
+                    bool success = responseObj->getProperty("success");
+                    if (success)
+                    {
+                        juce::String sessionId = responseObj->getProperty("session_id").toString();
+                        showStatusMessage("Sent to Terry! Processing...", 2000);
+                        DBG("Terry session ID: " + sessionId);
+
+                        // START POLLING FOR RESULTS (same as Gary)
+                        startPollingForResults(sessionId);  // This sets currentSessionId = sessionId
+
+                        // Disable undo button until transform completes
+                        undoTransformButton.setEnabled(false);
+                    }
+                    else
+                    {
+                        juce::String error = responseObj->getProperty("error").toString();
+                        showStatusMessage("Terry error: " + error, 5000);
+                        DBG("Terry server error: " + error);
+                    }
+                }
+                else
+                {
+                    showStatusMessage("Invalid JSON response from Terry", 4000);
+                    DBG("Failed to parse Terry JSON response: " + responseText.substring(0, 100));
+                }
+            }
+            else
+            {
+                juce::String errorMsg;
+                if (statusCode == 0)
+                    errorMsg = "Failed to connect to Terry";
+                else if (statusCode >= 400)
+                    errorMsg = "Terry server error (HTTP " + juce::String(statusCode) + ")";
+                else
+                    errorMsg = "Empty response from Terry";
+
+                showStatusMessage(errorMsg, 4000);
+                DBG("Terry request failed: " + errorMsg);
+            }
+
+            // Re-enable transform button (same pattern as Gary/Jerry)
+            updateTerrySourceButtons(); // This will set the right enabled state
+            transformWithTerryButton.setButtonText("Transform with Terry");
+            });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::undoTerryTransform()
+{
+    // We need a session ID to undo - this should be the current session
+    if (currentSessionId.isEmpty())
+    {
+        showStatusMessage("No transform session to undo", 3000);
+        return;
+    }
+
+    DBG("Attempting to undo Terry transform for session: " + currentSessionId);
+    showStatusMessage("Undoing transform...", 2000);
+
+    // Disable undo button during request
+    undoTransformButton.setEnabled(false);
+    undoTransformButton.setButtonText("Undoing...");
+
+    // Create HTTP request in background thread (same pattern as other requests)
+    juce::Thread::launch([this]() {
+
+        auto startTime = juce::Time::getCurrentTime();
+
+        // Create JSON payload - just needs session_id
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("session_id", currentSessionId);
+
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        DBG("Terry undo JSON payload: " + jsonString);
+
+        juce::URL url("https://g4l.thecollabagepatch.com/api/juce/undo_transform");
+
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
+            juce::URL postUrl = url.withPOSTData(jsonString);
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(15000)  // Shorter timeout for undo - should be quick
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+
+            auto requestTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Terry undo HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
+
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+
+                auto totalTime = juce::Time::getCurrentTime() - startTime;
+                DBG("Terry undo HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
+
+                statusCode = 200; // Assume success if we got data
+            }
+            else
+            {
+                DBG("Failed to create input stream for Terry undo request");
+                responseText = "";
+                statusCode = 0;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Terry undo HTTP request exception: " + juce::String(e.what()));
+            responseText = "";
+            statusCode = 0;
+        }
+        catch (...)
+        {
+            DBG("Unknown Terry undo HTTP request exception");
+            responseText = "";
+            statusCode = 0;
+        }
+
+        // Handle response on main thread
+        juce::MessageManager::callAsync([this, responseText, statusCode]() {
+
+            if (statusCode == 200 && responseText.isNotEmpty())
+            {
+                DBG("Terry undo response: " + responseText);
+
+                // Parse response JSON
+                auto responseVar = juce::JSON::parse(responseText);
+                if (auto* responseObj = responseVar.getDynamicObject())
+                {
+                    bool success = responseObj->getProperty("success");
+                    if (success)
+                    {
+                        // Get the restored audio data
+                        auto audioData = responseObj->getProperty("audio_data").toString();
+                        if (audioData.isNotEmpty())
+                        {
+                            // Save the restored audio
+                            saveGeneratedAudio(audioData);
+                            showStatusMessage("Transform undone - audio restored!", 3000);
+                            DBG("Terry undo successful - audio restored");
+
+                            // Clear session ID since undo is complete
+                            currentSessionId = "";
+                            undoTransformButton.setEnabled(false);  // Disable undo button
+                        }
+                        else
+                        {
+                            showStatusMessage("Undo completed but no audio data received", 3000);
+                            DBG("Terry undo success but missing audio data");
+                        }
+                    }
+                    else
+                    {
+                        auto error = responseObj->getProperty("error").toString();
+                        showStatusMessage("Undo failed: " + error, 4000);
+                        DBG("Terry undo server error: " + error);
+                    }
+                }
+                else
+                {
+                    showStatusMessage("Invalid undo response format", 3000);
+                    DBG("Failed to parse Terry undo JSON response");
+                }
+            }
+            else
+            {
+                juce::String errorMsg;
+                if (statusCode == 0)
+                    errorMsg = "Failed to connect for undo";
+                else if (statusCode >= 400)
+                    errorMsg = "Undo server error (HTTP " + juce::String(statusCode) + ")";
+                else
+                    errorMsg = "Empty undo response";
+
+                showStatusMessage(errorMsg, 4000);
+                DBG("Terry undo request failed: " + errorMsg);
+            }
+
+            // Re-enable undo button
+            undoTransformButton.setEnabled(true);
+            undoTransformButton.setButtonText("Undo Transform");
+            });
+        });
+}
+
 void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
 {
     audioProcessor.clearRecordingBuffer();
@@ -935,6 +2239,7 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     updateRecordingStatus();
 }
 
+// ========== UPDATED CONNECTION STATUS METHOD ==========
 void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
 {
     if (isConnected != connected)
@@ -945,7 +2250,13 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         // Update Gary button state when connection changes
         sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
 
-        repaint(); // Trigger a redraw to update Gary section border
+        // Update Jerry button state when connection changes
+        generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
+
+        // Update Terry button state when connection changes
+        updateTerrySourceButtons();
+
+        repaint(); // Trigger a redraw to update tab section border
 
         // Re-enable check button if it was disabled
         if (!checkConnectionButton.isEnabled())
@@ -964,6 +2275,8 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         playOutputButton.setEnabled(false);
         stopOutputButton.setEnabled(false); 
         clearOutputButton.setEnabled(false);
+        cropButton.setEnabled(false);
+        continueButton.setEnabled(false);
         totalAudioDuration = 0.0;
         return;
     }
@@ -989,6 +2302,8 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         playOutputButton.setEnabled(true);
         stopOutputButton.setEnabled(true);  // Always enabled when we have audio
         clearOutputButton.setEnabled(true);
+        cropButton.setEnabled(true);
+        continueButton.setEnabled(true);
 
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
@@ -1000,6 +2315,8 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
         clearOutputButton.setEnabled(false);
+        cropButton.setEnabled(false);
+        continueButton.setEnabled(false);
         totalAudioDuration = 0.0;
     }
 }
@@ -1048,6 +2365,23 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
     {
         // NORMAL OUTPUT WAVEFORM display
         drawExistingOutput(g, area, 1.0f); // Full opacity
+        
+        // Add drag feedback overlay
+        if (isDragging)
+        {
+            // Drag highlight overlay
+            g.setColour(juce::Colours::yellow.withAlpha(0.3f));
+            g.fillRoundedRectangle(area.toFloat(), 4.0f);
+            
+            // Drag border
+            g.setColour(juce::Colours::yellow);
+            g.drawRoundedRectangle(area.toFloat(), 4.0f, 2.0f);
+            
+            // Drag text
+            g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+            g.setColour(juce::Colours::white);
+            g.drawText("Dragging to DAW...", area, juce::Justification::centred);
+        }
     }
     else
     {
@@ -1408,6 +2742,8 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
     outputAudioBuffer.clear();
     playOutputButton.setEnabled(false);
     clearOutputButton.setEnabled(false);
+    cropButton.setEnabled(false);
+    continueButton.setEnabled(false);
 
     // Reset playback tracking
     currentPlaybackPosition = 0.0;
@@ -1425,6 +2761,11 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
 
 void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 {
+    // Reset drag state
+    isDragging = false;
+    dragStarted = false;
+    dragStartPosition = event.getPosition();
+
     // Check if click is within the output waveform area
     if (outputWaveformArea.contains(event.getPosition()) && hasOutputAudio && totalAudioDuration > 0.0)
     {
@@ -1440,17 +2781,69 @@ void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
         // Convert percentage to time in seconds
         double seekTime = clickPercent * totalAudioDuration;
 
-        // Seek to that position
-        seekToPosition(seekTime);
-
-        DBG("Click-to-seek: " + juce::String(clickPercent * 100.0, 1) + "% = " +
-            juce::String(seekTime, 2) + "s");
-
+        // Store click for potential drag - only seek if it's not a drag
+        // The actual seek will happen in mouseUp if no drag occurred
+        
         return; // We handled this click
     }
 
     // If we didn't handle it, pass to parent
     juce::Component::mouseDown(event);
+}
+
+void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
+{
+    // Check if we're dragging from the output waveform area
+    if (isMouseOverOutputWaveform(dragStartPosition) && hasOutputAudio && outputAudioFile.existsAsFile())
+    {
+        // Calculate drag distance to determine if this is a drag operation
+        auto dragDistance = dragStartPosition.getDistanceFrom(event.getPosition());
+        
+        if (dragDistance > 10 && !dragStarted) // 10 pixel threshold for drag
+        {
+            isDragging = true;
+            repaint(); // Update visual feedback
+            
+            startAudioDrag();
+            
+            dragStarted = true;
+            isDragging = false;
+            repaint(); // Remove visual feedback
+            
+            return;
+        }
+    }
+    
+    juce::Component::mouseDrag(event);
+}
+
+void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
+{
+    // If we didn't drag, and we're in the output waveform area, perform seek
+    if (!dragStarted && isMouseOverOutputWaveform(event.getPosition()) && 
+        hasOutputAudio && totalAudioDuration > 0.0)
+    {
+        // Calculate click position relative to waveform area (same as original logic)
+        auto clickPos = event.getPosition();
+        auto relativeX = clickPos.x - outputWaveformArea.getX() - 1;
+        auto waveformWidth = outputWaveformArea.getWidth() - 2;
+
+        double clickPercent = (double)relativeX / (double)waveformWidth;
+        clickPercent = juce::jlimit(0.0, 1.0, clickPercent);
+
+        double seekTime = clickPercent * totalAudioDuration;
+        seekToPosition(seekTime);
+
+        DBG("Click-to-seek: " + juce::String(clickPercent * 100.0, 1) + "% = " +
+            juce::String(seekTime, 2) + "s");
+    }
+    
+    // Reset drag state
+    isDragging = false;
+    dragStarted = false;
+    repaint();
+    
+    juce::Component::mouseUp(event);
 }
 
 void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
@@ -1492,53 +2885,45 @@ void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
 }
 
 
+// ========== UPDATED PAINT METHOD ==========
 void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 {
     // Background
     g.fillAll(juce::Colours::black);
 
-    // Title
+    // Title (using reserved area)
     g.setFont(juce::FontOptions(24.0f, juce::Font::bold));
     g.setColour(juce::Colours::white);
-    g.drawFittedText("Gary4JUCE",
-        juce::Rectangle<int>(0, 10, getWidth(), 40),
-        juce::Justification::centred, 1);
+    g.drawFittedText("Gary4JUCE", titleArea, juce::Justification::centred, 1);
 
-    // Connection status display
+    // Connection status display (using reserved area)
     g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     if (isConnected)
     {
         g.setColour(juce::Colours::lightgreen);
-        g.drawFittedText("CONNECTED",
-            juce::Rectangle<int>(0, 50, getWidth(), 25),
-            juce::Justification::centred, 1);
+        g.drawFittedText("CONNECTED", connectionStatusArea, juce::Justification::centred, 1);
     }
     else
     {
         g.setColour(juce::Colours::orange);
-        g.drawFittedText("DISCONNECTED",
-            juce::Rectangle<int>(0, 50, getWidth(), 25),
-            juce::Justification::centred, 1);
+        g.drawFittedText("DISCONNECTED", connectionStatusArea, juce::Justification::centred, 1);
     }
 
-    // Recording status section header
+    // Recording status section header (using reserved area)
     g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
     g.setColour(juce::Colours::white);
-    g.drawFittedText("Recording Buffer",
-        juce::Rectangle<int>(0, 85, getWidth(), 25),
-        juce::Justification::centred, 1);
+    g.drawFittedText("Recording Buffer", recordingLabelArea, juce::Justification::centred, 1);
 
     // Draw the INPUT waveform
     drawWaveform(g, waveformArea);
 
-    // Status text below input waveform
+    // Status text below input waveform (using reserved area)
     g.setFont(juce::FontOptions(12.0f));
-    auto statusArea = juce::Rectangle<int>(0, waveformArea.getBottom() + 10, getWidth(), 20);
 
     if (hasStatusMessage && !statusMessage.isEmpty())
     {
         g.setColour(juce::Colours::lightgreen);
-        g.drawText(statusMessage, statusArea, juce::Justification::centred);
+        g.drawText(statusMessage, inputStatusArea, juce::Justification::centred);
     }
     else
     {
@@ -1558,10 +2943,9 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
             statusText = "Press PLAY in DAW to start recording";
             g.setColour(juce::Colours::grey);
         }
-        g.drawText(statusText, statusArea, juce::Justification::centred);
+        g.drawText(statusText, inputStatusArea, juce::Justification::centred);
     }
 
-    // Sample count info for input
     if (recordedSamples > 0)
     {
         double recordedSeconds = (double)recordedSamples / 44100.0;
@@ -1581,25 +2965,36 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
         g.setFont(juce::FontOptions(11.0f));
         g.setColour(juce::Colours::lightgrey);
-        auto infoArea = juce::Rectangle<int>(0, statusArea.getBottom() + 5, getWidth(), 15);
-        g.drawText(infoText, infoArea, juce::Justification::centred);
+        // Remove this line: auto infoArea = juce::Rectangle<int>(0, statusArea.getBottom() + 5, getWidth(), 15);
+        g.drawText(infoText, inputInfoArea, juce::Justification::centred);
     }
 
-    // Draw Gary section background
-    auto garyBounds = juce::Rectangle<int>(20, 320, getWidth() - 40, 150);
+    // ========== DRAW TAB SECTION BACKGROUND ==========
+    auto fullTabArea = fullTabAreaRect;
     g.setColour(juce::Colour(0x15, 0x15, 0x15));
-    g.fillRoundedRectangle(garyBounds.toFloat(), 5.0f);
+    g.fillRoundedRectangle(fullTabArea.toFloat(), 5.0f);
 
-    // Gary section border
-    if (savedSamples > 0 && isConnected)
+    // Tab section border (color depends on current tab and connection)
+    if (isConnected)
     {
-        g.setColour(juce::Colours::darkred.withAlpha(0.6f));
+        switch (currentTab)
+        {
+        case ModelTab::Gary:
+            g.setColour(juce::Colours::darkred.withAlpha(0.6f));
+            break;
+        case ModelTab::Jerry:
+            g.setColour(juce::Colours::darkgreen.withAlpha(0.6f));
+            break;
+        case ModelTab::Terry:
+            g.setColour(juce::Colours::darkblue.withAlpha(0.6f));
+            break;
+        }
     }
     else
     {
         g.setColour(juce::Colour(0x30, 0x30, 0x30));
     }
-    g.drawRoundedRectangle(garyBounds.toFloat(), 5.0f, 1.0f);
+    g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
 
     // Draw the OUTPUT waveform
     drawOutputWaveform(g, outputWaveformArea);
@@ -1613,77 +3008,945 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
         g.setFont(juce::FontOptions(11.0f));
         g.setColour(juce::Colours::lightgrey);
-        auto outputInfoArea = juce::Rectangle<int>(0, outputWaveformArea.getBottom() + 5, getWidth(), 15);
+       // auto outputInfoArea = juce::Rectangle<int>(0, outputWaveformArea.getBottom() + 5, getWidth(), 15);
         g.drawText(outputInfo, outputInfoArea, juce::Justification::centred);
+    }
+
+    // Draw crop icon overlay
+    if (cropIcon && hasOutputAudio)
+    {
+        auto cropBounds = cropButton.getBounds();
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(cropBounds.toFloat(), 3.0f);
+
+        if (cropButton.isOver() || cropButton.isDown())
+        {
+            g.setColour(juce::Colours::orange.withAlpha(0.8f));
+            g.drawRoundedRectangle(cropBounds.toFloat(), 3.0f, 1.5f);
+        }
+
+        auto iconArea = cropBounds.reduced(6);
+        cropIcon->drawWithin(g, iconArea.toFloat(),
+            juce::RectanglePlacement::centred, 1.0f);
     }
 }
 
+// ========== UPDATED RESIZED METHOD ==========
 void Gary4juceAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Reserve space for recording waveform area (top section)
-    auto topSection = bounds.removeFromTop(300);
-    waveformArea = topSection.removeFromBottom(150).reduced(20, 10);
+    // ========== TOP SECTION (FlexBox Implementation) ==========
+// This replaces the manual "removeFromTop(300)" approach
 
-    // Reserve space for Gary controls section
-    auto garySection = bounds.removeFromTop(160).reduced(20, 10);
+// Create main FlexBox for entire top section (vertical layout)
+    juce::FlexBox topSectionFlexBox;
+    topSectionFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    topSectionFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
 
-    // Gary section title
-    auto garyTitleArea = garySection.removeFromTop(25);
-    garyLabel.setBounds(garyTitleArea);
+    // 1. Title area (fixed height)
+    juce::Component titleComponent;
+    juce::FlexItem titleItem(titleComponent);
+    titleItem.height = 40;  // Title + some padding
+    titleItem.margin = juce::FlexItem::Margin(8, 0, 0, 0);  // 10px top margin
 
-    // Prompt duration controls
-    auto promptRow = garySection.removeFromTop(30);
-    auto promptLabelArea = promptRow.removeFromLeft(100);
-    promptDurationLabel.setBounds(promptLabelArea);
-    promptDurationSlider.setBounds(promptRow.reduced(5, 0));
+    // 2. Connection status area (fixed height)
+    juce::Component connectionComponent;
+    juce::FlexItem connectionItem(connectionComponent);
+    connectionItem.height = 25;  // Connection status height
+    connectionItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
 
-    // Model selection controls  
-    auto modelRow = garySection.removeFromTop(30);
-    auto modelLabelArea = modelRow.removeFromLeft(100);
-    modelLabel.setBounds(modelLabelArea);
-    modelComboBox.setBounds(modelRow.reduced(5, 0));
+    // 3. Recording label area (fixed height)
+    juce::Component recordingLabelComponent;
+    juce::FlexItem recordingLabelItem(recordingLabelComponent);
+    recordingLabelItem.height = 20;  // "Recording Buffer" label
+    recordingLabelItem.margin = juce::FlexItem::Margin(8, 0, 0, 0);  // 10px top margin
 
-    // Send to Gary button
-    auto garyButtonRow = garySection.removeFromTop(40);
-    sendToGaryButton.setBounds(garyButtonRow.reduced(50, 5));
+    // 4. Waveform area (flexible - but with constraints)
+    juce::Component waveformDisplayComponent;
+    juce::FlexItem waveformDisplayItem(waveformDisplayComponent);
+    waveformDisplayItem.flexGrow = 1;  // Can grow
+    waveformDisplayItem.minHeight = 80;  // Minimum waveform height
+    waveformDisplayItem.maxHeight = 180;  // Maximum waveform height
+    waveformDisplayItem.margin = juce::FlexItem::Margin(8, 20, 8, 20);  // Margins: top, right, bottom, left
 
-    // NEW: Output waveform section
+    // 5. Status message area (fixed height - for "RECORDING", "READY", etc.)
+    juce::Component statusComponent;
+    juce::FlexItem statusItem(statusComponent);
+    statusItem.height = 25;  // Status text height
+    statusItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
+
+    // 6. Input info area (fixed height - for sample count info)
+    juce::Component inputInfoComponent;
+    juce::FlexItem inputInfoItem(inputInfoComponent);
+    inputInfoItem.height = 20;  // Sample info text height
+    inputInfoItem.margin = juce::FlexItem::Margin(3, 0, 8, 0);  // 5px top, 10px bottom
+
+    // 7. Buffer control buttons area (fixed height)
+    juce::Component bufferControlsComponent;
+    juce::FlexItem bufferControlsItem(bufferControlsComponent);
+    bufferControlsItem.height = 70;  // Height for 2 rows of buttons
+    bufferControlsItem.margin = juce::FlexItem::Margin(0, 20, 15, 20);  // Margins around buttons
+
+    // Add all items to the top section FlexBox
+    topSectionFlexBox.items.add(titleItem);
+    topSectionFlexBox.items.add(connectionItem);
+    topSectionFlexBox.items.add(recordingLabelItem);
+    topSectionFlexBox.items.add(waveformDisplayItem);
+    topSectionFlexBox.items.add(statusItem);
+    topSectionFlexBox.items.add(inputInfoItem);
+    topSectionFlexBox.items.add(bufferControlsItem);
+
+    // Calculate how much space the top section needs (flexible based on content)
+    auto availableHeight = bounds.getHeight();
+    auto estimatedTopSectionHeight = juce::jmin(320, availableHeight - 380);  // Leave 380px for tabs+output
+
+    auto topSectionBounds = bounds.removeFromTop(estimatedTopSectionHeight);
+
+    // Perform the layout for top section
+    topSectionFlexBox.performLayout(topSectionBounds);
+
+    // Extract the calculated bounds for each area
+    titleArea = topSectionFlexBox.items[0].currentBounds.toNearestInt();
+    connectionStatusArea = topSectionFlexBox.items[1].currentBounds.toNearestInt();
+    recordingLabelArea = topSectionFlexBox.items[2].currentBounds.toNearestInt();
+    waveformArea = topSectionFlexBox.items[3].currentBounds.toNearestInt();
+    inputStatusArea = topSectionFlexBox.items[4].currentBounds.toNearestInt();
+    inputInfoArea = topSectionFlexBox.items[5].currentBounds.toNearestInt();
+
+    // Layout buffer control buttons within their allocated space
+    auto bufferControlsBounds = topSectionFlexBox.items[6].currentBounds.toNearestInt();
+
+    // Create FlexBox for buffer control buttons (2 rows)
+    juce::FlexBox bufferButtonsFlexBox;
+    bufferButtonsFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    bufferButtonsFlexBox.justifyContent = juce::FlexBox::JustifyContent::spaceAround;
+
+    // Row 1: Save and Clear buttons (horizontal)
+    juce::Component row1Component;
+    juce::FlexItem row1Item(row1Component);
+    row1Item.height = 35;
+    row1Item.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    // Row 2: Check Connection button (horizontal)
+    juce::Component row2Component;
+    juce::FlexItem row2Item(row2Component);
+    row2Item.height = 35;
+    row2Item.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    bufferButtonsFlexBox.items.add(row1Item);
+    bufferButtonsFlexBox.items.add(row2Item);
+
+    // Layout the button rows
+    bufferButtonsFlexBox.performLayout(bufferControlsBounds);
+
+    auto buttonRow1Bounds = bufferButtonsFlexBox.items[0].currentBounds.toNearestInt();
+    auto buttonRow2Bounds = bufferButtonsFlexBox.items[1].currentBounds.toNearestInt();
+
+    // Layout buttons within Row 1 (Save and Clear side by side)
+    juce::FlexBox row1FlexBox;
+    row1FlexBox.flexDirection = juce::FlexBox::Direction::row;
+    row1FlexBox.justifyContent = juce::FlexBox::JustifyContent::spaceAround;
+
+    juce::FlexItem saveItem(saveBufferButton);
+    saveItem.flexGrow = 1;
+    saveItem.margin = juce::FlexItem::Margin(0, 5, 0, 5);
+
+    juce::FlexItem clearBufferItem(clearBufferButton);
+    clearBufferItem.flexGrow = 1;
+    clearBufferItem.margin = juce::FlexItem::Margin(0, 5, 0, 5);
+
+    row1FlexBox.items.add(saveItem);
+    row1FlexBox.items.add(clearBufferItem);  // was clearItem
+    row1FlexBox.performLayout(buttonRow1Bounds);
+
+    // Layout Check Connection button in Row 2 (centered)
+    checkConnectionButton.setBounds(buttonRow2Bounds.reduced(5, 0));
+
+    // ========== TAB AREA ==========
+    auto tabSectionBounds = bounds.removeFromTop(320).reduced(20, 10);
+    fullTabAreaRect = tabSectionBounds.expanded(20, 10); // Expand back to account for the reduced margins
+
+    // Tab buttons area
+    tabArea = tabSectionBounds.removeFromTop(35);
+    auto tabButtonWidth = tabArea.getWidth() / 3;
+
+    garyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
+    jerryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
+    terryTabButton.setBounds(tabArea.reduced(2, 2));
+
+    // Model controls area (below tabs)
+    modelControlsArea = tabSectionBounds.reduced(0, 5);
+
+    // ========== GARY CONTROLS LAYOUT (FlexBox Implementation) ==========
+    auto garyBounds = modelControlsArea;
+
+    // Create main FlexBox for Gary controls (vertical layout)
+    juce::FlexBox garyFlexBox;
+    garyFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    garyFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    // 1. Gary section title (fixed height)
+    juce::FlexItem garyTitleItem(garyLabel);
+    garyTitleItem.height = 35;  // Consistent height
+    garyTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);  // 5px top/bottom margins
+
+    // 2. Prompt duration row (fixed height)
+    juce::Component promptRowComponent;
+    juce::FlexItem promptRowItem(promptRowComponent);
+    promptRowItem.height = 35;  // Consistent height for control rows
+    promptRowItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    // 3. Model selection row (fixed height)
+    juce::Component modelRowComponent;
+    juce::FlexItem modelRowItem(modelRowComponent);
+    modelRowItem.height = 35;  // Same height as prompt row
+    modelRowItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    // 4. Send to Gary button (fixed height)
+    juce::FlexItem sendToGaryItem(sendToGaryButton);
+    sendToGaryItem.height = 40;  // Standard button height
+    sendToGaryItem.margin = juce::FlexItem::Margin(10, 50, 5, 50);  // 10px top, 50px left/right, 5px bottom
+
+    // 5. Continue button (fixed height - SAME as Send to Gary)
+    juce::FlexItem continueItem(continueButton);
+    continueItem.height = 40;  // SAME height as Send to Gary button
+    continueItem.margin = juce::FlexItem::Margin(5, 50, 10, 50);  // 5px top, 50px left/right, 10px bottom
+
+    // Add all items to Gary FlexBox
+    garyFlexBox.items.add(garyTitleItem);
+    garyFlexBox.items.add(promptRowItem);
+    garyFlexBox.items.add(modelRowItem);
+    garyFlexBox.items.add(sendToGaryItem);
+    garyFlexBox.items.add(continueItem);
+
+    // Perform layout for Gary controls
+    garyFlexBox.performLayout(garyBounds);
+
+    // Extract calculated bounds for control rows
+    auto promptRowBounds = garyFlexBox.items[1].currentBounds.toNearestInt();
+    auto modelRowBounds = garyFlexBox.items[2].currentBounds.toNearestInt();
+
+    // Layout prompt duration controls (horizontal FlexBox)
+    juce::FlexBox promptFlexBox;
+    promptFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    promptFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem promptLabelItem(promptDurationLabel);
+    promptLabelItem.width = 100;  // Fixed width for label
+    promptLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);  // 5px right margin
+
+    juce::FlexItem promptSliderItem(promptDurationSlider);
+    promptSliderItem.flexGrow = 1;  // Fill remaining space
+    promptSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);  // 5px left margin
+
+    promptFlexBox.items.add(promptLabelItem);
+    promptFlexBox.items.add(promptSliderItem);
+    promptFlexBox.performLayout(promptRowBounds);
+
+    // Layout model selection controls (horizontal FlexBox)
+    juce::FlexBox modelFlexBox;
+    modelFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    modelFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem modelLabelItem(modelLabel);
+    modelLabelItem.width = 100;  // Same width as prompt label
+    modelLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);  // 5px right margin
+
+    juce::FlexItem modelComboItem(modelComboBox);
+    modelComboItem.flexGrow = 1;  // Fill remaining space
+    modelComboItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);  // 5px left margin
+
+    modelFlexBox.items.add(modelLabelItem);
+    modelFlexBox.items.add(modelComboItem);
+    modelFlexBox.performLayout(modelRowBounds);
+
+    // Replace the JERRY CONTROLS LAYOUT section in your resized() method with this:
+
+// ========== JERRY CONTROLS LAYOUT (WITH HORIZONTAL SMART LOOP ROW) ==========
+    auto jerryBounds = modelControlsArea;
+
+    // Create main FlexBox for Jerry controls (vertical layout)
+    juce::FlexBox jerryFlexBox;
+    jerryFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    jerryFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    // 1. Jerry section title
+    juce::FlexItem jerryTitleItem(jerryLabel);
+    jerryTitleItem.height = 30;
+    jerryTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    // 2. Text prompt label
+    juce::FlexItem jerryPromptLabelItem(jerryPromptLabel);
+    jerryPromptLabelItem.height = 20;
+    jerryPromptLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+
+    // 3. Text prompt editor
+    juce::FlexItem jerryPromptEditorItem(jerryPromptEditor);
+    jerryPromptEditorItem.height = 45;
+    jerryPromptEditorItem.margin = juce::FlexItem::Margin(0, 5, 8, 5);
+
+    // 4. CFG controls row
+    juce::Component jerryCfgRowComponent;
+    juce::FlexItem jerryCfgRowItem(jerryCfgRowComponent);
+    jerryCfgRowItem.height = 30;
+    jerryCfgRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
+    // 5. Steps controls row
+    juce::Component jerryStepsRowComponent;
+    juce::FlexItem jerryStepsRowItem(jerryStepsRowComponent);
+    jerryStepsRowItem.height = 30;
+    jerryStepsRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
+    // 6. COMBINED smart loop row (toggle + type buttons in one horizontal row)
+    juce::Component smartLoopRowComponent;
+    juce::FlexItem smartLoopRowItem(smartLoopRowComponent);
+    smartLoopRowItem.height = 32;
+    smartLoopRowItem.margin = juce::FlexItem::Margin(5, 10, 5, 10);
+
+    // 7. BPM info label
+    juce::FlexItem jerryBpmItem(jerryBpmLabel);
+    jerryBpmItem.height = 20;
+    jerryBpmItem.margin = juce::FlexItem::Margin(3, 0, 8, 0);
+
+    // 8. Generate button
+    juce::FlexItem generateJerryItem(generateWithJerryButton);
+    generateJerryItem.height = 35;
+    generateJerryItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+
+    // Add all items to Jerry FlexBox
+    jerryFlexBox.items.add(jerryTitleItem);
+    jerryFlexBox.items.add(jerryPromptLabelItem);
+    jerryFlexBox.items.add(jerryPromptEditorItem);
+    jerryFlexBox.items.add(jerryCfgRowItem);
+    jerryFlexBox.items.add(jerryStepsRowItem);
+    jerryFlexBox.items.add(smartLoopRowItem);  // Combined row
+    jerryFlexBox.items.add(jerryBpmItem);
+    jerryFlexBox.items.add(generateJerryItem);
+
+    // Perform layout for Jerry controls
+    jerryFlexBox.performLayout(jerryBounds);
+
+    // Extract calculated bounds for control rows
+    auto jerryCfgRowBounds = jerryFlexBox.items[3].currentBounds.toNearestInt();
+    auto jerryStepsRowBounds = jerryFlexBox.items[4].currentBounds.toNearestInt();
+    auto smartLoopRowBounds = jerryFlexBox.items[5].currentBounds.toNearestInt();  // Combined row
+
+    // Layout CFG controls (unchanged)
+    juce::FlexBox jerryCfgFlexBox;
+    jerryCfgFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    jerryCfgFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem jerryCfgLabelItem(jerryCfgLabel);
+    jerryCfgLabelItem.width = 80;
+    jerryCfgLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+
+    juce::FlexItem jerryCfgSliderItem(jerryCfgSlider);
+    jerryCfgSliderItem.flexGrow = 1;
+    jerryCfgSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
+
+    jerryCfgFlexBox.items.add(jerryCfgLabelItem);
+    jerryCfgFlexBox.items.add(jerryCfgSliderItem);
+    jerryCfgFlexBox.performLayout(jerryCfgRowBounds);
+
+    // Layout Steps controls (unchanged)
+    juce::FlexBox jerryStepsFlexBox;
+    jerryStepsFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    jerryStepsFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    juce::FlexItem jerryStepsLabelItem(jerryStepsLabel);
+    jerryStepsLabelItem.width = 80;
+    jerryStepsLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+
+    juce::FlexItem jerryStepsSliderItem(jerryStepsSlider);
+    jerryStepsSliderItem.flexGrow = 1;
+    jerryStepsSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
+
+    jerryStepsFlexBox.items.add(jerryStepsLabelItem);
+    jerryStepsFlexBox.items.add(jerryStepsSliderItem);
+    jerryStepsFlexBox.performLayout(jerryStepsRowBounds);
+
+    // NEW: Layout the combined smart loop row (horizontal layout)
+    juce::FlexBox smartLoopFlexBox;
+    smartLoopFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    smartLoopFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    // Smart loop toggle button (left side)
+    juce::FlexItem smartLoopToggleItem(generateAsLoopButton);
+    smartLoopToggleItem.width = 140;  // Fixed width for "Generate as smart loop"
+    smartLoopToggleItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
+
+    // Auto button (only visible when smart loop is enabled)
+    juce::FlexItem loopTypeAutoItem(loopTypeAutoButton);
+    loopTypeAutoItem.width = 50;  // Compact width
+    loopTypeAutoItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
+
+    // Drums button
+    juce::FlexItem loopTypeDrumsItem(loopTypeDrumsButton);
+    loopTypeDrumsItem.width = 55;  // Compact width
+    loopTypeDrumsItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
+
+    // Instruments button
+    juce::FlexItem loopTypeInstrumentsItem(loopTypeInstrumentsButton);
+    loopTypeInstrumentsItem.width = 80;  // Compact width
+    loopTypeInstrumentsItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
+
+    // Add items to horizontal FlexBox
+    smartLoopFlexBox.items.add(smartLoopToggleItem);
+    smartLoopFlexBox.items.add(loopTypeAutoItem);
+    smartLoopFlexBox.items.add(loopTypeDrumsItem);
+    smartLoopFlexBox.items.add(loopTypeInstrumentsItem);
+
+    // Layout the combined smart loop row
+    smartLoopFlexBox.performLayout(smartLoopRowBounds);
+
+    
+    // Replace just the OUTPUT SECTION part in your resized() method with this:
+
+// ========== OUTPUT SECTION (FlexBox Implementation) ==========
     auto outputSection = bounds.removeFromTop(200).reduced(20, 10);
 
-    // Output label
-    auto outputLabelArea = outputSection.removeFromTop(25);
-    outputLabel.setBounds(outputLabelArea);
+    // Create main FlexBox for output section (vertical layout)
+    juce::FlexBox outputFlexBox;
+    outputFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    outputFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
 
-    // Output waveform area
-    outputWaveformArea = outputSection.removeFromTop(120);
+    // 1. Output label (fixed height)
+    juce::FlexItem labelItem(outputLabel);
+    labelItem.height = 25;  // Fixed height for the label
+    labelItem.margin = juce::FlexItem::Margin(0, 0, 5, 0);  // 5px bottom margin
 
-    // Output control buttons - now three buttons
-    auto outputButtonArea = outputSection.removeFromTop(35);
-    auto buttonWidth = outputButtonArea.getWidth() / 3;
+    // 2. Waveform area (flexible - grows to fill available space)
+    juce::Component waveformComponent;  // Dummy component for sizing
+    juce::FlexItem waveformItem(waveformComponent);
+    waveformItem.flexGrow = 1;  // This will grow to fill available space
+    waveformItem.minHeight = 80;  // Minimum height so it's always visible
+    waveformItem.margin = juce::FlexItem::Margin(0, 0, 10, 0);  // 10px bottom margin
 
-    auto playArea = outputButtonArea.removeFromLeft(buttonWidth).reduced(2, 0);
-    auto stopArea = outputButtonArea.removeFromLeft(buttonWidth).reduced(2, 0);
-    auto clearArea = outputButtonArea.reduced(2, 0);
+    // 3. Output info text area (fixed height)
+    juce::Component outputInfoComponent;  // Dummy component for text area
+    juce::FlexItem outputInfoItem(outputInfoComponent);
+    outputInfoItem.height = 20;  // Fixed height for info text
+    outputInfoItem.margin = juce::FlexItem::Margin(0, 0, 5, 0);  // 5px bottom margin
 
-    playOutputButton.setBounds(playArea);
-    stopOutputButton.setBounds(stopArea);
-    clearOutputButton.setBounds(clearArea);
+    // 4. Button container (fixed height)
+    juce::Component buttonContainer;  // Dummy component for button area
+    juce::FlexItem buttonItem(buttonContainer);
+    buttonItem.height = 35;  // Fixed height for buttons
 
-    // Reserve space for input control buttons at bottom
-    auto buttonArea = bounds.removeFromBottom(100).reduced(20);
+    // Add items to main FlexBox
+    outputFlexBox.items.add(labelItem);
+    outputFlexBox.items.add(waveformItem);
+    outputFlexBox.items.add(outputInfoItem);
+    outputFlexBox.items.add(buttonItem);
 
-    // Arrange input control buttons in rows
-    auto buttonRow1 = buttonArea.removeFromTop(30);
-    auto buttonRow2 = buttonArea.removeFromTop(30);
+    // Perform the layout
+    outputFlexBox.performLayout(outputSection);
 
-    // First row: Save and Clear input buttons
-    auto saveArea = buttonRow1.removeFromLeft(buttonRow1.getWidth() / 2).reduced(5, 0);
-    auto clearInputArea = buttonRow1.reduced(5, 0);
-    saveBufferButton.setBounds(saveArea);
-    clearBufferButton.setBounds(clearInputArea);
+    // Extract the calculated bounds
+    auto labelBounds = outputFlexBox.items[0].currentBounds.toNearestInt();
+    auto waveformBounds = outputFlexBox.items[1].currentBounds.toNearestInt();
+    auto outputInfoBounds = outputFlexBox.items[2].currentBounds.toNearestInt();
+    auto buttonContainerBounds = outputFlexBox.items[3].currentBounds.toNearestInt();
 
-    // Second row: Connection check button
-    checkConnectionButton.setBounds(buttonRow2.reduced(5, 0));
+    // Set component bounds based on FlexBox calculations
+    outputLabel.setBounds(labelBounds);
+    outputWaveformArea = waveformBounds;
+    outputInfoArea = outputInfoBounds;  // Store this for use in paint()
+
+    // Create FlexBox for the three buttons (horizontal layout)
+    juce::FlexBox buttonFlexBox;
+    buttonFlexBox.flexDirection = juce::FlexBox::Direction::row;
+    buttonFlexBox.justifyContent = juce::FlexBox::JustifyContent::spaceAround;
+
+    // Create flex items for the three buttons (equal width)
+    juce::FlexItem playItem(playOutputButton);
+    playItem.flexGrow = 1;
+    playItem.margin = juce::FlexItem::Margin(0, 2, 0, 2);  // 2px left/right margins
+
+    juce::FlexItem stopItem(stopOutputButton);
+    stopItem.flexGrow = 1;
+    stopItem.margin = juce::FlexItem::Margin(0, 2, 0, 2);
+
+    juce::FlexItem clearItem(clearOutputButton);
+    clearItem.flexGrow = 1;
+    clearItem.margin = juce::FlexItem::Margin(0, 2, 0, 2);
+
+    // Add button items to button FlexBox
+    buttonFlexBox.items.add(playItem);
+    buttonFlexBox.items.add(stopItem);
+    buttonFlexBox.items.add(clearItem);
+
+    // Layout the buttons within their container
+    buttonFlexBox.performLayout(buttonContainerBounds);
+
+    // The buttons will automatically get their bounds set by FlexBox
+
+    // Crop button as overlay (keep existing logic - positioned relative to waveform)
+    auto cropOverlayArea = juce::Rectangle<int>(
+        outputWaveformArea.getRight() - 50,
+        outputWaveformArea.getY() + 5,
+        45, 25
+    );
+    cropButton.setBounds(cropOverlayArea);
+}
+
+void Gary4juceAudioProcessorEditor::startAudioDrag()
+{
+    if (!outputAudioFile.existsAsFile())
+    {
+        DBG("No output audio file to drag");
+        return;
+    }
+    
+    // Create dragged_audio folder inside Documents/gary4juce
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+    
+    // Ensure the dragged_audio directory exists
+    if (!draggedAudioDir.exists())
+    {
+        auto result = draggedAudioDir.createDirectory();
+        if (!result.wasOk())
+        {
+            DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
+            showStatusMessage("Drag failed - folder creation error", 2000);
+            return;
+        }
+    }
+    
+    // Create a unique filename with timestamp for the drag
+    auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
+    auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+    auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+    
+    // Copy the current output file to the unique drag file
+    if (!outputAudioFile.copyFileTo(uniqueDragFile))
+    {
+        DBG("Failed to create unique copy for dragging");
+        showStatusMessage("Drag failed - file copy error", 2000);
+        return;
+    }
+    
+    // Create array of files to drag
+    juce::StringArray filesToDrag;
+    filesToDrag.add(uniqueDragFile.getFullPathName());
+    
+    DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
+    
+    // Perform external drag to DAW/other applications
+    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this]()
+    {
+        DBG("Drag operation completed");
+        showStatusMessage("Audio dragged successfully!", 2000);
+    });
+    
+    if (!success)
+    {
+        DBG("Failed to start drag operation");
+        showStatusMessage("Drag failed - try again", 2000);
+        // Clean up the file if drag failed
+        uniqueDragFile.deleteFile();
+    }
+}
+
+bool Gary4juceAudioProcessorEditor::isMouseOverOutputWaveform(const juce::Point<int>& position) const
+{
+    return outputWaveformArea.contains(position);
+}
+
+void Gary4juceAudioProcessorEditor::createCropIcon()
+{
+    // Fixed SVG with explicit white color instead of currentColor
+    const char* cropSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>
+<path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>
+</svg>)";
+
+    // Create drawable from SVG
+    cropIcon = juce::Drawable::createFromImageData(cropSvg, strlen(cropSvg));
+
+    if (cropIcon)
+    {
+        DBG("Crop icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create crop icon from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
+{
+    if (!hasOutputAudio || totalAudioDuration <= 0.0)
+    {
+        showStatusMessage("No audio to crop", 2000);
+        return;
+    }
+
+    // Get crop position
+    double cropPosition = 0.0;
+
+    if (isPlayingOutput)
+    {
+        cropPosition = currentPlaybackPosition;
+        DBG("Cropping at playing position: " + juce::String(cropPosition, 2));
+    }
+    else if (isPausedOutput)
+    {
+        cropPosition = pausedPosition;
+        DBG("Cropping at paused position: " + juce::String(cropPosition, 2));
+    }
+    else if (currentPlaybackPosition > 0.0)
+    {
+        cropPosition = currentPlaybackPosition;
+        DBG("Cropping at seek position: " + juce::String(cropPosition, 2));
+    }
+    else
+    {
+        // We're in stopped state at beginning - can't crop here
+        showStatusMessage("Cannot crop at beginning - play or seek to position first", 4000);
+        DBG("Cannot crop: audio is stopped at beginning position");
+        return;
+    }
+
+    // Validate crop position
+    if (cropPosition <= 0.1)
+    {
+        showStatusMessage("Cannot crop at very beginning - seek forward first", 3000);
+        return;
+    }
+
+    if (cropPosition >= (totalAudioDuration - 0.1))
+    {
+        showStatusMessage("Cannot crop at end - seek backward first", 3000);
+        return;
+    }
+
+    // CRITICAL: Stop ALL audio playback and DISCONNECT from file
+    fullStopOutputPlayback();
+
+    // CRITICAL: Additional cleanup to ensure file is released
+    if (transportSource)
+    {
+        transportSource->setSource(nullptr);  // Disconnect from file
+    }
+    if (readerSource)
+    {
+        readerSource.reset();  // Release file reader
+    }
+
+    // Give the system a moment to release file handles
+    juce::Thread::sleep(100);
+
+    DBG("Starting crop operation at " + juce::String(cropPosition, 2) + "s");
+
+    // Read the CURRENT file into memory first
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    // Create a COPY of the file path to avoid any reference issues
+    juce::File sourceFile = outputAudioFile;
+
+    DBG("Reading source file: " + sourceFile.getFullPathName());
+    DBG("File exists: " + juce::String(sourceFile.exists() ? "yes" : "no"));
+    DBG("File size: " + juce::String(sourceFile.getSize()) + " bytes");
+
+    auto reader = std::unique_ptr<juce::AudioFormatReader>(formatManager.createReaderFor(sourceFile));
+    if (!reader)
+    {
+        showStatusMessage("Failed to read audio file for cropping", 3000);
+        DBG("ERROR: Could not create reader for file");
+        return;
+    }
+
+    DBG("Reader created successfully");
+    DBG("Reader length: " + juce::String(reader->lengthInSamples) + " samples");
+    DBG("Reader sample rate: " + juce::String(reader->sampleRate) + " Hz");
+    DBG("Reader channels: " + juce::String(reader->numChannels));
+
+    // Calculate samples to keep
+    int samplesToKeep = (int)(cropPosition * reader->sampleRate);
+
+    DBG("Crop position: " + juce::String(cropPosition, 2) + "s");
+    DBG("Samples to keep: " + juce::String(samplesToKeep));
+    DBG("Original samples: " + juce::String(reader->lengthInSamples));
+
+    if (samplesToKeep <= 0 || samplesToKeep >= reader->lengthInSamples)
+    {
+        showStatusMessage("Invalid crop position", 3000);
+        DBG("ERROR: Invalid samples to keep: " + juce::String(samplesToKeep));
+        return;
+    }
+
+    // Read the cropped portion into buffer
+    juce::AudioBuffer<float> croppedBuffer((int)reader->numChannels, samplesToKeep);
+
+    DBG("Created buffer: " + juce::String(croppedBuffer.getNumChannels()) + " channels, " +
+        juce::String(croppedBuffer.getNumSamples()) + " samples");
+
+    if (!reader->read(&croppedBuffer, 0, samplesToKeep, 0, true, true))
+    {
+        showStatusMessage("Failed to read audio data", 3000);
+        DBG("ERROR: Failed to read audio data into buffer");
+        return;
+    }
+
+    DBG("Successfully read audio data into buffer");
+
+    // Create a TEMPORARY file for writing (avoid file locking issues)
+    auto tempFile = sourceFile.getSiblingFile("temp_crop_" + juce::String(juce::Time::getCurrentTime().toMilliseconds()) + ".wav");
+
+    DBG("Writing to temporary file: " + tempFile.getFullPathName());
+
+    // Write to temporary file
+    auto wavFormat = formatManager.findFormatForFileExtension("wav");
+    if (!wavFormat)
+    {
+        showStatusMessage("WAV format not available", 3000);
+        DBG("ERROR: WAV format not found");
+        return;
+    }
+
+    auto fileStream = std::unique_ptr<juce::FileOutputStream>(tempFile.createOutputStream());
+    if (!fileStream)
+    {
+        showStatusMessage("Failed to create temp file", 3000);
+        DBG("ERROR: Could not create output stream for temp file");
+        return;
+    }
+
+    auto writer = std::unique_ptr<juce::AudioFormatWriter>(
+        wavFormat->createWriterFor(fileStream.get(), reader->sampleRate,
+            (unsigned int)reader->numChannels, 24, {}, 0));
+
+    if (!writer)
+    {
+        showStatusMessage("Failed to create audio writer", 3000);
+        DBG("ERROR: Could not create audio writer");
+        return;
+    }
+
+    fileStream.release(); // Writer takes ownership
+
+    DBG("Writing " + juce::String(croppedBuffer.getNumSamples()) + " samples to file");
+
+    bool writeSuccess = writer->writeFromAudioSampleBuffer(croppedBuffer, 0, croppedBuffer.getNumSamples());
+
+    // CRITICAL: Ensure writer is properly closed and flushed
+    writer.reset();
+
+    if (!writeSuccess)
+    {
+        showStatusMessage("Failed to write cropped audio", 3000);
+        DBG("ERROR: writeFromAudioSampleBuffer failed");
+        tempFile.deleteFile(); // Clean up temp file
+        return;
+    }
+
+    DBG("Successfully wrote audio to temp file");
+    DBG("Temp file size: " + juce::String(tempFile.getSize()) + " bytes");
+
+    // Verify temp file was written correctly
+    if (!tempFile.exists() || tempFile.getSize() < 1000) // Should be at least 1KB for any real audio
+    {
+        showStatusMessage("Temp file write failed", 3000);
+        DBG("ERROR: Temp file doesn't exist or is too small");
+        tempFile.deleteFile();
+        return;
+    }
+
+    // Replace original file with temp file
+    if (!sourceFile.deleteFile())
+    {
+        showStatusMessage("Failed to delete original file", 3000);
+        DBG("ERROR: Could not delete original file");
+        tempFile.deleteFile();
+        return;
+    }
+
+    DBG("Deleted original file");
+
+    if (!tempFile.moveFileTo(sourceFile))
+    {
+        showStatusMessage("Failed to move temp file", 3000);
+        DBG("ERROR: Could not move temp file to original location");
+        return;
+    }
+
+    DBG("Moved temp file to original location");
+    DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
+
+    // Reload the cropped audio
+    loadOutputAudioFile();
+
+    // Reset playback position
+    currentPlaybackPosition = 0.0;
+    pausedPosition = 0.0;
+    isPausedOutput = false;
+
+    // Verify the reload worked
+    double newDuration = (double)outputAudioBuffer.getNumSamples() / 44100.0;
+    DBG("New audio duration after reload: " + juce::String(newDuration, 2) + "s");
+
+    showStatusMessage("Audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
+    DBG("Crop operation completed successfully");
+
+    // Force a repaint to update the waveform display
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::continueMusic()
+{
+    if (!hasOutputAudio)
+    {
+        showStatusMessage("No audio to continue", 2000);
+        return;
+    }
+
+    // Encode current output audio as base64
+    if (!outputAudioFile.exists())
+    {
+        showStatusMessage("Output file not found", 2000);
+        return;
+    }
+
+    // Read the audio file as binary data
+    juce::MemoryBlock audioData;
+    if (!outputAudioFile.loadFileAsData(audioData))
+    {
+        showStatusMessage("Failed to read audio file", 3000);
+        return;
+    }
+
+    // Convert to base64
+    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+    
+    sendContinueRequest(base64Audio);
+}
+
+void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audioData)
+{
+    DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
+    showStatusMessage("Requesting continuation...", 3000);
+
+    // Disable continue button during processing
+    continueButton.setEnabled(false);
+    continueButton.setButtonText("Continuing...");
+
+    // Create HTTP request in background thread (same pattern as sendToGary)
+    juce::Thread::launch([this, audioData]() {
+
+        auto startTime = juce::Time::getCurrentTime();
+
+        // Create JSON payload - same structure as sendToGary
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("audio_data", audioData);
+        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
+        jsonRequest->setProperty("model_name", "thepatch/vanya_ai_dnb_0.1"); // Use same model as Gary
+        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("temperature", 1.0);
+        jsonRequest->setProperty("cfg_coef", 3.0);
+        jsonRequest->setProperty("description", "");
+
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
+
+        juce::URL url("https://g4l.thecollabagepatch.com/api/juce/continue_music");
+
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
+            juce::URL postUrl = url.withPOSTData(jsonString);
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(30000)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+
+            auto requestTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Continue HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
+
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+
+                auto totalTime = juce::Time::getCurrentTime() - startTime;
+                DBG("Continue HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
+                DBG("Continue response length: " + juce::String(responseText.length()) + " characters");
+
+                statusCode = 200; // Assume success if we got data
+            }
+            else
+            {
+                DBG("Failed to create input stream for continue request");
+                responseText = "";
+                statusCode = 0;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Continue HTTP request exception: " + juce::String(e.what()));
+            responseText = "";
+            statusCode = 0;
+        }
+        catch (...)
+        {
+            DBG("Unknown continue HTTP request exception");
+            responseText = "";
+            statusCode = 0;
+        }
+
+        // Handle response on main thread
+        juce::MessageManager::callAsync([this, responseText, statusCode]() {
+            if (statusCode == 200 && responseText.isNotEmpty())
+            {
+                DBG("Continue response: " + responseText);
+
+                // Parse response JSON
+                auto responseVar = juce::JSON::parse(responseText);
+                if (auto* obj = responseVar.getDynamicObject())
+                {
+                    bool requestSuccess = obj->getProperty("success");
+                    if (requestSuccess)
+                    {
+                        auto sessionId = obj->getProperty("session_id").toString();
+                        DBG("Continue request queued, session ID: " + sessionId);
+                        showStatusMessage("Continuation queued...", 2000);
+                        
+                        // Start polling for results (will replace current output audio when complete)
+                        startPollingForResults(sessionId);
+                    }
+                    else
+                    {
+                        auto error = obj->getProperty("error").toString();
+                        showStatusMessage("Continue failed: " + error, 5000);
+                        continueButton.setEnabled(hasOutputAudio);
+                        continueButton.setButtonText("Continue");
+                    }
+                }
+                else
+                {
+                    showStatusMessage("Invalid response format", 3000);
+                    continueButton.setEnabled(hasOutputAudio);
+                    continueButton.setButtonText("Continue");
+                }
+            }
+            else
+            {
+                DBG("Continue request failed - HTTP " + juce::String(statusCode));
+                showStatusMessage("Connection failed", 3000);
+                continueButton.setEnabled(hasOutputAudio);
+                continueButton.setButtonText("Continue");
+            }
+        });
+    });
 }

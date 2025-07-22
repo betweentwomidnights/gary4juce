@@ -1,1 +1,52 @@
+# JUCE Build Outputs
+Builds/
+JuceLibraryCode/
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.sln.docstates
+*.userprefs
+*.pidb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates.suo
+
+# Xcode
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Audio files (optional - you might want to keep some for testing)
+*.wav
+*.mp3
+*.aiff
+*.flac
+
+third_party/
+
+# Claude.md (keep this if you want Claude to ignore it)
 CLAUDE.md

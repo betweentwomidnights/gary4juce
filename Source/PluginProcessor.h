@@ -63,6 +63,8 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    double getCurrentBPM() const { return currentBPM.load(); }
+
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessor)
@@ -87,6 +89,8 @@ private:
     // Recording settings
     static constexpr double recordingLengthSeconds = 30.0;
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
+
+    std::atomic<double> currentBPM{ 120.0 };  // Thread-safe BPM storage
 
     // Private methods
     void startRecording();
