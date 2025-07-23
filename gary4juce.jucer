@@ -4,6 +4,33 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="the collabage patch"
               companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE">
   <MAINGROUP id="DH6yqq" name="gary4juce">
+    <GROUP id="{C8B36331-5DA3-D0B1-450D-6AD785991B0F}" name="Audio"/>
+    <GROUP id="{8CA224E3-DD82-2DE8-1503-01416676816F}" name="Components">
+      <GROUP id="{26A9563F-AF50-CC8B-2B4A-7C8C11BE6E59}" name="Base">
+        <FILE id="QpkAta" name="CustomButton.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomButton.cpp"/>
+        <FILE id="wvz45l" name="CustomButton.h" compile="0" resource="0" file="Source/Components/Base/CustomButton.h"/>
+        <FILE id="jeXVU3" name="CustomComboBox.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomComboBox.cpp"/>
+        <FILE id="EOa1aj" name="CustomComboBox.h" compile="0" resource="0"
+              file="Source/Components/Base/CustomComboBox.h"/>
+        <FILE id="NjcDQy" name="CustomSlider.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomSlider.cpp"/>
+        <FILE id="VxSunh" name="CustomSlider.h" compile="0" resource="0" file="Source/Components/Base/CustomSlider.h"/>
+        <FILE id="KiZVkX" name="CustomTextEditor.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomTextEditor.cpp"/>
+        <FILE id="MeILIv" name="CustomTextEditor.h" compile="0" resource="0"
+              file="Source/Components/Base/CustomTextEditor.h"/>
+      </GROUP>
+      <GROUP id="{FEFE6B2D-CF57-5871-41C6-8BC43EE84D4F}" name="Layout"/>
+      <GROUP id="{AA329071-1C02-9D62-D725-9CCED8FA956D}" name="Specialized"/>
+    </GROUP>
+    <GROUP id="{C0DB3A83-B77B-623B-7E61-23DF580FD801}" name="Network">
+      <FILE id="fb8SVd" name="NetworkManager.cpp" compile="1" resource="0"
+            file="Source/Network/NetworkManager.cpp"/>
+      <FILE id="FRotvZ" name="NetworkManager.h" compile="0" resource="0"
+            file="Source/Network/NetworkManager.h"/>
+    </GROUP>
     <GROUP id="{06D435C9-D1E4-DA01-6881-63D8A3F53732}" name="Source">
       <FILE id="Y7HdDo" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
@@ -12,6 +39,9 @@
       <FILE id="fvEhHg" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+    </GROUP>
+    <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
+      <FILE id="CUKuBw" name="Theme.h" compile="0" resource="0" file="Source/Utils/Theme.h"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>

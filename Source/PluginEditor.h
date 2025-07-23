@@ -11,6 +11,7 @@
 #include "Components/Base/CustomComboBox.h"
 #include "Components/Base/CustomTextEditor.h"
 #include "Utils/Theme.h"
+#include "Network/NetworkManager.h"
 
 //==============================================================================
 /**
@@ -55,6 +56,8 @@ private:
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     Gary4juceAudioProcessor& audioProcessor;
+
+    NetworkManager networkManager;
 
     // Connection status
     bool isConnected = false;
@@ -242,6 +245,8 @@ private:
     juce::int64 lastProgressUpdateTime = 0;  // When we last got a server update
     bool smoothProgressAnimation = false;     // Whether we're currently animating
 
+    juce::String lastTransformSessionId = "";  // Track last Terry session for undo
+
     void updateSmoothProgress();             // Smooth progress animation helper
 
     void seekToPosition(double timeInSeconds);
@@ -261,6 +266,14 @@ private:
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;
     void createCropIcon();
+
+    void onGenerationStarted();          // UI setup when generation begins
+    void onProgressUpdate(int progress, bool isTransform);  // Progress updates
+    void onGenerationComplete(const juce::String& audioData, const juce::String& sessionId);
+    void onGenerationError(const juce::String& error);
+
+    void sendToGaryNew();  // New version using NetworkManager - for testing
+    void continueMusicNew();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

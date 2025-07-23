@@ -29,5 +29,5 @@ void CustomComboBox::applyDefaultStyling()
     );
     
     // Set consistent font
-    setFont(Theme::Fonts::Body);
+  //  setFont(Theme::Fonts::Body);
 }

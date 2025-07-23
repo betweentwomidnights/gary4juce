@@ -16,6 +16,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Check initial backend connection status
     isConnected = audioProcessor.isBackendConnected();
+    networkManager.setConnectionStatus(isConnected);  // ADD THIS LINE
     DBG("Editor created, backend connection status: " + juce::String(isConnected ? "Connected" : "Disconnected"));
 
     // ========== TAB BUTTONS SETUP ==========
@@ -32,7 +33,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     terryTabButton.setButtonText("Terry");
     terryTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive); // Start inactive
     terryTabButton.onClick = [this]() { switchToTab(ModelTab::Terry); };
-    // terryTabButton.setEnabled(false);  // Disabled until implemented
     addAndMakeVisible(terryTabButton);
 
     // ========== GARY CONTROLS SETUP ==========
@@ -79,14 +79,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // Send to Gary button
     sendToGaryButton.setButtonText("Send to Gary");
     sendToGaryButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
-    sendToGaryButton.onClick = [this]() { sendToGary(); };
+    sendToGaryButton.onClick = [this]() { sendToGaryNew(); };  // Test the new version
     sendToGaryButton.setEnabled(false); // Initially disabled until we have audio
     addAndMakeVisible(sendToGaryButton);
 
     // Continue button for Gary
     continueButton.setButtonText("Continue");
     continueButton.setButtonStyle(CustomButton::ButtonStyle::Terry); // Terry blue for continue
-    continueButton.onClick = [this]() { continueMusic(); };
+    continueButton.onClick = [this]() { continueMusicNew(); };
     continueButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(continueButton);
 
@@ -343,14 +343,18 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     checkConnectionButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     checkConnectionButton.onClick = [this]() {
         DBG("Manual backend health check requested");
-        audioProcessor.checkBackendHealth();
         checkConnectionButton.setButtonText("Checking...");
         checkConnectionButton.setEnabled(false);
+
+        // Let PluginProcessor handle the health check - it will call updateConnectionStatus()
+        audioProcessor.checkBackendHealth();
+
+        // Re-enable button after delay (same as before)
         juce::Timer::callAfterDelay(3000, [this]() {
             checkConnectionButton.setButtonText("Check Backend Connection");
             checkConnectionButton.setEnabled(true);
-        });
-    };
+            });
+        };
 
     // Set up the "Save Buffer" button
     saveBufferButton.setButtonText("Save Recording Buffer");
@@ -1071,7 +1075,6 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
 void Gary4juceAudioProcessorEditor::stopPolling()
 {
     isPolling = false;
-    //currentSessionId = "";
     DBG("Stopped polling");
 }
 
@@ -2229,19 +2232,19 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
     if (isConnected != connected)
     {
         isConnected = connected;
+
+        // NEW: Sync NetworkManager with PluginProcessor's status
+        networkManager.setConnectionStatus(connected);
+
         DBG("Backend connection status updated: " + juce::String(connected ? "Connected" : "Disconnected"));
 
         // Update Gary button state when connection changes
         sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
-
         // Update Jerry button state when connection changes
         generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
-
         // Update Terry button state when connection changes
         updateTerrySourceButtons();
-
         repaint(); // Trigger a redraw to update tab section border
-
         // Re-enable check button if it was disabled
         if (!checkConnectionButton.isEnabled())
         {
@@ -3933,4 +3936,249 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
             }
         });
     });
+}
+
+// Add these implementations to PluginEditor.cpp
+
+// ========== UI CALLBACK METHODS (called by NetworkManager) ==========
+
+void Gary4juceAudioProcessorEditor::onGenerationStarted()
+{
+    // Extract UI setup from startPollingForResults()
+    isGenerating = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    repaint(); // Start showing progress visualization
+
+    DBG("UI: Generation started - showing progress overlay");
+}
+
+void Gary4juceAudioProcessorEditor::onProgressUpdate(int progress, bool isTransform)
+{
+    // Extract progress animation logic from handlePollingResponse()
+    progress = juce::jlimit(0, 100, progress);
+
+    // Set up smooth animation to new target
+    lastKnownProgress = generationProgress;  // Where we are now (visually)
+    targetProgress = progress;               // Where server says we should be
+    lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+    smoothProgressAnimation = true;          // Start smooth animation
+
+    // Show appropriate status message based on operation type
+    if (isTransform)
+    {
+        showStatusMessage("Transforming: " + juce::String(progress) + "%", 1000);
+        DBG("Transform progress: " + juce::String(progress) + "%, animating from " +
+            juce::String(lastKnownProgress));
+    }
+    else
+    {
+        showStatusMessage("Generating: " + juce::String(progress) + "%", 1000);
+        DBG("Generation progress: " + juce::String(progress) + "%, animating from " +
+            juce::String(lastKnownProgress));
+    }
+}
+
+void Gary4juceAudioProcessorEditor::onGenerationComplete(const juce::String& audioData, const juce::String& sessionId)
+{
+    // Extract completion logic from handlePollingResponse()
+
+    // Save the generated audio
+    saveGeneratedAudio(audioData);
+
+    // Determine if this was a transform or generation based on current tab
+    bool wasTransform = (currentTab == ModelTab::Terry);
+
+    if (wasTransform)
+    {
+        // TRANSFORM COMPLETION - Keep session ID for undo
+        showStatusMessage("Transform complete!", 3000);
+        DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
+
+        // Store session ID for undo functionality
+        lastTransformSessionId = sessionId;
+
+        // Enable undo button now that transform is complete
+        undoTransformButton.setEnabled(true);
+    }
+    else
+    {
+        // GENERATION COMPLETION (Gary/Jerry) - No undo needed
+        showStatusMessage("Audio generation complete!", 3000);
+        DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
+
+        // Enable continue button for Gary operations
+        continueButton.setEnabled(hasOutputAudio);
+
+        // Reset continue button text after successful generation
+        continueButton.setButtonText("Continue");
+    }
+
+    // Reset generation state
+    isGenerating = false;
+    generationProgress = 0;
+
+    // Update UI
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::onGenerationError(const juce::String& error)
+{
+    // Extract error handling logic from handlePollingResponse()
+
+    // Determine if this was a transform or generation based on current tab
+    bool wasTransform = (currentTab == ModelTab::Terry);
+
+    if (wasTransform)
+    {
+        showStatusMessage("Transform failed: " + error, 5000);
+    }
+    else
+    {
+        showStatusMessage("Generation failed: " + error, 5000);
+
+        // Re-enable continue button for generation failures
+        continueButton.setEnabled(hasOutputAudio);
+    }
+
+    // Reset generation state
+    isGenerating = false;
+    generationProgress = 0;
+
+    // Re-enable buttons based on current state
+    updateRecordingStatus();  // This updates Gary button state
+    updateTerrySourceButtons();  // This updates Terry button states
+
+    // Update Jerry button state
+    generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
+
+    DBG("Generation error handled: " + error);
+
+    repaint();
+}
+
+// Add this NEW implementation to PluginEditor.cpp (alongside the old one for testing)
+
+void Gary4juceAudioProcessorEditor::sendToGaryNew()  // NEW version using NetworkManager
+{
+    // Basic validation (same as before)
+    if (savedSamples <= 0)
+    {
+        showStatusMessage("Please save your recording first!");
+        return;
+    }
+
+    if (!isConnected)
+    {
+        showStatusMessage("Backend not connected - check connection first");
+        return;
+    }
+
+    // Read the saved audio file (same as before)
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    auto audioFile = garyDir.getChildFile("myBuffer.wav");
+
+    if (!audioFile.exists())
+    {
+        showStatusMessage("Audio file not found - save recording first");
+        return;
+    }
+
+    // Read and encode audio file (same as before)
+    juce::MemoryBlock audioData;
+    if (!audioFile.loadFileAsData(audioData))
+    {
+        showStatusMessage("Failed to read audio file");
+        return;
+    }
+
+    if (audioData.getSize() == 0)
+    {
+        showStatusMessage("Audio file is empty");
+        return;
+    }
+
+    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+
+    // ========== NEW: Use NetworkManager instead of direct HTTP ==========
+
+    // 1. Prepare parameters for NetworkManager
+    NetworkManager::GaryParams params;
+    params.audioData = base64Audio;
+    params.promptDuration = (int)currentPromptDuration;
+    params.modelIndex = currentModelIndex;
+    params.description = "";  // Optional
+
+    // 2. Set up callbacks that will call our UI methods
+    NetworkManager::NetworkCallbacks callbacks;
+    callbacks.isTransformOperation = false;  // Gary is generation, not transform
+
+    callbacks.onStatusUpdate = [this](const juce::String& message, int durationMs) {
+        showStatusMessage(message, durationMs);
+        };
+
+    callbacks.onProgress = [this](int progress) {
+        onProgressUpdate(progress, false);  // false = not a transform
+        };
+
+    callbacks.onAudioReceived = [this](const juce::String& audioData, const juce::String& sessionId) {
+        onGenerationComplete(audioData, sessionId);
+        };
+
+    callbacks.onError = [this](const juce::String& error) {
+        onGenerationError(error);
+        };
+
+    callbacks.onOperationComplete = [this]() {
+        // Re-enable Gary button
+        sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
+        sendToGaryButton.setButtonText("Send to Gary");
+        DBG("Gary operation completed - button re-enabled");
+        };
+
+    // 3. Update UI immediately (same as before)
+    onGenerationStarted();  // This replaces the manual UI setup
+
+    // Disable button and show processing state (same as before)
+    sendToGaryButton.setEnabled(false);
+    sendToGaryButton.setButtonText("Sending...");
+
+    // 4. Send to NetworkManager (this replaces ~100 lines of HTTP code!)
+    networkManager.sendToGary(params, callbacks);
+
+    DBG("Sent Gary request to NetworkManager - " + juce::String(base64Audio.length()) + " chars of audio");
+}
+
+void Gary4juceAudioProcessorEditor::continueMusicNew()
+{
+    if (!hasOutputAudio || !outputAudioFile.exists()) {
+        showStatusMessage("No audio to continue", 2000);
+        return;
+    }
+
+    // Read and encode audio (same validation as before)
+    juce::MemoryBlock audioData;
+    if (!outputAudioFile.loadFileAsData(audioData)) {
+        showStatusMessage("Failed to read audio file", 3000);
+        return;
+    }
+    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+
+    // ========== NEW: Use NetworkManager (replaces 80+ lines!) ==========
+    NetworkManager::NetworkCallbacks callbacks;
+    callbacks.isTransformOperation = false;  // Continue is generation
+    callbacks.onStatusUpdate = [this](const juce::String& msg, int duration) { showStatusMessage(msg, duration); };
+    callbacks.onProgress = [this](int progress) { onProgressUpdate(progress, false); };
+    callbacks.onAudioReceived = [this](const juce::String& audio, const juce::String& sessionId) { onGenerationComplete(audio, sessionId); };
+    callbacks.onError = [this](const juce::String& error) { onGenerationError(error); };
+    callbacks.onOperationComplete = [this]() { continueButton.setEnabled(hasOutputAudio); continueButton.setButtonText("Continue"); };
+
+    onGenerationStarted();
+    continueButton.setEnabled(false);
+    continueButton.setButtonText("Continuing...");
+
+    networkManager.continueMusic(base64Audio, (int)currentPromptDuration, callbacks);
 }

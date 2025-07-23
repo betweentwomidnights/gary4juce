@@ -53,6 +53,6 @@ void CustomButton::applyStyle()
             break;
     }
     
-    // Apply consistent font styling
-    setFont(Theme::Fonts::Body, false);
+    // TODO: Apply font styling through LookAndFeel later
+   // setFont(Theme::Fonts::Body, false);  // Comment out for now
 }
