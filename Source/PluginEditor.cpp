@@ -20,20 +20,17 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // ========== TAB BUTTONS SETUP ==========
     garyTabButton.setButtonText("Gary");
-    garyTabButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
-    garyTabButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    garyTabButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
     garyTabButton.onClick = [this]() { switchToTab(ModelTab::Gary); };
     addAndMakeVisible(garyTabButton);
 
     jerryTabButton.setButtonText("Jerry");
-    jerryTabButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
-    jerryTabButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    jerryTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive); // Start inactive
     jerryTabButton.onClick = [this]() { switchToTab(ModelTab::Jerry); };
     addAndMakeVisible(jerryTabButton);
 
     terryTabButton.setButtonText("Terry");
-    terryTabButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
-    terryTabButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
+    terryTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive); // Start inactive
     terryTabButton.onClick = [this]() { switchToTab(ModelTab::Terry); };
     // terryTabButton.setEnabled(false);  // Disabled until implemented
     addAndMakeVisible(terryTabButton);
@@ -81,16 +78,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Send to Gary button
     sendToGaryButton.setButtonText("Send to Gary");
-    sendToGaryButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
-    sendToGaryButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    sendToGaryButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
     sendToGaryButton.onClick = [this]() { sendToGary(); };
     sendToGaryButton.setEnabled(false); // Initially disabled until we have audio
     addAndMakeVisible(sendToGaryButton);
 
     // Continue button for Gary
     continueButton.setButtonText("Continue");
-    continueButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkblue);
-    continueButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    continueButton.setButtonStyle(CustomButton::ButtonStyle::Terry); // Terry blue for continue
     continueButton.onClick = [this]() { continueMusic(); };
     continueButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(continueButton);
@@ -161,8 +156,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Generate with Jerry button
     generateWithJerryButton.setButtonText("Generate with Jerry");
-    generateWithJerryButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
-    generateWithJerryButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    generateWithJerryButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
     generateWithJerryButton.onClick = [this]() { sendToJerry(); };
     generateWithJerryButton.setEnabled(false); // Initially disabled until connected
     addAndMakeVisible(generateWithJerryButton);
@@ -331,16 +325,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Transform button
     transformWithTerryButton.setButtonText("Transform with Terry");
-    transformWithTerryButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkblue);
-    transformWithTerryButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    transformWithTerryButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
     transformWithTerryButton.onClick = [this]() { sendToTerry(); };
     transformWithTerryButton.setEnabled(false); // Initially disabled until we have audio
     addAndMakeVisible(transformWithTerryButton);
 
     // Undo button  
     undoTransformButton.setButtonText("Undo Transform");
-    undoTransformButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkorange);
-    undoTransformButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    undoTransformButton.setCustomColors(juce::Colours::darkorange, juce::Colours::white);
     undoTransformButton.onClick = [this]() { undoTerryTransform(); };
     undoTransformButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(undoTransformButton);
@@ -348,6 +340,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // ========== REMAINING SETUP (unchanged) ==========
     // Set up the "Check Connection" button
     checkConnectionButton.setButtonText("Check Backend Connection");
+    checkConnectionButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     checkConnectionButton.onClick = [this]() {
         DBG("Manual backend health check requested");
         audioProcessor.checkBackendHealth();
@@ -361,11 +354,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Set up the "Save Buffer" button
     saveBufferButton.setButtonText("Save Recording Buffer");
+    saveBufferButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     saveBufferButton.onClick = [this]() { saveRecordingBuffer(); };
     saveBufferButton.setEnabled(false); // Initially disabled
 
     // Set up the "Clear Buffer" button
     clearBufferButton.setButtonText("Clear Buffer");
+    clearBufferButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     clearBufferButton.onClick = [this]() { clearRecordingBuffer(); };
 
     addAndMakeVisible(checkConnectionButton);
@@ -387,22 +382,21 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Play output button
     playOutputButton.setButtonText("Play Output");
-    playOutputButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
-    playOutputButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    playOutputButton.setButtonStyle(CustomButton::ButtonStyle::Jerry); // Green for play
     playOutputButton.onClick = [this]() { playOutputAudio(); };
     playOutputButton.setEnabled(false);
     addAndMakeVisible(playOutputButton);
 
     // Clear output button
     clearOutputButton.setButtonText("Clear Output");
+    clearOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     clearOutputButton.onClick = [this]() { clearOutputAudio(); };
     clearOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(clearOutputButton);
 
     // Stop output button  
     stopOutputButton.setButtonText("Stop");
-    stopOutputButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
-    stopOutputButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    stopOutputButton.setButtonStyle(CustomButton::ButtonStyle::Inactive); // Gray for stop
     stopOutputButton.onClick = [this]() { fullStopOutputPlayback(); };
     stopOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(stopOutputButton);
@@ -703,21 +697,15 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 
 void Gary4juceAudioProcessorEditor::updateTabButtonStates()
 {
-    // Update tab button appearances
-    garyTabButton.setColour(juce::TextButton::buttonColourId,
-        currentTab == ModelTab::Gary ? juce::Colours::darkred : juce::Colours::darkgrey);
-    garyTabButton.setColour(juce::TextButton::textColourOffId,
-        currentTab == ModelTab::Gary ? juce::Colours::white : juce::Colours::lightgrey);
+    // Update tab button appearances using custom button styles
+    garyTabButton.setButtonStyle(currentTab == ModelTab::Gary ? 
+        CustomButton::ButtonStyle::Gary : CustomButton::ButtonStyle::Inactive);
 
-    jerryTabButton.setColour(juce::TextButton::buttonColourId,
-        currentTab == ModelTab::Jerry ? juce::Colours::darkgreen : juce::Colours::darkgrey);
-    jerryTabButton.setColour(juce::TextButton::textColourOffId,
-        currentTab == ModelTab::Jerry ? juce::Colours::white : juce::Colours::lightgrey);
+    jerryTabButton.setButtonStyle(currentTab == ModelTab::Jerry ? 
+        CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
 
-    terryTabButton.setColour(juce::TextButton::buttonColourId,
-        currentTab == ModelTab::Terry ? juce::Colours::darkblue : juce::Colours::darkgrey);
-    terryTabButton.setColour(juce::TextButton::textColourOffId,
-        currentTab == ModelTab::Terry ? juce::Colours::white : juce::Colours::lightgrey);
+    terryTabButton.setButtonStyle(currentTab == ModelTab::Terry ? 
+        CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
 }
 
 //==============================================================================
@@ -1547,7 +1535,7 @@ void Gary4juceAudioProcessorEditor::styleSmartLoopButton()
     }
 }
 
-void Gary4juceAudioProcessorEditor::styleLoopTypeButton(juce::TextButton& button, bool selected)
+void Gary4juceAudioProcessorEditor::styleLoopTypeButton(CustomButton& button, bool selected)
 {
     // Make buttons perfectly rectangular (no rounded corners)
     button.setRadioGroupId(0);  // Clear any radio group
@@ -1555,16 +1543,12 @@ void Gary4juceAudioProcessorEditor::styleLoopTypeButton(juce::TextButton& button
     if (selected)
     {
         // Selected state - matches smart loop button when active
-        button.setColour(juce::TextButton::buttonColourId, juce::Colours::orange);
-        button.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
-        button.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+        button.setCustomColors(juce::Colours::orange, juce::Colours::black);
     }
     else
     {
         // Unselected state - darker to contrast with selected
-        button.setColour(juce::TextButton::buttonColourId, juce::Colour(0x50, 0x50, 0x50));  // Medium grey
-        button.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
-        button.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
+        button.setCustomColors(juce::Colour(0x50, 0x50, 0x50), juce::Colours::lightgrey);
     }
 }
 

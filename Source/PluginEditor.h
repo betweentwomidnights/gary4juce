@@ -6,6 +6,11 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "Components/Base/CustomSlider.h"
+#include "Components/Base/CustomButton.h"
+#include "Components/Base/CustomComboBox.h"
+#include "Components/Base/CustomTextEditor.h"
+#include "Utils/Theme.h"
 
 //==============================================================================
 /**
@@ -72,9 +77,9 @@ private:
     juce::Rectangle<int> waveformArea;
 
     // UI Components
-    juce::TextButton checkConnectionButton;
-    juce::TextButton saveBufferButton;
-    juce::TextButton clearBufferButton;
+    CustomButton checkConnectionButton;
+    CustomButton saveBufferButton;
+    CustomButton clearBufferButton;
 
     juce::Rectangle<int> titleArea;
     juce::Rectangle<int> connectionStatusArea;
@@ -91,9 +96,9 @@ private:
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
-    juce::TextButton garyTabButton;
-    juce::TextButton jerryTabButton;
-    juce::TextButton terryTabButton;  // For future
+    CustomButton garyTabButton;
+    CustomButton jerryTabButton;
+    CustomButton terryTabButton;  // For future
 
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
@@ -101,12 +106,12 @@ private:
 
     // ========== GARY CONTROLS ==========
     juce::Label garyLabel;
-    juce::Slider promptDurationSlider;
+    CustomSlider promptDurationSlider;
     juce::Label promptDurationLabel;
-    juce::ComboBox modelComboBox;
+    CustomComboBox modelComboBox;
     juce::Label modelLabel;
-    juce::TextButton sendToGaryButton;
-    juce::TextButton continueButton;
+    CustomButton sendToGaryButton;
+    CustomButton continueButton;
 
     // Current Gary settings
     float currentPromptDuration = 6.0f;
@@ -114,27 +119,27 @@ private:
 
     // ========== JERRY CONTROLS ==========
     juce::Label jerryLabel;
-    juce::TextEditor jerryPromptEditor;
+    CustomTextEditor jerryPromptEditor;
     juce::Label jerryPromptLabel;
-    juce::Slider jerryCfgSlider;
+    CustomSlider jerryCfgSlider;
     juce::Label jerryCfgLabel;
-    juce::Slider jerryStepsSlider;
+    CustomSlider jerryStepsSlider;
     juce::Label jerryStepsLabel;
-    juce::TextButton generateWithJerryButton;
+    CustomButton generateWithJerryButton;
     juce::Label jerryBpmLabel;
 
     // Smart loop controls
-    juce::TextButton generateAsLoopButton;
+    CustomButton generateAsLoopButton;
     void styleSmartLoopButton();
 
     // Loop type radio buttons (only visible when smart loop is enabled)
-    juce::TextButton loopTypeAutoButton;
-    juce::TextButton loopTypeDrumsButton;
-    juce::TextButton loopTypeInstrumentsButton;
+    CustomButton loopTypeAutoButton;
+    CustomButton loopTypeDrumsButton;
+    CustomButton loopTypeInstrumentsButton;
 
     // Add to header private section:
     void setLoopType(const juce::String& type);
-    void styleLoopTypeButton(juce::TextButton& button, bool selected);
+    void styleLoopTypeButton(CustomButton& button, bool selected);
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
@@ -147,11 +152,11 @@ private:
 
     // ========== TERRY CONTROLS ==========
     juce::Label terryLabel;
-    juce::ComboBox terryVariationComboBox;
+    CustomComboBox terryVariationComboBox;
     juce::Label terryVariationLabel;
-    juce::TextEditor terryCustomPromptEditor;
+    CustomTextEditor terryCustomPromptEditor;
     juce::Label terryCustomPromptLabel;
-    juce::Slider terryFlowstepSlider;
+    CustomSlider terryFlowstepSlider;
     juce::Label terryFlowstepLabel;
     juce::ToggleButton terrySolverToggle;  // false = euler, true = midpoint
     juce::Label terrySolverLabel;
@@ -162,8 +167,8 @@ private:
     juce::Label terrySourceLabel;
 
     // Transform and undo buttons
-    juce::TextButton transformWithTerryButton;
-    juce::TextButton undoTransformButton;
+    CustomButton transformWithTerryButton;
+    CustomButton undoTransformButton;
 
     // Current Terry settings
     int currentTerryVariation = 0;  // Index into variations array
@@ -205,10 +210,10 @@ private:
     juce::Rectangle<int> modelControlsArea;
 
     // UI controls for output
-    juce::TextButton playOutputButton;
-    juce::TextButton clearOutputButton;
+    CustomButton playOutputButton;
+    CustomButton clearOutputButton;
     juce::Label outputLabel;
-    juce::TextButton stopOutputButton;
+    CustomButton stopOutputButton;
     juce::DrawableButton cropButton;
 
     std::unique_ptr<juce::AudioFormatManager> audioFormatManager;

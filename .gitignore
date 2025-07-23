@@ -47,6 +47,3 @@ Desktop.ini
 *.flac
 
 third_party/
-
-# Claude.md (keep this if you want Claude to ignore it)
-CLAUDE.md
