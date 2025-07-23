@@ -18,8 +18,66 @@ CustomSlider::~CustomSlider()
 
 void CustomSlider::paint(juce::Graphics& g)
 {
-    // Use default JUCE slider rendering for now to preserve exact current appearance
-    juce::Slider::paint(g);
+    auto bounds = getLocalBounds();
+    auto textBoxWidth = getTextBoxWidth();
+    auto textBoxHeight = getTextBoxHeight();
+    
+    // Calculate slider area (excluding text box)
+    auto sliderBounds = bounds;
+    if (getTextBoxPosition() == juce::Slider::TextBoxRight)
+        sliderBounds.removeFromRight(textBoxWidth + 5);
+    else if (getTextBoxPosition() == juce::Slider::TextBoxLeft)
+        sliderBounds.removeFromLeft(textBoxWidth + 5);
+    
+    // Make track thick and rectangular - almost same height as thumb
+    auto trackHeight = 12;  // Chunky track height
+    auto thumbSize = 16;    // Square thumb size
+    
+    auto trackBounds = sliderBounds.withSizeKeepingCentre(sliderBounds.getWidth(), trackHeight);
+    
+    // Calculate thumb position
+    auto sliderRange = getMaximum() - getMinimum();
+    auto currentValue = getValue() - getMinimum();
+    auto normalizedValue = currentValue / sliderRange;
+    auto thumbX = trackBounds.getX() + (normalizedValue * (trackBounds.getWidth() - thumbSize));
+    auto thumbBounds = juce::Rectangle<int>(thumbX, trackBounds.getCentreY() - thumbSize/2, thumbSize, thumbSize);
+    
+    // Draw track background (unfilled) - dark grunge
+    g.setColour(Theme::Colors::Background.brighter(0.1f));  // Very slightly lighter than black
+    g.fillRect(trackBounds);
+    
+    // Draw thin white border around track to match textbox outlines
+    g.setColour(Theme::Colors::TextPrimary);
+    g.drawRect(trackBounds, 1);
+    
+    // Draw filled portion of track - bright red
+    auto filledWidth = thumbX + (thumbSize / 2) - trackBounds.getX();
+    auto filledBounds = trackBounds.withWidth(juce::jmax(0, (int)filledWidth));
+    
+    if (filledWidth > 0)
+    {
+        g.setColour(Theme::Colors::PrimaryRed);
+        g.fillRect(filledBounds);
+        
+        // Add subtle inner glow to filled area
+        g.setColour(Theme::Colors::PrimaryRed.brighter(0.3f));
+        g.drawRect(filledBounds.reduced(1), 1);
+    }
+    
+    // Draw rectangular thumb - sharp edges, high contrast
+    g.setColour(Theme::Colors::TextPrimary);  // White base
+    g.fillRect(thumbBounds);
+    
+    // Add red border to thumb for that grungy edge
+    g.setColour(Theme::Colors::PrimaryRed);
+    g.drawRect(thumbBounds, 2);
+    
+    // Add inner highlight for dimension
+    g.setColour(Theme::Colors::TextPrimary.withAlpha(0.8f));
+    g.drawRect(thumbBounds.reduced(2), 1);
+    
+    // Note: Text box is handled separately by JUCE's component system
+    // We only need to draw the slider track and thumb here
 }
 
 void CustomSlider::setThemeColors(juce::Colour track, juce::Colour thumb, juce::Colour text)

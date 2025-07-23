@@ -5,26 +5,33 @@ namespace Theme
 {
     namespace Colors 
     {
-        // Tab-specific colors (extracted from current PluginEditor)
-        const auto Gary = juce::Colours::darkred;
-        const auto Jerry = juce::Colours::darkgreen; 
-        const auto Terry = juce::Colours::darkblue;
-        
-        // UI element colors
+        // Core brand colors based on gary4live_logo.png
         const auto Background = juce::Colours::black;
-        const auto ButtonInactive = juce::Colours::darkgrey;
+        const auto PrimaryRed = juce::Colour(0xffff0000);    // Bright red from logo
+        const auto AccentRed = juce::Colours::darkred;       // Darker red variant
         const auto TextPrimary = juce::Colours::white;
-        const auto TextSecondary = juce::Colours::lightgrey;
+        const auto TextSecondary = juce::Colour(0xffcccccc); // Light grey alternative
         
-        // Waveform colors
-        const auto WaveformFill = juce::Colours::lightblue;
-        const auto WaveformOutline = juce::Colours::white;
-        const auto PlaybackCursor = juce::Colours::yellow;
+        // Tab colors (UNIFIED RED - consistent across all tabs)
+        const auto Gary = PrimaryRed;
+        const auto Jerry = PrimaryRed;   // Same red as Gary for consistency
+        const auto Terry = PrimaryRed;   // Same red as Gary for consistency
         
-        // Status colors
-        const auto StatusActive = juce::Colours::lightgreen;
-        const auto StatusError = juce::Colours::red;
-        const auto StatusWarning = juce::Colours::orange;
+        // UI elements (red/white/black only)
+        const auto ButtonActive = PrimaryRed;
+        const auto ButtonInactive = juce::Colour(0xff333333);  // Very dark grey, almost black
+        const auto BorderColor = PrimaryRed;
+        const auto HighlightColor = juce::Colours::white;
+        
+        // Waveform colors (brand-aligned)
+        const auto WaveformFill = PrimaryRed;          // was lightblue
+        const auto WaveformOutline = juce::Colours::white;  // keep white
+        const auto PlaybackCursor = juce::Colours::white;   // was yellow
+        
+        // Status colors (using red variants instead of traffic light colors)
+        const auto StatusActive = PrimaryRed;           // was lightgreen  
+        const auto StatusError = juce::Colour(0xff800000);    // dark red, was red
+        const auto StatusWarning = AccentRed;           // was orange
     }
     
     namespace Fonts

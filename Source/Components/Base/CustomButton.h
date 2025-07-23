@@ -18,6 +18,9 @@ public:
     CustomButton(const juce::String& buttonText);
     ~CustomButton() override;
 
+    // Override paint for custom rendering
+    void paint(juce::Graphics& g) override;
+
     // Easy theming interface
     void setButtonStyle(ButtonStyle style);
     void setCustomColors(juce::Colour buttonColour, juce::Colour textColour);

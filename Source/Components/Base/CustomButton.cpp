@@ -27,32 +27,109 @@ void CustomButton::setCustomColors(juce::Colour buttonColour, juce::Colour textC
     setColour(juce::TextButton::textColourOnId, textColour);
 }
 
-void CustomButton::applyStyle()
+void CustomButton::paint(juce::Graphics& g)
 {
+    auto bounds = getLocalBounds();
+    auto buttonDown = getToggleState() || isDown();
+    auto buttonOver = isMouseOver();
+    auto buttonEnabled = isEnabled();
+    
+    // Get colors based on current style
+    juce::Colour baseColour, textColour, borderColour;
+    
     switch (currentStyle)
     {
         case ButtonStyle::Gary:
-            setCustomColors(Theme::Colors::Gary, Theme::Colors::TextPrimary);
+            baseColour = Theme::Colors::Gary;
+            borderColour = Theme::Colors::Gary;
+            textColour = Theme::Colors::TextPrimary;
             break;
             
         case ButtonStyle::Jerry:
-            setCustomColors(Theme::Colors::Jerry, Theme::Colors::TextPrimary);
+            baseColour = Theme::Colors::Jerry;
+            borderColour = Theme::Colors::Jerry;
+            textColour = Theme::Colors::TextPrimary;
             break;
             
         case ButtonStyle::Terry:
-            setCustomColors(Theme::Colors::Terry, Theme::Colors::TextPrimary);
+            baseColour = Theme::Colors::Terry;
+            borderColour = Theme::Colors::Terry;
+            textColour = Theme::Colors::TextPrimary;
             break;
             
         case ButtonStyle::Inactive:
-            setCustomColors(Theme::Colors::ButtonInactive, Theme::Colors::TextSecondary);
+            baseColour = Theme::Colors::ButtonInactive;
+            borderColour = Theme::Colors::TextSecondary;
+            textColour = Theme::Colors::TextSecondary;
             break;
             
         case ButtonStyle::Standard:
         default:
-            setCustomColors(Theme::Colors::ButtonInactive, Theme::Colors::TextPrimary);
+            baseColour = Theme::Colors::ButtonInactive;
+            borderColour = Theme::Colors::PrimaryRed;
+            textColour = Theme::Colors::TextPrimary;
             break;
     }
     
-    // TODO: Apply font styling through LookAndFeel later
-   // setFont(Theme::Fonts::Body, false);  // Comment out for now
+    // Adjust colors based on button state
+    if (!buttonEnabled)
+    {
+        // Creative disabled state - diagonal stripes pattern
+        baseColour = Theme::Colors::ButtonInactive.darker(0.3f);
+        borderColour = Theme::Colors::TextSecondary.withAlpha(0.6f);
+        textColour = Theme::Colors::TextSecondary.withAlpha(0.8f); // More visible than before
+    }
+    else if (buttonDown)
+    {
+        // Pressed state - invert colors for that industrial click feel
+        baseColour = borderColour;
+        borderColour = Theme::Colors::TextPrimary;
+    }
+    else if (buttonOver)
+    {
+        // Hover state - "light up" effect with bright background and dark text
+        baseColour = borderColour.brighter(0.4f);  // Bright background
+        borderColour = borderColour.brighter(0.6f);
+        textColour = Theme::Colors::Background;     // Dark text on bright background
+    }
+    
+    // Draw main button background - always sharp rectangles
+    g.setColour(baseColour.withAlpha(0.8f));
+    g.fillRect(bounds);
+    
+    // Add creative disabled state visual - diagonal stripe pattern
+    if (!buttonEnabled)
+    {
+        g.setColour(Theme::Colors::TextSecondary.withAlpha(0.2f));
+        for (int i = 0; i < bounds.getWidth() + bounds.getHeight(); i += 6)
+        {
+            g.drawLine(bounds.getX() + i, bounds.getY(), 
+                      bounds.getX() + i - bounds.getHeight(), bounds.getBottom(), 1.0f);
+        }
+    }
+    
+    // Draw outer border - thick and bold
+    g.setColour(borderColour);
+    g.drawRect(bounds, 2);
+    
+    // Add inner highlight for depth and futuristic feel
+    if (buttonEnabled && !buttonDown)
+    {
+        g.setColour(Theme::Colors::TextPrimary.withAlpha(0.1f));
+        g.drawRect(bounds.reduced(2), 1);
+    }
+    
+    // Draw button text - centered and bold
+    if (getButtonText().isNotEmpty())
+    {
+        g.setColour(textColour);
+        g.setFont(Theme::Fonts::Body);
+        g.drawText(getButtonText(), bounds, juce::Justification::centred, true);
+    }
+}
+
+void CustomButton::applyStyle()
+{
+    // Style is now handled in paint() method
+    repaint();
 }
