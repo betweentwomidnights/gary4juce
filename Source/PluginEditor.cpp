@@ -1526,6 +1526,158 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         });
 }
 
+void Gary4juceAudioProcessorEditor::continueMusic()
+{
+    if (!hasOutputAudio)
+    {
+        showStatusMessage("No audio to continue", 2000);
+        return;
+    }
+
+    // Encode current output audio as base64
+    if (!outputAudioFile.exists())
+    {
+        showStatusMessage("Output file not found", 2000);
+        return;
+    }
+
+    // Read the audio file as binary data
+    juce::MemoryBlock audioData;
+    if (!outputAudioFile.loadFileAsData(audioData))
+    {
+        showStatusMessage("Failed to read audio file", 3000);
+        return;
+    }
+
+    // Convert to base64
+    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+
+    sendContinueRequest(base64Audio);
+}
+
+void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audioData)
+{
+    DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
+    showStatusMessage("Requesting continuation...", 3000);
+
+    // Disable continue button during processing
+    continueButton.setEnabled(false);
+    continueButton.setButtonText("Continuing...");
+
+    // Create HTTP request in background thread (same pattern as sendToGary)
+    juce::Thread::launch([this, audioData]() {
+
+        auto startTime = juce::Time::getCurrentTime();
+
+        // Create JSON payload - same structure as sendToGary
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("audio_data", audioData);
+        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
+        jsonRequest->setProperty("model_name", "thepatch/vanya_ai_dnb_0.1"); // Use same model as Gary
+        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("temperature", 1.0);
+        jsonRequest->setProperty("cfg_coef", 3.0);
+        jsonRequest->setProperty("description", "");
+
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
+
+        juce::URL url("https://g4l.thecollabagepatch.com/api/juce/continue_music");
+
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
+            juce::URL postUrl = url.withPOSTData(jsonString);
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(30000)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+
+            auto requestTime = juce::Time::getCurrentTime() - startTime;
+            DBG("Continue HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
+
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+
+                auto totalTime = juce::Time::getCurrentTime() - startTime;
+                DBG("Continue HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
+                DBG("Continue response length: " + juce::String(responseText.length()) + " characters");
+
+                statusCode = 200; // Assume success if we got data
+            }
+            else
+            {
+                DBG("Failed to create input stream for continue request");
+                responseText = "";
+                statusCode = 0;
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Continue HTTP request exception: " + juce::String(e.what()));
+            responseText = "";
+            statusCode = 0;
+        }
+        catch (...)
+        {
+            DBG("Unknown continue HTTP request exception");
+            responseText = "";
+            statusCode = 0;
+        }
+
+        // Handle response on main thread
+        juce::MessageManager::callAsync([this, responseText, statusCode]() {
+            if (statusCode == 200 && responseText.isNotEmpty())
+            {
+                DBG("Continue response: " + responseText);
+
+                // Parse response JSON
+                auto responseVar = juce::JSON::parse(responseText);
+                if (auto* obj = responseVar.getDynamicObject())
+                {
+                    bool requestSuccess = obj->getProperty("success");
+                    if (requestSuccess)
+                    {
+                        auto sessionId = obj->getProperty("session_id").toString();
+                        DBG("Continue request queued, session ID: " + sessionId);
+                        showStatusMessage("Continuation queued...", 2000);
+
+                        // Start polling for results (will replace current output audio when complete)
+                        startPollingForResults(sessionId);
+                    }
+                    else
+                    {
+                        auto error = obj->getProperty("error").toString();
+                        showStatusMessage("Continue failed: " + error, 5000);
+                        continueButton.setEnabled(hasOutputAudio);
+                        continueButton.setButtonText("Continue");
+                    }
+                }
+                else
+                {
+                    showStatusMessage("Invalid response format", 3000);
+                    continueButton.setEnabled(hasOutputAudio);
+                    continueButton.setButtonText("Continue");
+                }
+            }
+            else
+            {
+                DBG("Continue request failed - HTTP " + juce::String(statusCode));
+                showStatusMessage("Connection failed", 3000);
+                continueButton.setEnabled(hasOutputAudio);
+                continueButton.setButtonText("Continue");
+            }
+            });
+        });
+}
+
 void Gary4juceAudioProcessorEditor::styleSmartLoopButton()
 {
     // Remove rounded corners and make rectangular
@@ -2884,6 +3036,313 @@ void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
     }
 }
 
+void Gary4juceAudioProcessorEditor::startAudioDrag()
+{
+    if (!outputAudioFile.existsAsFile())
+    {
+        DBG("No output audio file to drag");
+        return;
+    }
+
+    // Create dragged_audio folder inside Documents/gary4juce
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+
+    // Ensure the dragged_audio directory exists
+    if (!draggedAudioDir.exists())
+    {
+        auto result = draggedAudioDir.createDirectory();
+        if (!result.wasOk())
+        {
+            DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
+            showStatusMessage("Drag failed - folder creation error", 2000);
+            return;
+        }
+    }
+
+    // Create a unique filename with timestamp for the drag
+    auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
+    auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+    auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+
+    // Copy the current output file to the unique drag file
+    if (!outputAudioFile.copyFileTo(uniqueDragFile))
+    {
+        DBG("Failed to create unique copy for dragging");
+        showStatusMessage("Drag failed - file copy error", 2000);
+        return;
+    }
+
+    // Create array of files to drag
+    juce::StringArray filesToDrag;
+    filesToDrag.add(uniqueDragFile.getFullPathName());
+
+    DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
+
+    // Perform external drag to DAW/other applications
+    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this]()
+        {
+            DBG("Drag operation completed");
+            showStatusMessage("Audio dragged successfully!", 2000);
+        });
+
+    if (!success)
+    {
+        DBG("Failed to start drag operation");
+        showStatusMessage("Drag failed - try again", 2000);
+        // Clean up the file if drag failed
+        uniqueDragFile.deleteFile();
+    }
+}
+
+bool Gary4juceAudioProcessorEditor::isMouseOverOutputWaveform(const juce::Point<int>& position) const
+{
+    return outputWaveformArea.contains(position);
+}
+
+void Gary4juceAudioProcessorEditor::createCropIcon()
+{
+    // Fixed SVG with explicit white color instead of currentColor
+    const char* cropSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>
+<path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>
+</svg>)";
+
+    // Create drawable from SVG
+    cropIcon = juce::Drawable::createFromImageData(cropSvg, strlen(cropSvg));
+
+    if (cropIcon)
+    {
+        DBG("Crop icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create crop icon from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
+{
+    if (!hasOutputAudio || totalAudioDuration <= 0.0)
+    {
+        showStatusMessage("No audio to crop", 2000);
+        return;
+    }
+
+    // Get crop position
+    double cropPosition = 0.0;
+
+    if (isPlayingOutput)
+    {
+        cropPosition = currentPlaybackPosition;
+        DBG("Cropping at playing position: " + juce::String(cropPosition, 2));
+    }
+    else if (isPausedOutput)
+    {
+        cropPosition = pausedPosition;
+        DBG("Cropping at paused position: " + juce::String(cropPosition, 2));
+    }
+    else if (currentPlaybackPosition > 0.0)
+    {
+        cropPosition = currentPlaybackPosition;
+        DBG("Cropping at seek position: " + juce::String(cropPosition, 2));
+    }
+    else
+    {
+        // We're in stopped state at beginning - can't crop here
+        showStatusMessage("Cannot crop at beginning - play or seek to position first", 4000);
+        DBG("Cannot crop: audio is stopped at beginning position");
+        return;
+    }
+
+    // Validate crop position
+    if (cropPosition <= 0.1)
+    {
+        showStatusMessage("Cannot crop at very beginning - seek forward first", 3000);
+        return;
+    }
+
+    if (cropPosition >= (totalAudioDuration - 0.1))
+    {
+        showStatusMessage("Cannot crop at end - seek backward first", 3000);
+        return;
+    }
+
+    // CRITICAL: Stop ALL audio playback and DISCONNECT from file
+    fullStopOutputPlayback();
+
+    // CRITICAL: Additional cleanup to ensure file is released
+    if (transportSource)
+    {
+        transportSource->setSource(nullptr);  // Disconnect from file
+    }
+    if (readerSource)
+    {
+        readerSource.reset();  // Release file reader
+    }
+
+    // Give the system a moment to release file handles
+    juce::Thread::sleep(100);
+
+    DBG("Starting crop operation at " + juce::String(cropPosition, 2) + "s");
+
+    // Read the CURRENT file into memory first
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    // Create a COPY of the file path to avoid any reference issues
+    juce::File sourceFile = outputAudioFile;
+
+    DBG("Reading source file: " + sourceFile.getFullPathName());
+    DBG("File exists: " + juce::String(sourceFile.exists() ? "yes" : "no"));
+    DBG("File size: " + juce::String(sourceFile.getSize()) + " bytes");
+
+    auto reader = std::unique_ptr<juce::AudioFormatReader>(formatManager.createReaderFor(sourceFile));
+    if (!reader)
+    {
+        showStatusMessage("Failed to read audio file for cropping", 3000);
+        DBG("ERROR: Could not create reader for file");
+        return;
+    }
+
+    DBG("Reader created successfully");
+    DBG("Reader length: " + juce::String(reader->lengthInSamples) + " samples");
+    DBG("Reader sample rate: " + juce::String(reader->sampleRate) + " Hz");
+    DBG("Reader channels: " + juce::String(reader->numChannels));
+
+    // Calculate samples to keep
+    int samplesToKeep = (int)(cropPosition * reader->sampleRate);
+
+    DBG("Crop position: " + juce::String(cropPosition, 2) + "s");
+    DBG("Samples to keep: " + juce::String(samplesToKeep));
+    DBG("Original samples: " + juce::String(reader->lengthInSamples));
+
+    if (samplesToKeep <= 0 || samplesToKeep >= reader->lengthInSamples)
+    {
+        showStatusMessage("Invalid crop position", 3000);
+        DBG("ERROR: Invalid samples to keep: " + juce::String(samplesToKeep));
+        return;
+    }
+
+    // Read the cropped portion into buffer
+    juce::AudioBuffer<float> croppedBuffer((int)reader->numChannels, samplesToKeep);
+
+    DBG("Created buffer: " + juce::String(croppedBuffer.getNumChannels()) + " channels, " +
+        juce::String(croppedBuffer.getNumSamples()) + " samples");
+
+    if (!reader->read(&croppedBuffer, 0, samplesToKeep, 0, true, true))
+    {
+        showStatusMessage("Failed to read audio data", 3000);
+        DBG("ERROR: Failed to read audio data into buffer");
+        return;
+    }
+
+    DBG("Successfully read audio data into buffer");
+
+    // Create a TEMPORARY file for writing (avoid file locking issues)
+    auto tempFile = sourceFile.getSiblingFile("temp_crop_" + juce::String(juce::Time::getCurrentTime().toMilliseconds()) + ".wav");
+
+    DBG("Writing to temporary file: " + tempFile.getFullPathName());
+
+    // Write to temporary file
+    auto wavFormat = formatManager.findFormatForFileExtension("wav");
+    if (!wavFormat)
+    {
+        showStatusMessage("WAV format not available", 3000);
+        DBG("ERROR: WAV format not found");
+        return;
+    }
+
+    auto fileStream = std::unique_ptr<juce::FileOutputStream>(tempFile.createOutputStream());
+    if (!fileStream)
+    {
+        showStatusMessage("Failed to create temp file", 3000);
+        DBG("ERROR: Could not create output stream for temp file");
+        return;
+    }
+
+    auto writer = std::unique_ptr<juce::AudioFormatWriter>(
+        wavFormat->createWriterFor(fileStream.get(), reader->sampleRate,
+            (unsigned int)reader->numChannels, 24, {}, 0));
+
+    if (!writer)
+    {
+        showStatusMessage("Failed to create audio writer", 3000);
+        DBG("ERROR: Could not create audio writer");
+        return;
+    }
+
+    fileStream.release(); // Writer takes ownership
+
+    DBG("Writing " + juce::String(croppedBuffer.getNumSamples()) + " samples to file");
+
+    bool writeSuccess = writer->writeFromAudioSampleBuffer(croppedBuffer, 0, croppedBuffer.getNumSamples());
+
+    // CRITICAL: Ensure writer is properly closed and flushed
+    writer.reset();
+
+    if (!writeSuccess)
+    {
+        showStatusMessage("Failed to write cropped audio", 3000);
+        DBG("ERROR: writeFromAudioSampleBuffer failed");
+        tempFile.deleteFile(); // Clean up temp file
+        return;
+    }
+
+    DBG("Successfully wrote audio to temp file");
+    DBG("Temp file size: " + juce::String(tempFile.getSize()) + " bytes");
+
+    // Verify temp file was written correctly
+    if (!tempFile.exists() || tempFile.getSize() < 1000) // Should be at least 1KB for any real audio
+    {
+        showStatusMessage("Temp file write failed", 3000);
+        DBG("ERROR: Temp file doesn't exist or is too small");
+        tempFile.deleteFile();
+        return;
+    }
+
+    // Replace original file with temp file
+    if (!sourceFile.deleteFile())
+    {
+        showStatusMessage("Failed to delete original file", 3000);
+        DBG("ERROR: Could not delete original file");
+        tempFile.deleteFile();
+        return;
+    }
+
+    DBG("Deleted original file");
+
+    if (!tempFile.moveFileTo(sourceFile))
+    {
+        showStatusMessage("Failed to move temp file", 3000);
+        DBG("ERROR: Could not move temp file to original location");
+        return;
+    }
+
+    DBG("Moved temp file to original location");
+    DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
+
+    // Reload the cropped audio
+    loadOutputAudioFile();
+
+    // Reset playback position
+    currentPlaybackPosition = 0.0;
+    pausedPosition = 0.0;
+    isPausedOutput = false;
+
+    // Verify the reload worked
+    double newDuration = (double)outputAudioBuffer.getNumSamples() / 44100.0;
+    DBG("New audio duration after reload: " + juce::String(newDuration, 2) + "s");
+
+    showStatusMessage("Audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
+    DBG("Crop operation completed successfully");
+
+    // Force a repaint to update the waveform display
+    repaint();
+}
+
 
 // ========== UPDATED PAINT METHOD ==========
 void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
@@ -3492,461 +3951,5 @@ void Gary4juceAudioProcessorEditor::resized()
     cropButton.setBounds(cropOverlayArea);
 }
 
-void Gary4juceAudioProcessorEditor::startAudioDrag()
-{
-    if (!outputAudioFile.existsAsFile())
-    {
-        DBG("No output audio file to drag");
-        return;
-    }
-    
-    // Create dragged_audio folder inside Documents/gary4juce
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
-    
-    // Ensure the dragged_audio directory exists
-    if (!draggedAudioDir.exists())
-    {
-        auto result = draggedAudioDir.createDirectory();
-        if (!result.wasOk())
-        {
-            DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
-            showStatusMessage("Drag failed - folder creation error", 2000);
-            return;
-        }
-    }
-    
-    // Create a unique filename with timestamp for the drag
-    auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-    auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
-    auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
-    
-    // Copy the current output file to the unique drag file
-    if (!outputAudioFile.copyFileTo(uniqueDragFile))
-    {
-        DBG("Failed to create unique copy for dragging");
-        showStatusMessage("Drag failed - file copy error", 2000);
-        return;
-    }
-    
-    // Create array of files to drag
-    juce::StringArray filesToDrag;
-    filesToDrag.add(uniqueDragFile.getFullPathName());
-    
-    DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
-    
-    // Perform external drag to DAW/other applications
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this]()
-    {
-        DBG("Drag operation completed");
-        showStatusMessage("Audio dragged successfully!", 2000);
-    });
-    
-    if (!success)
-    {
-        DBG("Failed to start drag operation");
-        showStatusMessage("Drag failed - try again", 2000);
-        // Clean up the file if drag failed
-        uniqueDragFile.deleteFile();
-    }
-}
 
-bool Gary4juceAudioProcessorEditor::isMouseOverOutputWaveform(const juce::Point<int>& position) const
-{
-    return outputWaveformArea.contains(position);
-}
 
-void Gary4juceAudioProcessorEditor::createCropIcon()
-{
-    // Fixed SVG with explicit white color instead of currentColor
-    const char* cropSvg = R"(
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>
-<path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>
-</svg>)";
-
-    // Create drawable from SVG
-    cropIcon = juce::Drawable::createFromImageData(cropSvg, strlen(cropSvg));
-
-    if (cropIcon)
-    {
-        DBG("Crop icon created successfully from SVG");
-    }
-    else
-    {
-        DBG("Failed to create crop icon from SVG");
-    }
-}
-
-void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
-{
-    if (!hasOutputAudio || totalAudioDuration <= 0.0)
-    {
-        showStatusMessage("No audio to crop", 2000);
-        return;
-    }
-
-    // Get crop position
-    double cropPosition = 0.0;
-
-    if (isPlayingOutput)
-    {
-        cropPosition = currentPlaybackPosition;
-        DBG("Cropping at playing position: " + juce::String(cropPosition, 2));
-    }
-    else if (isPausedOutput)
-    {
-        cropPosition = pausedPosition;
-        DBG("Cropping at paused position: " + juce::String(cropPosition, 2));
-    }
-    else if (currentPlaybackPosition > 0.0)
-    {
-        cropPosition = currentPlaybackPosition;
-        DBG("Cropping at seek position: " + juce::String(cropPosition, 2));
-    }
-    else
-    {
-        // We're in stopped state at beginning - can't crop here
-        showStatusMessage("Cannot crop at beginning - play or seek to position first", 4000);
-        DBG("Cannot crop: audio is stopped at beginning position");
-        return;
-    }
-
-    // Validate crop position
-    if (cropPosition <= 0.1)
-    {
-        showStatusMessage("Cannot crop at very beginning - seek forward first", 3000);
-        return;
-    }
-
-    if (cropPosition >= (totalAudioDuration - 0.1))
-    {
-        showStatusMessage("Cannot crop at end - seek backward first", 3000);
-        return;
-    }
-
-    // CRITICAL: Stop ALL audio playback and DISCONNECT from file
-    fullStopOutputPlayback();
-
-    // CRITICAL: Additional cleanup to ensure file is released
-    if (transportSource)
-    {
-        transportSource->setSource(nullptr);  // Disconnect from file
-    }
-    if (readerSource)
-    {
-        readerSource.reset();  // Release file reader
-    }
-
-    // Give the system a moment to release file handles
-    juce::Thread::sleep(100);
-
-    DBG("Starting crop operation at " + juce::String(cropPosition, 2) + "s");
-
-    // Read the CURRENT file into memory first
-    juce::AudioFormatManager formatManager;
-    formatManager.registerBasicFormats();
-
-    // Create a COPY of the file path to avoid any reference issues
-    juce::File sourceFile = outputAudioFile;
-
-    DBG("Reading source file: " + sourceFile.getFullPathName());
-    DBG("File exists: " + juce::String(sourceFile.exists() ? "yes" : "no"));
-    DBG("File size: " + juce::String(sourceFile.getSize()) + " bytes");
-
-    auto reader = std::unique_ptr<juce::AudioFormatReader>(formatManager.createReaderFor(sourceFile));
-    if (!reader)
-    {
-        showStatusMessage("Failed to read audio file for cropping", 3000);
-        DBG("ERROR: Could not create reader for file");
-        return;
-    }
-
-    DBG("Reader created successfully");
-    DBG("Reader length: " + juce::String(reader->lengthInSamples) + " samples");
-    DBG("Reader sample rate: " + juce::String(reader->sampleRate) + " Hz");
-    DBG("Reader channels: " + juce::String(reader->numChannels));
-
-    // Calculate samples to keep
-    int samplesToKeep = (int)(cropPosition * reader->sampleRate);
-
-    DBG("Crop position: " + juce::String(cropPosition, 2) + "s");
-    DBG("Samples to keep: " + juce::String(samplesToKeep));
-    DBG("Original samples: " + juce::String(reader->lengthInSamples));
-
-    if (samplesToKeep <= 0 || samplesToKeep >= reader->lengthInSamples)
-    {
-        showStatusMessage("Invalid crop position", 3000);
-        DBG("ERROR: Invalid samples to keep: " + juce::String(samplesToKeep));
-        return;
-    }
-
-    // Read the cropped portion into buffer
-    juce::AudioBuffer<float> croppedBuffer((int)reader->numChannels, samplesToKeep);
-
-    DBG("Created buffer: " + juce::String(croppedBuffer.getNumChannels()) + " channels, " +
-        juce::String(croppedBuffer.getNumSamples()) + " samples");
-
-    if (!reader->read(&croppedBuffer, 0, samplesToKeep, 0, true, true))
-    {
-        showStatusMessage("Failed to read audio data", 3000);
-        DBG("ERROR: Failed to read audio data into buffer");
-        return;
-    }
-
-    DBG("Successfully read audio data into buffer");
-
-    // Create a TEMPORARY file for writing (avoid file locking issues)
-    auto tempFile = sourceFile.getSiblingFile("temp_crop_" + juce::String(juce::Time::getCurrentTime().toMilliseconds()) + ".wav");
-
-    DBG("Writing to temporary file: " + tempFile.getFullPathName());
-
-    // Write to temporary file
-    auto wavFormat = formatManager.findFormatForFileExtension("wav");
-    if (!wavFormat)
-    {
-        showStatusMessage("WAV format not available", 3000);
-        DBG("ERROR: WAV format not found");
-        return;
-    }
-
-    auto fileStream = std::unique_ptr<juce::FileOutputStream>(tempFile.createOutputStream());
-    if (!fileStream)
-    {
-        showStatusMessage("Failed to create temp file", 3000);
-        DBG("ERROR: Could not create output stream for temp file");
-        return;
-    }
-
-    auto writer = std::unique_ptr<juce::AudioFormatWriter>(
-        wavFormat->createWriterFor(fileStream.get(), reader->sampleRate,
-            (unsigned int)reader->numChannels, 24, {}, 0));
-
-    if (!writer)
-    {
-        showStatusMessage("Failed to create audio writer", 3000);
-        DBG("ERROR: Could not create audio writer");
-        return;
-    }
-
-    fileStream.release(); // Writer takes ownership
-
-    DBG("Writing " + juce::String(croppedBuffer.getNumSamples()) + " samples to file");
-
-    bool writeSuccess = writer->writeFromAudioSampleBuffer(croppedBuffer, 0, croppedBuffer.getNumSamples());
-
-    // CRITICAL: Ensure writer is properly closed and flushed
-    writer.reset();
-
-    if (!writeSuccess)
-    {
-        showStatusMessage("Failed to write cropped audio", 3000);
-        DBG("ERROR: writeFromAudioSampleBuffer failed");
-        tempFile.deleteFile(); // Clean up temp file
-        return;
-    }
-
-    DBG("Successfully wrote audio to temp file");
-    DBG("Temp file size: " + juce::String(tempFile.getSize()) + " bytes");
-
-    // Verify temp file was written correctly
-    if (!tempFile.exists() || tempFile.getSize() < 1000) // Should be at least 1KB for any real audio
-    {
-        showStatusMessage("Temp file write failed", 3000);
-        DBG("ERROR: Temp file doesn't exist or is too small");
-        tempFile.deleteFile();
-        return;
-    }
-
-    // Replace original file with temp file
-    if (!sourceFile.deleteFile())
-    {
-        showStatusMessage("Failed to delete original file", 3000);
-        DBG("ERROR: Could not delete original file");
-        tempFile.deleteFile();
-        return;
-    }
-
-    DBG("Deleted original file");
-
-    if (!tempFile.moveFileTo(sourceFile))
-    {
-        showStatusMessage("Failed to move temp file", 3000);
-        DBG("ERROR: Could not move temp file to original location");
-        return;
-    }
-
-    DBG("Moved temp file to original location");
-    DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
-
-    // Reload the cropped audio
-    loadOutputAudioFile();
-
-    // Reset playback position
-    currentPlaybackPosition = 0.0;
-    pausedPosition = 0.0;
-    isPausedOutput = false;
-
-    // Verify the reload worked
-    double newDuration = (double)outputAudioBuffer.getNumSamples() / 44100.0;
-    DBG("New audio duration after reload: " + juce::String(newDuration, 2) + "s");
-
-    showStatusMessage("Audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
-    DBG("Crop operation completed successfully");
-
-    // Force a repaint to update the waveform display
-    repaint();
-}
-
-void Gary4juceAudioProcessorEditor::continueMusic()
-{
-    if (!hasOutputAudio)
-    {
-        showStatusMessage("No audio to continue", 2000);
-        return;
-    }
-
-    // Encode current output audio as base64
-    if (!outputAudioFile.exists())
-    {
-        showStatusMessage("Output file not found", 2000);
-        return;
-    }
-
-    // Read the audio file as binary data
-    juce::MemoryBlock audioData;
-    if (!outputAudioFile.loadFileAsData(audioData))
-    {
-        showStatusMessage("Failed to read audio file", 3000);
-        return;
-    }
-
-    // Convert to base64
-    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
-    
-    sendContinueRequest(base64Audio);
-}
-
-void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audioData)
-{
-    DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
-    showStatusMessage("Requesting continuation...", 3000);
-
-    // Disable continue button during processing
-    continueButton.setEnabled(false);
-    continueButton.setButtonText("Continuing...");
-
-    // Create HTTP request in background thread (same pattern as sendToGary)
-    juce::Thread::launch([this, audioData]() {
-
-        auto startTime = juce::Time::getCurrentTime();
-
-        // Create JSON payload - same structure as sendToGary
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("audio_data", audioData);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
-        jsonRequest->setProperty("model_name", "thepatch/vanya_ai_dnb_0.1"); // Use same model as Gary
-        jsonRequest->setProperty("top_k", 250);
-        jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
-
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
-        DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
-
-        juce::URL url("https://g4l.thecollabagepatch.com/api/juce/continue_music");
-
-        juce::String responseText;
-        int statusCode = 0;
-
-        try
-        {
-            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
-
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(30000)
-                .withExtraHeaders("Content-Type: application/json");
-
-            auto stream = postUrl.createInputStream(options);
-
-            auto requestTime = juce::Time::getCurrentTime() - startTime;
-            DBG("Continue HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
-
-            if (stream != nullptr)
-            {
-                responseText = stream->readEntireStreamAsString();
-
-                auto totalTime = juce::Time::getCurrentTime() - startTime;
-                DBG("Continue HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
-                DBG("Continue response length: " + juce::String(responseText.length()) + " characters");
-
-                statusCode = 200; // Assume success if we got data
-            }
-            else
-            {
-                DBG("Failed to create input stream for continue request");
-                responseText = "";
-                statusCode = 0;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            DBG("Continue HTTP request exception: " + juce::String(e.what()));
-            responseText = "";
-            statusCode = 0;
-        }
-        catch (...)
-        {
-            DBG("Unknown continue HTTP request exception");
-            responseText = "";
-            statusCode = 0;
-        }
-
-        // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode]() {
-            if (statusCode == 200 && responseText.isNotEmpty())
-            {
-                DBG("Continue response: " + responseText);
-
-                // Parse response JSON
-                auto responseVar = juce::JSON::parse(responseText);
-                if (auto* obj = responseVar.getDynamicObject())
-                {
-                    bool requestSuccess = obj->getProperty("success");
-                    if (requestSuccess)
-                    {
-                        auto sessionId = obj->getProperty("session_id").toString();
-                        DBG("Continue request queued, session ID: " + sessionId);
-                        showStatusMessage("Continuation queued...", 2000);
-                        
-                        // Start polling for results (will replace current output audio when complete)
-                        startPollingForResults(sessionId);
-                    }
-                    else
-                    {
-                        auto error = obj->getProperty("error").toString();
-                        showStatusMessage("Continue failed: " + error, 5000);
-                        continueButton.setEnabled(hasOutputAudio);
-                        continueButton.setButtonText("Continue");
-                    }
-                }
-                else
-                {
-                    showStatusMessage("Invalid response format", 3000);
-                    continueButton.setEnabled(hasOutputAudio);
-                    continueButton.setButtonText("Continue");
-                }
-            }
-            else
-            {
-                DBG("Continue request failed - HTTP " + juce::String(statusCode));
-                showStatusMessage("Connection failed", 3000);
-                continueButton.setEnabled(hasOutputAudio);
-                continueButton.setButtonText("Continue");
-            }
-        });
-    });
-}

@@ -4,6 +4,26 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="the collabage patch"
               companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE">
   <MAINGROUP id="DH6yqq" name="gary4juce">
+    <GROUP id="{CDB2FDFC-AC96-7A2F-13CC-D983E5D40D90}" name="Components">
+      <GROUP id="{C347B464-81BE-08DB-7D1E-28D13CD23C19}" name="Base">
+        <FILE id="hsfnS0" name="CustomButton.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomButton.cpp"/>
+        <FILE id="ntmroI" name="CustomButton.h" compile="0" resource="0" file="Source/Components/Base/CustomButton.h"/>
+        <FILE id="plqOMJ" name="CustomComboBox.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomComboBox.cpp"/>
+        <FILE id="oooLPQ" name="CustomComboBox.h" compile="0" resource="0"
+              file="Source/Components/Base/CustomComboBox.h"/>
+        <FILE id="hy0Tc6" name="CustomSlider.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomSlider.cpp"/>
+        <FILE id="NVmho3" name="CustomSlider.h" compile="0" resource="0" file="Source/Components/Base/CustomSlider.h"/>
+        <FILE id="MmMTuG" name="CustomTextEditor.cpp" compile="1" resource="0"
+              file="Source/Components/Base/CustomTextEditor.cpp"/>
+        <FILE id="wQ87Xd" name="CustomTextEditor.h" compile="0" resource="0"
+              file="Source/Components/Base/CustomTextEditor.h"/>
+      </GROUP>
+      <GROUP id="{D101353F-917C-44E4-6DDE-5EE9CAFC9816}" name="Layout"/>
+      <GROUP id="{C8878210-05F9-1555-C130-31CE216D7E81}" name="Specialized"/>
+    </GROUP>
     <GROUP id="{06D435C9-D1E4-DA01-6881-63D8A3F53732}" name="Source">
       <FILE id="Y7HdDo" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
@@ -12,6 +32,9 @@
       <FILE id="fvEhHg" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+    </GROUP>
+    <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
+      <FILE id="kqT1iT" name="Theme.h" compile="0" resource="0" file="Source/Utils/Theme.h"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>
