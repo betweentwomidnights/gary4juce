@@ -24,9 +24,14 @@ public:
     // Easy theming interface
     void setButtonStyle(ButtonStyle style);
     void setCustomColors(juce::Colour buttonColour, juce::Colour textColour);
+    
+    // Icon support
+    void setIcon(std::unique_ptr<juce::Drawable> icon);
+    void clearIcon();
 
 private:
     ButtonStyle currentStyle = ButtonStyle::Standard;
+    std::unique_ptr<juce::Drawable> buttonIcon;
     
     void applyStyle();
 

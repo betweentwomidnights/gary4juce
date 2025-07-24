@@ -262,5 +262,23 @@ private:
     std::unique_ptr<juce::Drawable> cropIcon;
     void createCropIcon();
 
+    // Check connection icon
+    std::unique_ptr<juce::Drawable> checkConnectionIcon;
+    void createCheckConnectionIcon();
+
+    // Trash icon (for clear buttons)
+    std::unique_ptr<juce::Drawable> trashIcon;
+    void createTrashIcon();
+
+    // Play/Pause icons
+    std::unique_ptr<juce::Drawable> playIcon;
+    std::unique_ptr<juce::Drawable> pauseIcon;
+    void createPlayPauseIcons();
+    void updatePlayButtonIcon();
+
+    // Stop icon
+    std::unique_ptr<juce::Drawable> stopIcon;
+    void createStopIcon();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

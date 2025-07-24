@@ -339,15 +339,16 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // ========== REMAINING SETUP (unchanged) ==========
     // Set up the "Check Connection" button
-    checkConnectionButton.setButtonText("Check Backend Connection");
+    createCheckConnectionIcon();
+    if (checkConnectionIcon)
+        checkConnectionButton.setIcon(checkConnectionIcon->createCopy());
     checkConnectionButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    checkConnectionButton.setTooltip("Check Backend Connection");
     checkConnectionButton.onClick = [this]() {
         DBG("Manual backend health check requested");
         audioProcessor.checkBackendHealth();
-        checkConnectionButton.setButtonText("Checking...");
         checkConnectionButton.setEnabled(false);
         juce::Timer::callAfterDelay(3000, [this]() {
-            checkConnectionButton.setButtonText("Check Backend Connection");
             checkConnectionButton.setEnabled(true);
         });
     };
@@ -359,8 +360,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     saveBufferButton.setEnabled(false); // Initially disabled
 
     // Set up the "Clear Buffer" button
-    clearBufferButton.setButtonText("Clear Buffer");
+    createTrashIcon();
+    if (trashIcon)
+        clearBufferButton.setIcon(trashIcon->createCopy());
     clearBufferButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    clearBufferButton.setTooltip("Clear Buffer");
     clearBufferButton.onClick = [this]() { clearRecordingBuffer(); };
 
     addAndMakeVisible(checkConnectionButton);
@@ -381,22 +385,28 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(outputLabel);
 
     // Play output button
-    playOutputButton.setButtonText("Play Output");
+    createPlayPauseIcons();
     playOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    updatePlayButtonIcon(); // Set initial icon
     playOutputButton.onClick = [this]() { playOutputAudio(); };
     playOutputButton.setEnabled(false);
     addAndMakeVisible(playOutputButton);
 
     // Clear output button
-    clearOutputButton.setButtonText("Clear Output");
+    if (trashIcon)
+        clearOutputButton.setIcon(trashIcon->createCopy());
     clearOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    clearOutputButton.setTooltip("Clear Output");
     clearOutputButton.onClick = [this]() { clearOutputAudio(); };
     clearOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(clearOutputButton);
 
     // Stop output button  
-    stopOutputButton.setButtonText("Stop");
+    createStopIcon();
+    if (stopIcon)
+        stopOutputButton.setIcon(stopIcon->createCopy());
     stopOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    stopOutputButton.setTooltip("Stop");
     stopOutputButton.onClick = [this]() { fullStopOutputPlayback(); };
     stopOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(stopOutputButton);
@@ -1689,22 +1699,15 @@ void Gary4juceAudioProcessorEditor::styleSmartLoopButton()
 
 void Gary4juceAudioProcessorEditor::styleLoopTypeButton(CustomButton& button, bool selected)
 {
-    // Make buttons perfectly rectangular (no rounded corners)
-    button.setRadioGroupId(0);  // Clear any radio group
-
     if (selected)
     {
-        // Selected state - matches smart loop button when active
-        button.setColour(juce::TextButton::buttonColourId, juce::Colours::orange);
-        button.setColour(juce::TextButton::textColourOffId, juce::Colours::black);
-        button.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+        // Selected state - use Gary style for visual emphasis (red theme)
+        button.setButtonStyle(CustomButton::ButtonStyle::Gary);
     }
     else
     {
-        // Unselected state - darker to contrast with selected
-        button.setColour(juce::TextButton::buttonColourId, juce::Colour(0x50, 0x50, 0x50));  // Medium grey
-        button.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
-        button.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
+        // Unselected state - standard button style
+        button.setButtonStyle(CustomButton::ButtonStyle::Standard);
     }
 }
 
@@ -2708,8 +2711,8 @@ void Gary4juceAudioProcessorEditor::startOutputPlayback()
             isPlayingOutput = true;
             isPausedOutput = false;
 
-            // Update button text
-            playOutputButton.setButtonText("Pause");
+            // Update button icon
+            updatePlayButtonIcon();
 
             showStatusMessage("Playing output...", 2000);
             DBG("Started output playback from " + juce::String(startPosition, 2) + "s");
@@ -2735,7 +2738,7 @@ void Gary4juceAudioProcessorEditor::pauseOutputPlayback()
         isPlayingOutput = false;
         isPausedOutput = true;
 
-        playOutputButton.setButtonText("Resume");
+        updatePlayButtonIcon();
 
         showStatusMessage("Paused", 1500);
         DBG("Paused output playback at " + juce::String(pausedPosition, 2) + "s");
@@ -2790,7 +2793,7 @@ void Gary4juceAudioProcessorEditor::resumeOutputPlayback()
         isPlayingOutput = true;
         isPausedOutput = false;
 
-        playOutputButton.setButtonText("Pause");
+        updatePlayButtonIcon();
 
         showStatusMessage("Resumed from " + juce::String(pausedPosition, 1) + "s", 1500);
         DBG("Resumed output playback from " + juce::String(pausedPosition, 2) + "s");
@@ -2810,7 +2813,7 @@ void Gary4juceAudioProcessorEditor::stopOutputPlayback()
     isPlayingOutput = false;
     isPausedOutput = false;
 
-    playOutputButton.setButtonText("Play Output");
+    updatePlayButtonIcon();
 
     // Reset to beginning
     currentPlaybackPosition = 0.0;
@@ -3117,6 +3120,125 @@ void Gary4juceAudioProcessorEditor::createCropIcon()
     else
     {
         DBG("Failed to create crop icon from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::createCheckConnectionIcon()
+{
+    // Bar chart SVG with white stroke to match theme
+    const char* barChartSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="12" y1="20" x2="12" y2="10"></line>
+<line x1="18" y1="20" x2="18" y2="4"></line>
+<line x1="6" y1="20" x2="6" y2="16"></line>
+</svg>)";
+
+    // Create drawable from SVG
+    checkConnectionIcon = juce::Drawable::createFromImageData(barChartSvg, strlen(barChartSvg));
+
+    if (checkConnectionIcon)
+    {
+        DBG("Check connection icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create check connection icon from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::createTrashIcon()
+{
+    // Trash SVG with white stroke to match theme
+    const char* trashSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<polyline points="3 6 5 6 21 6"></polyline>
+<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+<line x1="10" y1="11" x2="10" y2="17"></line>
+<line x1="14" y1="11" x2="14" y2="17"></line>
+</svg>)";
+
+    // Create drawable from SVG
+    trashIcon = juce::Drawable::createFromImageData(trashSvg, strlen(trashSvg));
+
+    if (trashIcon)
+    {
+        DBG("Trash icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create trash icon from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::createPlayPauseIcons()
+{
+    // Play SVG with white stroke to match theme
+    const char* playSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<polygon points="5 3 19 12 5 21 5 3"></polygon>
+</svg>)";
+
+    // Pause SVG with white stroke to match theme
+    const char* pauseSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<rect x="6" y="4" width="4" height="16"></rect>
+<rect x="14" y="4" width="4" height="16"></rect>
+</svg>)";
+
+    // Create drawables from SVGs
+    playIcon = juce::Drawable::createFromImageData(playSvg, strlen(playSvg));
+    pauseIcon = juce::Drawable::createFromImageData(pauseSvg, strlen(pauseSvg));
+
+    if (playIcon && pauseIcon)
+    {
+        DBG("Play/Pause icons created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create play/pause icons from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::updatePlayButtonIcon()
+{
+    if (!playIcon || !pauseIcon)
+        return;
+
+    if (isPlayingOutput)
+    {
+        // Currently playing -> show pause icon
+        playOutputButton.setIcon(pauseIcon->createCopy());
+        playOutputButton.setTooltip("Pause");
+    }
+    else
+    {
+        // Not playing (stopped or paused) -> show play icon
+        playOutputButton.setIcon(playIcon->createCopy());
+        if (isPausedOutput)
+            playOutputButton.setTooltip("Resume");
+        else
+            playOutputButton.setTooltip("Play Output");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::createStopIcon()
+{
+    // Square SVG with white stroke to match theme
+    const char* stopSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+</svg>)";
+
+    // Create drawable from SVG
+    stopIcon = juce::Drawable::createFromImageData(stopSvg, strlen(stopSvg));
+
+    if (stopIcon)
+    {
+        DBG("Stop icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create stop icon from SVG");
     }
 }
 

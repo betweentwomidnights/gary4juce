@@ -119,13 +119,36 @@ void CustomButton::paint(juce::Graphics& g)
         g.drawRect(bounds.reduced(2), 1);
     }
     
-    // Draw button text - centered and bold
-    if (getButtonText().isNotEmpty())
+    // Draw icon or text - centered
+    if (buttonIcon != nullptr)
     {
+        // Draw icon - scale to fit nicely within button bounds
+        auto iconBounds = bounds.reduced(8, 8);  // Leave some padding
+        
+        // Create a copy of the drawable for color modification
+        auto iconCopy = buttonIcon->createCopy();
+        iconCopy->replaceColour(juce::Colours::white, textColour);
+        iconCopy->drawWithin(g, iconBounds.toFloat(), juce::RectanglePlacement::centred, 1.0f);
+    }
+    else if (getButtonText().isNotEmpty())
+    {
+        // Draw text - centered and bold
         g.setColour(textColour);
         g.setFont(Theme::Fonts::Body);
         g.drawText(getButtonText(), bounds, juce::Justification::centred, true);
     }
+}
+
+void CustomButton::setIcon(std::unique_ptr<juce::Drawable> icon)
+{
+    buttonIcon = std::move(icon);
+    repaint();
+}
+
+void CustomButton::clearIcon()
+{
+    buttonIcon.reset();
+    repaint();
 }
 
 void CustomButton::applyStyle()
