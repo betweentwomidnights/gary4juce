@@ -22,6 +22,11 @@ public:
     bool isBackendConnected() const { return backendConnected; }
     void setBackendConnectionStatus(bool connected);
 
+    // Session ID management for undo functionality
+    void setCurrentSessionId(const juce::String& sessionId);
+    juce::String getCurrentSessionId() const;
+    void clearCurrentSessionId();
+
     // Recording buffer methods - REMOVE INLINE IMPLEMENTATIONS
     bool isRecording() const;  // Declaration only - implementation in .cpp
     float getRecordingProgress() const;  // Declaration only - implementation in .cpp
@@ -91,6 +96,9 @@ private:
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
 
     std::atomic<double> currentBPM{ 120.0 };  // Thread-safe BPM storage
+
+    // Session ID for undo functionality (persists even when UI is destroyed)
+    juce::String currentSessionId;
 
     // Private methods
     void startRecording();

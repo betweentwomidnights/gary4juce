@@ -100,6 +100,26 @@ void Gary4juceAudioProcessor::setBackendConnectionStatus(bool connected)
 }
 
 //==============================================================================
+// Session ID management methods
+
+void Gary4juceAudioProcessor::setCurrentSessionId(const juce::String& sessionId)
+{
+    currentSessionId = sessionId;
+    DBG("Session ID stored in processor: " + sessionId);
+}
+
+juce::String Gary4juceAudioProcessor::getCurrentSessionId() const
+{
+    return currentSessionId;
+}
+
+void Gary4juceAudioProcessor::clearCurrentSessionId()
+{
+    currentSessionId = "";
+    DBG("Session ID cleared from processor");
+}
+
+//==============================================================================
 // Recording buffer methods
 
 void Gary4juceAudioProcessor::startRecording()

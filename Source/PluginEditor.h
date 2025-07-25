@@ -193,7 +193,6 @@ private:
     void sendToJerry();  // New method for Jerry
 
     // Polling system
-    juce::String currentSessionId = "";
     bool isPolling = false;
 
     // Output audio management
@@ -279,6 +278,10 @@ private:
     // Stop icon
     std::unique_ptr<juce::Drawable> stopIcon;
     void createStopIcon();
+
+    // Logo image
+    juce::Image logoImage;
+    void loadLogoImage();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

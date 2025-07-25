@@ -25,6 +25,8 @@
       <GROUP id="{C8878210-05F9-1555-C130-31CE216D7E81}" name="Specialized"/>
     </GROUP>
     <GROUP id="{06D435C9-D1E4-DA01-6881-63D8A3F53732}" name="Source">
+      <FILE id="FiFbls" name="gary4live_logo.png" compile="0" resource="1"
+            file="gary4live_logo.png"/>
       <FILE id="Y7HdDo" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
       <FILE id="ImVLeH" name="PluginProcessor.h" compile="0" resource="0"
