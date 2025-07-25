@@ -30,7 +30,7 @@ Gary4juceAudioProcessor::~Gary4juceAudioProcessor()
 
 void Gary4juceAudioProcessor::checkBackendHealth()
 {
-    DBG("Checking backend health...");
+    DBG("Checking backend health at: " + backendBaseUrl);
 
     // Create health check request in background thread
     juce::Thread::launch([this]() {
@@ -96,6 +96,44 @@ void Gary4juceAudioProcessor::setBackendConnectionStatus(bool connected)
         if (auto* editor = getActiveEditor())
             if (auto* myEditor = dynamic_cast<Gary4juceAudioProcessorEditor*>(editor))
                 myEditor->updateConnectionStatus(connected);
+    }
+}
+
+//==============================================================================
+// Backend URL management methods
+
+juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const juce::String& endpoint) const
+{
+    if (isUsingLocalhost) 
+    {
+        switch (service) 
+        {
+            case ServiceType::Gary:
+            case ServiceType::Terry:
+                return "http://localhost:8000" + endpoint;
+            case ServiceType::Jerry:
+                return "http://localhost:8005" + endpoint;
+        }
+    }
+    
+    // Remote backend - same domain for all services
+    return "https://g4l.thecollabagepatch.com" + endpoint;
+}
+
+void Gary4juceAudioProcessor::setUsingLocalhost(bool useLocalhost)
+{
+    if (isUsingLocalhost != useLocalhost)
+    {
+        isUsingLocalhost = useLocalhost;
+        
+        // Update base URL for health checks (use Gary service as default)
+        backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
+        
+        DBG("Backend switched to: " + getCurrentBackendType());
+        DBG("New base URL: " + backendBaseUrl);
+        
+        // Immediately check health with new URL
+        checkBackendHealth();
     }
 }
 

@@ -58,6 +58,14 @@ private:
 
     // Connection status
     bool isConnected = false;
+    bool connectionFlashState = false;  // For flashing animation when connected
+
+    // Backend toggle system
+    bool isUsingLocalhost = false; // Local cache synced with processor
+    CustomButton backendToggleButton;
+
+    // Service type enum for URL construction (maps to processor enum)
+    enum class ServiceType { Gary, Jerry, Terry };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -68,6 +76,7 @@ private:
     // Status message system
     juce::String statusMessage = "";
     juce::int64 statusMessageTime = 0;
+    int statusMessageDuration = 3000;  // Custom duration for current message
     bool hasStatusMessage = false;
 
     // Waveform display components  
@@ -112,6 +121,7 @@ private:
     juce::Label modelLabel;
     CustomButton sendToGaryButton;
     CustomButton continueButton;
+    CustomButton retryButton;
 
     // Current Gary settings
     float currentPromptDuration = 6.0f;
@@ -183,6 +193,11 @@ private:
     void sendToTerry();
     void undoTerryTransform();
 
+    // Backend toggle methods
+    juce::String getServiceUrl(ServiceType service, const juce::String& endpoint) const;
+    void toggleBackend();
+    void updateBackendToggleButton();
+
     // UI Helper methods
     void updateRecordingStatus();
     void saveRecordingBuffer();
@@ -249,6 +264,9 @@ private:
     void cropAudioAtCurrentPosition();
     void continueMusic();
     void sendContinueRequest(const juce::String& audioData);
+    void retryLastContinuation();
+    void updateRetryButtonState();
+    void updateContinueButtonState();
 
     // Drag and drop functionality
     bool isDragging = false;
@@ -282,6 +300,14 @@ private:
     // Logo image
     juce::Image logoImage;
     void loadLogoImage();
+
+    // Tooltip system
+    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
+
+    // Help icons
+    std::unique_ptr<juce::Drawable> helpIcon;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton;
+    void createHelpIcon();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

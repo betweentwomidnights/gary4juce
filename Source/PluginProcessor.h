@@ -22,6 +22,15 @@ public:
     bool isBackendConnected() const { return backendConnected; }
     void setBackendConnectionStatus(bool connected);
 
+    // Service type enum for different ports
+    enum class ServiceType { Gary, Jerry, Terry };
+    
+    // Backend URL management methods
+    void setUsingLocalhost(bool useLocalhost);
+    bool getIsUsingLocalhost() const { return isUsingLocalhost; }
+    juce::String getCurrentBackendType() const { return isUsingLocalhost ? "local" : "remote"; }
+    juce::String getServiceUrl(ServiceType service, const juce::String& endpoint) const;
+
     // Session ID management for undo functionality
     void setCurrentSessionId(const juce::String& sessionId);
     juce::String getCurrentSessionId() const;
@@ -76,7 +85,10 @@ private:
 
         // Backend connection state
         bool backendConnected = false;
-    const juce::String backendBaseUrl = "https://g4l.thecollabagepatch.com";
+    
+    // Backend URL management
+    bool isUsingLocalhost = false;
+    juce::String backendBaseUrl = "https://g4l.thecollabagepatch.com"; // Default to remote
 
     // Thread safety - PUT THESE FIRST
     juce::CriticalSection bufferLock;
