@@ -51,6 +51,10 @@ public:
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
 
+    void updateAllGenerationButtonStates();
+
+    
+
 private:
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
@@ -216,6 +220,7 @@ private:
     bool hasOutputAudio = false;
     int generationProgress = 0;  // 0-100 for progress visualization
     bool isGenerating = false;
+    bool continueInProgress = false;  // Track if current generation is a continue operation
 
     // UI areas
     juce::Rectangle<int> outputWaveformArea;
@@ -257,6 +262,29 @@ private:
     bool smoothProgressAnimation = false;     // Whether we're currently animating
 
     void updateSmoothProgress();             // Smooth progress animation helper
+
+    // Stall detection for backend disconnection handling
+    int lastKnownServerProgress = 0;
+    bool hasDetectedStall = false;
+    static const int STALL_TIMEOUT_SECONDS = 15;  // 15 seconds without progress = stall
+    juce::int64 lastHealthCheckTime = 0;
+    static const int MIN_HEALTH_CHECK_INTERVAL_MS = 30000; // 30 seconds minimum between checks
+
+    const int STARTUP_TIMEOUT_SECONDS = 90;  // Generous timeout for model loading (0% progress)
+    const int GENERATION_TIMEOUT_SECONDS = 9; // Tighter timeout once generation starts (>0% progress)
+
+
+
+    // Backend disconnection and stall handling methods
+    bool checkForGenerationStall();
+    void handleGenerationStall();
+    void handleBackendDisconnection();
+    void handleGenerationFailure(const juce::String& reason);
+    void resetStallDetection();
+    void performSmartHealthCheck();
+    void showBackendDisconnectionDialog();
+
+    bool isCurrentlyQueued = false;
 
     void seekToPosition(double timeInSeconds);
 
@@ -308,6 +336,14 @@ private:
     std::unique_ptr<juce::Drawable> helpIcon;
     juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton;
     void createHelpIcon();
+
+    // Discord and X icons
+    std::unique_ptr<juce::Drawable> discordIcon;
+    std::unique_ptr<juce::Drawable> xIcon;
+    void createDiscordIcon();
+    void createXIcon();
+
+    void debugModelSelection(const juce::String& functionName);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

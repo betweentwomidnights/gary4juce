@@ -126,7 +126,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryPromptEditor.onTextChange = [this]() {
         currentJerryPrompt = jerryPromptEditor.getText();
         // Update button state whenever prompt changes
-        generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
+        updateAllGenerationButtonStates();
         };
     addAndMakeVisible(jerryPromptEditor);
 
@@ -351,7 +351,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     transformWithTerryButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
     transformWithTerryButton.onClick = [this]() { sendToTerry(); };
     transformWithTerryButton.setEnabled(false); // Initially disabled until we have audio
-    transformWithTerryButton.setTooltip("transform selected audio source according to variation or custom prompt");
+    transformWithTerryButton.setTooltip("transform selected audio source according to variation or custom prompt. max: ~40 seconds");
     addAndMakeVisible(transformWithTerryButton);
 
     // Undo button  
@@ -359,7 +359,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     undoTransformButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     undoTransformButton.onClick = [this]() { undoTerryTransform(); };
     // Enable if we have a session ID stored from previous session
-    undoTransformButton.setEnabled(!audioProcessor.getCurrentSessionId().isEmpty());
+    undoTransformButton.setEnabled(false);
     undoTransformButton.setTooltip("restore audio to state before last transformation");
     addAndMakeVisible(undoTransformButton);
 
@@ -429,7 +429,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     if (trashIcon)
         clearOutputButton.setIcon(trashIcon->createCopy());
     clearOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    clearOutputButton.setTooltip("Clear Output");
+    clearOutputButton.setTooltip("clear output");
     clearOutputButton.onClick = [this]() { clearOutputAudio(); };
     clearOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(clearOutputButton);
@@ -439,7 +439,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     if (stopIcon)
         stopOutputButton.setIcon(stopIcon->createCopy());
     stopOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    stopOutputButton.setTooltip("Stop");
+    stopOutputButton.setTooltip("stop playback");
     stopOutputButton.onClick = [this]() { fullStopOutputPlayback(); };
     stopOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(stopOutputButton);
@@ -450,7 +450,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // Load the logo image for the title
     loadLogoImage();
     
-    cropButton.setTooltip("Crop audio at current playback position");
+    cropButton.setTooltip("crop audio at current playback position");
     cropButton.onClick = [this]() { cropAudioAtCurrentPosition(); };
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
@@ -470,7 +470,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Enable drag and drop for this component
     setWantsKeyboardFocus(false); // Don't steal focus during drag operations
-    outputLabel.setTooltip("Drag generated audio to your DAW timeline");
+    outputLabel.setTooltip("drag generated audio to your DAW timeline");
     setInterceptsMouseClicks(true, true);
 
     // Set initial tab state
@@ -482,8 +482,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // Initialize tooltip window
     tooltipWindow = std::make_unique<juce::TooltipWindow>(this);
     
-    // Setup help icons
+    // Setup help icons and social media icons
     createHelpIcon();
+    createDiscordIcon();
+    createXIcon();
     
     if (helpIcon)
     {
@@ -818,6 +820,30 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
         CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
 }
 
+void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
+{
+    // Gary buttons - all should be disabled during ANY generation
+    sendToGaryButton.setEnabled(savedSamples > 0 && isConnected && !isGenerating);
+    if (!isGenerating) {
+        sendToGaryButton.setButtonText("send to gary");  // Only reset text when not generating
+    }
+    continueButton.setEnabled(hasOutputAudio && isConnected && !isGenerating);
+
+    // Retry button has special logic but should also respect isGenerating
+    juce::String sessionId = audioProcessor.getCurrentSessionId();
+    bool hasValidSession = !sessionId.isEmpty();
+    retryButton.setEnabled(hasValidSession && isConnected && !isGenerating);
+
+    // Jerry buttons - should be disabled during ANY generation
+    generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty() && !isGenerating);
+
+    // Terry buttons - already have the logic, but let's be explicit
+    updateTerrySourceButtons(); // This already checks !isGenerating
+
+   // DBG("Updated all generation button states - isGenerating: " + juce::String(isGenerating ? "true" : "false"));
+}
+
+
 //==============================================================================
 // Updated timerCallback() with smooth progress animation:
 void Gary4juceAudioProcessorEditor::timerCallback()
@@ -906,6 +932,7 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     bool wasRecording = isRecording;
     float wasProgress = recordingProgress;
     int wasSamples = recordedSamples;
+    bool wasConnected = isConnected; // Add this to track connection changes
 
     // Get current status from processor
     isRecording = audioProcessor.isRecording();
@@ -915,11 +942,14 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     // Update save button state
     saveBufferButton.setEnabled(recordedSamples > 0);
 
-    // Update Gary button state - need saved audio to send to Gary
-    sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
+    // ONLY update generation button states when something relevant has changed
+    bool needsButtonUpdate = (wasRecording != isRecording) ||
+        (wasSamples != recordedSamples) ||
+        (wasConnected != isConnected);
 
-    // Update Terry button states
-    updateTerrySourceButtons();
+    if (needsButtonUpdate) {
+        updateAllGenerationButtonStates();
+    }
 
     // Check if status message has expired
     if (hasStatusMessage)
@@ -965,7 +995,7 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         // Show "waiting" state
         g.setFont(juce::FontOptions(14.0f));
         g.setColour(juce::Colours::darkgrey);
-        g.drawText("Press PLAY in DAW to start recording", area, juce::Justification::centred);
+        g.drawText("press PLAY in DAW to start recording", area, juce::Justification::centred);
         return;
     }
 
@@ -1188,6 +1218,8 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
     isPolling = true;
     isGenerating = true;
     generationProgress = 0;
+    resetStallDetection();
+    updateAllGenerationButtonStates();
     repaint(); // Start showing progress visualization
     DBG("Started polling for session: " + sessionId);
 }
@@ -1204,6 +1236,13 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     juce::String sessionId = audioProcessor.getCurrentSessionId();
     if (!isPolling || sessionId.isEmpty())
         return;
+
+    // Check for stall before making new request
+    if (checkForGenerationStall())
+    {
+        handleGenerationStall();
+        return;
+    }
 
     // Create polling request in background thread
     juce::Thread::launch([this, sessionId]() {
@@ -1228,16 +1267,38 @@ void Gary4juceAudioProcessorEditor::pollForResults()
             }
             else
             {
-                DBG("Failed to create polling stream");
+                // Connection failed - trigger health check
+                DBG("Polling failed - checking backend health");
+                juce::MessageManager::callAsync([this]() {
+                    audioProcessor.checkBackendHealth();
+                    
+                    // Give health check time, then handle failure
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                        }
+                        else
+                        {
+                            handleGenerationFailure("polling failed - try again");
+                        }
+                    });
+                });
             }
         }
         catch (const std::exception& e)
         {
             DBG("Polling exception: " + juce::String(e.what()));
+            juce::MessageManager::callAsync([this]() {
+                handleGenerationFailure("network error during generation");
+            });
         }
         catch (...)
         {
             DBG("Unknown polling exception");
+            juce::MessageManager::callAsync([this]() {
+                handleGenerationFailure("network error during generation");
+            });
         }
         });
 }
@@ -1246,7 +1307,22 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 {
     if (responseText.isEmpty())
     {
-        DBG("Empty polling response");
+        DBG("Empty polling response - backend likely down");
+        stopPolling();
+
+        // Empty response indicates backend failure - check health immediately
+        audioProcessor.checkBackendHealth();
+
+        juce::Timer::callAfterDelay(3000, [this]() {
+            if (!audioProcessor.isBackendConnected())
+            {
+                handleBackendDisconnection();
+            }
+            else
+            {
+                handleGenerationFailure("empty response from backend - try again");
+            }
+            });
         return;
     }
 
@@ -1261,7 +1337,6 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 stopPolling();
                 showStatusMessage("processing failed", 3000);
-                continueButton.setEnabled(hasOutputAudio); // Re-enable continue button
                 return;
             }
 
@@ -1275,25 +1350,118 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 int serverProgress = responseObj->getProperty("progress");
                 serverProgress = juce::jlimit(0, 100, serverProgress);
 
-                // Set up smooth animation to new target
-                lastKnownProgress = generationProgress;  // Where we are now (visually)
-                targetProgress = serverProgress;         // Where server says we should be
-                lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                smoothProgressAnimation = true;          // Start smooth animation
+                // NEW: Check for queue status information (from enhanced /task_notification)
+                bool hasValidQueueStatus = false;
+                bool isQueuedForProcessing = false;
+                juce::String queueMessage;
+                juce::String queueStatus;
 
-                // FIXED: Check current tab instead of server transformInProgress flag
-                if (currentTab == ModelTab::Terry)
+                if (auto* queueStatusObj = responseObj->getProperty("queue_status").getDynamicObject())
                 {
-                    showStatusMessage("transforming: " + juce::String(serverProgress) + "%", 5000);
-                    DBG("Transform progress: " + juce::String(serverProgress) + "%, animating from " +
-                        juce::String(lastKnownProgress));
+                    queueStatus = queueStatusObj->getProperty("status").toString();
+                    queueMessage = queueStatusObj->getProperty("message").toString();
+                    hasValidQueueStatus = !queueStatus.isEmpty();
+                    isQueuedForProcessing = (queueStatus == "queued");
+
+                    DBG("Queue status found - Status: " + queueStatus + ", Message: " + queueMessage);
+                }
+
+                // Update stall detection tracking
+                auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
+
+                // ENHANCED: Reset stall detection on progress changes OR valid queue status
+                if (serverProgress > lastKnownServerProgress || hasValidQueueStatus)
+                {
+                    lastProgressUpdateTime = currentTime;
+                    if (serverProgress > lastKnownServerProgress)
+                        lastKnownServerProgress = serverProgress;
+                    hasDetectedStall = false;
+
+                    DBG("Stall detection reset - Progress: " + juce::String(serverProgress) +
+                        "%, Valid queue status: " + juce::String(hasValidQueueStatus ? "yes" : "no"));
+                }
+
+                // Set up smooth animation to new target (only if not queued)
+                if (!isQueuedForProcessing)
+                {
+                    lastKnownProgress = generationProgress;  // Where we are now (visually)
+                    targetProgress = serverProgress;         // Where server says we should be
+                    smoothProgressAnimation = true;          // Start smooth animation
+                }
+
+                // Update isCurrentlyQueued state
+                isCurrentlyQueued = isQueuedForProcessing;
+
+                // ENHANCED: Show appropriate status messages based on queue state
+                if (isQueuedForProcessing && hasValidQueueStatus)
+                {
+                    // Parse queue status data for concise message
+                    if (auto* queueStatusObj = responseObj->getProperty("queue_status").getDynamicObject())
+                    {
+                        int position = (int)queueStatusObj->getProperty("position");
+                        juce::String estimatedTime = queueStatusObj->getProperty("estimated_time").toString();
+                        int estimatedSeconds = (int)queueStatusObj->getProperty("estimated_seconds");
+
+                        // Create concise queue message
+                        juce::String conciseMessage;
+
+                        if (position > 0)
+                        {
+                            // Format: "busy rn - pos 2 - wait ~45s"
+                            juce::String shortTime;
+                            if (estimatedSeconds < 60)
+                                shortTime = juce::String(estimatedSeconds) + "s";
+                            else
+                                shortTime = juce::String(estimatedSeconds / 60) + "m";
+
+                            conciseMessage = "busy rn - queued - position # " + juce::String(position) + " - wait ~" + shortTime;
+                        }
+                        else
+                        {
+                            // Position 0 or unknown - just show that we're queued
+                            conciseMessage = "queued - starting soon...";
+                        }
+
+                        showStatusMessage(conciseMessage, 5000);
+                        DBG("Displaying concise queue message: " + conciseMessage);
+                        DBG("Full queue details - Position: " + juce::String(position) +
+                            ", Estimated time: " + estimatedTime);
+                    }
+                    else
+                    {
+                        // Fallback if queue data is missing
+                        showStatusMessage("queued for processing...", 5000);
+                    }
+                }
+                else if (serverProgress > 0 || queueStatus == "ready")
+                {
+                    // Show progress-based messages only when actually processing (not queued)
+                    if (currentTab == ModelTab::Terry)
+                    {
+                        showStatusMessage("transforming: " + juce::String(serverProgress) + "%", 5000);
+                        DBG("Transform progress: " + juce::String(serverProgress) + "%, animating from " +
+                            juce::String(lastKnownProgress));
+                    }
+                    else
+                    {
+                        showStatusMessage("cooking: " + juce::String(serverProgress) + "%", 5000);
+                        DBG("Generation progress: " + juce::String(serverProgress) + "%, animating from " +
+                            juce::String(lastKnownProgress));
+                    }
                 }
                 else
                 {
-                    showStatusMessage("generating: " + juce::String(serverProgress) + "%", 5000);
-                    DBG("Generation progress: " + juce::String(serverProgress) + "%, animating from " +
-                        juce::String(lastKnownProgress));
+                    // Fallback message when we have no specific queue info but task is in progress
+                    if (currentTab == ModelTab::Terry)
+                    {
+                        showStatusMessage("processing transform...", 5000);
+                    }
+                    else
+                    {
+                        showStatusMessage("processing audio...", 5000);
+                    }
                 }
+
                 return;
             }
 
@@ -1301,14 +1469,26 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
 
-            if (audioData.isNotEmpty())
+            DBG("=== POLLING RESPONSE ANALYSIS ===");
+            DBG("Status: " + status);
+            DBG("Audio data length: " + juce::String(audioData.length()));
+            DBG("Audio data empty: " + juce::String(audioData.isEmpty() ? "YES" : "NO"));
+            DBG("Full response: " + responseText.substring(0, 500) + "...");
+
+            // Reset queue state when task completes
+            isCurrentlyQueued = false;
+
+            if (audioData.isNotEmpty() && status == "completed")
             {
+                DBG("=== LEGITIMATE COMPLETION DETECTED ===");
                 stopPolling();
+                isGenerating = false;
 
                 // DIFFERENTIATE: Check if we're completing a transform vs generation
                 if (transformInProgress || currentTab == ModelTab::Terry)
                 {
                     // TRANSFORM COMPLETION - Keep session ID for undo
+                    transformWithTerryButton.setButtonText("transform with terry");
                     showStatusMessage("transform complete!", 3000);
                     saveGeneratedAudio(audioData);
                     DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
@@ -1324,10 +1504,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     saveGeneratedAudio(audioData);
                     DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
 
-                    // Check if this was a continue operation by looking at button text
-                    if (continueButton.getButtonText() == "continuing...")
+                    // Check if this was a continue operation using our flag
+                    if (continueInProgress)
                     {
                         // This was a continue operation - keep session ID and enable retry
+                        continueInProgress = false;  // Reset the flag
+                        retryButton.setButtonText("retry");  // Reset retry button text
                         updateRetryButtonState();
                         DBG("Continue operation completed - retry button enabled");
                     }
@@ -1338,7 +1520,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                         updateRetryButtonState();
                         DBG("Initial generation completed - retry button disabled");
                     }
-                    
+
                     updateContinueButtonState();
                 }
             }
@@ -1352,12 +1534,11 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
                     if (transformInProgress || currentTab == ModelTab::Terry)
                     {
-                        showStatusMessage("Transform failed: " + error, 5000);
+                        showStatusMessage("transform failed: " + error, 5000);
                     }
                     else
                     {
-                        showStatusMessage("Generation failed: " + error, 5000);
-                        continueButton.setEnabled(hasOutputAudio); // Re-enable continue button
+                        showStatusMessage("generation failed: " + error, 5000);
                     }
                 }
                 else if (status == "completed")
@@ -1366,20 +1547,53 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
                     if (transformInProgress || currentTab == ModelTab::Terry)
                     {
-                        showStatusMessage("Transform completed but no audio received", 3000);
+                        showStatusMessage("transform completed but no audio received", 3000);
                     }
                     else
                     {
-                        showStatusMessage("Generation completed but no audio received", 3000);
-                        continueButton.setEnabled(hasOutputAudio); // Re-enable continue button
+                        showStatusMessage("generation completed but no audio received", 3000);
                     }
                 }
             }
         }
+        else
+        {
+            DBG("Failed to parse polling response as JSON - backend likely down");
+            stopPolling();
+
+            // JSON parsing failure indicates backend issues - check health
+            audioProcessor.checkBackendHealth();
+
+            juce::Timer::callAfterDelay(3000, [this]() {
+                if (!audioProcessor.isBackendConnected())
+                {
+                    handleBackendDisconnection();
+                }
+                else
+                {
+                    handleGenerationFailure("invalid server response - try again");
+                }
+                });
+        }
     }
     catch (...)
     {
-        DBG("Failed to parse polling response");
+        DBG("Exception parsing polling response - backend likely down");
+        stopPolling();
+
+        // Exception indicates backend issues - check health
+        audioProcessor.checkBackendHealth();
+
+        juce::Timer::callAfterDelay(3000, [this]() {
+            if (!audioProcessor.isBackendConnected())
+            {
+                handleBackendDisconnection();
+            }
+            else
+            {
+                handleGenerationFailure("server response error - try again");
+            }
+            });
     }
 }
 
@@ -1409,7 +1623,7 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         // Write to file
         if (outputAudioFile.replaceWithData(audioData.getData(), audioData.getSize()))
         {
-            showStatusMessage("generated audio ready!", 3000);
+            showStatusMessage("generated audio ready", 3000);
             DBG("Generated audio saved to: " + outputAudioFile.getFullPathName());
 
             // STOP any current playback before loading new audio
@@ -1417,18 +1631,22 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
             if (isPlayingOutput || isPausedOutput)
             {
                 stopOutputPlayback(); // Full stop - reset to beginning
-                showStatusMessage("New audio ready! Press play to hear it.", 3000);
+                showStatusMessage("new audio ready. press play to hear it.", 3000);
             }
 
             // Load the audio file into our buffer for waveform display
             loadOutputAudioFile();
 
-            // FIXED: Reset continue button text after successful generation
+            // Reset button text after successful generation
+            sendToGaryButton.setButtonText("send to gary");
             continueButton.setButtonText("continue");
 
             // Reset generation state
             isGenerating = false;
             generationProgress = 0;
+
+            // Update all button states centrally
+            updateAllGenerationButtonStates();
 
             // Update UI
             repaint();
@@ -1448,11 +1666,13 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 {
     // Reset generation state immediately
     isGenerating = true;
+    continueInProgress = false;  // This is NOT a continue operation
     generationProgress = 0;
     lastKnownProgress = 0;
     targetProgress = 0;
     smoothProgressAnimation = false;
-    repaint(); // Force immediate UI update
+    resetStallDetection();
+
     
     if (savedSamples <= 0)
     {
@@ -1518,10 +1738,12 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     DBG("Audio file size: " + juce::String(audioData.getSize()) + " bytes");
     DBG("Base64 length: " + juce::String(base64Audio.length()) + " chars");
 
-    // Disable button and show processing state
-    sendToGaryButton.setEnabled(false);
+    // Button text feedback and status during processing (AFTER button state update)
     sendToGaryButton.setButtonText("sending...");
     showStatusMessage("sending audio to gary...");
+
+    updateAllGenerationButtonStates();
+    repaint(); // Force immediate UI update
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, selectedModel, base64Audio]() {
@@ -1617,7 +1839,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                     if (success)
                     {
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
-                        showStatusMessage("sent to gary! processing...", 2000);
+                        showStatusMessage("sent to gary. processing...", 2000);
                         DBG("Session ID: " + sessionId);
 
                         // START POLLING FOR RESULTS
@@ -1650,11 +1872,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
                 showStatusMessage(errorMsg, 4000);
                 DBG(errorMsg);
+                // Reset button text on error
+                sendToGaryButton.setButtonText("send to gary");
             }
 
-            // Re-enable button
-            sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
-            sendToGaryButton.setButtonText("send to gary");
+
             });
         });
 }
@@ -1688,33 +1910,90 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     sendContinueRequest(base64Audio);
 }
 
+void Gary4juceAudioProcessorEditor::debugModelSelection(const juce::String& functionName)
+{
+    const juce::StringArray modelNames = {
+        "thepatch/vanya_ai_dnb_0.1",
+        "thepatch/bleeps-medium",
+        "thepatch/gary_orchestra_2",
+        "thepatch/hoenn_lofi"
+    };
+
+    DBG("=== MODEL SELECTION DEBUG (" + functionName + ") ===");
+    DBG("ComboBox selectedId: " + juce::String(modelComboBox.getSelectedId()));
+    DBG("ComboBox selectedText: " + modelComboBox.getText());
+    DBG("currentModelIndex: " + juce::String(currentModelIndex));
+
+    if (currentModelIndex >= 0 && currentModelIndex < modelNames.size())
+    {
+        DBG("Selected model: " + modelNames[currentModelIndex]);
+    }
+    else
+    {
+        DBG("ERROR: currentModelIndex out of bounds!");
+    }
+    DBG("=== END DEBUG ===");
+}
+
+// UPDATED: sendContinueRequest with proper debugging
 void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audioData)
 {
+    // Debug model selection BEFORE starting request
+    debugModelSelection("sendContinueRequest");
+
     DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
     showStatusMessage("requesting continuation...", 3000);
 
     // Reset generation state immediately
     isGenerating = true;
+    continueInProgress = true;  // Mark this as a continue operation
     generationProgress = 0;
+    resetStallDetection();
     lastKnownProgress = 0;
     targetProgress = 0;
     smoothProgressAnimation = false;
+    updateAllGenerationButtonStates();
     repaint(); // Force immediate UI update
 
-    // Disable continue button during processing
-    continueButton.setEnabled(false);
+    // Button text feedback during processing
     continueButton.setButtonText("continuing...");
 
-    // Create HTTP request in background thread (same pattern as sendToGary)
-    juce::Thread::launch([this, audioData]() {
+    // Capture current model index NOW (before thread launch)
+    int capturedModelIndex = currentModelIndex;
+    DBG("Captured model index for continue: " + juce::String(capturedModelIndex));
+
+    // Create HTTP request in background thread
+    juce::Thread::launch([this, audioData, capturedModelIndex]() {
 
         auto startTime = juce::Time::getCurrentTime();
+
+        // Get the model names array
+        const juce::StringArray modelNames = {
+            "thepatch/vanya_ai_dnb_0.1",
+            "thepatch/bleeps-medium",
+            "thepatch/gary_orchestra_2",
+            "thepatch/hoenn_lofi"
+        };
+
+        // Safely get selected model with bounds checking
+        juce::String selectedModel;
+        if (capturedModelIndex >= 0 && capturedModelIndex < modelNames.size())
+        {
+            selectedModel = modelNames[capturedModelIndex];
+        }
+        else
+        {
+            DBG("ERROR: Invalid model index " + juce::String(capturedModelIndex) + ", defaulting to first model");
+            selectedModel = modelNames[0];
+        }
+
+        DBG("Continue using model: " + selectedModel + " (index: " + juce::String(capturedModelIndex) + ")");
 
         // Create JSON payload - same structure as sendToGary
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("audio_data", audioData);
         jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
-        jsonRequest->setProperty("model_name", "thepatch/vanya_ai_dnb_0.1"); // Use same model as Gary
+        jsonRequest->setProperty("model_name", selectedModel); // Use captured selected model
         jsonRequest->setProperty("top_k", 250);
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
@@ -1796,23 +2075,20 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                     else
                     {
                         auto error = obj->getProperty("error").toString();
-                        showStatusMessage("Continue failed: " + error, 5000);
-                        continueButton.setEnabled(hasOutputAudio);
+                        showStatusMessage("continue failed: " + error, 5000);
                         continueButton.setButtonText("continue");
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid response format", 3000);
-                    continueButton.setEnabled(hasOutputAudio);
+                    showStatusMessage("invalid response format", 3000);
                     continueButton.setButtonText("continue");
                 }
             }
             else
             {
                 DBG("Continue request failed - HTTP " + juce::String(statusCode));
-                showStatusMessage("Connection failed", 3000);
-                continueButton.setEnabled(hasOutputAudio);
+                showStatusMessage("connection failed", 3000);
                 continueButton.setButtonText("continue");
             }
             });
@@ -1835,22 +2111,32 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         return;
     }
 
+    // ADD THIS: Stop any existing polling first to prevent race conditions
+    if (isPolling) {
+        DBG("Stopping existing polling before retry");
+        stopPolling();
+        // Give it a moment to clean up
+        juce::Thread::sleep(50);
+    }
+
+
     DBG("Retrying last continuation for session: " + sessionId);
     
     // Reset generation state immediately (like other operations)
     isGenerating = true;
+    continueInProgress = true;  // Retry is also a continue-type operation
     generationProgress = 0;
+    resetStallDetection();
     lastKnownProgress = 0;
     targetProgress = 0;
     smoothProgressAnimation = false;
+    updateAllGenerationButtonStates();
     repaint();
 
-    // Disable buttons during processing
-    retryButton.setEnabled(false);
+    // Button text feedback during processing
     retryButton.setButtonText("retrying...");
-    continueButton.setEnabled(false);
     
-    showStatusMessage("Retrying last continuation...", 2000);
+    showStatusMessage("retrying last continuation...", 2000);
 
     // Create HTTP request in background thread (same pattern as other requests)
     juce::Thread::launch([this, sessionId]() {
@@ -1934,19 +2220,19 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                     else
                     {
                         auto error = obj->getProperty("error").toString();
-                        showStatusMessage("Retry failed: " + error, 5000);
+                        showStatusMessage("retry failed: " + error, 5000);
                         updateRetryButtonState();
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid retry response format", 3000);
+                    showStatusMessage("invalid retry response format", 3000);
                     updateRetryButtonState();
                 }
             }
             else
             {
-                showStatusMessage("Retry connection failed", 3000);
+                showStatusMessage("retry connection failed", 3000);
                 updateRetryButtonState();
             }
         });
@@ -2034,8 +2320,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         DBG("Loop Type: " + currentLoopType);
     }
 
-    // Disable button and show processing state
-    generateWithJerryButton.setEnabled(false);
+    // Button text feedback and status during processing
     generateWithJerryButton.setButtonText("generating...");
     showStatusMessage(statusText, 2000);
 
@@ -2134,6 +2419,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                         if (audioBase64.isNotEmpty())
                         {
+                            // Reset button text on successful completion
+                            generateWithJerryButton.setButtonText("generate with jerry");
+                            
                             // Save generated audio (same as Gary's saveGeneratedAudio function)
                             saveGeneratedAudio(audioBase64);
 
@@ -2147,13 +2435,13 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                                 if (generateAsLoop) {
                                     auto bars = (int)metadata->getProperty("bars");
                                     auto loopDuration = (double)metadata->getProperty("loop_duration_seconds");
-                                    showStatusMessage("Smart loop complete! " + juce::String(bars) + " bars (" +
+                                    showStatusMessage("smart loop rdy " + juce::String(bars) + " bars (" +
                                         juce::String(loopDuration, 1) + "s) " + genTime + "s", 5000);
                                     DBG("Jerry loop metadata - Bars: " + juce::String(bars) +
                                         ", Duration: " + juce::String(loopDuration, 1) + "s");
                                 }
                                 else {
-                                    showStatusMessage("Jerry complete! " + genTime + "s (" + rtFactor + "x RT)", 4000);
+                                    showStatusMessage("jerry's done already " + genTime + "s (" + rtFactor + "x RT)", 4000);
                                 }
 
                                 DBG("Jerry metadata - Generation time: " + genTime + "s, RT factor: " + rtFactor + "x");
@@ -2161,47 +2449,80 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                             else
                             {
                                 juce::String successMsg = generateAsLoop ?
-                                    "Smart loop generation complete!" : "Jerry generation complete!";
+                                    "smart loop rdy" : "jerry's done already";
                                 showStatusMessage(successMsg, 3000);
                             }
                         }
                         else
                         {
-                            showStatusMessage("Jerry completed but no audio received", 3000);
+                            showStatusMessage("jerry finished but no audio received", 3000);
                             DBG("Jerry success but missing audio_base64");
                         }
                     }
                     else
                     {
                         auto error = responseObj->getProperty("error").toString();
-                        showStatusMessage("Jerry error: " + error, 5000);
+                        showStatusMessage("jerry error: " + error, 5000);
                         DBG("Jerry server error: " + error);
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid JSON response from Jerry", 4000);
+                    showStatusMessage("invalid JSON response from jerry", 4000);
                     DBG("Failed to parse Jerry JSON response");
+                    
+                    // Invalid JSON could indicate backend issues - check health
+                    DBG("Jerry JSON parsing failed - checking backend health");
+                    audioProcessor.checkBackendHealth();
+                    
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                        }
+                    });
                 }
             }
             else
             {
                 juce::String errorMsg;
+                bool shouldCheckHealth = false;
+                
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
-                    errorMsg = "Cannot connect to Jerry on localhost - ensure Docker Compose is running";
+                    errorMsg = "cannot connect to jerry on localhost - ensure docker compose is running";
                 else if (statusCode == 0)
-                    errorMsg = "Failed to connect to Jerry on remote backend";
+                {
+                    errorMsg = "failed to connect to jerry on remote backend";
+                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                }
                 else if (statusCode >= 400)
-                    errorMsg = "Jerry server error (HTTP " + juce::String(statusCode) + ")";
+                {
+                    errorMsg = "jerry server error (HTTP " + juce::String(statusCode) + ")";
+                    shouldCheckHealth = true;  // Server error - might be backend issue
+                }
                 else
-                    errorMsg = "Empty response from Jerry";
+                    errorMsg = "empty response from jerry";
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Jerry request failed: " + errorMsg);
+                
+                // Check backend health if connection/server failure
+                if (shouldCheckHealth)
+                {
+                    DBG("Jerry failed - checking backend health");
+                    audioProcessor.checkBackendHealth();
+                    
+                    // Give health check time, then handle result
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                        }
+                    });
+                }
             }
 
-            // Re-enable button
-            generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
+            // Reset button text on error
             generateWithJerryButton.setButtonText("generate with jerry");
             });
         });
@@ -2247,6 +2568,9 @@ void Gary4juceAudioProcessorEditor::updateTerrySourceButtons()
     }
 
     transformWithTerryButton.setEnabled(canTransform && !isGenerating);
+    if (!isGenerating) {
+        transformWithTerryButton.setButtonText("transform with terry");
+    }
 
     // Enable/disable radio buttons
     transformRecordingButton.setEnabled(savedSamples > 0);
@@ -2262,12 +2586,14 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     isGenerating = true;
     generationProgress = 0;
     lastKnownProgress = 0;
+    resetStallDetection();
     targetProgress = 0;
     smoothProgressAnimation = false;
 
     // Clear any previous session ID since we're starting fresh
     audioProcessor.clearCurrentSessionId();  // Clear previous session
 
+    updateAllGenerationButtonStates();
     repaint(); // Force immediate UI update
 
     // Basic validation checks (like Gary and Jerry)
@@ -2340,7 +2666,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     if (!audioFile.exists())
     {
         isGenerating = false;
-        showStatusMessage("Audio file not found - " + audioFile.getFileName());
+        showStatusMessage("audio file not found - " + audioFile.getFileName());
         return;
     }
 
@@ -2368,10 +2694,9 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     DBG("Terry flowstep: " + juce::String(currentTerryFlowstep, 3));
     DBG("Terry solver: " + juce::String(useMidpointSolver ? "midpoint" : "euler"));
 
-    // Disable button and show processing state (like Gary and Jerry)
-    transformWithTerryButton.setEnabled(false);
+    // Button text feedback and status during processing
     transformWithTerryButton.setButtonText("transforming...");
-    showStatusMessage("Sending audio to Terry for transformation...");
+    showStatusMessage("sending audio to terry for transformation...");
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
     juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt]() {
@@ -2476,7 +2801,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                     if (success)
                     {
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
-                        showStatusMessage("Sent to Terry! Processing...", 2000);
+                        showStatusMessage("sent to terry. processing...", 2000);
                         DBG("Terry session ID: " + sessionId);
 
                         // START POLLING FOR RESULTS (same as Gary)
@@ -2488,13 +2813,13 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                     else
                     {
                         juce::String error = responseObj->getProperty("error").toString();
-                        showStatusMessage("Terry error: " + error, 5000);
+                        showStatusMessage("terry error: " + error, 5000);
                         DBG("Terry server error: " + error);
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid JSON response from Terry", 4000);
+                    showStatusMessage("invalid JSON response from terry", 4000);
                     DBG("Failed to parse Terry JSON response: " + responseText.substring(0, 100));
                 }
             }
@@ -2502,21 +2827,22 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
             {
                 juce::String errorMsg;
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
-                    errorMsg = "Cannot connect to Terry on localhost - ensure Docker Compose is running";
+                    errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
                 else if (statusCode == 0)
-                    errorMsg = "Failed to connect to Terry on remote backend";
+                    errorMsg = "failed to connect to Terry on remote backend";
                 else if (statusCode >= 400)
-                    errorMsg = "Terry server error (HTTP " + juce::String(statusCode) + ")";
+                    errorMsg = "terry server error (HTTP " + juce::String(statusCode) + ")";
                 else
-                    errorMsg = "Empty response from Terry";
+                    errorMsg = "empty response from terry";
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Terry request failed: " + errorMsg);
+                transformWithTerryButton.setButtonText("transform with terry");
             }
 
             // Re-enable transform button (same pattern as Gary/Jerry)
             updateTerrySourceButtons(); // This will set the right enabled state
-            transformWithTerryButton.setButtonText("transform with terry");
+
             });
         });
 }
@@ -2527,12 +2853,12 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
     juce::String sessionId = audioProcessor.getCurrentSessionId();
     if (sessionId.isEmpty())
     {
-        showStatusMessage("No transform session to undo", 3000);
+        showStatusMessage("no transform session to undo", 3000);
         return;
     }
 
     DBG("Attempting to undo Terry transform for session: " + sessionId);
-    showStatusMessage("Undoing transform...", 2000);
+    showStatusMessage("undoing transform...", 2000);
 
     // Disable undo button during request
     undoTransformButton.setEnabled(false);
@@ -2619,51 +2945,60 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                         {
                             // Save the restored audio
                             saveGeneratedAudio(audioData);
-                            showStatusMessage("Transform undone - audio restored!", 3000);
+                            showStatusMessage("transform undone - audio restored.", 3000);
                             DBG("Terry undo successful - audio restored");
 
                             // Clear session ID since undo is complete
                             audioProcessor.clearCurrentSessionId();
                             undoTransformButton.setEnabled(false);  // Disable undo button
+                            undoTransformButton.setButtonText("undo transform");  // Reset button text
                         }
                         else
                         {
-                            showStatusMessage("Undo completed but no audio data received", 3000);
+                            showStatusMessage("undo completed but no audio data received", 3000);
                             DBG("Terry undo success but missing audio data");
+                            // Re-enable undo button since this is an error case
+                            undoTransformButton.setEnabled(true);
+                            undoTransformButton.setButtonText("undo transform");
                         }
                     }
                     else
                     {
                         auto error = responseObj->getProperty("error").toString();
-                        showStatusMessage("Undo failed: " + error, 4000);
+                        showStatusMessage("undo failed: " + error, 4000);
                         DBG("Terry undo server error: " + error);
+                        // Re-enable undo button since this is an error case
+                        undoTransformButton.setEnabled(true);
+                        undoTransformButton.setButtonText("undo transform");
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid undo response format", 3000);
+                    showStatusMessage("invalid undo response format", 3000);
                     DBG("Failed to parse Terry undo JSON response");
+                    // Re-enable undo button since this is an error case
+                    undoTransformButton.setEnabled(true);
+                    undoTransformButton.setButtonText("undo transform");
                 }
             }
             else
             {
                 juce::String errorMsg;
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
-                    errorMsg = "Cannot connect for undo on localhost - ensure Docker Compose is running";
+                    errorMsg = "cannot connect for undo on localhost - ensure docker compose is running";
                 else if (statusCode == 0)
-                    errorMsg = "Failed to connect for undo on remote backend";
+                    errorMsg = "failed to connect for undo on remote backend";
                 else if (statusCode >= 400)
-                    errorMsg = "Undo server error (HTTP " + juce::String(statusCode) + ")";
+                    errorMsg = "undo server error (HTTP " + juce::String(statusCode) + ")";
                 else
-                    errorMsg = "Empty undo response";
+                    errorMsg = "empty undo response";
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Terry undo request failed: " + errorMsg);
+                // Re-enable undo button since this is an error case
+                undoTransformButton.setEnabled(true);
+                undoTransformButton.setButtonText("undo transform");
             }
-
-            // Re-enable undo button
-            undoTransformButton.setEnabled(true);
-            undoTransformButton.setButtonText("undo transform");
             });
         });
 }
@@ -2683,25 +3018,15 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         isConnected = connected;
         DBG("Backend connection status updated: " + juce::String(connected ? "Connected" : "Disconnected"));
 
-        // Update Gary button state when connection changes
-        sendToGaryButton.setEnabled(savedSamples > 0 && isConnected);
-
-        // Update Jerry button state when connection changes
-        generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty());
-
-        // Update Terry button state when connection changes
-        updateTerrySourceButtons();
-        
-        // Update Gary retry and continue button states when connection changes
-        updateContinueButtonState();
-        updateRetryButtonState();
+        // Update ALL button states when connection changes
+        updateAllGenerationButtonStates();
 
         repaint(); // Trigger a redraw to update tab section border
 
         // Re-enable check button if it was disabled
         if (!checkConnectionButton.isEnabled())
         {
-            checkConnectionButton.setButtonText("Check Backend Connection");
+            checkConnectionButton.setButtonText("check backend connection");
             checkConnectionButton.setEnabled(true);
         }
     }
@@ -2828,42 +3153,86 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             drawExistingOutput(g, area, 0.3f); // 30% opacity
         }
 
-        // Draw progress overlay
-        const int progressWidth = (area.getWidth() - 2) * generationProgress / 100;
-
-        if (progressWidth > 0)
+        // ENHANCED: Different visual treatment for queued vs processing
+        if (isCurrentlyQueued)
         {
-            // Progress background
-            g.setColour(juce::Colours::red.withAlpha(0.4f));
-            g.fillRect(area.getX() + 1, area.getY() + 1, progressWidth, area.getHeight() - 2);
+            // QUEUED STATE - Show pulsing queue indicator instead of progress bar
+            auto time = juce::Time::getCurrentTime().toMilliseconds();
+            float pulse = (std::sin(time * 0.003f) + 1.0f) * 0.5f; // Slower pulse for queue
 
-            // Progress border (growing edge)
-            g.setColour(juce::Colours::white.withAlpha(0.8f));
-            g.drawVerticalLine(area.getX() + 1 + progressWidth, (float)area.getY(), (float)area.getBottom());
+            // Subtle pulsing background
+            g.setColour(juce::Colours::orange.withAlpha(0.2f + pulse * 0.2f));
+            g.fillRect(area.getX() + 1, area.getY() + 1, area.getWidth() - 2, area.getHeight() - 2);
+
+            // Pulsing border
+            g.setColour(juce::Colours::orange.withAlpha(0.5f + pulse * 0.3f));
+            g.drawRect(area.getX() + 1, area.getY() + 1, area.getWidth() - 2, area.getHeight() - 2, 1);
+        }
+        else
+        {
+            // PROCESSING STATE - Show traditional progress bar
+            const int progressWidth = (area.getWidth() - 2) * generationProgress / 100;
+
+            if (progressWidth > 0)
+            {
+                // Progress background
+                g.setColour(juce::Colours::red.withAlpha(0.4f));
+                g.fillRect(area.getX() + 1, area.getY() + 1, progressWidth, area.getHeight() - 2);
+
+                // Progress border (growing edge)
+                g.setColour(juce::Colours::white.withAlpha(0.8f));
+                g.drawVerticalLine(area.getX() + 1 + progressWidth, (float)area.getY(), (float)area.getBottom());
+            }
         }
 
-        // Progress text
+        // ENHANCED: Smart progress text based on queue state
         g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
         g.setColour(juce::Colours::white);
-        g.drawText("cooking: " + juce::String(generationProgress) + "%",
-            area, juce::Justification::centred);
+
+        juce::String displayText;
+        if (isCurrentlyQueued)
+        {
+            // Show queue status instead of confusing "cooking: 0%"
+            if (currentTab == ModelTab::Terry)
+            {
+                displayText = "queued for transform";
+            }
+            else
+            {
+                displayText = "queued for generation";
+            }
+        }
+        else
+        {
+            // Show traditional progress when actually processing
+            if (currentTab == ModelTab::Terry)
+            {
+                displayText = "transforming: " + juce::String(generationProgress) + "%";
+            }
+            else
+            {
+                displayText = "cooking: " + juce::String(generationProgress) + "%";
+            }
+        }
+
+        g.drawText(displayText, area, juce::Justification::centred);
     }
     else if (hasOutputAudio && outputAudioBuffer.getNumSamples() > 0)
     {
         // NORMAL OUTPUT WAVEFORM display
         drawExistingOutput(g, area, 1.0f); // Full opacity
-        
+
         // Add drag feedback overlay
         if (isDragging)
         {
             // Drag highlight overlay
             g.setColour(juce::Colours::yellow.withAlpha(0.3f));
             g.fillRoundedRectangle(area.toFloat(), 4.0f);
-            
+
             // Drag border
             g.setColour(juce::Colours::yellow);
             g.drawRoundedRectangle(area.toFloat(), 4.0f, 2.0f);
-            
+
             // Drag text
             g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
             g.setColour(juce::Colours::white);
@@ -3054,7 +3423,7 @@ void Gary4juceAudioProcessorEditor::startOutputPlayback()
         }
         else
         {
-            showStatusMessage("Failed to read output audio");
+            showStatusMessage("failed to read output audio");
         }
     }
 }
@@ -3115,7 +3484,7 @@ void Gary4juceAudioProcessorEditor::resumeOutputPlayback()
                 }
                 else
                 {
-                    showStatusMessage("Failed to read output audio");
+                    showStatusMessage("failed to read output audio");
                     return;
                 }
             }
@@ -3346,7 +3715,7 @@ void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
             transportSource->setPosition(timeInSeconds);
             currentPlaybackPosition = timeInSeconds;
 
-            showStatusMessage("Seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
+            showStatusMessage("seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
             repaint(); // Update cursor position immediately
         }
     }
@@ -3366,7 +3735,7 @@ void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
         pausedPosition = timeInSeconds;
         isPausedOutput = true; // Set paused state so next play resumes from here
 
-        showStatusMessage("Seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
+        showStatusMessage("seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
         repaint(); // Update cursor position immediately
     }
 }
@@ -3597,6 +3966,48 @@ void Gary4juceAudioProcessorEditor::createHelpIcon()
     else
     {
         DBG("failed to create help icon from svg");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::createDiscordIcon()
+{
+    // Discord SVG with white fill to match theme
+    const char* discordSvg = R"(
+<svg fill="white" width="24" height="24" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg">
+<path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+</svg>)";
+
+    // Create drawable from SVG
+    discordIcon = juce::Drawable::createFromImageData(discordSvg, strlen(discordSvg));
+
+    if (discordIcon)
+    {
+        DBG("Discord icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create Discord icon from SVG");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::createXIcon()
+{
+    // X (Twitter) SVG with white fill to match theme
+    const char* xSvg = R"(
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" width="24px" height="24px">
+<path fill="white" d="M 11 4 C 7.134 4 4 7.134 4 11 L 4 39 C 4 42.866 7.134 46 11 46 L 39 46 C 42.866 46 46 42.866 46 39 L 46 11 C 46 7.134 42.866 4 39 4 L 11 4 z M 13.085938 13 L 21.023438 13 L 26.660156 21.009766 L 33.5 13 L 36 13 L 27.789062 22.613281 L 37.914062 37 L 29.978516 37 L 23.4375 27.707031 L 15.5 37 L 13 37 L 22.308594 26.103516 L 13.085938 13 z M 16.914062 15 L 31.021484 35 L 34.085938 35 L 19.978516 15 L 16.914062 15 z"/>
+</svg>)";
+
+    // Create drawable from SVG
+    xIcon = juce::Drawable::createFromImageData(xSvg, strlen(xSvg));
+
+    if (xIcon)
+    {
+        DBG("X icon created successfully from SVG");
+    }
+    else
+    {
+        DBG("Failed to create X icon from SVG");
     }
 }
 
@@ -3930,7 +4341,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         else if (recordedSamples > 0)
         {
             statusText = "READY";
-            g.setColour(juce::Colours::green);
+            g.setColour(juce::Colours::white);
         }
         else
         {
@@ -4548,5 +4959,270 @@ void Gary4juceAudioProcessorEditor::updateContinueButtonState()
     continueButton.setButtonText("continue");
 }
 
+//==============================================================================
+// Backend Disconnection and Stall Handling Methods
+//==============================================================================
+
+bool Gary4juceAudioProcessorEditor::checkForGenerationStall()
+{
+    if (!isGenerating) return false;
+
+    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
+
+    // If this is our first progress update, initialize the timer
+    if (lastProgressUpdateTime == 0)
+    {
+        lastProgressUpdateTime = currentTime;
+        lastKnownServerProgress = 0;
+        return false;
+    }
+
+    // Check if we've been stuck without progress for too long
+    auto timeSinceLastUpdate = currentTime - lastProgressUpdateTime;
+
+    // Smart timeout: longer for startup (0% progress), shorter once generation begins
+    int timeoutSeconds;
+    juce::String timeoutReason;
+
+    if (lastKnownServerProgress == 0)
+    {
+        // Still at 0% - model might still be loading
+        timeoutSeconds = STARTUP_TIMEOUT_SECONDS;
+        timeoutReason = "startup/model loading";
+    }
+    else
+    {
+        // Generation has started - should be making regular progress
+        timeoutSeconds = GENERATION_TIMEOUT_SECONDS;
+        timeoutReason = "generation progress";
+    }
+
+    bool isStalled = (timeSinceLastUpdate > (timeoutSeconds * 1000));
+
+    if (isStalled && !hasDetectedStall)
+    {
+        DBG("Generation stall detected (" + timeoutReason + ") - no progress for " +
+            juce::String(timeSinceLastUpdate / 1000) + " seconds (timeout: " +
+            juce::String(timeoutSeconds) + "s)");
+        hasDetectedStall = true;
+        return true;
+    }
+
+    return false;
+}
+
+void Gary4juceAudioProcessorEditor::handleGenerationStall()
+{
+    DBG("Handling generation stall - checking backend health");
+    
+    // Stop polling immediately
+    stopPolling();
+    
+    // Show immediate feedback
+    showStatusMessage("checking backend connection...", 3000);
+    
+    // Check if backend is actually down
+    audioProcessor.checkBackendHealth();
+    
+    // Give health check time to complete, then handle result
+    juce::Timer::callAfterDelay(6000, [this]() {
+        if (!audioProcessor.isBackendConnected())
+        {
+            // Backend is confirmed down
+            handleBackendDisconnection();
+        }
+        else
+        {
+            // Backend is up but generation failed for other reasons
+            handleGenerationFailure("generation timed out - try again or check backend logs");
+        }
+    });
+}
+
+void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
+{
+    DBG("=== BACKEND DISCONNECTION CONFIRMED - CLEANING UP STATE ===");
+    
+    // Clean up generation state
+    isGenerating = false;
+    isPolling = false;
+    generationProgress = 0;
+    lastProgressUpdateTime = 0;
+    lastKnownServerProgress = 0;
+    hasDetectedStall = false;
+    
+    // Update connection status
+    updateConnectionStatus(false);
+    
+    // Update all button states centrally
+    updateAllGenerationButtonStates();
+    
+    // Show user-friendly error with communication options
+    showBackendDisconnectionDialog();
+    
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& reason)
+{
+    DBG("Generation failed: " + reason);
+    
+    // Clean up generation state (same as disconnection)
+    isGenerating = false;
+    isPolling = false;
+    generationProgress = 0;
+    lastProgressUpdateTime = 0;
+    lastKnownServerProgress = 0;
+    hasDetectedStall = false;
+    
+    // Update all button states centrally
+    updateAllGenerationButtonStates();
+    
+    // Show error message
+    showStatusMessage(reason, 5000);
+    
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::resetStallDetection()
+{
+    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
+
+    DBG("=== AGGRESSIVE STALL RESET ===");
+    DBG("Old lastProgressUpdateTime: " + juce::String(lastProgressUpdateTime));
+
+    lastProgressUpdateTime = currentTime; // Set to NOW instead of 0
+    lastKnownServerProgress = 0;
+    hasDetectedStall = false;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+
+    DBG("New lastProgressUpdateTime: " + juce::String(lastProgressUpdateTime));
+    DBG("Stall detection AND animation state aggressively reset");
+}
+
+void Gary4juceAudioProcessorEditor::performSmartHealthCheck()
+{
+    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
+    
+    // Don't spam health checks
+    if (currentTime - lastHealthCheckTime < MIN_HEALTH_CHECK_INTERVAL_MS)
+    {
+        DBG("Skipping health check - too soon since last check");
+        return;
+    }
+    
+    lastHealthCheckTime = currentTime;
+    audioProcessor.checkBackendHealth();
+    DBG("Performing smart health check");
+}
+
+void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
+{
+    DBG("=== SHOWING BACKEND DISCONNECTION DIALOG ===");
+
+    // Create custom button panel component with safer memory management
+    class CustomButtonPanel : public juce::Component
+    {
+    public:
+        CustomButtonPanel(Gary4juceAudioProcessorEditor* editor)
+            : parentEditor(editor)
+        {
+            // Create Discord button with icon
+            discordButton = std::make_unique<CustomButton>();
+            discordButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+            if (editor->discordIcon)
+                discordButton->setIcon(editor->discordIcon->createCopy());
+            discordButton->setTooltip("Join Discord server");
+            discordButton->onClick = [this]() {
+                juce::URL("https://discord.gg/VECkyXEnAd").launchInDefaultBrowser();
+                // Note: Don't close modal here - let user choose to close or try Twitter too
+                };
+            addAndMakeVisible(discordButton.get());
+
+            // Create X button with icon
+            xButton = std::make_unique<CustomButton>();
+            xButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+            if (editor->xIcon)
+                xButton->setIcon(editor->xIcon->createCopy());
+            xButton->setTooltip("Follow on X/Twitter");
+            xButton->onClick = [this]() {
+                juce::URL("https://twitter.com/@thepatch_kev").launchInDefaultBrowser();
+                // Note: Don't close modal here - let user choose to close or try Discord too
+                };
+            addAndMakeVisible(xButton.get());
+
+            // Visual reference area with bar chart icon
+            visualRefLabel = std::make_unique<juce::Label>();
+            visualRefLabel->setText("in a few minutes, click this button in the main window:", juce::dontSendNotification);
+            visualRefLabel->setJustificationType(juce::Justification::centred);
+            visualRefLabel->setColour(juce::Label::textColourId, juce::Colours::white);
+            addAndMakeVisible(visualRefLabel.get());
+
+            // Create visual reference button (non-clickable)
+            if (editor->checkConnectionIcon)
+            {
+                visualRefButton = std::make_unique<CustomButton>();
+                visualRefButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+                visualRefButton->setIcon(editor->checkConnectionIcon->createCopy());
+                visualRefButton->setEnabled(false); // Make it non-clickable
+                visualRefButton->setTooltip("this is the check connection button in the main UI");
+                addAndMakeVisible(visualRefButton.get());
+            }
+
+            setSize(300, 120);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds();
+
+            // Visual reference section (top part)
+            auto visualRefArea = area.removeFromTop(60);
+            visualRefLabel->setBounds(visualRefArea.removeFromTop(30));
+            if (visualRefButton)
+                visualRefButton->setBounds(visualRefArea.reduced(10).withSizeKeepingCentre(30, 30));
+
+            // Button section (bottom part)  
+            auto buttonArea = area.reduced(10);
+            int buttonWidth = buttonArea.getWidth() / 2 - 5;
+            discordButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
+            buttonArea.removeFromLeft(10); // spacing
+            xButton->setBounds(buttonArea);
+        }
+
+    private:
+        Gary4juceAudioProcessorEditor* parentEditor;
+        std::unique_ptr<CustomButton> discordButton;
+        std::unique_ptr<CustomButton> xButton;
+        std::unique_ptr<CustomButton> visualRefButton;
+        std::unique_ptr<juce::Label> visualRefLabel;
+    };
+
+    // Create alert window with updated message
+    auto* alertWindow = new juce::AlertWindow("backend down",
+        "our backend runs on a spot vm\n"
+        "and azure prolly deallocated it.\n"
+        "hit up kev in discord/twitter or",
+        juce::MessageBoxIconType::WarningIcon,
+        this);
+
+    // Create and add custom button panel - AlertWindow will own it
+    auto* customButtons = new CustomButtonPanel(this);
+    alertWindow->addCustomComponent(customButtons);
+
+    // Add only close button as standard button - this will auto-close the modal
+    alertWindow->addButton("close", 999);
+
+    // Enter modal state - REMOVE the exitModalState call!
+    alertWindow->enterModalState(true,
+        juce::ModalCallbackFunction::create([alertWindow](int result) {
+            // The modal is already closed when this callback runs
+            // Just clean up and handle the result
+            DBG("Modal closed with result: " + juce::String(result));
+            delete alertWindow; // This is all you need!
+            }));
+}
 
 
