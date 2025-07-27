@@ -269,6 +269,7 @@ private:
     static const int STALL_TIMEOUT_SECONDS = 15;  // 15 seconds without progress = stall
     juce::int64 lastHealthCheckTime = 0;
     static const int MIN_HEALTH_CHECK_INTERVAL_MS = 30000; // 30 seconds minimum between checks
+    juce::Time lastBackendDisconnectionPopupTime;  // For throttling manual check popup
 
     const int STARTUP_TIMEOUT_SECONDS = 90;  // Generous timeout for model loading (0% progress)
     const int GENERATION_TIMEOUT_SECONDS = 9; // Tighter timeout once generation starts (>0% progress)

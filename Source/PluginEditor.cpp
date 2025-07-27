@@ -374,8 +374,30 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         DBG("Manual backend health check requested");
         audioProcessor.checkBackendHealth();
         checkConnectionButton.setEnabled(false);
-        juce::Timer::callAfterDelay(3000, [this]() {
+        
+        juce::Timer::callAfterDelay(6000, [this]() {
             checkConnectionButton.setEnabled(true);
+            
+            // Show popup if remote backend check failed, but throttle it
+            if (!audioProcessor.isBackendConnected() && !audioProcessor.getIsUsingLocalhost())
+            {
+                auto currentTime = juce::Time::getCurrentTime();
+                auto timeSinceLastPopup = currentTime - lastBackendDisconnectionPopupTime;
+                
+                // Only show popup if it hasn't been shown in the last 10 minutes
+                if (timeSinceLastPopup.inMinutes() >= 10)
+                {
+                    handleBackendDisconnection();
+                    lastBackendDisconnectionPopupTime = currentTime;
+                }
+                else
+                {
+                    // Just show a status message instead of the popup
+                    showStatusMessage("remote backend not responding", 4000);
+                    DBG("Manual check failed but popup throttled (last shown " + 
+                        juce::String(timeSinceLastPopup.inMinutes()) + " minutes ago)");
+                }
+            }
         });
     };
 
@@ -1317,6 +1339,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             if (!audioProcessor.isBackendConnected())
             {
                 handleBackendDisconnection();
+                lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
             }
             else
             {
@@ -1568,6 +1591,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 if (!audioProcessor.isBackendConnected())
                 {
                     handleBackendDisconnection();
+                    lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                 }
                 else
                 {
@@ -1588,6 +1612,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             if (!audioProcessor.isBackendConnected())
             {
                 handleBackendDisconnection();
+                lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
             }
             else
             {
@@ -1861,17 +1886,42 @@ void Gary4juceAudioProcessorEditor::sendToGary()
             else
             {
                 juce::String errorMsg;
+                bool shouldCheckHealth = false;
+                
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
                 else if (statusCode == 0)
+                {
                     errorMsg = "Failed to connect to remote backend";
+                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                }
                 else if (statusCode >= 400)
+                {
                     errorMsg = "Server error (HTTP " + juce::String(statusCode) + ")";
+                    shouldCheckHealth = true;  // Server error - might be backend issue
+                }
                 else
                     errorMsg = "Empty response from server";
 
                 showStatusMessage(errorMsg, 4000);
-                DBG(errorMsg);
+                DBG("Gary request failed: " + errorMsg);
+                
+                // Check backend health if connection/server failure
+                if (shouldCheckHealth)
+                {
+                    DBG("Gary failed - checking backend health");
+                    audioProcessor.checkBackendHealth();
+                    
+                    // Give health check time, then handle result
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                        }
+                    });
+                }
+                
                 // Reset button text on error
                 sendToGaryButton.setButtonText("send to gary");
             }
@@ -2087,8 +2137,43 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
             }
             else
             {
-                DBG("Continue request failed - HTTP " + juce::String(statusCode));
-                showStatusMessage("connection failed", 3000);
+                juce::String errorMsg;
+                bool shouldCheckHealth = false;
+                
+                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                    errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                else if (statusCode == 0)
+                {
+                    errorMsg = "Failed to connect to remote backend";
+                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                }
+                else if (statusCode >= 400)
+                {
+                    errorMsg = "Server error (HTTP " + juce::String(statusCode) + ")";
+                    shouldCheckHealth = true;  // Server error - might be backend issue
+                }
+                else
+                    errorMsg = "Empty response from server";
+
+                showStatusMessage(errorMsg, 4000);
+                DBG("Continue request failed: " + errorMsg);
+                
+                // Check backend health if connection/server failure
+                if (shouldCheckHealth)
+                {
+                    DBG("Continue failed - checking backend health");
+                    audioProcessor.checkBackendHealth();
+                    
+                    // Give health check time, then handle result
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                        }
+                    });
+                }
+                
                 continueButton.setButtonText("continue");
             }
             });
@@ -2232,7 +2317,43 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
             }
             else
             {
-                showStatusMessage("retry connection failed", 3000);
+                juce::String errorMsg;
+                bool shouldCheckHealth = false;
+                
+                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                    errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                else if (statusCode == 0)
+                {
+                    errorMsg = "Failed to connect to remote backend";
+                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                }
+                else if (statusCode >= 400)
+                {
+                    errorMsg = "Server error (HTTP " + juce::String(statusCode) + ")";
+                    shouldCheckHealth = true;  // Server error - might be backend issue
+                }
+                else
+                    errorMsg = "Empty response from server";
+
+                showStatusMessage(errorMsg, 4000);
+                DBG("Retry request failed: " + errorMsg);
+                
+                // Check backend health if connection/server failure
+                if (shouldCheckHealth)
+                {
+                    DBG("Retry failed - checking backend health");
+                    audioProcessor.checkBackendHealth();
+                    
+                    // Give health check time, then handle result
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                        }
+                    });
+                }
+                
                 updateRetryButtonState();
             }
         });
@@ -2517,6 +2638,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                         if (!audioProcessor.isBackendConnected())
                         {
                             handleBackendDisconnection();
+                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
@@ -2826,17 +2948,42 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
             else
             {
                 juce::String errorMsg;
+                bool shouldCheckHealth = false;
+                
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                     errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
                 else if (statusCode == 0)
+                {
                     errorMsg = "failed to connect to Terry on remote backend";
+                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                }
                 else if (statusCode >= 400)
+                {
                     errorMsg = "terry server error (HTTP " + juce::String(statusCode) + ")";
+                    shouldCheckHealth = true;  // Server error - might be backend issue
+                }
                 else
                     errorMsg = "empty response from terry";
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Terry request failed: " + errorMsg);
+                
+                // Check backend health if connection/server failure
+                if (shouldCheckHealth)
+                {
+                    DBG("Terry failed - checking backend health");
+                    audioProcessor.checkBackendHealth();
+                    
+                    // Give health check time, then handle result
+                    juce::Timer::callAfterDelay(6000, [this]() {
+                        if (!audioProcessor.isBackendConnected())
+                        {
+                            handleBackendDisconnection();
+                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                        }
+                    });
+                }
+                
                 transformWithTerryButton.setButtonText("transform with terry");
             }
 
