@@ -346,5 +346,7 @@ private:
 
     void debugModelSelection(const juce::String& functionName);
 
+    void stopAllBackgroundOperations();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

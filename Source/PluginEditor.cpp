@@ -540,8 +540,35 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     resized();
 }
 
+void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
+{
+    DBG("=== STOPPING ALL BACKGROUND OPERATIONS ===");
+    
+    // Stop polling and generation immediately
+    isPolling = false;
+    isGenerating = false;
+    continueInProgress = false;
+    
+    // Reset progress tracking
+    generationProgress = 0;
+    lastProgressUpdateTime = 0;
+    lastKnownServerProgress = 0;
+    hasDetectedStall = false;
+    
+    // Clear session to prevent new requests
+    audioProcessor.clearCurrentSessionId();
+    
+    // Wait for ongoing requests to notice the flags and abort
+    juce::Thread::sleep(150);
+    
+    DBG("Background operations stopped - threads should abort");
+}
+
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
+    // NEW: Stop all background operations FIRST
+    stopAllBackgroundOperations();
+    
     // Ensure tooltip window is cleaned up first
     tooltipWindow.reset();
     
@@ -1249,8 +1276,11 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
 void Gary4juceAudioProcessorEditor::stopPolling()
 {
     isPolling = false;
-    //audioProcessor.clearCurrentSessionId();
-    DBG("Stopped polling");
+    
+    // Wait briefly for any ongoing poll requests to notice the flag
+    juce::Thread::sleep(50);
+    
+    DBG("Stopped polling - ongoing requests should abort");
 }
 
 void Gary4juceAudioProcessorEditor::pollForResults()
@@ -1268,6 +1298,12 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
     // Create polling request in background thread
     juce::Thread::launch([this, sessionId]() {
+        // SAFETY: Exit if polling stopped
+        if (!isPolling || sessionId.isEmpty()) {
+            DBG("Polling aborted - no longer active");
+            return;
+        }
+        
         juce::URL pollUrl(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
 
         try
@@ -1284,6 +1320,11 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
                 // Handle response on main thread
                 juce::MessageManager::callAsync([this, responseText]() {
+                    // SAFETY: Don't process if polling stopped
+                    if (!isPolling) {
+                        DBG("Polling callback aborted");
+                        return;
+                    }
                     handlePollingResponse(responseText);
                     });
             }
@@ -1292,6 +1333,11 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 // Connection failed - trigger health check
                 DBG("Polling failed - checking backend health");
                 juce::MessageManager::callAsync([this]() {
+                    // SAFETY: Don't process if polling stopped
+                    if (!isPolling) {
+                        DBG("Polling health check callback aborted");
+                        return;
+                    }
                     audioProcessor.checkBackendHealth();
                     
                     // Give health check time, then handle failure
@@ -1772,6 +1818,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, selectedModel, base64Audio]() {
+        // SAFETY: Exit if generation stopped
+        if (!isGenerating) {
+            DBG("Gary request aborted - generation stopped");
+            return;
+        }
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -1843,6 +1894,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+            // SAFETY: Don't process if generation stopped
+            if (!isGenerating) {
+                DBG("Gary callback aborted");
+                return;
+            }
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -2014,6 +2070,11 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, audioData, capturedModelIndex]() {
+        // SAFETY: Exit if generation stopped
+        if (!isGenerating) {
+            DBG("Continue request aborted - generation stopped");
+            return;
+        }
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -2104,6 +2165,11 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode]() {
+            // SAFETY: Don't process if generation stopped
+            if (!isGenerating) {
+                DBG("Continue callback aborted");
+                return;
+            }
             if (statusCode == 200 && responseText.isNotEmpty())
             {
                 DBG("Continue response: " + responseText);
@@ -2225,6 +2291,11 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
     // Create HTTP request in background thread (same pattern as other requests)
     juce::Thread::launch([this, sessionId]() {
+        // SAFETY: Exit if generation stopped
+        if (!isGenerating) {
+            DBG("Retry request aborted - generation stopped");
+            return;
+        }
         
         auto startTime = juce::Time::getCurrentTime();
 
@@ -2286,6 +2357,11 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode]() {
+            // SAFETY: Don't process if generation stopped
+            if (!isGenerating) {
+                DBG("Retry callback aborted");
+                return;
+            }
             if (statusCode == 200 && responseText.isNotEmpty())
             {
                 // Parse response JSON
@@ -2447,6 +2523,11 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, fullPrompt, endpoint]() {
+        // SAFETY: Exit if generation stopped
+        if (!isGenerating) {
+            DBG("Jerry request aborted - generation stopped");
+            return;
+        }
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -2520,6 +2601,11 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+            // SAFETY: Don't process if generation stopped
+            if (!isGenerating) {
+                DBG("Jerry callback aborted");
+                return;
+            }
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total Jerry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -2822,6 +2908,11 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
     juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt]() {
+        // SAFETY: Exit if generation stopped
+        if (!isGenerating) {
+            DBG("Terry request aborted - generation stopped");
+            return;
+        }
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -2907,6 +2998,11 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
         // Handle response on main thread (same pattern as Gary)
         juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+            // SAFETY: Don't process if generation stopped
+            if (!isGenerating) {
+                DBG("Terry callback aborted");
+                return;
+            }
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total Terry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -3013,6 +3109,11 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
     // Create HTTP request in background thread (same pattern as other requests)
     juce::Thread::launch([this, sessionId]() {
+        // SAFETY: Exit if generation stopped
+        if (!isGenerating) {
+            DBG("Undo Terry request aborted - generation stopped");
+            return;
+        }
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -3074,6 +3175,11 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode]() {
+            // SAFETY: Don't process if generation stopped
+            if (!isGenerating) {
+                DBG("Undo Terry callback aborted");
+                return;
+            }
 
             if (statusCode == 200 && responseText.isNotEmpty())
             {
