@@ -3197,16 +3197,19 @@ juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, c
 void Gary4juceAudioProcessorEditor::toggleBackend()
 {
     isUsingLocalhost = !isUsingLocalhost;
-    
+
     // Tell processor to switch backends
     audioProcessor.setUsingLocalhost(isUsingLocalhost);
-    
+
+    // ALSO update processor's connection state
+    audioProcessor.setBackendConnectionStatus(false);
+
     // Update button text and styling
     updateBackendToggleButton();
-    
-    // Update connection status display
-    updateConnectionStatus(false); // Reset to disconnected when switching
-    
+
+    // Update connection status display (this can stay)
+    updateConnectionStatus(false);
+
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
 }
 

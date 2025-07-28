@@ -125,14 +125,17 @@ void Gary4juceAudioProcessor::setUsingLocalhost(bool useLocalhost)
     if (isUsingLocalhost != useLocalhost)
     {
         isUsingLocalhost = useLocalhost;
-        
+
         // Update base URL for health checks (use Gary service as default)
         backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
-        
+
         DBG("Backend switched to: " + getCurrentBackendType());
         DBG("New base URL: " + backendBaseUrl);
-        
-        // Immediately check health with new URL
+
+        // FIRST: Reset connection state and notify editor immediately
+        setBackendConnectionStatus(false);
+
+        // THEN: Check health with new URL (this will update to true if backend is running)
         checkBackendHealth();
     }
 }
