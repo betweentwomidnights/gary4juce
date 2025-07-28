@@ -21,6 +21,7 @@ public:
     void checkBackendHealth();
     bool isBackendConnected() const { return backendConnected; }
     void setBackendConnectionStatus(bool connected);
+    void stopHealthChecks();
 
     // Service type enum for different ports
     enum class ServiceType { Gary, Jerry, Terry };
@@ -85,6 +86,7 @@ private:
 
         // Backend connection state
         bool backendConnected = false;
+    std::atomic<bool> shouldStopBackgroundOperations{ false };
     
     // Backend URL management
     bool isUsingLocalhost = false;

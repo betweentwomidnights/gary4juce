@@ -558,6 +558,9 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
     // Clear session to prevent new requests
     audioProcessor.clearCurrentSessionId();
     
+    // Stop any health checks in processor
+    audioProcessor.stopHealthChecks();
+    
     // Wait for ongoing requests to notice the flags and abort
     juce::Thread::sleep(150);
     

@@ -26,14 +26,38 @@ Gary4juceAudioProcessor::Gary4juceAudioProcessor()
 
 Gary4juceAudioProcessor::~Gary4juceAudioProcessor()
 {
+    DBG("=== STOPPING PROCESSOR BACKGROUND OPERATIONS ===");
+    stopHealthChecks();
+}
+
+void Gary4juceAudioProcessor::stopHealthChecks()
+{
+    DBG("Stopping health checks - setting background operations flag");
+    shouldStopBackgroundOperations.store(true);
+    
+    // Wait briefly for any ongoing health check requests to notice the flag and abort
+    juce::Thread::sleep(100);
+    
+    DBG("Health checks stopped - ongoing requests should abort");
 }
 
 void Gary4juceAudioProcessor::checkBackendHealth()
 {
+    // SAFETY: Don't start new health checks if stopping
+    if (shouldStopBackgroundOperations.load()) {
+        DBG("Health check aborted - background operations stopped");
+        return;
+    }
+
     DBG("Checking backend health at: " + backendBaseUrl);
 
     // Create health check request in background thread
     juce::Thread::launch([this]() {
+        // SAFETY: Exit if background operations stopped
+        if (shouldStopBackgroundOperations.load()) {
+            DBG("Health check thread aborted - background operations stopped");
+            return;
+        }
         juce::URL healthUrl(backendBaseUrl + "/health");
 
         // Create input stream for the URL
@@ -72,6 +96,11 @@ void Gary4juceAudioProcessor::checkBackendHealth()
 
             // Update connection status on message thread
             juce::MessageManager::callAsync([this, isHealthy]() {
+                // SAFETY: Don't process if background operations stopped
+                if (shouldStopBackgroundOperations.load()) {
+                    DBG("Health check success callback aborted");
+                    return;
+                }
                 setBackendConnectionStatus(isHealthy);
                 });
         }
@@ -79,6 +108,11 @@ void Gary4juceAudioProcessor::checkBackendHealth()
         {
             DBG("Failed to create health check stream");
             juce::MessageManager::callAsync([this]() {
+                // SAFETY: Don't process if background operations stopped
+                if (shouldStopBackgroundOperations.load()) {
+                    DBG("Health check failure callback aborted");
+                    return;
+                }
                 setBackendConnectionStatus(false);
                 });
         }
@@ -135,8 +169,11 @@ void Gary4juceAudioProcessor::setUsingLocalhost(bool useLocalhost)
         // FIRST: Reset connection state and notify editor immediately
         setBackendConnectionStatus(false);
 
-        // THEN: Check health with new URL (this will update to true if backend is running)
-        checkBackendHealth();
+        // SAFETY: Only check health if not stopping
+        if (!shouldStopBackgroundOperations.load()) {
+            // THEN: Check health with new URL (this will update to true if backend is running)
+            checkBackendHealth();
+        }
     }
 }
 
