@@ -558,6 +558,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         DBG("No output audio file found");
     }
+
+
     
     // 3. CRITICAL: Sync Terry radio button logic with visual state
     // The transformOutputButton is visually checked by default, so sync the logic
@@ -581,12 +583,55 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         audioProcessor.setTransformRecording(transformRecording);
         DBG("Terry states already in sync: " + juce::String(transformRecording ? "recording" : "output"));
     }
+
+    // 3. CRITICAL: Restore session ID and validate undo/retry state
+    juce::String restoredSessionId = audioProcessor.getCurrentSessionId();
+    bool undoAvailable = audioProcessor.getUndoTransformAvailable();
+    bool retryAvailable = audioProcessor.getRetryAvailable();  // ADD THIS
+
+    DBG("=== SESSION STATE RESTORATION ===");
+    DBG("Restored session ID: '" + restoredSessionId + "'");
+    DBG("Session ID length: " + juce::String(restoredSessionId.length()));
+    DBG("Undo transform available: " + juce::String(undoAvailable ? "true" : "false"));
+    DBG("Retry available: " + juce::String(retryAvailable ? "true" : "false"));  // ADD THIS
+
+    // Validate state consistency - should only have one operation available at a time
+    if (undoAvailable && retryAvailable)
+    {
+        DBG("WARNING: Both undo and retry are available! This shouldn't happen. Prioritizing undo...");
+        audioProcessor.setRetryAvailable(false);
+        retryAvailable = false;
+    }
+
+    if ((undoAvailable || retryAvailable) && restoredSessionId.isEmpty())
+    {
+        DBG("WARNING: Operation available but session ID is empty! Clearing operation flags...");
+        audioProcessor.setUndoTransformAvailable(false);
+        audioProcessor.setRetryAvailable(false);
+        undoAvailable = false;
+        retryAvailable = false;
+    }
+
+    if (!undoAvailable && !retryAvailable && !restoredSessionId.isEmpty())
+    {
+        DBG("INFO: Session ID exists but no operations available. This might be from an initial generation.");
+    }
+
+    undoTransformButton.setEnabled(undoAvailable && !restoredSessionId.isEmpty() && !isGenerating);
+    retryButton.setEnabled(retryAvailable && !restoredSessionId.isEmpty() && !isGenerating && isConnected);
     
-    // 4. Update all button states after restoration
+    // 5. Update all button states after restoration
     updateAllGenerationButtonStates();
     updateRetryButtonState();        
     updateContinueButtonState();     
-    updateTerrySourceButtons();      
+    updateTerrySourceButtons(); 
+
+    // 6. Double-check button states after connection stabilizes
+    juce::Timer::callAfterDelay(2000, [this]() {
+        updateRetryButtonState();
+        updateTerrySourceButtons();
+        DBG("Button states updated after connection check");
+        });
     
     DBG("All button states updated after restoration");
     
@@ -600,28 +645,29 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 {
     DBG("=== STOPPING ALL BACKGROUND OPERATIONS ===");
-    
+
     // Stop polling and generation immediately
     isPolling = false;
     isGenerating = false;
     continueInProgress = false;
-    
+
     // Reset progress tracking
     generationProgress = 0;
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
     hasDetectedStall = false;
-    
-    // Clear session to prevent new requests
-    audioProcessor.clearCurrentSessionId();
-    
+
+    // REMOVED: Don't clear session to prevent new requests
+    // audioProcessor.clearCurrentSessionId();  // <-- REMOVE THIS LINE!
+
     // Stop any health checks in processor
     audioProcessor.stopHealthChecks();
-    
+
     // Wait for ongoing requests to notice the flags and abort
     juce::Thread::sleep(150);
-    
+
     DBG("Background operations stopped - threads should abort");
+    DBG("Session ID preserved: '" + audioProcessor.getCurrentSessionId() + "'");
 }
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
@@ -938,18 +984,17 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
     }
     continueButton.setEnabled(hasOutputAudio && isConnected && !isGenerating);
 
-    // Retry button has special logic but should also respect isGenerating
-    juce::String sessionId = audioProcessor.getCurrentSessionId();
-    bool hasValidSession = !sessionId.isEmpty();
-    retryButton.setEnabled(hasValidSession && isConnected && !isGenerating);
+    // REMOVED OLD RETRY LOGIC - Let updateRetryButtonState() handle it properly!
+    // OLD BUGGY CODE (was using implicit logic):
+    // juce::String sessionId = audioProcessor.getCurrentSessionId();
+    // bool hasValidSession = !sessionId.isEmpty();
+    // retryButton.setEnabled(hasValidSession && isConnected && !isGenerating);
 
     // Jerry buttons - should be disabled during ANY generation
     generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty() && !isGenerating);
 
     // Terry buttons - already have the logic, but let's be explicit
     updateTerrySourceButtons(); // This already checks !isGenerating
-
-   // DBG("Updated all generation button states - isGenerating: " + juce::String(isGenerating ? "true" : "false"));
 }
 
 
@@ -1623,13 +1668,18 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
 
                     // Enable undo button now that transform is complete
+                    audioProcessor.setUndoTransformAvailable(true); // ADD THIS
                     undoTransformButton.setEnabled(true);
+                    audioProcessor.setRetryAvailable(false);
                     // DON'T clear currentSessionId - we need it for undo!
+
                 }
                 else
                 {
                     // GENERATION COMPLETION (Gary/Jerry)
                     showStatusMessage("audio generation complete!", 3000);
+                    audioProcessor.setUndoTransformAvailable(false);
+                    audioProcessor.setRetryAvailable(true);
                     saveGeneratedAudio(audioData);
                     DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
 
@@ -1645,6 +1695,8 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     else
                     {
                         // This was initial generation - clear session ID, disable retry
+                        audioProcessor.setUndoTransformAvailable(false);
+                        audioProcessor.setRetryAvailable(false);
                         audioProcessor.clearCurrentSessionId();
                         updateRetryButtonState();
                         DBG("Initial generation completed - retry button disabled");
@@ -2583,11 +2635,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, fullPrompt, endpoint]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
-            DBG("Jerry request aborted - generation stopped");
-            return;
-        }
+        
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -2661,11 +2709,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
-                DBG("Jerry callback aborted");
-                return;
-            }
+           
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total Jerry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -2691,6 +2735,10 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                             
                             // Save generated audio (same as Gary's saveGeneratedAudio function)
                             saveGeneratedAudio(audioBase64);
+
+                            audioProcessor.clearCurrentSessionId();
+                            audioProcessor.setUndoTransformAvailable(false);  // ADD THIS
+                            audioProcessor.setRetryAvailable(false);          // ADD THIS
 
                             // Get metadata if available
                             if (auto* metadata = responseObj->getProperty("metadata").getDynamicObject())
@@ -2871,7 +2919,10 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     smoothProgressAnimation = false;
 
     // Clear any previous session ID since we're starting fresh
-    audioProcessor.clearCurrentSessionId();  // Clear previous session
+    // Clear any previous session ID since we're starting fresh transform
+    audioProcessor.clearCurrentSessionId();
+    audioProcessor.setRetryAvailable(false);  // ADD THIS - clear retry for new transform
+    updateRetryButtonState();
 
     updateAllGenerationButtonStates();
     repaint(); // Force immediate UI update
@@ -3176,16 +3227,18 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
     showStatusMessage("undoing transform...", 2000);
 
     // Disable undo button during request
+    audioProcessor.setUndoTransformAvailable(false);
     undoTransformButton.setEnabled(false);
     undoTransformButton.setButtonText("undoing...");
 
-    // Create HTTP request in background thread (same pattern as other requests)
+    // Create HTTP request in background thread
     juce::Thread::launch([this, sessionId]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
-            DBG("Undo Terry request aborted - generation stopped");
-            return;
-        }
+        // REMOVED: Don't check isGenerating for undo operations!
+        // Undo operations are not generation operations and should proceed regardless
+        // if (!isGenerating) {
+        //     DBG("Undo Terry request aborted - generation stopped");
+        //     return;
+        // }
 
         auto startTime = juce::Time::getCurrentTime();
 
@@ -3247,11 +3300,11 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
         // Handle response on main thread
         juce::MessageManager::callAsync([this, responseText, statusCode]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
-                DBG("Undo Terry callback aborted");
-                return;
-            }
+            // REMOVED: Don't check isGenerating for undo callback either!
+            // if (!isGenerating) {
+            //     DBG("Undo Terry callback aborted");
+            //     return;
+            // }
 
             if (statusCode == 200 && responseText.isNotEmpty())
             {
@@ -3276,6 +3329,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                             // Clear session ID since undo is complete
                             audioProcessor.clearCurrentSessionId();
                             undoTransformButton.setEnabled(false);  // Disable undo button
+                            audioProcessor.setRetryAvailable(false);          // ADD THIS
                             undoTransformButton.setButtonText("undo transform");  // Reset button text
                         }
                         else
@@ -3283,6 +3337,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                             showStatusMessage("undo completed but no audio data received", 3000);
                             DBG("Terry undo success but missing audio data");
                             // Re-enable undo button since this is an error case
+                            audioProcessor.setUndoTransformAvailable(true);
                             undoTransformButton.setEnabled(true);
                             undoTransformButton.setButtonText("undo transform");
                         }
@@ -3293,6 +3348,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                         showStatusMessage("undo failed: " + error, 4000);
                         DBG("Terry undo server error: " + error);
                         // Re-enable undo button since this is an error case
+                        audioProcessor.setUndoTransformAvailable(true);
                         undoTransformButton.setEnabled(true);
                         undoTransformButton.setButtonText("undo transform");
                     }
@@ -3302,6 +3358,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                     showStatusMessage("invalid undo response format", 3000);
                     DBG("Failed to parse Terry undo JSON response");
                     // Re-enable undo button since this is an error case
+                    audioProcessor.setUndoTransformAvailable(true);
                     undoTransformButton.setEnabled(true);
                     undoTransformButton.setButtonText("undo transform");
                 }
@@ -3321,6 +3378,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 showStatusMessage(errorMsg, 4000);
                 DBG("Terry undo request failed: " + errorMsg);
                 // Re-enable undo button since this is an error case
+                audioProcessor.setUndoTransformAvailable(true);
                 undoTransformButton.setEnabled(true);
                 undoTransformButton.setButtonText("undo transform");
             }
@@ -4577,6 +4635,24 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     showStatusMessage("audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
     DBG("Crop operation completed successfully");
 
+    // Store previous state for logging
+    juce::String previousSessionId = audioProcessor.getCurrentSessionId();
+    bool hadUndo = audioProcessor.getUndoTransformAvailable();
+    bool hadRetry = audioProcessor.getRetryAvailable();
+
+    DBG("Previous session ID: '" + previousSessionId + "'");
+    DBG("Had undo available: " + juce::String(hadUndo ? "true" : "false"));
+    DBG("Had retry available: " + juce::String(hadRetry ? "true" : "false"));
+
+    // Clear session ID - it's no longer valid for the cropped audio
+    audioProcessor.clearCurrentSessionId();
+
+    // Clear operation availability - can't undo/retry operations on different audio
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateTerrySourceButtons();
+
     // Force a repaint to update the waveform display
     repaint();
 }
@@ -5263,20 +5339,23 @@ void Gary4juceAudioProcessorEditor::resized()
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()
 {
-    // Retry button should only be enabled if:
-    // 1. We have a session ID from a previous continue operation
-    // 2. We're not currently generating anything
-    // 3. We're connected to backend
-    
-    juce::String sessionId = audioProcessor.getCurrentSessionId();
-    bool hasValidSession = !sessionId.isEmpty();
-    bool canRetry = hasValidSession && !isGenerating && isConnected;
-    
+    juce::String sessionId = audioProcessor.getCurrentSessionId();  // Validates automatically
+    bool hasValidSession = !sessionId.isEmpty();  // Empty if stale
+    bool retryAvailable = audioProcessor.getRetryAvailable();  // Get the explicit flag
+
+    // FIXED: Include retryAvailable in the canRetry calculation
+    bool canRetry = hasValidSession && retryAvailable && !isGenerating && isConnected;
+
     retryButton.setEnabled(canRetry);
     retryButton.setButtonText("retry");
-    
-    DBG("Retry button state - Session ID: " + sessionId + 
-        ", Can retry: " + juce::String(canRetry ? "yes" : "no"));
+
+    DBG("=== RETRY BUTTON STATE UPDATE ===");
+    DBG("Session ID (validated): '" + sessionId + "'");
+    DBG("Has valid session: " + juce::String(hasValidSession ? "true" : "false"));
+    DBG("Retry available flag: " + juce::String(retryAvailable ? "true" : "false"));
+    DBG("Is generating: " + juce::String(isGenerating ? "true" : "false"));
+    DBG("Is connected: " + juce::String(isConnected ? "true" : "false"));
+    DBG("Can retry: " + juce::String(canRetry ? "true" : "false"));
 }
 
 void Gary4juceAudioProcessorEditor::updateContinueButtonState()

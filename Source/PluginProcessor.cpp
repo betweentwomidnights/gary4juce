@@ -183,18 +183,52 @@ void Gary4juceAudioProcessor::setUsingLocalhost(bool useLocalhost)
 void Gary4juceAudioProcessor::setCurrentSessionId(const juce::String& sessionId)
 {
     currentSessionId = sessionId;
+    sessionTimestamp = juce::Time::getCurrentTime().toMilliseconds();  // ADD THIS
     DBG("Session ID stored in processor: " + sessionId);
+    DBG("Session timestamp set to: " + juce::String(sessionTimestamp));
 }
 
 juce::String Gary4juceAudioProcessor::getCurrentSessionId() const
 {
+    // Check if session is still valid before returning it
+    if (!isSessionValid())
+    {
+        DBG("getCurrentSessionId() called but session is stale - returning empty");
+        return "";  // Return empty string for stale sessions
+    }
+
+    DBG("getCurrentSessionId() called, returning: '" + currentSessionId + "' (age: " +
+        juce::String((juce::Time::getCurrentTime().toMilliseconds() - sessionTimestamp) / 1000) + "s)");
     return currentSessionId;
 }
 
 void Gary4juceAudioProcessor::clearCurrentSessionId()
 {
     currentSessionId = "";
-    DBG("Session ID cleared from processor");
+    sessionTimestamp = 0;  // ADD THIS
+    DBG("Session ID and timestamp cleared from processor");
+}
+
+bool Gary4juceAudioProcessor::isSessionValid() const
+{
+    if (currentSessionId.isEmpty())
+        return false;
+
+    if (sessionTimestamp == 0)
+        return false;  // No timestamp set
+
+    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
+    auto sessionAge = currentTime - sessionTimestamp;
+
+    bool isValid = sessionAge < SESSION_TIMEOUT_MS;
+
+    if (!isValid)
+    {
+        DBG("Session is stale - Age: " + juce::String(sessionAge / 1000) + "s, Timeout: " +
+            juce::String(SESSION_TIMEOUT_MS / 1000) + "s");
+    }
+
+    return isValid;
 }
 
 //==============================================================================
@@ -609,52 +643,92 @@ juce::AudioProcessorEditor* Gary4juceAudioProcessor::createEditor()
 //==============================================================================
 void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    // Create state object
-    juce::DynamicObject::Ptr state = new juce::DynamicObject();
+    juce::XmlElement xmlState("GARY_STATE");
+    xmlState.setAttribute("savedSamples", savedSamples.load());
+    xmlState.setAttribute("transformRecording", transformRecording.load());
+    xmlState.setAttribute("currentSessionId", currentSessionId);
+    xmlState.setAttribute("sessionTimestamp", juce::String(sessionTimestamp));  // ADD THIS
+    xmlState.setAttribute("isUsingLocalhost", isUsingLocalhost);
+    xmlState.setAttribute("undoTransformAvailable", undoTransformAvailable.load());
+    xmlState.setAttribute("retryAvailable", retryAvailable.load());
 
-    // Save critical state
-    state->setProperty("savedSamples", savedSamples.load());
-    state->setProperty("transformRecording", transformRecording.load());
-    state->setProperty("currentSessionId", currentSessionId);
-    state->setProperty("isUsingLocalhost", isUsingLocalhost);
-
-    DBG("=== SAVING PROCESSOR STATE ===");
+    // DEBUG: Log what we're saving with age calculation
+    DBG("=== SAVING STATE ===");
     DBG("savedSamples: " + juce::String(savedSamples.load()));
-    DBG("transformRecording: " + juce::String(transformRecording.load()));
-    DBG("sessionId: " + currentSessionId);
-    DBG("isUsingLocalhost: " + juce::String(isUsingLocalhost));
+    DBG("currentSessionId: '" + currentSessionId + "'");
+    DBG("sessionTimestamp: " + juce::String(sessionTimestamp));
+    if (sessionTimestamp > 0)
+    {
+        auto age = juce::Time::getCurrentTime().toMilliseconds() - sessionTimestamp;
+        DBG("Session age: " + juce::String(age / 1000) + " seconds");
+    }
+    DBG("undoTransformAvailable: " + juce::String(undoTransformAvailable.load() ? "true" : "false"));
+    DBG("retryAvailable: " + juce::String(retryAvailable.load() ? "true" : "false"));
 
-    // Convert to XML and save
-    auto xml = juce::JSON::toString(juce::var(state.get()));
-    copyXmlToBinary(*juce::XmlDocument::parse(xml), destData);
+    copyXmlToBinary(xmlState, destData);
 }
 
 void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    // Restore state from saved data
-    auto xml = getXmlFromBinary(data, sizeInBytes);
-    if (xml != nullptr)
+    std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
+    if (xml != nullptr && xml->hasTagName("GARY_STATE"))
     {
-        auto jsonString = xml->getAllSubText();
-        auto state = juce::JSON::parse(jsonString);
+        savedSamples = xml->getIntAttribute("savedSamples");
+        transformRecording = xml->getBoolAttribute("transformRecording");
+        currentSessionId = xml->getStringAttribute("currentSessionId");
+        sessionTimestamp = xml->getStringAttribute("sessionTimestamp").getLargeIntValue();  // ADD THIS
+        isUsingLocalhost = xml->getBoolAttribute("isUsingLocalhost");
+        undoTransformAvailable = xml->getBoolAttribute("undoTransformAvailable");
+        retryAvailable = xml->getBoolAttribute("retryAvailable");
+        backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
 
-        if (auto* stateObj = state.getDynamicObject())
+        // DEBUG: Log what we're loading
+        DBG("=== LOADING STATE ===");
+        DBG("savedSamples: " + juce::String(savedSamples.load()));
+        DBG("currentSessionId: '" + currentSessionId + "'");
+        DBG("sessionTimestamp: " + juce::String(sessionTimestamp));
+        DBG("undoTransformAvailable: " + juce::String(undoTransformAvailable.load() ? "true" : "false"));
+        DBG("retryAvailable: " + juce::String(retryAvailable.load() ? "true" : "false"));
+
+        // CRITICAL: Check if loaded session is stale and clean up if needed
+        if (!currentSessionId.isEmpty() && sessionTimestamp > 0)
         {
-            // Restore critical state
-            savedSamples = (int)stateObj->getProperty("savedSamples");
-            transformRecording = (bool)stateObj->getProperty("transformRecording");
-            currentSessionId = stateObj->getProperty("currentSessionId").toString();
-            isUsingLocalhost = (bool)stateObj->getProperty("isUsingLocalhost");
+            auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
+            auto sessionAge = currentTime - sessionTimestamp;
 
-            // Update backend URL
-            backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
+            DBG("Session age on load: " + juce::String(sessionAge / 1000) + " seconds");
 
-            DBG("=== RESTORING PROCESSOR STATE ===");
-            DBG("savedSamples: " + juce::String(savedSamples.load()));
-            DBG("transformRecording: " + juce::String(transformRecording.load()));
-            DBG("sessionId: " + currentSessionId);
-            DBG("isUsingLocalhost: " + juce::String(isUsingLocalhost));
+            if (sessionAge >= SESSION_TIMEOUT_MS)
+            {
+                DBG("=== CLEANING UP STALE SESSION ===");
+                DBG("Session is " + juce::String(sessionAge / 60000) + " minutes old, clearing...");
+
+                // Clear stale session and all associated state
+                currentSessionId = "";
+                sessionTimestamp = 0;
+                undoTransformAvailable.store(false);
+                retryAvailable.store(false);
+
+                DBG("Stale session cleaned up - all operation flags cleared");
+            }
+            else
+            {
+                DBG("Session is valid - " + juce::String((SESSION_TIMEOUT_MS - sessionAge) / 60000) +
+                    " minutes remaining until timeout");
+            }
         }
+        else if (!currentSessionId.isEmpty() && sessionTimestamp == 0)
+        {
+            // Handle legacy state (no timestamp) - assume it's stale
+            DBG("=== LEGACY SESSION WITHOUT TIMESTAMP - ASSUMING STALE ===");
+            currentSessionId = "";
+            undoTransformAvailable.store(false);
+            retryAvailable.store(false);
+            DBG("Legacy session cleared");
+        }
+
+        // Trigger a health check to restore connection status
+        checkBackendHealth();
     }
 }
 

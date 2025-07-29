@@ -33,7 +33,9 @@ public:
     juce::String getServiceUrl(ServiceType service, const juce::String& endpoint) const;
 
     // Session ID management for undo functionality
-    void setCurrentSessionId(const juce::String& sessionId);
+    // Enhanced session management with timestamps
+    void setCurrentSessionId(const juce::String& sessionId);  // Update signature
+    bool isSessionValid() const;  // ADD THIS - check if session is still valid
     juce::String getCurrentSessionId() const;
     void clearCurrentSessionId();
 
@@ -85,6 +87,13 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    void setUndoTransformAvailable(bool available) { undoTransformAvailable = available; }
+    bool getUndoTransformAvailable() const { return undoTransformAvailable.load(); }
+
+    // Retry availability methods (similar to undo methods)
+    void setRetryAvailable(bool available) { retryAvailable.store(available); }
+    bool getRetryAvailable() const { return retryAvailable.load(); }
+
     double getCurrentBPM() const { return currentBPM.load(); }
 
 private:
@@ -120,10 +129,14 @@ private:
 
     // Session ID for undo functionality (persists even when UI is destroyed)
     juce::String currentSessionId;
+    juce::int64 sessionTimestamp{ 0 };
+    static constexpr juce::int64 SESSION_TIMEOUT_MS = 3600000;  // ADD THIS
 
     // State that needs to survive editor destruction
     std::atomic<int> savedSamples{0};
     std::atomic<bool> transformRecording{ false };  // Default to output (to match UI default)
+    std::atomic<bool> undoTransformAvailable{ false };
+    std::atomic<bool> retryAvailable{ false };
 
     // Private methods
     void startRecording();
