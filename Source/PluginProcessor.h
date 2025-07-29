@@ -37,6 +37,13 @@ public:
     juce::String getCurrentSessionId() const;
     void clearCurrentSessionId();
 
+    // State management methods
+    void setSavedSamples(int samples) { savedSamples = samples; }
+    int getSavedSamples() const { return savedSamples.load(); }
+    
+    void setTransformRecording(bool useRecording) { transformRecording = useRecording; }
+    bool getTransformRecording() const { return transformRecording.load(); }
+
     // Recording buffer methods - REMOVE INLINE IMPLEMENTATIONS
     bool isRecording() const;  // Declaration only - implementation in .cpp
     float getRecordingProgress() const;  // Declaration only - implementation in .cpp
@@ -113,6 +120,10 @@ private:
 
     // Session ID for undo functionality (persists even when UI is destroyed)
     juce::String currentSessionId;
+
+    // State that needs to survive editor destruction
+    std::atomic<int> savedSamples{0};
+    std::atomic<bool> transformRecording{ false };  // Default to output (to match UI default)
 
     // Private methods
     void startRecording();

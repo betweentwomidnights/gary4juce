@@ -536,6 +536,63 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         addAndMakeVisible(terryHelpButton);
     }
     
+    // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
+    
+    DBG("=== RESTORING PLUGIN STATE AFTER WINDOW RECREATION ===");
+    
+    // 1. Restore persistent state from processor
+    savedSamples = audioProcessor.getSavedSamples();
+    isConnected = audioProcessor.isBackendConnected();
+    transformRecording = audioProcessor.getTransformRecording();
+    
+    DBG("Restored savedSamples: " + juce::String(savedSamples));
+    DBG("Restored connection status: " + juce::String(isConnected ? "connected" : "disconnected"));
+    
+    // 2. Restore output audio state by checking file existence
+    if (outputAudioFile.exists())
+    {
+        loadOutputAudioFile();  // This sets hasOutputAudio = true
+        DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName());
+    }
+    else
+    {
+        DBG("No output audio file found");
+    }
+    
+    // 3. CRITICAL: Sync Terry radio button logic with visual state
+    // The transformOutputButton is visually checked by default, so sync the logic
+    bool restoredTransformRecording = audioProcessor.getTransformRecording();
+    
+    if (transformOutputButton.getToggleState() && restoredTransformRecording)
+    {
+        // Visual says "output" but logic says "recording" - fix the mismatch
+        DBG("Syncing Terry state: UI shows output selected, fixing logic state");
+        setTerryAudioSource(false);  // This sets transformRecording = false
+    }
+    else if (transformRecordingButton.getToggleState() && !restoredTransformRecording)
+    {
+        // Visual says "recording" but logic says "output" - fix the mismatch  
+        DBG("Syncing Terry state: UI shows recording selected, fixing logic state");
+        setTerryAudioSource(true);   // This sets transformRecording = true
+    }
+    else
+    {
+        // States match, just update the processor
+        audioProcessor.setTransformRecording(transformRecording);
+        DBG("Terry states already in sync: " + juce::String(transformRecording ? "recording" : "output"));
+    }
+    
+    // 4. Update all button states after restoration
+    updateAllGenerationButtonStates();
+    updateRetryButtonState();        
+    updateContinueButtonState();     
+    updateTerrySourceButtons();      
+    
+    DBG("All button states updated after restoration");
+    
+    // 5. Set initial tab and visibility
+    switchToTab(ModelTab::Gary);
+    
     // Force initial layout now that help icons are created
     resized();
 }
@@ -1253,8 +1310,8 @@ void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
     DBG("Saving to: " + recordingFile.getFullPathName());
     audioProcessor.saveRecordingToFile(recordingFile);
 
-    // Update saved samples to current recorded samples
-    savedSamples = recordedSamples;
+    // Get the saved samples from processor (source of truth)
+    savedSamples = audioProcessor.getSavedSamples();
 
     // Show success message in UI instead of popup
     double recordedSeconds = (double)recordedSamples / 44100.0;
@@ -2760,22 +2817,34 @@ void Gary4juceAudioProcessorEditor::updateLoopTypeVisibility()
 void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
 {
     transformRecording = useRecording;
+    
+    // CRITICAL: Persist this state in processor
+    audioProcessor.setTransformRecording(useRecording);
+    
     DBG("Terry audio source set to: " + juce::String(useRecording ? "Recording" : "Output"));
     updateTerrySourceButtons();
 }
 
 void Gary4juceAudioProcessorEditor::updateTerrySourceButtons()
 {
-    // Update transform button availability
     bool canTransform = false;
+    
+    DBG("=== TERRY BUTTON UPDATE ===");
+    DBG("transformRecording: " + juce::String(transformRecording ? "true" : "false"));
+    DBG("savedSamples: " + juce::String(savedSamples));
+    DBG("hasOutputAudio: " + juce::String(hasOutputAudio ? "true" : "false"));
+    DBG("isConnected: " + juce::String(isConnected ? "true" : "false"));
+    DBG("isGenerating: " + juce::String(isGenerating ? "true" : "false"));
 
     if (transformRecording)
     {
         canTransform = (savedSamples > 0 && isConnected);
+        DBG("Using recording source - canTransform: " + juce::String(canTransform ? "true" : "false"));
     }
     else
     {
         canTransform = (hasOutputAudio && isConnected);
+        DBG("Using output source - canTransform: " + juce::String(canTransform ? "true" : "false"));
     }
 
     transformWithTerryButton.setEnabled(canTransform && !isGenerating);
@@ -3262,7 +3331,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
 {
     audioProcessor.clearRecordingBuffer();
-    savedSamples = 0;  // Reset saved samples too
+    savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
     updateRecordingStatus();
 }
 

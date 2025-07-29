@@ -232,7 +232,11 @@ void Gary4juceAudioProcessor::clearRecordingBuffer()
     atomicRecordedSamples = 0;
     recording = false;
     atomicRecording = false;
-    DBG("Recording buffer cleared");
+    
+    // CRITICAL: Clear saved samples too
+    savedSamples = 0;
+    
+    DBG("Recording buffer cleared and saved samples reset");
 }
 
 void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
@@ -305,9 +309,16 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     {
         DBG("Writing audio buffer to file...");
         bool writeSuccess = writer->writeFromAudioSampleBuffer(tempBuffer, 0, tempBuffer.getNumSamples());
+        writer.reset();
+        
+        if (writeSuccess)
+        {
+            // CRITICAL: Store saved samples in processor for persistence
+            savedSamples = snapshotSamples;
+            DBG("Successfully saved and stored " + juce::String(snapshotSamples) + " samples in processor");
+        }
+        
         DBG("Write operation success: " + juce::String(writeSuccess ? "true" : "false"));
-
-        writer.reset(); // Ensure file is closed
 
         // VERIFY FILE SIZE
         if (file.exists())
@@ -598,15 +609,53 @@ juce::AudioProcessorEditor* Gary4juceAudioProcessor::createEditor()
 //==============================================================================
 void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
+    // Create state object
+    juce::DynamicObject::Ptr state = new juce::DynamicObject();
+
+    // Save critical state
+    state->setProperty("savedSamples", savedSamples.load());
+    state->setProperty("transformRecording", transformRecording.load());
+    state->setProperty("currentSessionId", currentSessionId);
+    state->setProperty("isUsingLocalhost", isUsingLocalhost);
+
+    DBG("=== SAVING PROCESSOR STATE ===");
+    DBG("savedSamples: " + juce::String(savedSamples.load()));
+    DBG("transformRecording: " + juce::String(transformRecording.load()));
+    DBG("sessionId: " + currentSessionId);
+    DBG("isUsingLocalhost: " + juce::String(isUsingLocalhost));
+
+    // Convert to XML and save
+    auto xml = juce::JSON::toString(juce::var(state.get()));
+    copyXmlToBinary(*juce::XmlDocument::parse(xml), destData);
 }
 
 void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
+    // Restore state from saved data
+    auto xml = getXmlFromBinary(data, sizeInBytes);
+    if (xml != nullptr)
+    {
+        auto jsonString = xml->getAllSubText();
+        auto state = juce::JSON::parse(jsonString);
+
+        if (auto* stateObj = state.getDynamicObject())
+        {
+            // Restore critical state
+            savedSamples = (int)stateObj->getProperty("savedSamples");
+            transformRecording = (bool)stateObj->getProperty("transformRecording");
+            currentSessionId = stateObj->getProperty("currentSessionId").toString();
+            isUsingLocalhost = (bool)stateObj->getProperty("isUsingLocalhost");
+
+            // Update backend URL
+            backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
+
+            DBG("=== RESTORING PROCESSOR STATE ===");
+            DBG("savedSamples: " + juce::String(savedSamples.load()));
+            DBG("transformRecording: " + juce::String(transformRecording.load()));
+            DBG("sessionId: " + currentSessionId);
+            DBG("isUsingLocalhost: " + juce::String(isUsingLocalhost));
+        }
+    }
 }
 
 //==============================================================================
