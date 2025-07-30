@@ -985,6 +985,8 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
     }
     continueButton.setEnabled(hasOutputAudio && isConnected && !isGenerating);
 
+    updateRetryButtonState();
+
     // REMOVED OLD RETRY LOGIC - Let updateRetryButtonState() handle it properly!
     // OLD BUGGY CODE (was using implicit logic):
     // juce::String sessionId = audioProcessor.getCurrentSessionId();
