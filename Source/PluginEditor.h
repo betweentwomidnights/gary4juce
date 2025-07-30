@@ -337,6 +337,7 @@ private:
     std::unique_ptr<juce::Drawable> xIcon;
 
     void debugModelSelection(const juce::String& functionName);
+    void updateModelAvailability();
 
     void stopAllBackgroundOperations();
 

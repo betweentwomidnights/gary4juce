@@ -80,6 +80,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     addAndMakeVisible(modelComboBox);
 
+    updateModelAvailability();
+
     modelLabel.setText("model", juce::dontSendNotification);
     modelLabel.setFont(juce::FontOptions(12.0f));
     modelLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
@@ -3446,6 +3448,9 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     // Update button text and styling
     updateBackendToggleButton();
 
+    // NEW: Update model availability based on new backend
+    updateModelAvailability();
+
     // Update connection status display (this can stay)
     updateConnectionStatus(false);
 
@@ -5436,6 +5441,27 @@ void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
             DBG("Modal closed with result: " + juce::String(result));
             delete alertWindow; // This is all you need!
             }));
+}
+
+void Gary4juceAudioProcessorEditor::updateModelAvailability()
+{
+    // hoenn_lofi (ID 4) is only available on localhost
+    bool hoennLofiAvailable = isUsingLocalhost;
+
+    modelComboBox.setItemEnabled(4, hoennLofiAvailable);
+
+    // If hoenn_lofi is currently selected but no longer available, switch to default model
+    if (!hoennLofiAvailable && modelComboBox.getSelectedId() == 4)
+    {
+        // Switch to vanya_ai_dnb_0.1 (ID 1) as default
+        modelComboBox.setSelectedId(1);
+        currentModelIndex = 0; // Update the index to match
+
+        DBG("Switched from hoenn_lofi to vanya_ai_dnb_0.1 due to backend change");
+        showStatusMessage("switched to vanya_ai_dnb_0.1 (hoenn_lofi not available on remote)", 4000);
+    }
+
+    DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
 }
 
 
