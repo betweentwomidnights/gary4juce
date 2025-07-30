@@ -11,6 +11,7 @@
 #include "Components/Base/CustomTextEditor.h"
 #include "Components/Base/CustomComboBox.h"
 #include "Utils/Theme.h"
+#include "Utils/IconFactory.h"
 
 //==============================================================================
 /**
@@ -306,29 +307,23 @@ private:
 
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;
-    void createCropIcon();
 
     // Check connection icon
     std::unique_ptr<juce::Drawable> checkConnectionIcon;
-    void createCheckConnectionIcon();
 
     // Trash icon (for clear buttons)
     std::unique_ptr<juce::Drawable> trashIcon;
-    void createTrashIcon();
 
     // Play/Pause icons
     std::unique_ptr<juce::Drawable> playIcon;
     std::unique_ptr<juce::Drawable> pauseIcon;
-    void createPlayPauseIcons();
     void updatePlayButtonIcon();
 
     // Stop icon
     std::unique_ptr<juce::Drawable> stopIcon;
-    void createStopIcon();
 
     // Logo image
     juce::Image logoImage;
-    void loadLogoImage();
 
     // Tooltip system
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
@@ -336,13 +331,10 @@ private:
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
     juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton;
-    void createHelpIcon();
 
     // Discord and X icons
     std::unique_ptr<juce::Drawable> discordIcon;
     std::unique_ptr<juce::Drawable> xIcon;
-    void createDiscordIcon();
-    void createXIcon();
 
     void debugModelSelection(const juce::String& functionName);
 
