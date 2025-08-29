@@ -675,6 +675,7 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
+    isEditorValid.store(false);
     // NEW: Stop all background operations FIRST
     stopAllBackgroundOperations();
     
@@ -1168,10 +1169,13 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     const int waveHeight = juce::jmax(1, area.getHeight() - 2);
     const int centerY = area.getCentreY();
 
+    // FIXED: Use actual sample rate from processor instead of hardcoded 44100
+    const double currentSampleRate = audioProcessor.getCurrentSampleRate();
+
     // Time calculations
     const double totalDuration = 30.0; // 30 seconds max
-    const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / 44100.0);
-    const double savedDuration = juce::jmax(0.0, (double)savedSamples / 44100.0);
+    const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
+    const double savedDuration = juce::jmax(0.0, (double)savedSamples / currentSampleRate);
 
     // Pixel calculations with safety checks
     const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
@@ -1363,9 +1367,14 @@ void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
     // Get the saved samples from processor (source of truth)
     savedSamples = audioProcessor.getSavedSamples();
 
-    // Show success message in UI instead of popup
-    double recordedSeconds = (double)recordedSamples / 44100.0;
+    // FIXED: Use actual sample rate instead of hardcoded 44100
+    const double currentSampleRate = audioProcessor.getCurrentSampleRate();
+    double recordedSeconds = (double)recordedSamples / currentSampleRate;
     showStatusMessage(juce::String::formatted("? saved %.1fs to myBuffer.wav", recordedSeconds), 4000);
+
+    // CRITICAL FIX: Explicitly update button states after saving
+    // This ensures Terry radio buttons are updated immediately when savedSamples changes
+    updateAllGenerationButtonStates();
 
     // Force waveform redraw to show the solidified state
     repaint();
@@ -1378,6 +1387,7 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
     isGenerating = true;
     generationProgress = 0;
     resetStallDetection();
+    pollingStartTimeMs = juce::Time::getCurrentTime().toMilliseconds();
     updateAllGenerationButtonStates();
     repaint(); // Start showing progress visualization
     DBG("Started polling for session: " + sessionId);
@@ -1499,7 +1509,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             }
             else
             {
-                handleGenerationFailure("empty response from backend - try again");
+                showStatusMessage("backend reachable but no response; retry", 3000);
             }
             });
         return;
@@ -1513,6 +1523,37 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             bool success = responseObj->getProperty("success");
             if (!success)
             {
+                // --- WARMUP HANDLING (model download / cold start) ---
+                // Some backends return success:false with a descriptive error while the model weights
+                // are being downloaded/loaded on first use. Treat those as a non-fatal "warmup" state.
+                {
+                    juce::String errorMsg = responseObj->getProperty("error").toString().toLowerCase();
+                    const bool looksLikeWarmup =
+                        errorMsg.contains("download") ||
+                        errorMsg.contains("downloading") ||
+                        errorMsg.contains("loading model") ||
+                        errorMsg.contains("loading weights") ||
+                        errorMsg.contains("warmup") ||
+                        errorMsg.contains("warming") ||
+                        errorMsg.contains("huggingface") ||
+                        errorMsg.contains("initializing");
+                    if (looksLikeWarmup)
+                    {
+                        // Mark and keep polling without treating this as a failure
+                        withinWarmup = true;
+                        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds(); // prevent stall detector
+                        isCurrentlyQueued = true; // keep UI in "busy" state
+
+                        // Short, friendly status — we avoid failing the run
+                        showStatusMessage("warming up (downloading model)...", 4000);
+                        DBG("Polling: backend in warmup/cold-start: " + errorMsg);
+
+                        // Do NOT stopPolling(); just return so the timer continues polling.
+                        return;
+                    }
+                }
+                // --- END WARMUP HANDLING ---
+
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 stopPolling();
                 showStatusMessage("processing failed", 3000);
@@ -1525,6 +1566,29 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
             if (generationInProgress || transformInProgress)
             {
+                // If we were previously in warmup, keep UI responsive and prevent stall
+                if (withinWarmup)
+                {
+                    // Heuristics to exit warmup: any server progress > 0, or explicit queue ready
+                    int warmProgressCheck = responseObj->getProperty("progress");
+                    juce::String warmQueueStatus;
+                    if (auto* warmQueueObj = responseObj->getProperty("queue_status").getDynamicObject())
+                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
+
+                    if (warmProgressCheck > 0 || warmQueueStatus == "ready")
+                    {
+                        DBG("Exiting warmup state (progress or ready observed)");
+                        withinWarmup = false;
+                    }
+                    else
+                    {
+                        // Stay in warmup: keep resetting the stall timer and show a gentle status
+                        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        showStatusMessage("warming up...", 3000);
+                        // Don't early-return: allow the rest of the block to parse queue info etc.
+                    }
+                }
+
                 // Get real progress from server
                 int serverProgress = responseObj->getProperty("progress");
                 serverProgress = juce::jlimit(0, 100, serverProgress);
@@ -1593,7 +1657,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                             else
                                 shortTime = juce::String(estimatedSeconds / 60) + "m";
 
-                            conciseMessage = "busy rn - queued - position # " + juce::String(position) + " - wait ~" + shortTime;
+                            conciseMessage = "busy rn - queued -...position # " + juce::String(position) + " - wait ~" + shortTime;
                         }
                         else
                         {
@@ -1647,6 +1711,8 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             // COMPLETED - Check what TYPE of completion this is FIRST
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
+
+            withinWarmup = false; // completed/terminal statuses should clear warmup
 
             DBG("=== POLLING RESPONSE ANALYSIS ===");
             DBG("Status: " + status);
@@ -1721,11 +1787,22 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     if (transformInProgress || currentTab == ModelTab::Terry)
                     {
                         showStatusMessage("transform failed: " + error, 5000);
+                        audioProcessor.setUndoTransformAvailable(false);
+                        undoTransformButton.setEnabled(false);
+                        audioProcessor.setRetryAvailable(false);
+                        updateRetryButtonState();
                     }
                     else
                     {
                         showStatusMessage("generation failed: " + error, 5000);
+                        audioProcessor.setRetryAvailable(true);
+                        updateRetryButtonState();
                     }
+
+                    isGenerating = false;
+                    isCurrentlyQueued = false;
+                    updateAllGenerationButtonStates();
+                    repaint();
                 }
                 else if (status == "completed")
                 {
@@ -1739,6 +1816,11 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     {
                         showStatusMessage("generation completed but no audio received", 3000);
                     }
+
+                    isGenerating = false;
+                    isCurrentlyQueued = false;
+                    updateAllGenerationButtonStates();
+                    repaint();
                 }
             }
         }
@@ -1758,7 +1840,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else
                 {
-                    handleGenerationFailure("invalid server response - try again");
+                    showStatusMessage("bad response; retry", 3000);
                 }
                 });
         }
@@ -1779,11 +1861,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             }
             else
             {
-                handleGenerationFailure("server response error - try again");
+                showStatusMessage("parse error; retry", 3000);
             }
             });
     }
 }
+
 
 void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
 {
@@ -2623,7 +2706,18 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     juce::String fullPrompt = currentJerryPrompt + " " + juce::String((int)bpm) + "bpm";
 
     // 3. Determine endpoint based on smart loop toggle
-    juce::String endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
+    juce::String endpoint;
+
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        // Localhost endpoints do NOT have the /audio prefix
+        endpoint = generateAsLoop ? "/generate/loop" : "/generate";
+    }
+    else
+    {
+        // Remote backend requires /audio prefix
+        endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
+    }
     juce::String statusText = generateAsLoop ?
         "cooking a smart loop with jerry..." : "baking with jerry...";
 
@@ -3479,41 +3573,38 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
     {
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
-        stopOutputButton.setEnabled(false); 
+        stopOutputButton.setEnabled(false);
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
         continueButton.setEnabled(false);
         totalAudioDuration = 0.0;
+        currentAudioSampleRate = 44100.0;  // Reset to default
         return;
     }
-
     // Read the audio file
     juce::AudioFormatManager formatManager;
     formatManager.registerBasicFormats();
-
     std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(outputAudioFile));
-
     if (reader != nullptr)
     {
         // Resize buffer to fit the audio
         outputAudioBuffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
-
         // Read the audio data
         reader->read(&outputAudioBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
-
         // Calculate total duration
         totalAudioDuration = (double)reader->lengthInSamples / reader->sampleRate;
-
+        // ADDED: Store the file's sample rate
+        currentAudioSampleRate = reader->sampleRate;
         hasOutputAudio = true;
         playOutputButton.setEnabled(true);
         stopOutputButton.setEnabled(true);  // Always enabled when we have audio
         clearOutputButton.setEnabled(true);
         cropButton.setEnabled(true);
         continueButton.setEnabled(true);
-
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
-            juce::String(totalAudioDuration, 2) + " seconds");
+            juce::String(totalAudioDuration, 2) + " seconds at " +
+            juce::String(reader->sampleRate) + " Hz");
     }
     else
     {
@@ -3524,6 +3615,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         cropButton.setEnabled(false);
         continueButton.setEnabled(false);
         totalAudioDuration = 0.0;
+        currentAudioSampleRate = 44100.0;  // Reset to default
     }
 }
 
@@ -4011,6 +4103,13 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
 
 void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 {
+    // SAFETY: Validate component state early
+    if (!isEditorValid.load())
+    {
+        DBG("MouseDown ignored - editor not valid");
+        return;
+    }
+
     // Reset drag state
     isDragging = false;
     dragStarted = false;
@@ -4033,7 +4132,7 @@ void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 
         // Store click for potential drag - only seek if it's not a drag
         // The actual seek will happen in mouseUp if no drag occurred
-        
+
         return; // We handled this click
     }
 
@@ -4136,62 +4235,317 @@ void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
 
 void Gary4juceAudioProcessorEditor::startAudioDrag()
 {
+    // Prevent multiple simultaneous drags
+    if (isDragInProgress.load())
+    {
+        DBG("Drag already in progress, ignoring request");
+        return;
+    }
+
+    // SAFETY: Validate component state before starting
+    if (!isEditorValid.load())
+    {
+        DBG("Editor not valid, aborting drag");
+        return;
+    }
+
     if (!outputAudioFile.existsAsFile())
     {
         DBG("No output audio file to drag");
         return;
     }
 
-    // Create dragged_audio folder inside Documents/gary4juce
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
-
-    // Ensure the dragged_audio directory exists
-    if (!draggedAudioDir.exists())
+    // SAFETY: Additional file validation
+    if (outputAudioFile.getSize() < 1000) // Should be at least 1KB for real audio
     {
-        auto result = draggedAudioDir.createDirectory();
-        if (!result.wasOk())
-        {
-            DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
-            showStatusMessage("drag failed - folder creation error", 2000);
-            return;
-        }
-    }
-
-    // Create a unique filename with timestamp for the drag
-    auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-    auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
-    auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
-
-    // Copy the current output file to the unique drag file
-    if (!outputAudioFile.copyFileTo(uniqueDragFile))
-    {
-        DBG("Failed to create unique copy for dragging");
-        showStatusMessage("drag failed - file copy error", 2000);
+        DBG("Output file too small, aborting drag");
         return;
     }
+
+    // Set drag in progress flag
+    isDragInProgress.store(true);
+
+    juce::File uniqueDragFile;
+
+    try
+    {
+        // Protect file operations with critical section
+        juce::ScopedLock lock(fileLock);
+
+        // Create dragged_audio folder inside Documents/gary4juce
+        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+
+        // Ensure the dragged_audio directory exists
+        if (!draggedAudioDir.exists())
+        {
+            auto result = draggedAudioDir.createDirectory();
+            if (!result.wasOk())
+            {
+                DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
+                showStatusMessage("drag failed - folder creation error", 2000);
+                isDragInProgress.store(false);
+                return;
+            }
+        }
+
+        // Create a unique filename with timestamp for the drag
+        auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
+        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+
+        // SAFETY: More robust file copy with validation
+        if (!outputAudioFile.existsAsFile())
+        {
+            DBG("Source file no longer exists during drag preparation");
+            isDragInProgress.store(false);
+            return;
+        }
+
+        // Copy the current output file to the unique drag file
+        if (!outputAudioFile.copyFileTo(uniqueDragFile))
+        {
+            DBG("Failed to create unique copy for dragging");
+            showStatusMessage("drag failed - file copy error", 2000);
+            isDragInProgress.store(false);
+            return;
+        }
+
+        // SAFETY: Validate the copy was successful
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        {
+            DBG("Copy validation failed");
+            uniqueDragFile.deleteFile();
+            isDragInProgress.store(false);
+            return;
+        }
+
+    } // Release lock after file operations are complete
+    catch (const std::exception& e)
+    {
+        DBG("Exception during drag file preparation: " + juce::String(e.what()));
+        showStatusMessage("drag failed - exception occurred", 2000);
+        isDragInProgress.store(false);
+        return;
+    }
+
+    // Small delay to ensure file is fully written
+    juce::Thread::sleep(50); // Increased from 10ms
 
     // Create array of files to drag
     juce::StringArray filesToDrag;
     filesToDrag.add(uniqueDragFile.getFullPathName());
-
     DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
 
-    // Perform external drag to DAW/other applications
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this]()
+    // SAFETY: Enhanced callback with multiple safety checks
+    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this, uniqueDragFile]()
         {
-            DBG("Drag operation completed");
-            showStatusMessage("audio dragged successfully!", 2000);
+            // SAFETY CHECK 1: Component validity
+            if (!isEditorValid.load())
+            {
+                DBG("Drag callback ignored - editor no longer valid");
+                isDragInProgress.store(false);
+                // Still try to clean up the file
+                if (uniqueDragFile.existsAsFile())
+                {
+                    uniqueDragFile.deleteFile();
+                }
+                return;
+            }
+
+            // SAFETY CHECK 2: Use MessageManager to ensure main thread execution
+            juce::MessageManager::callAsync([this, uniqueDragFile]()
+                {
+                    // SAFETY CHECK 3: Double-check component validity on main thread
+                    if (!isEditorValid.load())
+                    {
+                        DBG("Drag callback ignored on main thread - editor no longer valid");
+                        isDragInProgress.store(false);
+                        if (uniqueDragFile.existsAsFile())
+                        {
+                            uniqueDragFile.deleteFile();
+                        }
+                        return;
+                    }
+
+                    DBG("Drag operation completed successfully");
+                    showStatusMessage("audio dragged successfully!", 2000);
+                    isDragInProgress.store(false);
+
+                    // Clean up with delay and additional safety
+                    juce::Timer::callAfterDelay(3000, [uniqueDragFile]()
+                        {
+                            try
+                            {
+                                if (uniqueDragFile.existsAsFile())
+                                {
+                                    uniqueDragFile.deleteFile();
+                                    DBG("Cleaned up temporary drag file");
+                                }
+                            }
+                            catch (...)
+                            {
+                                DBG("Exception during drag file cleanup - ignoring");
+                            }
+                        });
+                });
         });
 
     if (!success)
     {
         DBG("Failed to start drag operation");
         showStatusMessage("drag failed - try again", 2000);
-        // Clean up the file if drag failed
-        uniqueDragFile.deleteFile();
+
+        // Clean up with lock protection
+        try
+        {
+            juce::ScopedLock lock(fileLock);
+            uniqueDragFile.deleteFile();
+        }
+        catch (...)
+        {
+            DBG("Exception during drag cleanup - ignoring");
+        }
+        isDragInProgress.store(false);
     }
+}
+
+std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
+{
+    try
+    {
+        // Create dragged_audio folder
+        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+
+        if (!draggedAudioDir.exists())
+        {
+            auto result = draggedAudioDir.createDirectory();
+            if (!result.wasOk())
+            {
+                DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
+                juce::MessageManager::callAsync([this]() {
+                    showStatusMessage("drag failed - folder creation error", 2000);
+                    });
+                return { false, juce::File{} };
+            }
+        }
+
+        // Create unique filename with timestamp
+        auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
+        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+
+        // THREAD SAFETY: Use a more robust file copy approach
+        juce::FileInputStream sourceStream(outputAudioFile);
+        if (!sourceStream.openedOk())
+        {
+            DBG("Failed to open source file for reading");
+            juce::MessageManager::callAsync([this]() {
+                showStatusMessage("drag failed - source file locked", 2000);
+                });
+            return { false, juce::File{} };
+        }
+
+        juce::FileOutputStream destStream(uniqueDragFile);
+        if (!destStream.openedOk())
+        {
+            DBG("Failed to open destination file for writing");
+            juce::MessageManager::callAsync([this]() {
+                showStatusMessage("drag failed - destination error", 2000);
+                });
+            return { false, juce::File{} };
+        }
+
+        // Copy file data in chunks to avoid locking issues
+        const int bufferSize = 8192;
+        char buffer[bufferSize];
+
+        while (!sourceStream.isExhausted())
+        {
+            auto bytesRead = sourceStream.read(buffer, bufferSize);
+            if (bytesRead > 0)
+            {
+                destStream.write(buffer, bytesRead);
+            }
+        }
+
+        destStream.flush();
+
+        // Verify the copy worked
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        {
+            DBG("File copy verification failed");
+            uniqueDragFile.deleteFile();
+            juce::MessageManager::callAsync([this]() {
+                showStatusMessage("drag failed - copy verification failed", 2000);
+                });
+            return { false, juce::File{} };
+        }
+
+        DBG("File prepared for drag: " + uniqueDragFile.getFullPathName());
+        return { true, uniqueDragFile };
+    }
+    catch (const std::exception& e)
+    {
+        DBG("Exception in prepareFileForDrag: " + juce::String(e.what()));
+        juce::MessageManager::callAsync([this]() {
+            showStatusMessage("drag failed - exception occurred", 2000);
+            });
+        return { false, juce::File{} };
+    }
+}
+
+bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragFile)
+{
+    juce::StringArray filesToDrag;
+    filesToDrag.add(dragFile.getFullPathName());
+
+    DBG("Starting thread-safe drag for: " + dragFile.getFullPathName());
+
+    // THREAD SAFETY: Use WeakReference to avoid accessing deleted component
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
+
+    auto success = performExternalDragDropOfFiles(filesToDrag, true, this,
+        [safeThis, dragFile]() {
+            // THREAD SAFETY: Always check if component still exists
+            if (safeThis.getComponent() == nullptr)
+            {
+                DBG("Component deleted during drag - cleaning up file");
+                dragFile.deleteFile();
+                return;
+            }
+
+            // THREAD SAFETY: Call UI updates on message thread
+            juce::MessageManager::callAsync([safeThis, dragFile]() {
+                if (auto* editor = safeThis.getComponent())
+                {
+                    editor->showStatusMessage("audio dragged successfully!", 2000);
+                    DBG("Drag operation completed successfully");
+                }
+
+                // Clean up the temporary file after a delay
+                juce::Timer::callAfterDelay(5000, [dragFile]() {
+                    if (dragFile.existsAsFile())
+                    {
+                        dragFile.deleteFile();
+                        DBG("Cleaned up temporary drag file");
+                    }
+                    });
+                });
+        });
+
+    if (!success)
+    {
+        DBG("Failed to start drag operation");
+        showStatusMessage("drag failed - try again", 2000);
+        dragFile.deleteFile();
+        return false;
+    }
+
+    return true;
 }
 
 bool Gary4juceAudioProcessorEditor::isMouseOverOutputWaveform(const juce::Point<int>& position) const
@@ -4431,7 +4785,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     DBG("Moved temp file to original location");
     DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
 
-    // Reload the cropped audio
+    // Reload the cropped audio (this will update currentAudioSampleRate)
     loadOutputAudioFile();
 
     // Reset playback position
@@ -4439,8 +4793,8 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     pausedPosition = 0.0;
     isPausedOutput = false;
 
-    // Verify the reload worked
-    double newDuration = (double)outputAudioBuffer.getNumSamples() / 44100.0;
+    // FIXED: Use the output file's native sample rate for accurate duration display
+    double newDuration = (double)outputAudioBuffer.getNumSamples() / currentAudioSampleRate;
     DBG("New audio duration after reload: " + juce::String(newDuration, 2) + "s");
 
     showStatusMessage("audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
@@ -4568,8 +4922,10 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
     if (recordedSamples > 0)
     {
-        double recordedSeconds = (double)recordedSamples / 44100.0;
-        double savedSeconds = (double)savedSamples / 44100.0;
+        // FIXED: Use actual sample rate instead of hardcoded 44100
+        const double currentSampleRate = audioProcessor.getCurrentSampleRate();
+        double recordedSeconds = (double)recordedSamples / currentSampleRate;
+        double savedSeconds = (double)savedSamples / currentSampleRate;
 
         juce::String infoText;
         if (savedSamples < recordedSamples)
@@ -4622,13 +4978,13 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     // Output info below output waveform
     if (hasOutputAudio && outputAudioBuffer.getNumSamples() > 0)
     {
-        double outputSeconds = (double)outputAudioBuffer.getNumSamples() / 44100.0;
+        // FIXED: Use stored output file sample rate instead of hardcoded 44100
+        double outputSeconds = (double)outputAudioBuffer.getNumSamples() / currentAudioSampleRate;
         juce::String outputInfo = juce::String::formatted("output: %.1fs - %d samples",
             outputSeconds, outputAudioBuffer.getNumSamples());
-
         g.setFont(juce::FontOptions(11.0f));
         g.setColour(juce::Colours::lightgrey);
-       // auto outputInfoArea = juce::Rectangle<int>(0, outputWaveformArea.getBottom() + 5, getWidth(), 15);
+        // auto outputInfoArea = juce::Rectangle<int>(0, outputWaveformArea.getBottom() + 5, getWidth(), 15);
         g.drawText(outputInfo, outputInfoArea, juce::Justification::centred);
     }
 

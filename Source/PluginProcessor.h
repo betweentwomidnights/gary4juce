@@ -54,6 +54,7 @@ public:
     const juce::AudioBuffer<float>& getRecordingBuffer() const { return recordingBuffer; }
     int getRecordedSamples() const;  // Declaration only - implementation in .cpp
     int getMaxRecordingSamples() const { return maxRecordingSamples; }  // ADD THIS
+    double getCurrentSampleRate() const { return currentSampleRate; }
 
     //==============================================================================
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -119,7 +120,7 @@ private:
     int recordedSamples = 0;
     bool recording = false;
     bool wasPlaying = false;  // To detect transport state changes
-    double currentSampleRate = 44100.0;
+    double currentSampleRate = 44100.0;  // Default fallback, updated in prepareToPlay()
 
     // Recording settings
     static constexpr double recordingLengthSeconds = 30.0;

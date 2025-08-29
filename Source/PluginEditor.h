@@ -13,6 +13,9 @@
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 
+#include <atomic>
+#include <future>
+
 //==============================================================================
 /**
 */
@@ -218,6 +221,7 @@ private:
     // Output audio management
     juce::AudioBuffer<float> outputAudioBuffer;
     juce::File outputAudioFile;
+    double currentAudioSampleRate = 44100.0;  // Store the actual sample rate of loaded audio
     bool hasOutputAudio = false;
     int generationProgress = 0;  // 0-100 for progress visualization
     bool isGenerating = false;
@@ -332,6 +336,11 @@ private:
     std::unique_ptr<juce::Drawable> helpIcon;
     juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton;
 
+    // Allow an extended grace period when we're at 0% but still receiving polls
+    const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes
+    juce::int64 pollingStartTimeMs = 0;      // set when polling begins
+    bool withinWarmup = false;
+
     // Discord and X icons
     std::unique_ptr<juce::Drawable> discordIcon;
     std::unique_ptr<juce::Drawable> xIcon;
@@ -340,6 +349,13 @@ private:
     void updateModelAvailability();
 
     void stopAllBackgroundOperations();
+
+    juce::CriticalSection fileLock;  // Protects file operations
+    std::atomic<bool> isDragInProgress{ false };
+    std::atomic<bool> isEditorValid{ true };  // Add this alongside your existing atomics
+
+    std::pair<bool, juce::File> prepareFileForDrag();
+    bool performDragOperation(const juce::File& dragFile);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };
