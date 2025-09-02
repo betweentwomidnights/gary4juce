@@ -357,5 +357,10 @@ private:
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);
 
+    void showAsioDriverWarning(const juce::String& driverName);
+
+    std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
+    juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

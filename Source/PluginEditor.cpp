@@ -1405,91 +1405,164 @@ void Gary4juceAudioProcessorEditor::stopPolling()
 
 void Gary4juceAudioProcessorEditor::pollForResults()
 {
-    juce::String sessionId = audioProcessor.getCurrentSessionId();
+    const juce::String sessionId = audioProcessor.getCurrentSessionId();
     if (!isPolling || sessionId.isEmpty())
         return;
 
-    // Check for stall before making new request
-    if (checkForGenerationStall())
+    // If we’re in warmup, keep the stall detector quiet.
+    // (We still want the stall detector for real backend drops.)
+    if (withinWarmup)
+        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+
+    // Don’t start another poll while one is in flight
+    if (pollInFlight.exchange(true))
+        return;
+
+    // Optional: if you have a very fast poll timer, add a micro-backoff while warming
+    const bool softBackoff = withinWarmup || isCurrentlyQueued;
+    if (softBackoff)
+        juce::Thread::sleep(60); // tiny spacing to avoid hammering during cold start
+
+    // Only trip “stall” when not warming up
+    if (!withinWarmup && checkForGenerationStall())
     {
+        pollInFlight = false;
         handleGenerationStall();
         return;
     }
 
-    // Create polling request in background thread
-    juce::Thread::launch([this, sessionId]() {
-        // SAFETY: Exit if polling stopped
-        if (!isPolling || sessionId.isEmpty()) {
-            DBG("Polling aborted - no longer active");
-            return;
-        }
-        
-        juce::URL pollUrl(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
-
-        try
+    juce::Thread::launch([this, sessionId]()
         {
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(10000)
-                .withExtraHeaders("Content-Type: application/json");
+            auto clearInFlight = [this]() { pollInFlight = false; };
 
-            auto stream = pollUrl.createInputStream(options);
-
-            if (stream != nullptr)
+            // SAFETY: Exit if polling stopped
+            if (!isPolling || sessionId.isEmpty())
             {
-                auto responseText = stream->readEntireStreamAsString();
+                clearInFlight();
+                DBG("Polling aborted - no longer active");
+                return;
+            }
 
-                // Handle response on main thread
-                juce::MessageManager::callAsync([this, responseText]() {
-                    // SAFETY: Don't process if polling stopped
-                    if (!isPolling) {
-                        DBG("Polling callback aborted");
-                        return;
-                    }
-                    handlePollingResponse(responseText);
+            juce::URL pollUrl(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+
+            try
+            {
+                int httpStatus = 0;
+                juce::StringPairArray responseHeaders;
+
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(withinWarmup ? 4000 : 8000) // shorter during warmup
+                    .withNumRedirectsToFollow(3)
+                    .withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
+                    .withResponseHeaders(&responseHeaders)
+                    .withStatusCode(&httpStatus);
+
+                // Attempt #1
+                std::unique_ptr<juce::InputStream> stream(pollUrl.createInputStream(options));
+
+                // If we didn’t get a stream while warming, quick retry once
+                if (stream == nullptr && (withinWarmup || isCurrentlyQueued || isGenerating))
+                {
+                    DBG("Polling: null stream during warmup/active; quick retry");
+                    juce::Thread::sleep(150);
+
+                    // Move-assign the new unique_ptr result into our existing one
+                    auto retryStream = pollUrl.createInputStream(options); // returns std::unique_ptr<InputStream>
+                    if (retryStream)
+                        stream = std::move(retryStream); // or simply: stream = pollUrl.createInputStream(options);
+                }
+
+                if (stream != nullptr)
+                {
+                    const auto responseText = stream->readEntireStreamAsString();
+                    lastGoodPollMs = juce::Time::getCurrentTime().toMilliseconds();
+                    clearInFlight();
+
+                    juce::MessageManager::callAsync([this, responseText]()
+                        {
+                            if (!isPolling) { DBG("Polling callback aborted"); return; }
+                            handlePollingResponse(responseText);
+                        });
+                    return;
+                }
+
+                // No stream: consider whether this is a transient warmup hiccup
+                clearInFlight();
+
+                const bool treatAsTransient =
+                    withinWarmup || isCurrentlyQueued || isGenerating;
+
+                if (treatAsTransient)
+                {
+                    // Keep UI alive; don’t escalate to failure.
+                    juce::MessageManager::callAsync([this]()
+                        {
+                            // keep user informed but gentle
+                            showStatusMessage("warming up… (network jitter)", 2500);
+                            // also reset stall timer so we don’t trip
+                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        });
+                    return; // simply wait for next timer tick to poll again
+                }
+
+                // Not warming/queued and no stream: do your existing health check path
+                DBG("Polling failed - checking backend health (no stream; status unknown)");
+                juce::MessageManager::callAsync([this]()
+                    {
+                        if (!isPolling) { DBG("Polling health check callback aborted"); return; }
+                        audioProcessor.checkBackendHealth();
+
+                        juce::Timer::callAfterDelay(6000, [this]()
+                            {
+                                if (!audioProcessor.isBackendConnected())
+                                    handleBackendDisconnection();
+                                else
+                                    handleGenerationFailure("polling failed - try again");
+                            });
                     });
             }
-            else
+            catch (const std::exception& e)
             {
-                // Connection failed - trigger health check
-                DBG("Polling failed - checking backend health");
+                clearInFlight();
+                DBG("Polling exception: " + juce::String(e.what()));
+
+                // During warmup, treat as transient
+                if (withinWarmup || isCurrentlyQueued || isGenerating)
+                {
+                    juce::MessageManager::callAsync([this]()
+                        {
+                            showStatusMessage("warming up… (transient)", 2500);
+                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        });
+                    return;
+                }
+
                 juce::MessageManager::callAsync([this]() {
-                    // SAFETY: Don't process if polling stopped
-                    if (!isPolling) {
-                        DBG("Polling health check callback aborted");
-                        return;
-                    }
-                    audioProcessor.checkBackendHealth();
-                    
-                    // Give health check time, then handle failure
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
-                        {
-                            handleBackendDisconnection();
-                        }
-                        else
-                        {
-                            handleGenerationFailure("polling failed - try again");
-                        }
+                    handleGenerationFailure("network error during generation");
                     });
-                });
             }
-        }
-        catch (const std::exception& e)
-        {
-            DBG("Polling exception: " + juce::String(e.what()));
-            juce::MessageManager::callAsync([this]() {
-                handleGenerationFailure("network error during generation");
-            });
-        }
-        catch (...)
-        {
-            DBG("Unknown polling exception");
-            juce::MessageManager::callAsync([this]() {
-                handleGenerationFailure("network error during generation");
-            });
-        }
+            catch (...)
+            {
+                clearInFlight();
+                DBG("Unknown polling exception");
+
+                if (withinWarmup || isCurrentlyQueued || isGenerating)
+                {
+                    juce::MessageManager::callAsync([this]()
+                        {
+                            showStatusMessage("warming up… (transient)", 2500);
+                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        });
+                    return;
+                }
+
+                juce::MessageManager::callAsync([this]() {
+                    handleGenerationFailure("network error during generation");
+                    });
+            }
         });
 }
+
 
 void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& responseText)
 {
@@ -3868,7 +3941,17 @@ void Gary4juceAudioProcessorEditor::startOutputPlayback()
     // Initialize audio playback if needed
     if (!audioDeviceManager)
     {
+        auto initStartTime = juce::Time::getCurrentTime();
         initializeAudioPlayback();
+        auto initDuration = juce::Time::getCurrentTime() - initStartTime;
+
+        // If initialization took too long or failed, likely due to exclusive ASIO
+        if (initDuration.inMilliseconds() > 1000 || !audioDeviceManager->getCurrentAudioDevice())
+        {
+            DBG("Audio initialization slow/failed - likely exclusive ASIO blocking");
+            showAsioDriverWarning("ASIO driver (possibly ASIO4ALL)");
+            return;
+        }
     }
 
     // Create a new reader for the output file
@@ -3897,6 +3980,14 @@ void Gary4juceAudioProcessorEditor::startOutputPlayback()
 
             transportSource->setPosition(startPosition);
             transportSource->start();
+
+            // Check if it actually started
+            juce::Timer::callAfterDelay(100, [this]() {
+                if (transportSource && !transportSource->isPlaying()) {
+                    DBG("Playback failed to start - likely ASIO blocking");
+                    showAsioDriverWarning("ASIO driver");
+                }
+                });
 
             isPlayingOutput = true;
             isPausedOutput = false;
@@ -4020,6 +4111,44 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
     stopOutputPlayback(); // This does everything we need for a full stop
 }
 
+void Gary4juceAudioProcessorEditor::showAsioDriverWarning(const juce::String& driverName)
+{
+    // Show immediate status message
+    showStatusMessage("audio driver may block playback - see output section", 6000);
+
+    // Create a delayed popup with clickable link after a brief moment
+    juce::Timer::callAfterDelay(1500, [this, driverName]() {
+        // SAFETY: Check component is still valid
+        if (!isEditorValid.load()) return;
+
+        auto* alertWindow = new juce::AlertWindow(
+            "audio driver compatibility",
+            driverName + " may block audio playback in VSTs.\n"
+            "FlexASIO (free, open-source) works much better.",
+            juce::MessageBoxIconType::InfoIcon,
+            this);
+
+        // Add download button that opens the GitHub releases page
+        alertWindow->addButton("download FlexASIO", 1);
+        alertWindow->addButton("continue anyway", 0);
+
+        // Add note below the buttons
+        alertWindow->addTextBlock("Note: After installing/switching to a new audio driver,\n"
+            "you'll need to reload this VST in your DAW.");
+
+        alertWindow->enterModalState(true,
+            juce::ModalCallbackFunction::create([this, alertWindow](int result) {
+                if (result == 1) // Download button clicked
+                {
+                    juce::URL("https://github.com/dechamps/FlexASIO/releases").launchInDefaultBrowser();
+                    showStatusMessage("opened FlexASIO download page", 4000);
+                }
+                // Both buttons will close the modal - clean up the AlertWindow
+                delete alertWindow;
+                }));
+        });
+}
+
 void Gary4juceAudioProcessorEditor::initializeAudioPlayback()
 {
     // Initialize audio format manager
@@ -4041,6 +4170,30 @@ void Gary4juceAudioProcessorEditor::initializeAudioPlayback()
     {
         DBG("Audio device manager error: " + error);
         // Continue anyway - might still work
+    }
+
+    // CHECK FOR PROBLEMATIC ASIO DRIVERS
+    auto* currentDevice = audioDeviceManager->getCurrentAudioDevice();
+    if (currentDevice != nullptr)
+    {
+        auto driverName = currentDevice->getName().toLowerCase();
+        auto typeName = currentDevice->getTypeName().toLowerCase();
+
+        bool isProblematicDriver = driverName.contains("asio4all") ||
+            driverName.contains("asio 4 all") ||
+            driverName.contains("realtek asio") ||
+            typeName.contains("asio4all") ||
+            typeName.contains("realtek asio");
+
+        if (isProblematicDriver)
+        {
+            DBG("Detected problematic ASIO driver: " + driverName + " (" + typeName + ")");
+            showAsioDriverWarning(driverName);
+        }
+        else
+        {
+            DBG("Audio driver OK: " + driverName + " (" + typeName + ")");
+        }
     }
 
     // Create transport source
@@ -4142,27 +4295,48 @@ void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 
 void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
 {
+    // SAFETY: Early validation
+    if (!isEditorValid.load())
+    {
+        DBG("MouseDrag ignored - editor not valid");
+        return;
+    }
+
     // Check if we're dragging from the output waveform area
     if (isMouseOverOutputWaveform(dragStartPosition) && hasOutputAudio && outputAudioFile.existsAsFile())
     {
+        // SAFETY: Additional file validation before starting drag
+        if (outputAudioFile.getSize() < 1000)
+        {
+            DBG("Output file too small for drag");
+            return;
+        }
+
         // Calculate drag distance to determine if this is a drag operation
         auto dragDistance = dragStartPosition.getDistanceFrom(event.getPosition());
-        
+
         if (dragDistance > 10 && !dragStarted) // 10 pixel threshold for drag
         {
+            // SAFETY: Check if we're already dragging
+            if (isDragInProgress.load())
+            {
+                DBG("Already dragging, ignoring new drag attempt");
+                return;
+            }
+
             isDragging = true;
             repaint(); // Update visual feedback
-            
+
             startAudioDrag();
-            
+
             dragStarted = true;
             isDragging = false;
             repaint(); // Remove visual feedback
-            
+
             return;
         }
     }
-    
+
     juce::Component::mouseDrag(event);
 }
 
