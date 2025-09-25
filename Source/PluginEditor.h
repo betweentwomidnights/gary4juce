@@ -109,7 +109,9 @@ private:
     {
         Gary = 0,
         Jerry,
-        Terry  // For future implementation
+        Terry,
+        Darius // magenta
+
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -145,6 +147,23 @@ private:
     juce::Label jerryStepsLabel;
     CustomButton generateWithJerryButton;
     juce::Label jerryBpmLabel;
+
+
+
+
+    // Add Darius tab button (with other tab buttons)
+    CustomButton dariusTabButton;
+
+    // Add Darius-specific components
+    juce::Label dariusLabel;
+    juce::TextEditor dariusUrlEditor;
+    juce::Label dariusUrlLabel;
+    CustomButton dariusHealthCheckButton;
+    juce::Label dariusStatusLabel;
+
+    // Add Darius backend state variables
+    juce::String dariusBackendUrl = "https://thecollabagepatch-magenta-retry.hf.space";
+    bool dariusConnected = false;
 
     // Smart loop controls
     CustomButton generateAsLoopButton;
@@ -361,6 +380,9 @@ private:
 
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
+
+    void checkDariusHealth();
+    void handleDariusHealthResponse(const juce::String& response, bool connectionSucceeded);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };

@@ -16,6 +16,8 @@ namespace Theme
         const auto Gary = PrimaryRed;
         const auto Jerry = PrimaryRed;   // Same red as Gary for consistency
         const auto Terry = PrimaryRed;   // Same red as Gary for consistency
+
+        static const juce::Colour Darius = juce::Colour(0xffff1493);
         
         // UI elements (red/white/black only)
         const auto ButtonActive = PrimaryRed;

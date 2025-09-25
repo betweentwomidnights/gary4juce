@@ -38,6 +38,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // terryTabButton.setEnabled(false);  // Disabled until implemented
     addAndMakeVisible(terryTabButton);
 
+    dariusTabButton.setButtonText("darius");
+    dariusTabButton.setButtonStyle(CustomButton::ButtonStyle::Darius); // We'll need to add this style
+    dariusTabButton.onClick = [this]() { switchToTab(ModelTab::Darius); };
+    addAndMakeVisible(dariusTabButton);
+
     // ========== GARY CONTROLS SETUP ==========
     garyLabel.setText("gary (musicgen)", juce::dontSendNotification);
     garyLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
@@ -364,6 +369,44 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     undoTransformButton.setEnabled(false);
     undoTransformButton.setTooltip("restore audio to state before last transformation");
     addAndMakeVisible(undoTransformButton);
+
+
+
+    // ========== DARIUS CONTROLS SETUP ==========
+    dariusLabel.setText("darius (magentaRT)", juce::dontSendNotification);
+    dariusLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    dariusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    dariusLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(dariusLabel);
+
+    // Backend URL editor
+    dariusUrlEditor.setText(dariusBackendUrl, juce::dontSendNotification);
+    dariusUrlEditor.setMultiLine(false);
+    dariusUrlEditor.setReturnKeyStartsNewLine(false);
+    dariusUrlEditor.onTextChange = [this]() {
+        dariusBackendUrl = dariusUrlEditor.getText();
+        };
+    addAndMakeVisible(dariusUrlEditor);
+
+    dariusUrlLabel.setText("backend url", juce::dontSendNotification);
+    dariusUrlLabel.setFont(juce::FontOptions(12.0f));
+    dariusUrlLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    dariusUrlLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(dariusUrlLabel);
+
+    // Health check button
+    dariusHealthCheckButton.setButtonText("check connection");
+    dariusHealthCheckButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusHealthCheckButton.onClick = [this]() { checkDariusHealth(); };
+    dariusHealthCheckButton.setTooltip("check magentaRT backend connection");
+    addAndMakeVisible(dariusHealthCheckButton);
+
+    // Status label
+    dariusStatusLabel.setText("not checked", juce::dontSendNotification);
+    dariusStatusLabel.setFont(juce::FontOptions(11.0f));
+    dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    dariusStatusLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(dariusStatusLabel);
 
     // ========== REMAINING SETUP (unchanged) ==========
     // Set up the "Check Connection" button
@@ -784,6 +827,15 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     transformWithTerryButton.setVisible(showTerry);
     undoTransformButton.setVisible(showTerry);
 
+    // Darius controls visibility
+    bool showDarius = (tab == ModelTab::Darius);
+
+    dariusLabel.setVisible(showDarius);
+    dariusUrlEditor.setVisible(showDarius);
+    dariusUrlLabel.setVisible(showDarius);
+    dariusHealthCheckButton.setVisible(showDarius);
+    dariusStatusLabel.setVisible(showDarius);
+
     // Help button visibility
     if (helpIcon)
     {
@@ -792,8 +844,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         terryHelpButton.setVisible(showTerry);
     }
 
-    // ========== ADD TERRY LAYOUT TO resized() METHOD ==========
-    // Add this after the Jerry FlexBox section:
+
 
     // ========== TERRY CONTROLS LAYOUT (FlexBox Implementation) ==========
     auto terryBounds = modelControlsArea;
@@ -959,7 +1010,9 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     terrySourceFlexBox.items.add(transformOutputItem);
     terrySourceFlexBox.performLayout(terrySourceRowBounds);
 
-    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : "Terry")));
+
+
+    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showTerry ? "Terry" : "Darius"))));
 
     // Force a complete relayout to position help icons correctly
     resized();
@@ -969,14 +1022,17 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 void Gary4juceAudioProcessorEditor::updateTabButtonStates()
 {
     // Update tab button appearances using CustomButton styles
-    garyTabButton.setButtonStyle(currentTab == ModelTab::Gary ? 
+    garyTabButton.setButtonStyle(currentTab == ModelTab::Gary ?
         CustomButton::ButtonStyle::Gary : CustomButton::ButtonStyle::Inactive);
-    
-    jerryTabButton.setButtonStyle(currentTab == ModelTab::Jerry ? 
+
+    jerryTabButton.setButtonStyle(currentTab == ModelTab::Jerry ?
         CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
-    
-    terryTabButton.setButtonStyle(currentTab == ModelTab::Terry ? 
+
+    terryTabButton.setButtonStyle(currentTab == ModelTab::Terry ?
         CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+
+    dariusTabButton.setButtonStyle(currentTab == ModelTab::Darius ?
+        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
 }
 
 void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
@@ -3558,6 +3614,131 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
         });
 }
 
+
+
+
+void Gary4juceAudioProcessorEditor::checkDariusHealth()
+{
+    if (dariusBackendUrl.trim().isEmpty())
+    {
+        showStatusMessage("enter backend url first");
+        return;
+    }
+
+    dariusHealthCheckButton.setEnabled(false);
+    dariusHealthCheckButton.setButtonText("checking...");
+    dariusStatusLabel.setText("checking connection...", juce::dontSendNotification);
+    dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
+
+    // Create health check request in background thread
+    juce::Thread::launch([this]() {
+        juce::String healthUrl = dariusBackendUrl.trim();
+        if (!healthUrl.endsWith("/"))
+            healthUrl += "/";
+        healthUrl += "health";
+
+        juce::URL url(healthUrl);
+
+        std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+            juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(10000)  // 10 second timeout
+        ));
+
+        juce::String responseText;
+        bool connectionSucceeded = false;
+
+        if (stream != nullptr)
+        {
+            responseText = stream->readEntireStreamAsString();
+            connectionSucceeded = !responseText.isEmpty();
+        }
+
+        // Handle response on main thread
+        juce::MessageManager::callAsync([this, responseText, connectionSucceeded]() {
+            handleDariusHealthResponse(responseText, connectionSucceeded);
+            });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::String& response, bool connectionSucceeded)
+{
+    dariusHealthCheckButton.setEnabled(true);
+    dariusHealthCheckButton.setButtonText("check connection");
+
+    if (!connectionSucceeded)
+    {
+        dariusConnected = false;
+        dariusStatusLabel.setText("connection failed", juce::dontSendNotification);
+        dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+        showStatusMessage("failed to connect to darius backend");
+        return;
+    }
+
+    // Parse JSON response
+    try
+    {
+        auto responseVar = juce::JSON::parse(response);
+        if (auto* responseObj = responseVar.getDynamicObject())
+        {
+            juce::String status = responseObj->getProperty("status").toString();
+            bool ok = responseObj->getProperty("ok");
+
+            if (status == "template_mode")
+            {
+                dariusConnected = false;
+                dariusStatusLabel.setText("not ready: space is template", juce::dontSendNotification);
+                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+                showStatusMessage("not ready: this space is a GPU template. duplicate it and select an L40s/A100-class runtime to use the API.", 8000);
+            }
+            else if (status == "gpu_unavailable")
+            {
+                dariusConnected = false;
+                dariusStatusLabel.setText("gpu not available", juce::dontSendNotification);
+                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+                showStatusMessage("GPU not visible - select a GPU runtime");
+            }
+            else if (ok && (status == "ready" || status == "initializing"))
+            {
+                dariusConnected = true;
+                bool warmed = responseObj->getProperty("warmed");
+                dariusStatusLabel.setText(warmed ? "ready" : "initializing", juce::dontSendNotification);
+                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::green);
+                showStatusMessage(warmed ? "darius backend ready" : "darius backend initializing");
+            }
+            else
+            {
+                dariusConnected = false;
+                dariusStatusLabel.setText("unknown status: " + status, juce::dontSendNotification);
+                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+            }
+        }
+        else
+        {
+            dariusConnected = false;
+            dariusStatusLabel.setText("invalid response format", juce::dontSendNotification);
+            dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+        }
+    }
+    catch (...)
+    {
+        dariusConnected = false;
+        dariusStatusLabel.setText("failed to parse response", juce::dontSendNotification);
+        dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+    }
+
+    repaint();
+}
+
+
+
+
+
+
+
+
+
+
+
 void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
 {
     audioProcessor.clearRecordingBuffer();
@@ -5308,11 +5489,12 @@ void Gary4juceAudioProcessorEditor::resized()
 
     // Tab buttons area
     tabArea = tabSectionBounds.removeFromTop(35);
-    auto tabButtonWidth = tabArea.getWidth() / 3;
+    auto tabButtonWidth = tabArea.getWidth() / 4;
 
     garyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     jerryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
-    terryTabButton.setBounds(tabArea.reduced(2, 2));
+    terryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
+    dariusTabButton.setBounds(tabArea.reduced(2, 2));
 
     // Model controls area (below tabs)
     modelControlsArea = tabSectionBounds.reduced(0, 5);
@@ -5587,8 +5769,50 @@ void Gary4juceAudioProcessorEditor::resized()
     // Layout the combined smart loop row
     smartLoopFlexBox.performLayout(smartLoopRowBounds);
 
+    // ========== DARIUS CONTROLS LAYOUT (FlexBox Implementation) ==========
+    auto dariusBounds = modelControlsArea;
+
+    // Create main FlexBox for Darius controls (vertical layout)
+    juce::FlexBox dariusFlexBox;
+    dariusFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    dariusFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+    // 1. Darius section title
+    juce::FlexItem dariusTitleItem(dariusLabel);
+    dariusTitleItem.height = 30;
+    dariusTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+
+    // 2. URL label
+    juce::FlexItem dariusUrlLabelItem(dariusUrlLabel);
+    dariusUrlLabelItem.height = 15;
+    dariusUrlLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+
+    // 3. URL editor
+    juce::FlexItem dariusUrlEditorItem(dariusUrlEditor);
+    dariusUrlEditorItem.height = 25;
+    dariusUrlEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
+
+    // 4. Health check button
+    juce::FlexItem dariusHealthCheckItem(dariusHealthCheckButton);
+    dariusHealthCheckItem.height = 35;
+    dariusHealthCheckItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+
+    // 5. Status label
+    juce::FlexItem dariusStatusItem(dariusStatusLabel);
+    dariusStatusItem.height = 20;
+    dariusStatusItem.margin = juce::FlexItem::Margin(5, 5, 5, 5);
+
+    // Add all items to Darius FlexBox
+    dariusFlexBox.items.add(dariusTitleItem);
+    dariusFlexBox.items.add(dariusUrlLabelItem);
+    dariusFlexBox.items.add(dariusUrlEditorItem);
+    dariusFlexBox.items.add(dariusHealthCheckItem);
+    dariusFlexBox.items.add(dariusStatusItem);
+
+    // Perform layout for Darius controls
+    dariusFlexBox.performLayout(dariusBounds);
+
     
-    // Replace just the OUTPUT SECTION part in your resized() method with this:
 
 // ========== OUTPUT SECTION (FlexBox Implementation) ==========
     auto outputSection = bounds.removeFromTop(200).reduced(20, 10);

@@ -10,6 +10,7 @@ public:
         Gary,
         Jerry, 
         Terry,
+        Darius,
         Standard,
         Inactive
     };

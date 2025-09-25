@@ -56,6 +56,12 @@ void CustomButton::paint(juce::Graphics& g)
             borderColour = Theme::Colors::Terry;
             textColour = Theme::Colors::TextPrimary;
             break;
+
+        case ButtonStyle::Darius:
+            baseColour = Theme::Colors::Darius;  
+            borderColour = Theme::Colors::Darius;
+            textColour = Theme::Colors::TextPrimary;
+            break;
             
         case ButtonStyle::Inactive:
             baseColour = Theme::Colors::ButtonInactive;
