@@ -408,6 +408,70 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusStatusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(dariusStatusLabel);
 
+    // ========== DARIUS SUBTAB BUTTONS SETUP ==========
+    dariusBackendTabButton.setButtonText("backend");
+    dariusBackendTabButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusBackendTabButton.onClick = [this]() { switchToDariusSubTab(DariusSubTab::Backend); };
+    addAndMakeVisible(dariusBackendTabButton);
+
+    dariusModelTabButton.setButtonText("model");
+    dariusModelTabButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusModelTabButton.onClick = [this]() { switchToDariusSubTab(DariusSubTab::Model); };
+    addAndMakeVisible(dariusModelTabButton);
+
+    dariusGenerationTabButton.setButtonText("generation");
+    dariusGenerationTabButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusGenerationTabButton.onClick = [this]() { switchToDariusSubTab(DariusSubTab::Generation); };
+    addAndMakeVisible(dariusGenerationTabButton);
+
+    // ========== DARIUS MODEL SUBTAB SETUP ==========
+    dariusModelContent = std::make_unique<juce::Component>();
+    dariusModelViewport = std::make_unique<juce::Viewport>();
+    dariusModelViewport->setViewedComponent(dariusModelContent.get(), false);
+    addAndMakeVisible(dariusModelViewport.get());
+
+    // ========== DARIUS MODEL SUBTAB UI (minimal, read-only) ==========
+    dariusModelHeaderLabel.setText("current model", juce::dontSendNotification);
+    dariusModelHeaderLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+    dariusModelHeaderLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    dariusModelHeaderLabel.setJustificationType(juce::Justification::centredLeft);
+    dariusModelContent->addAndMakeVisible(dariusModelHeaderLabel);
+
+    dariusModelGuardLabel.setText("backend offline or in template mode. run health check on the backend tab",
+        juce::dontSendNotification);
+    dariusModelGuardLabel.setFont(juce::FontOptions(12.0f));
+    dariusModelGuardLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+    dariusModelGuardLabel.setJustificationType(juce::Justification::centredLeft);
+    dariusModelContent->addAndMakeVisible(dariusModelGuardLabel);
+
+    dariusRefreshConfigButton.setButtonText("refresh config");
+    dariusRefreshConfigButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusRefreshConfigButton.onClick = [this]() { fetchDariusConfig(); };
+    dariusModelContent->addAndMakeVisible(dariusRefreshConfigButton);
+
+    // Value rows (tiny readout, like Swift’s status rows but fewer fields)
+    auto prepRow = [this](juce::Label& label, const juce::String& name) {
+        label.setText(name + ": —", juce::dontSendNotification);
+        label.setFont(juce::FontOptions(12.0f));
+        label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        label.setJustificationType(juce::Justification::centredLeft);
+        dariusModelContent->addAndMakeVisible(label);
+        };
+    prepRow(dariusActiveSizeLabel, "Active size");
+    prepRow(dariusRepoLabel, "Repo");
+    prepRow(dariusStepLabel, "Step");
+    prepRow(dariusLoadedLabel, "Loaded");
+    prepRow(dariusWarmupLabel, "Warmup");
+
+    // ========== DARIUS GENERATION SUBTAB SETUP ==========
+    dariusGenerationContent = std::make_unique<juce::Component>();
+    dariusGenerationViewport = std::make_unique<juce::Viewport>();
+    dariusGenerationViewport->setViewedComponent(dariusGenerationContent.get(), false);
+    addAndMakeVisible(dariusGenerationViewport.get());
+
+    // Set initial subtab state
+    //switchToDariusSubTab(DariusSubTab::Backend);
+
     // ========== REMAINING SETUP (unchanged) ==========
     // Set up the "Check Connection" button
     checkConnectionIcon = IconFactory::createCheckConnectionIcon();
@@ -831,10 +895,27 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showDarius = (tab == ModelTab::Darius);
 
     dariusLabel.setVisible(showDarius);
-    dariusUrlEditor.setVisible(showDarius);
-    dariusUrlLabel.setVisible(showDarius);
-    dariusHealthCheckButton.setVisible(showDarius);
-    dariusStatusLabel.setVisible(showDarius);
+
+    if (showDarius) {
+        // Show subtab buttons when Darius tab is active
+        dariusBackendTabButton.setVisible(true);
+        dariusModelTabButton.setVisible(true);
+        dariusGenerationTabButton.setVisible(true);
+
+        // Update subtab content visibility based on current subtab
+        switchToDariusSubTab(currentDariusSubTab);
+    } else {
+        // Hide all Darius content when not on Darius tab
+        dariusBackendTabButton.setVisible(false);
+        dariusModelTabButton.setVisible(false);
+        dariusGenerationTabButton.setVisible(false);
+        dariusUrlEditor.setVisible(false);
+        dariusUrlLabel.setVisible(false);
+        dariusHealthCheckButton.setVisible(false);
+        dariusStatusLabel.setVisible(false);
+        dariusModelViewport->setVisible(false);
+        dariusGenerationViewport->setVisible(false);
+    }
 
     // Help button visibility
     if (helpIcon)
@@ -1465,12 +1546,12 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     if (!isPolling || sessionId.isEmpty())
         return;
 
-    // If we�re in warmup, keep the stall detector quiet.
+    // If we�re in warmup, keep the stall detector quiet.
     // (We still want the stall detector for real backend drops.)
     if (withinWarmup)
         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
 
-    // Don�t start another poll while one is in flight
+    // Don�t start another poll while one is in flight
     if (pollInFlight.exchange(true))
         return;
 
@@ -1479,7 +1560,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     if (softBackoff)
         juce::Thread::sleep(60); // tiny spacing to avoid hammering during cold start
 
-    // Only trip �stall� when not warming up
+    // Only trip �stall� when not warming up
     if (!withinWarmup && checkForGenerationStall())
     {
         pollInFlight = false;
@@ -1516,7 +1597,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 // Attempt #1
                 std::unique_ptr<juce::InputStream> stream(pollUrl.createInputStream(options));
 
-                // If we didn�t get a stream while warming, quick retry once
+                // If we didn�t get a stream while warming, quick retry once
                 if (stream == nullptr && (withinWarmup || isCurrentlyQueued || isGenerating))
                 {
                     DBG("Polling: null stream during warmup/active; quick retry");
@@ -1550,12 +1631,12 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
                 if (treatAsTransient)
                 {
-                    // Keep UI alive; don�t escalate to failure.
+                    // Keep UI alive; don�t escalate to failure.
                     juce::MessageManager::callAsync([this]()
                         {
                             // keep user informed but gentle
-                            showStatusMessage("warming up� (network jitter)", 2500);
-                            // also reset stall timer so we don�t trip
+                            showStatusMessage("warming up� (network jitter)", 2500);
+                            // also reset stall timer so we don�t trip
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return; // simply wait for next timer tick to poll again
@@ -1587,7 +1668,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 {
                     juce::MessageManager::callAsync([this]()
                         {
-                            showStatusMessage("warming up� (transient)", 2500);
+                            showStatusMessage("warming up� (transient)", 2500);
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
@@ -1606,7 +1687,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 {
                     juce::MessageManager::callAsync([this]()
                         {
-                            showStatusMessage("warming up� (transient)", 2500);
+                            showStatusMessage("warming up� (transient)", 2500);
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
@@ -1673,7 +1754,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds(); // prevent stall detector
                         isCurrentlyQueued = true; // keep UI in "busy" state
 
-                        // Short, friendly status � we avoid failing the run
+                        // Short, friendly status � we avoid failing the run
                         showStatusMessage("warming up (downloading model)...", 4000);
                         DBG("Polling: backend in warmup/cold-start: " + errorMsg);
 
@@ -3686,6 +3767,15 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
             if (status == "template_mode")
             {
                 dariusConnected = false;
+                dariusModelGuardLabel.setVisible(true);
+                dariusRefreshConfigButton.setEnabled(false);
+
+                // Also clear UI so stale info isn't shown
+                dariusActiveSizeLabel.setText("Active size: —", juce::dontSendNotification);
+                dariusRepoLabel.setText("Repo: —", juce::dontSendNotification);
+                dariusStepLabel.setText("Step: —", juce::dontSendNotification);
+                dariusLoadedLabel.setText("Loaded: —", juce::dontSendNotification);
+                dariusWarmupLabel.setText("Warmup: —", juce::dontSendNotification);
                 dariusStatusLabel.setText("not ready: space is template", juce::dontSendNotification);
                 dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
                 showStatusMessage("not ready: this space is a GPU template. duplicate it and select an L40s/A100-class runtime to use the API.", 8000);
@@ -3693,6 +3783,15 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
             else if (status == "gpu_unavailable")
             {
                 dariusConnected = false;
+                dariusModelGuardLabel.setVisible(true);
+                dariusRefreshConfigButton.setEnabled(false);
+
+                // Also clear UI so stale info isn't shown
+                dariusActiveSizeLabel.setText("Active size: —", juce::dontSendNotification);
+                dariusRepoLabel.setText("Repo: —", juce::dontSendNotification);
+                dariusStepLabel.setText("Step: —", juce::dontSendNotification);
+                dariusLoadedLabel.setText("Loaded: —", juce::dontSendNotification);
+                dariusWarmupLabel.setText("Warmup: —", juce::dontSendNotification);
                 dariusStatusLabel.setText("gpu not available", juce::dontSendNotification);
                 dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
                 showStatusMessage("GPU not visible - select a GPU runtime");
@@ -3704,10 +3803,22 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
                 dariusStatusLabel.setText(warmed ? "ready" : "initializing", juce::dontSendNotification);
                 dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::green);
                 showStatusMessage(warmed ? "darius backend ready" : "darius backend initializing");
+                dariusModelGuardLabel.setVisible(false);
+                dariusRefreshConfigButton.setEnabled(true);
+                fetchDariusConfig();
             }
             else
             {
                 dariusConnected = false;
+                dariusModelGuardLabel.setVisible(true);
+                dariusRefreshConfigButton.setEnabled(false);
+
+                // Also clear UI so stale info isn't shown
+                dariusActiveSizeLabel.setText("Active size: —", juce::dontSendNotification);
+                dariusRepoLabel.setText("Repo: —", juce::dontSendNotification);
+                dariusStepLabel.setText("Step: —", juce::dontSendNotification);
+                dariusLoadedLabel.setText("Loaded: —", juce::dontSendNotification);
+                dariusWarmupLabel.setText("Warmup: —", juce::dontSendNotification);
                 dariusStatusLabel.setText("unknown status: " + status, juce::dontSendNotification);
                 dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
             }
@@ -3715,6 +3826,15 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
         else
         {
             dariusConnected = false;
+            dariusModelGuardLabel.setVisible(true);
+            dariusRefreshConfigButton.setEnabled(false);
+
+            // Also clear UI so stale info isn't shown
+            dariusActiveSizeLabel.setText("Active size: —", juce::dontSendNotification);
+            dariusRepoLabel.setText("Repo: —", juce::dontSendNotification);
+            dariusStepLabel.setText("Step: —", juce::dontSendNotification);
+            dariusLoadedLabel.setText("Loaded: —", juce::dontSendNotification);
+            dariusWarmupLabel.setText("Warmup: —", juce::dontSendNotification);
             dariusStatusLabel.setText("invalid response format", juce::dontSendNotification);
             dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
         }
@@ -3722,6 +3842,15 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
     catch (...)
     {
         dariusConnected = false;
+        dariusModelGuardLabel.setVisible(true);
+        dariusRefreshConfigButton.setEnabled(false);
+
+        // Also clear UI so stale info isn't shown
+        dariusActiveSizeLabel.setText("Active size: —", juce::dontSendNotification);
+        dariusRepoLabel.setText("Repo: —", juce::dontSendNotification);
+        dariusStepLabel.setText("Step: —", juce::dontSendNotification);
+        dariusLoadedLabel.setText("Loaded: —", juce::dontSendNotification);
+        dariusWarmupLabel.setText("Warmup: —", juce::dontSendNotification);
         dariusStatusLabel.setText("failed to parse response", juce::dontSendNotification);
         dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
     }
@@ -3730,7 +3859,310 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
 }
 
 
+void Gary4juceAudioProcessorEditor::fetchDariusConfig()
+{
+    if (dariusBackendUrl.trim().isEmpty())
+    {
+        showStatusMessage("enter backend url first");
+        return;
+    }
 
+    // Launch background fetch (same pattern as health)
+    juce::Thread::launch([this]()
+        {
+            // Build URL exactly like checkDariusHealth(), but for /model/config
+            juce::String base = dariusBackendUrl.trim();
+            if (!base.endsWith("/"))
+                base += "/";
+            const juce::String full = base + "model/config";
+
+            juce::URL url(full);
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000) // 10s like health
+            ));
+
+            juce::String responseText;
+            int statusCode = 0;
+
+            if (auto* p = dynamic_cast<juce::WebInputStream*>(stream.get()))
+            {
+                // If createInputStream returns WebInputStream, we can read status
+                statusCode = p->getStatusCode();
+            }
+
+            if (stream != nullptr)
+                responseText = stream->readEntireStreamAsString();
+
+            // Bounce back to main thread
+            juce::MessageManager::callAsync([this, responseText, statusCode]()
+                {
+                    handleDariusConfigResponse(responseText, statusCode);
+                });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::handleDariusConfigResponse(const juce::String& responseText, int statusCode)
+{
+    if (responseText.isEmpty())
+    {
+        juce::String msg;
+        if (statusCode == 0) msg = "failed to connect to /model/config";
+        else if (statusCode >= 400) msg = "server error (HTTP " + juce::String(statusCode) + ") for /model/config";
+        else msg = "empty response from /model/config";
+        DBG(msg);
+        showStatusMessage(msg, 4000);
+        return;
+    }
+
+    // Parse JSON safely
+    juce::var parsed;
+    try
+    {
+        parsed = juce::JSON::parse(responseText);
+    }
+    catch (...)
+    {
+        showStatusMessage("invalid /model/config payload", 4000);
+        DBG("Failed to parse /model/config JSON");
+        return;
+    }
+
+    if (!parsed.isObject())
+    {
+        showStatusMessage("unexpected /model/config format", 4000);
+        DBG("Config JSON is not an object");
+        return;
+    }
+
+    // Keep it simple for now: stash & log some headline fields
+    lastDariusConfig = parsed;
+    updateDariusModelConfigUI();
+
+    auto* obj = parsed.getDynamicObject();
+    const auto size = obj->getProperty("size").toString();
+    const auto repo = obj->getProperty("repo").toString();
+    const auto selectedStep = obj->getProperty("selected_step").toString();
+    const bool loaded = (bool)obj->getProperty("loaded");
+    const bool warmed = (bool)obj->getProperty("warmup_done");
+
+    DBG("[/model/config] size=" + size +
+        " repo=" + (repo.isEmpty() ? "—" : repo) +
+        " step=" + (selectedStep.isEmpty() ? "—" : selectedStep) +
+        " loaded=" + juce::String(loaded ? "true" : "false") +
+        " warmup=" + juce::String(warmed ? "true" : "false"));
+
+    // Friendly, short status ping so we can see something in the UI for now
+    showStatusMessage("config: " + size + (warmed ? " (warm)" : ""), 2500);
+}
+
+void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& repo, const juce::String& revision)
+{
+    if (dariusBackendUrl.trim().isEmpty())
+    {
+        showStatusMessage("enter backend url first");
+        return;
+    }
+
+    juce::Thread::launch([this, repo, revision]()
+        {
+            juce::String base = dariusBackendUrl.trim();
+            if (!base.endsWith("/"))
+                base += "/";
+            const juce::String endpoint = base + "model/checkpoints";
+
+            juce::URL url(endpoint);
+            // Add query parameters like the Swift service (repo_id, revision)
+            url = url.withParameter("repo_id", repo)
+                .withParameter("revision", revision);
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000) // same 10s as health
+            ));
+
+            juce::String responseText;
+            int statusCode = 0;
+            if (auto* web = dynamic_cast<juce::WebInputStream*>(stream.get()))
+                statusCode = web->getStatusCode();
+
+            if (stream != nullptr)
+                responseText = stream->readEntireStreamAsString();
+
+            juce::MessageManager::callAsync([this, responseText, statusCode]()
+                {
+                    handleDariusCheckpointsResponse(responseText, statusCode);
+                });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::handleDariusCheckpointsResponse(const juce::String& responseText, int statusCode)
+{
+    if (responseText.isEmpty())
+    {
+        const juce::String msg = (statusCode == 0) ? "failed to fetch checkpoints" :
+            (statusCode >= 400) ? "checkpoints error (HTTP " + juce::String(statusCode) + ")" :
+            "empty checkpoints response";
+        DBG(msg);
+        showStatusMessage(msg, 3500);
+        return;
+    }
+
+    juce::var parsed;
+    try { parsed = juce::JSON::parse(responseText); }
+    catch (...) { showStatusMessage("invalid checkpoints payload", 3000); return; }
+
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        dariusCheckpointSteps.clearQuick();
+        if (auto stepsVar = obj->getProperty("steps"); stepsVar.isArray())
+        {
+            auto* arr = stepsVar.getArray();
+            for (auto& v : *arr)
+                dariusCheckpointSteps.add((int)v);
+        }
+        int latest = -1;
+        if (obj->hasProperty("latest"))
+            latest = (int)obj->getProperty("latest");
+
+        dariusLatestCheckpoint = latest;
+
+        DBG("[/model/checkpoints] steps=" + juce::String(dariusCheckpointSteps.size())
+            + " latest=" + juce::String(dariusLatestCheckpoint));
+        showStatusMessage("checkpoints: " + juce::String(dariusCheckpointSteps.size()), 2200);
+    }
+    else
+    {
+        showStatusMessage("unexpected checkpoints format", 3000);
+    }
+}
+
+void Gary4juceAudioProcessorEditor::updateDariusModelConfigUI()
+{
+    if (!lastDariusConfig.isObject())
+        return;
+
+    auto* obj = lastDariusConfig.getDynamicObject();
+
+    const auto size = obj->getProperty("size").toString();
+    const auto repo = obj->getProperty("repo").toString();          // optional
+    const auto step = obj->getProperty("selected_step").toString(); // optional
+    const bool loaded = (bool)obj->getProperty("loaded");
+    const bool warm = (bool)obj->getProperty("warmup_done");
+
+    dariusActiveSizeLabel.setText("Active size: " + (size.isEmpty() ? "—" : size), juce::dontSendNotification);
+    dariusRepoLabel.setText("Repo: " + (repo.isEmpty() ? "—" : repo), juce::dontSendNotification);
+    dariusStepLabel.setText("Step: " + (step.isEmpty() ? "—" : step), juce::dontSendNotification);
+    dariusLoadedLabel.setText(juce::String("Loaded: ") + (loaded ? "yes" : "no"), juce::dontSendNotification);
+    dariusWarmupLabel.setText(juce::String("Warmup: ") + (warm ? "ready" : "—"), juce::dontSendNotification);
+
+    // If we’re on the Model tab, repaint that viewport’s content
+    if (currentDariusSubTab == DariusSubTab::Model && dariusModelContent)
+        dariusModelContent->repaint();
+}
+
+// MODEL SELECT
+
+void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj)
+{
+    if (!requestObj.isObject())
+    {
+        showStatusMessage("invalid select request", 2500);
+        return;
+    }
+    if (dariusBackendUrl.trim().isEmpty())
+    {
+        showStatusMessage("enter backend url first");
+        return;
+    }
+
+    juce::Thread::launch([this, requestObj]()
+        {
+            juce::String base = dariusBackendUrl.trim();
+            if (!base.endsWith("/"))
+                base += "/";
+            const juce::String endpoint = base + "model/select";
+
+            // Build JSON body (follow your existing POST pattern)
+            const juce::String jsonString = juce::JSON::toString(requestObj);
+
+            juce::URL url(endpoint);
+            juce::URL postUrl = url.withPOSTData(jsonString);
+
+            juce::String responseText;
+            int statusCode = 0;
+
+            try
+            {
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(30000)
+                    .withExtraHeaders("Content-Type: application/json");
+
+                auto stream = postUrl.createInputStream(options);
+
+                if (auto* web = dynamic_cast<juce::WebInputStream*>(stream.get()))
+                    statusCode = web->getStatusCode();
+
+                if (stream != nullptr)
+                    responseText = stream->readEntireStreamAsString();
+            }
+            catch (const std::exception& e)
+            {
+                DBG("select exception: " + juce::String(e.what()));
+            }
+
+            juce::MessageManager::callAsync([this, responseText, statusCode]()
+                {
+                    handleDariusSelectResponse(responseText, statusCode);
+                });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::handleDariusSelectResponse(const juce::String& responseText, int statusCode)
+{
+    if (responseText.isEmpty())
+    {
+        const juce::String msg = (statusCode == 0) ? "select failed: no connection" :
+            (statusCode >= 400) ? "select error (HTTP " + juce::String(statusCode) + ")" :
+            "empty select response";
+        showStatusMessage(msg, 4000);
+        DBG(msg);
+        return;
+    }
+
+    juce::var parsed;
+    try { parsed = juce::JSON::parse(responseText); }
+    catch (...) { showStatusMessage("invalid select response", 3500); return; }
+
+    lastDariusSelectResp = parsed;
+
+    bool ok = false;
+    bool dryRun = false;
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        ok = (bool)obj->getProperty("ok");
+        dryRun = (bool)obj->getProperty("dry_run");
+        const auto targetSize = obj->getProperty("target_size").toString();
+        const auto targetRepo = obj->getProperty("target_repo").toString();
+        const auto targetStep = obj->getProperty("target_step").toString();
+
+        DBG("[/model/select] ok=" + juce::String(ok ? "true" : "false")
+            + " dry_run=" + juce::String(dryRun ? "true" : "false")
+            + " size=" + targetSize + " repo=" + targetRepo + " step=" + targetStep);
+    }
+
+    if (!ok)
+    {
+        showStatusMessage(dryRun ? "validation failed" : "select failed", 3500);
+        return;
+    }
+
+    showStatusMessage(dryRun ? "validation OK" : "model switched", 2200);
+
+    // Lightweight refresh so UI/labels can reflect state, just like Swift refreshes after apply
+    fetchDariusConfig(); // mirrors Studio/Swift flow to refresh snapshot :contentReference[oaicite:9]{index=9}
+}
 
 
 
@@ -5769,48 +6201,123 @@ void Gary4juceAudioProcessorEditor::resized()
     // Layout the combined smart loop row
     smartLoopFlexBox.performLayout(smartLoopRowBounds);
 
-    // ========== DARIUS CONTROLS LAYOUT (FlexBox Implementation) ==========
+    // ========== DARIUS CONTROLS LAYOUT (NESTED TABS) ==========
     auto dariusBounds = modelControlsArea;
 
-    // Create main FlexBox for Darius controls (vertical layout)
-    juce::FlexBox dariusFlexBox;
-    dariusFlexBox.flexDirection = juce::FlexBox::Direction::column;
-    dariusFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+    // Create main FlexBox for Darius (includes subtabs)
+    juce::FlexBox dariusMainFlexBox;
+    dariusMainFlexBox.flexDirection = juce::FlexBox::Direction::column;
+    dariusMainFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
 
-    // 1. Darius section title
+    // 1. Darius main title
     juce::FlexItem dariusTitleItem(dariusLabel);
     dariusTitleItem.height = 30;
     dariusTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
 
-    // 2. URL label
-    juce::FlexItem dariusUrlLabelItem(dariusUrlLabel);
-    dariusUrlLabelItem.height = 15;
-    dariusUrlLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+    // 2. Subtab buttons row
+    juce::Component dariusSubTabRowComponent;
+    juce::FlexItem dariusSubTabRowItem(dariusSubTabRowComponent);
+    dariusSubTabRowItem.height = 35;
+    dariusSubTabRowItem.margin = juce::FlexItem::Margin(5, 0, 10, 0);
 
-    // 3. URL editor
-    juce::FlexItem dariusUrlEditorItem(dariusUrlEditor);
-    dariusUrlEditorItem.height = 25;
-    dariusUrlEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
+    // 3. Content area (flexible)
+    juce::Component dariusContentComponent;
+    juce::FlexItem dariusContentItem(dariusContentComponent);
+    dariusContentItem.flexGrow = 1;
+    dariusContentItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
 
-    // 4. Health check button
-    juce::FlexItem dariusHealthCheckItem(dariusHealthCheckButton);
-    dariusHealthCheckItem.height = 35;
-    dariusHealthCheckItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+    dariusMainFlexBox.items.add(dariusTitleItem);
+    dariusMainFlexBox.items.add(dariusSubTabRowItem);
+    dariusMainFlexBox.items.add(dariusContentItem);
 
-    // 5. Status label
-    juce::FlexItem dariusStatusItem(dariusStatusLabel);
-    dariusStatusItem.height = 20;
-    dariusStatusItem.margin = juce::FlexItem::Margin(5, 5, 5, 5);
+    // Perform main Darius layout
+    dariusMainFlexBox.performLayout(dariusBounds);
 
-    // Add all items to Darius FlexBox
-    dariusFlexBox.items.add(dariusTitleItem);
-    dariusFlexBox.items.add(dariusUrlLabelItem);
-    dariusFlexBox.items.add(dariusUrlEditorItem);
-    dariusFlexBox.items.add(dariusHealthCheckItem);
-    dariusFlexBox.items.add(dariusStatusItem);
+    // Layout subtab buttons horizontally
+    auto subtabRowBounds = dariusMainFlexBox.items[1].currentBounds.toNearestInt();
+    auto subtabButtonWidth = subtabRowBounds.getWidth() / 3;
+    auto backendBounds = subtabRowBounds.removeFromLeft(subtabButtonWidth);
+    auto modelBounds = subtabRowBounds.removeFromLeft(subtabButtonWidth);
+    auto generationBounds = subtabRowBounds;
+    
+    dariusBackendTabButton.setBounds(backendBounds.reduced(2, 2));
+    dariusModelTabButton.setBounds(modelBounds.reduced(2, 2));
+    dariusGenerationTabButton.setBounds(generationBounds.reduced(2, 2));
 
-    // Perform layout for Darius controls
-    dariusFlexBox.performLayout(dariusBounds);
+    // Layout content area based on current subtab
+    auto dariusContentBounds = dariusMainFlexBox.items[2].currentBounds.toNearestInt();
+
+    if (currentDariusSubTab == DariusSubTab::Backend) {
+        // Layout backend controls in content area
+        juce::FlexBox backendFlexBox;
+        backendFlexBox.flexDirection = juce::FlexBox::Direction::column;
+        backendFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+
+        juce::FlexItem urlLabelItem(dariusUrlLabel);
+        urlLabelItem.height = 15;
+        urlLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+
+        juce::FlexItem urlEditorItem(dariusUrlEditor);
+        urlEditorItem.height = 25;
+        urlEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
+
+        juce::FlexItem healthCheckItem(dariusHealthCheckButton);
+        healthCheckItem.height = 35;
+        healthCheckItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+
+        juce::FlexItem statusItem(dariusStatusLabel);
+        statusItem.height = 20;
+        statusItem.margin = juce::FlexItem::Margin(5, 5, 5, 5);
+
+        backendFlexBox.items.add(urlLabelItem);
+        backendFlexBox.items.add(urlEditorItem);
+        backendFlexBox.items.add(healthCheckItem);
+        backendFlexBox.items.add(statusItem);
+
+        backendFlexBox.performLayout(dariusContentBounds);
+
+        
+    }
+    else if (currentDariusSubTab == DariusSubTab::Model)
+    {
+        const auto contentBounds = dariusModelViewport->getParentComponent()
+            ? dariusModelViewport->getBounds()
+            : juce::Rectangle<int>(); // safety
+
+        dariusModelViewport->setBounds(dariusContentBounds); // use your existing content rect
+        // Give content an ample height so scroll works like Generation
+        dariusModelContent->setSize(dariusContentBounds.getWidth() - 20, 240);
+
+        auto area = juce::Rectangle<int>(10, 10, dariusModelContent->getWidth() - 20, 220);
+
+        // Header row
+        auto headerRow = area.removeFromTop(22);
+        dariusModelHeaderLabel.setBounds(headerRow.removeFromLeft(headerRow.getWidth() - 140));
+        dariusRefreshConfigButton.setBounds(headerRow.removeFromRight(130).reduced(4, 0));
+
+        // Guard line
+        auto guardRow = area.removeFromTop(18);
+        dariusModelGuardLabel.setBounds(guardRow);
+
+        // Value rows
+        auto rowH = 18;
+        dariusActiveSizeLabel.setBounds(area.removeFromTop(rowH));
+        area.removeFromTop(4);
+        dariusRepoLabel.setBounds(area.removeFromTop(rowH));
+        area.removeFromTop(4);
+        dariusStepLabel.setBounds(area.removeFromTop(rowH));
+        area.removeFromTop(4);
+        dariusLoadedLabel.setBounds(area.removeFromTop(rowH));
+        area.removeFromTop(4);
+        dariusWarmupLabel.setBounds(area.removeFromTop(rowH));
+    }
+    else if (currentDariusSubTab == DariusSubTab::Generation) {
+        // Layout generation viewport in content area
+        dariusGenerationViewport->setBounds(dariusContentBounds);
+
+        // Set viewport content size (empty for now, but prepared for future content)
+        dariusGenerationContent->setSize(dariusContentBounds.getWidth() - 20, 400); // 400px height for future content
+    }
 
     
 
@@ -6216,6 +6723,46 @@ void Gary4juceAudioProcessorEditor::updateModelAvailability()
     }
 
     DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
+}
+
+void Gary4juceAudioProcessorEditor::switchToDariusSubTab(DariusSubTab subTab)
+{
+    //if (currentDariusSubTab == subTab) return;
+
+    currentDariusSubTab = subTab;
+    updateDariusSubTabStates();
+
+    bool showBackend = (subTab == DariusSubTab::Backend);
+    bool showModel = (subTab == DariusSubTab::Model);
+    bool showGeneration = (subTab == DariusSubTab::Generation);
+
+    // Show/hide backend controls
+    dariusUrlEditor.setVisible(showBackend);
+    dariusUrlLabel.setVisible(showBackend);
+    dariusHealthCheckButton.setVisible(showBackend);
+    dariusStatusLabel.setVisible(showBackend);
+
+    // Show/hide model controls
+    dariusModelViewport->setVisible(showModel);
+
+
+    // Show/hide generation controls
+    dariusGenerationViewport->setVisible(showGeneration);
+
+    DBG("Switched to Darius subtab: " + juce::String(showBackend ? "Backend" : (showModel ? "Model" : "Generation")));
+    resized(); // Trigger layout update
+}
+
+void Gary4juceAudioProcessorEditor::updateDariusSubTabStates()
+{
+    dariusBackendTabButton.setButtonStyle(currentDariusSubTab == DariusSubTab::Backend ?
+        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
+
+    dariusModelTabButton.setButtonStyle(currentDariusSubTab == DariusSubTab::Model ?
+        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
+
+    dariusGenerationTabButton.setButtonStyle(currentDariusSubTab == DariusSubTab::Generation ?
+        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
 }
 
 

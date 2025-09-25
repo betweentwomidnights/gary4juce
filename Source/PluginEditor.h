@@ -165,6 +165,65 @@ private:
     juce::String dariusBackendUrl = "https://thecollabagepatch-magenta-retry.hf.space";
     bool dariusConnected = false;
 
+    // Darius subtab system
+    enum class DariusSubTab
+    {
+        Backend = 0,
+        Model,
+        Generation
+    };
+
+    DariusSubTab currentDariusSubTab = DariusSubTab::Backend;
+    CustomButton dariusBackendTabButton;
+    CustomButton dariusModelTabButton;
+    CustomButton dariusGenerationTabButton;
+
+    // Model subtab components (empty for now)
+    std::unique_ptr<juce::Viewport> dariusModelViewport;
+    std::unique_ptr<juce::Component> dariusModelContent;
+
+    // Generation subtab components (empty for now)
+    std::unique_ptr<juce::Viewport> dariusGenerationViewport;
+    std::unique_ptr<juce::Component> dariusGenerationContent;
+
+    // --- Darius model/config helper (first network helper)
+    void fetchDariusConfig();
+    void handleDariusConfigResponse(const juce::String& responseText, int statusCode);
+
+    // Optional: stash last-seen config for future UI (e.g., a readout)
+    juce::var lastDariusConfig;
+
+    void checkDariusHealth();
+    void handleDariusHealthResponse(const juce::String& response, bool connectionSucceeded);
+    void switchToDariusSubTab(DariusSubTab subTab);
+    void updateDariusSubTabStates();
+
+    // --- Darius: checkpoints & select ---
+    void fetchDariusCheckpoints(const juce::String& repo, const juce::String& revision);
+    void handleDariusCheckpointsResponse(const juce::String& responseText, int statusCode);
+    void postDariusSelect(const juce::var& requestObj); // requestObj is a JSON object
+    void handleDariusSelectResponse(const juce::String& responseText, int statusCode);
+
+    // Stashed results for upcoming UI binding
+    juce::Array<int> dariusCheckpointSteps;
+    int dariusLatestCheckpoint = -1;
+    juce::var lastDariusSelectResp;
+
+    // --- Darius: simple "Current model" UI in Model subtab
+    juce::Label dariusModelHeaderLabel;
+    juce::Label dariusModelGuardLabel;       // shown if backend unhealthy
+    CustomButton dariusRefreshConfigButton;
+
+    juce::Label dariusActiveSizeLabel;
+    juce::Label dariusRepoLabel;
+    juce::Label dariusStepLabel;
+    juce::Label dariusLoadedLabel;
+    juce::Label dariusWarmupLabel;
+
+    // Small helper to (re)populate these from lastDariusConfig
+    void updateDariusModelConfigUI();
+
+
     // Smart loop controls
     CustomButton generateAsLoopButton;
     void styleSmartLoopButton();
@@ -381,8 +440,7 @@ private:
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
 
-    void checkDariusHealth();
-    void handleDariusHealthResponse(const juce::String& response, bool connectionSucceeded);
+    
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessorEditor)
 };
