@@ -527,6 +527,14 @@ void DariusUI::resized()
         genSourceGuardLabel.setBounds(guardRow);
         area.removeFromTop(6);
 
+        {
+            auto headerRow = area.removeFromTop(20);
+            auto headerLeft = headerRow.removeFromLeft(juce::jmax(0, headerRow.getWidth() - 28));
+            genStylesHeaderLabel.setBounds(headerLeft);
+            genAddStyleButton.setBounds(headerRow.removeFromRight(24));
+            area.removeFromTop(6);
+        }
+
         layoutGenStylesUI(area);
         area.removeFromTop(4);
 
@@ -1020,17 +1028,34 @@ void DariusUI::addGenStyleRowInternal(const juce::String& text, double weight)
     row.text->setReturnKeyStartsNewLine(false);
     row.text->setText(text, juce::dontSendNotification);
 
-    row.weight = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight);
-    row.weight->setRange(0.0, 2.0, 0.01);
-    row.weight->setValue(weight, juce::dontSendNotification);
-    row.weight->setTextBoxIsEditable(true);
-    row.weight->setTextValueSuffix(" wgt");
+    row.weight = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
+    row.weight->setRange(0.0, 1.0, 0.01);
+    row.weight->setValue(juce::jlimit(0.0, 1.0, weight), juce::dontSendNotification);
 
     row.remove = std::make_unique<CustomButton>();
-    row.remove->setButtonText("×");
+    row.remove->setButtonText("-");
     row.remove->setButtonStyle(CustomButton::ButtonStyle::Standard);
-    const int index = (int)genStyleRows.size();
-    row.remove->onClick = [this, index]() { handleRemoveStyleRow(index); };
+    auto* removeBtnPtr = row.remove.get();
+    row.remove->onClick = [this, removeBtnPtr]()
+    {
+        juce::MessageManager::callAsync([this, removeBtnPtr]()
+        {
+            int idx = -1;
+            for (size_t i = 0; i < genStyleRows.size(); ++i)
+            {
+                if (genStyleRows[i].remove.get() == removeBtnPtr)
+                {
+                    idx = (int)i;
+                    break;
+                }
+            }
+
+            if (idx <= 0)
+                return;
+
+            handleRemoveStyleRow(idx);
+        });
+    };
 
     dariusGenerationContent->addAndMakeVisible(*row.text);
     dariusGenerationContent->addAndMakeVisible(*row.weight);
