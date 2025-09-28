@@ -403,6 +403,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             return;
 
         syncDariusRepoFromField();
+        dariusUI->requestOpenCheckpointMenuAfterFetch();
         dariusIsFetchingCheckpoints = true;
         dariusUI->setIsFetchingCheckpoints(true);
         fetchDariusCheckpoints(dariusFinetuneRepo, dariusFinetuneRevision);
@@ -439,6 +440,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusUI->onCheckpointSelected = [this](const juce::String& step)
     {
         dariusSelectedStepStr = step;
+        updateDariusModelControlsEnabled();
     };
 
     dariusUI->onAudioSourceChanged = [this](bool useRecording)
@@ -3964,7 +3966,13 @@ void Gary4juceAudioProcessorEditor::handleDariusCheckpointsResponse(const juce::
 
     juce::var parsed;
     try { parsed = juce::JSON::parse(responseText); }
-    catch (...) { showStatusMessage("invalid checkpoints payload", 3000); return; }
+    catch (...)
+    {
+        showStatusMessage("invalid checkpoints payload", 3000);
+        dariusIsFetchingCheckpoints = false;
+        updateDariusModelControlsEnabled();
+        return;
+    }
 
     if (auto* obj = parsed.getDynamicObject())
     {
@@ -3997,6 +4005,8 @@ void Gary4juceAudioProcessorEditor::handleDariusCheckpointsResponse(const juce::
     else
     {
         showStatusMessage("unexpected checkpoints format", 3000);
+        dariusIsFetchingCheckpoints = false;
+        updateDariusModelControlsEnabled();
     }
 }
 
@@ -7055,9 +7065,6 @@ void Gary4juceAudioProcessorEditor::updateModelAvailability()
 
     DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
 }
-
-
-
 
 
 
