@@ -10,11 +10,13 @@
 #include "Components/Base/CustomSlider.h"
 #include "Components/Base/CustomTextEditor.h"
 #include "Components/Base/CustomComboBox.h"
+#include "Components/Darius/DariusUI.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 
 #include <atomic>
 #include <future>
+#include <vector>
 
 //==============================================================================
 /**
@@ -154,258 +156,68 @@ private:
     // Add Darius tab button (with other tab buttons)
     CustomButton dariusTabButton;
 
-    // Add Darius-specific components
-    juce::Label dariusLabel;
-    juce::TextEditor dariusUrlEditor;
-    juce::Label dariusUrlLabel;
-    CustomButton dariusHealthCheckButton;
-    juce::Label dariusStatusLabel;
+    std::unique_ptr<DariusUI> dariusUI;
 
-    // Add Darius backend state variables
+    // Backend state retained in editor
     juce::String dariusBackendUrl = "https://thecollabagepatch-magenta-retry.hf.space";
     bool dariusConnected = false;
-
-    // Darius subtab system
-    enum class DariusSubTab
-    {
-        Backend = 0,
-        Model,
-        Generation
-    };
-
-    DariusSubTab currentDariusSubTab = DariusSubTab::Backend;
-    CustomButton dariusBackendTabButton;
-    CustomButton dariusModelTabButton;
-    CustomButton dariusGenerationTabButton;
-
-    // Model subtab components (empty for now)
-    std::unique_ptr<juce::Viewport> dariusModelViewport;
-    std::unique_ptr<juce::Component> dariusModelContent;
-
-    // Generation subtab components (empty for now)
-    std::unique_ptr<juce::Viewport> dariusGenerationViewport;
-    std::unique_ptr<juce::Component> dariusGenerationContent;
 
     // --- Darius model/config helper (first network helper)
     void fetchDariusConfig();
     void handleDariusConfigResponse(const juce::String& responseText, int statusCode);
 
-    // Optional: stash last-seen config for future UI (e.g., a readout)
     juce::var lastDariusConfig;
 
     void checkDariusHealth();
     void handleDariusHealthResponse(const juce::String& response, bool connectionSucceeded);
-    void switchToDariusSubTab(DariusSubTab subTab);
-    void updateDariusSubTabStates();
 
     // --- Darius: checkpoints & select ---
     void fetchDariusCheckpoints(const juce::String& repo, const juce::String& revision);
     void handleDariusCheckpointsResponse(const juce::String& responseText, int statusCode);
-    void postDariusSelect(const juce::var& requestObj); // requestObj is a JSON object
+    void postDariusSelect(const juce::var& requestObj);
     void handleDariusSelectResponse(const juce::String& responseText, int statusCode);
 
-    // Stashed results for upcoming UI binding
     juce::Array<int> dariusCheckpointSteps;
     int dariusLatestCheckpoint = -1;
     juce::var lastDariusSelectResp;
 
-    // --- Darius: simple "Current model" UI in Model subtab
-    juce::Label dariusModelHeaderLabel;
-    juce::Label dariusModelGuardLabel;       // shown if backend unhealthy
-    CustomButton dariusRefreshConfigButton;
-
-    juce::Label dariusActiveSizeLabel;
-    juce::Label dariusRepoLabel;
-    juce::Label dariusStepLabel;
-    juce::Label dariusLoadedLabel;
-    juce::Label dariusWarmupLabel;
-
-    // Small helper to (re)populate these from lastDariusConfig
     void updateDariusModelConfigUI();
-
-    // --- Darius: Model selection controls
-    juce::ToggleButton dariusUseBaseModelToggle;
-    bool dariusUseBaseModel = true; // default ON
-    void updateDariusModelControlsEnabled(); // enables/disables finetune UI (soon)
-
-    // Finetune repo field (compact)
-    juce::Label dariusRepoFieldLabel;
-    juce::TextEditor dariusRepoField;
     void syncDariusRepoFromField();
-
-    // --- Darius: checkpoint selector (compact)
-    CustomButton dariusCheckpointButton;
-    bool dariusIsFetchingCheckpoints = false;
-    bool dariusOpenMenuAfterFetch = false;
-
-    // Selected step string used by /model/select:
-    // "latest" | "none" | "<int>"
-    juce::String dariusSelectedStepStr = "latest";
-
-    // Finetune defaults used for fetching checkpoints (UI later)
-    juce::String dariusFinetuneRepo = "thepatch/magenta-ft";
-    juce::String dariusFinetuneRevision = "main";
-
-    // --- Darius: Apply & Warm
-    CustomButton dariusApplyWarmButton;
-    juce::Label dariusWarmStatusLabel; // animated “warming…” label
-
-    bool dariusIsApplying = false; // covers POST /model/select
-    bool dariusIsWarming = false; // covers polling /model/config
-
-    // request building + warm polling
-    juce::var makeDariusSelectApplyRequest();   // prewarm=true, stop_active=true
-    void beginDariusApplyAndWarm();             // click handler
-    void onDariusApplyFinished(bool ok, bool warmAlready);
-    void startDariusWarmPolling(int attempt = 0); // recursive callAfterDelay polling
-
-    // tiny ellipsis animation
-    int  dariusWarmDots = 0;
-    bool dariusDotsTicking = false;
+    void updateDariusModelControlsEnabled();
     void startWarmDots();
     void stopWarmDots();
 
-    // Helpers
-    void showDariusCheckpointMenu();
-    void updateDariusCheckpointButtonLabel();
+    bool dariusUseBaseModel = true;
+    bool dariusIsFetchingCheckpoints = false;
+    juce::String dariusSelectedStepStr = "latest";
+    juce::String dariusFinetuneRepo = "thepatch/magenta-ft";
+    juce::String dariusFinetuneRevision = "main";
 
-    // ===== Generation: Styles UI =====
-    juce::Label genStylesHeaderLabel;
-    CustomButton genAddStyleButton;
+    bool dariusIsApplying = false;
+    bool dariusIsWarming = false;
 
-    // A single row = text + weight + remove
-    struct GenStyleRow {
-        std::unique_ptr<juce::TextEditor> text;
-        std::unique_ptr<juce::Slider>     weight;
-        std::unique_ptr<CustomButton>     remove;
-    };
-    std::vector<GenStyleRow> genStyleRows;
+    juce::var makeDariusSelectApplyRequest();
+    void beginDariusApplyAndWarm();
+    void onDariusApplyFinished(bool ok, bool warmAlready);
+    void startDariusWarmPolling(int attempt = 0);
 
-    // Limits & defaults (mirrors Swift cap at ~4 entries)
-    int  genStylesMax = 4;
-    bool genStylesDirty = false;
-
-    void addGenStyleRow(const juce::String& text = {}, double weight = 1.0);
-    void removeGenStyleRow(int index);
-    void rebuildGenStylesUI();              // rebuild row widgets (add/remove)
-    void layoutGenStylesUI(juce::Rectangle<int>& area); // place rows in resized()
-    juce::String genStylesCSV() const;      // "acid house, trumpet, lofi"
-    juce::String genStyleWeightsCSV() const;// "1.00,0.75,0.50"
-
-    // ===== Generation: Loop Influence =====
-    juce::Label  genLoopLabel;
-    juce::Slider genLoopSlider;        // 0.00 … 1.00
-    double       genLoopInfluence = 0.50; // default midpoint
-
-    // Helper to keep the label text in sync with slider
-    void updateGenLoopLabel();
-    double getGenLoopInfluence() const { return genLoopInfluence; }
-
-    // ===== Generation: Advanced (dropdown) =====
-    CustomButton genAdvancedToggle;   // "advanced ?"/"advanced ?"
-    bool         genAdvancedOpen = false;
-
-    // Temperature
-    juce::Label  genTempLabel;
-    juce::Slider genTempSlider;       // 0.00 … 10.00
-    double       genTemperature = 1.20;
-
-    // Top-K
-    juce::Label  genTopKLabel;
-    juce::Slider genTopKSlider;       // 1 … 300 (int)
-    int          genTopK = 40;
-
-    // Guidance weight
-    juce::Label  genGuidanceLabel;
-    juce::Slider genGuidanceSlider;   // 0.00 … 10.00
-    double       genGuidance = 5.00;
-
-    // Helpers
-    void updateGenAdvancedToggleText();
-    void layoutGenAdvancedUI(juce::Rectangle<int>& area); // lays out when open
-    // Getters for /generate
-    double getGenTemperature() const { return genTemperature; }
-    int    getGenTopK()        const { return genTopK; }
-    double getGenGuidance()    const { return genGuidance; }
-
-    // ===== Generation: Bars + BPM =====
-    juce::Label  genBarsLabel;
-    CustomButton genBars4Button;
-    CustomButton genBars8Button;
-    CustomButton genBars16Button;
-    int          genBars = 4;
-
-    juce::Label  genBpmLabel;        // "bpm"
-    juce::Label  genBpmValueLabel;   // "120.0"
-    double       genBPM = 120.0;     // default until host updates
-
-    // Helpers
-    void updateGenBarsButtons();
-    void setDAWBPM(double bpm);      // call this from your host/BPM bridge
-    int    getGenBars() const { return genBars; }
-    double getGenBPM()  const { return genBPM; }
-
-    // ===== Generation: Input Source (Recording vs Output) =====
-    juce::Label  genSourceLabel;
-    CustomButton genRecordingButton;
-    CustomButton genOutputButton;
-    juce::Label  genSourceGuardLabel;  // shows when recording isn't available
-
-    enum class GenAudioSource { Recording, Output };
-    GenAudioSource genAudioSource = GenAudioSource::Output;
-
-    // Helpers
-    void updateGenSourceButtons();
-    void updateGenSourceEnabled();   // enable/disable based on recording availability
-
-    juce::String getGenAudioFilePath() const;  // path used for /generate upload
-
-    // ===== Generation: Generate action =====
-    CustomButton genGenerateButton;
-    bool genIsGenerating = false;
-
-    void onClickGenerate();
-    void postDariusGenerate();                      // does the multipart upload
-    juce::URL makeGenerateURL() const;              // builds /generate with form fields
-    void handleDariusGenerateResponse(const juce::String& responseText, int statusCode);
-
-    // ===== Generation: Steering (finetune assets) =====
-    CustomButton genSteeringToggle;   // "steering ?/?"
-    bool         genSteeringOpen = false;
-
-    juce::Label  genMeanLabel;
-    juce::Slider genMeanSlider;       // 0.00…2.00
-    double       genMean = 1.0;
-
-    static constexpr int kMaxCentroidsUI = 5;  // show up to 5 compact sliders
-    juce::Label  genCentroidsHeaderLabel;
-    juce::OwnedArray<juce::Label>  genCentroidLabels;
-    juce::OwnedArray<juce::Slider> genCentroidSliders;
-    std::vector<double> genCentroidWeights;    // full vector from backend size
-
-    // Backend-reported assets status
-    bool dariusAssetsMeanAvailable = false;
-    int  dariusAssetsCentroidCount = 0;        // how many the backend has (we’ll show up to 5)
-
-    // Networking
     void fetchDariusAssetsStatus();
     void handleDariusAssetsStatusResponse(const juce::String& responseText, int statusCode);
 
-    // UI
-    void updateGenSteeringToggleText();
-    void rebuildGenCentroidRows();             // (re)create up to 5 sliders to match count
-    void layoutGenSteeringUI(juce::Rectangle<int>& area); // place controls if open
+    bool dariusAssetsMeanAvailable = false;
+    int  dariusAssetsCentroidCount = 0;
+    std::vector<double> dariusCentroidWeights;
 
-    // For /generate
     bool  genAssetsAvailable() const { return dariusAssetsMeanAvailable || (dariusAssetsCentroidCount > 0); }
-    juce::String centroidWeightsCSV() const;   // first N (or all, if you prefer)
+    juce::String centroidWeightsCSV() const;
 
+    bool genIsGenerating = false;
 
-
-
-
-
-
+    juce::String getGenAudioFilePath() const;
+    void onClickGenerate();
+    void postDariusGenerate();
+    juce::URL makeGenerateURL() const;
+    void handleDariusGenerateResponse(const juce::String& responseText, int statusCode);
 
     // Smart loop controls
     CustomButton generateAsLoopButton;

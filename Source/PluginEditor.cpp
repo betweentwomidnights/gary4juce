@@ -372,420 +372,95 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
 
 
-    // ========== DARIUS CONTROLS SETUP ==========
-    dariusLabel.setText("darius (magentaRT)", juce::dontSendNotification);
-    dariusLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    dariusLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(dariusLabel);
+    // ========== DARIUS UI ==========
+    dariusUI = std::make_unique<DariusUI>();
+    addAndMakeVisible(*dariusUI);
 
-    // Backend URL editor
-    dariusUrlEditor.setText(dariusBackendUrl, juce::dontSendNotification);
-    dariusUrlEditor.setMultiLine(false);
-    dariusUrlEditor.setReturnKeyStartsNewLine(false);
-    dariusUrlEditor.onTextChange = [this]() {
-        dariusBackendUrl = dariusUrlEditor.getText();
-        };
-    addAndMakeVisible(dariusUrlEditor);
+    dariusUI->onUrlChanged = [this](const juce::String& newUrl)
+    {
+        dariusBackendUrl = newUrl;
+    };
 
-    dariusUrlLabel.setText("backend url", juce::dontSendNotification);
-    dariusUrlLabel.setFont(juce::FontOptions(12.0f));
-    dariusUrlLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    dariusUrlLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(dariusUrlLabel);
+    dariusUI->onHealthCheckRequested = [this]()
+    {
+        checkDariusHealth();
+    };
 
-    // Health check button
-    dariusHealthCheckButton.setButtonText("check connection");
-    dariusHealthCheckButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusHealthCheckButton.onClick = [this]() { checkDariusHealth(); };
-    dariusHealthCheckButton.setTooltip("check magentaRT backend connection");
-    addAndMakeVisible(dariusHealthCheckButton);
+    dariusUI->onRefreshConfigRequested = [this]()
+    {
+        fetchDariusConfig();
+    };
 
-    // Status label
-    dariusStatusLabel.setText("not checked", juce::dontSendNotification);
-    dariusStatusLabel.setFont(juce::FontOptions(11.0f));
-    dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    dariusStatusLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(dariusStatusLabel);
+    dariusUI->onFetchCheckpointsRequested = [this]()
+    {
+        if (dariusIsFetchingCheckpoints)
+            return;
+        if (!dariusConnected)
+            return;
+        if (!dariusUI)
+            return;
+        if (dariusUI->getUsingBaseModel())
+            return;
 
-    // ========== DARIUS SUBTAB BUTTONS SETUP ==========
-    dariusBackendTabButton.setButtonText("backend");
-    dariusBackendTabButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusBackendTabButton.onClick = [this]() { switchToDariusSubTab(DariusSubTab::Backend); };
-    addAndMakeVisible(dariusBackendTabButton);
-
-    dariusModelTabButton.setButtonText("model");
-    dariusModelTabButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusModelTabButton.onClick = [this]() { switchToDariusSubTab(DariusSubTab::Model); };
-    addAndMakeVisible(dariusModelTabButton);
-
-    dariusGenerationTabButton.setButtonText("generation");
-    dariusGenerationTabButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusGenerationTabButton.onClick = [this]() { switchToDariusSubTab(DariusSubTab::Generation); };
-    addAndMakeVisible(dariusGenerationTabButton);
-
-    // ========== DARIUS MODEL SUBTAB SETUP ==========
-    dariusModelContent = std::make_unique<juce::Component>();
-    dariusModelViewport = std::make_unique<juce::Viewport>();
-    dariusModelViewport->setViewedComponent(dariusModelContent.get(), false);
-    addAndMakeVisible(dariusModelViewport.get());
-
-    // ========== DARIUS MODEL SUBTAB UI (minimal, read-only) ==========
-    dariusModelHeaderLabel.setText("current model", juce::dontSendNotification);
-    dariusModelHeaderLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    dariusModelHeaderLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusModelHeaderLabel.setJustificationType(juce::Justification::centredLeft);
-    dariusModelContent->addAndMakeVisible(dariusModelHeaderLabel);
-
-    dariusModelGuardLabel.setText("backend offline or in template mode. run health check on the backend tab",
-        juce::dontSendNotification);
-    dariusModelGuardLabel.setFont(juce::FontOptions(12.0f));
-    dariusModelGuardLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-    dariusModelGuardLabel.setJustificationType(juce::Justification::centredLeft);
-    dariusModelContent->addAndMakeVisible(dariusModelGuardLabel);
-
-    dariusRefreshConfigButton.setButtonText("refresh config");
-    dariusRefreshConfigButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusRefreshConfigButton.onClick = [this]() { fetchDariusConfig(); };
-    dariusModelContent->addAndMakeVisible(dariusRefreshConfigButton);
-
-    dariusUseBaseModelToggle.setButtonText("use base model");
-    dariusUseBaseModelToggle.setToggleState(dariusUseBaseModel, juce::dontSendNotification);
-    dariusUseBaseModelToggle.onClick = [this]()
-        {
-            dariusUseBaseModel = dariusUseBaseModelToggle.getToggleState();
-            updateDariusModelControlsEnabled(); // will disable finetune controls later
-        };
-    dariusModelContent->addAndMakeVisible(dariusUseBaseModelToggle);
-
-    // Value rows (tiny readout, like Swift’s status rows but fewer fields)
-    auto prepRow = [this](juce::Label& label, const juce::String& name) {
-        label.setText(name + ": —", juce::dontSendNotification);
-        label.setFont(juce::FontOptions(12.0f));
-        label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        label.setJustificationType(juce::Justification::centredLeft);
-        dariusModelContent->addAndMakeVisible(label);
-        };
-    prepRow(dariusActiveSizeLabel, "Active size");
-    prepRow(dariusRepoLabel, "Repo");
-    prepRow(dariusStepLabel, "Step");
-    prepRow(dariusLoadedLabel, "Loaded");
-    prepRow(dariusWarmupLabel, "Warmup");
-
-    // Finetune repo label + field (compact)
-    dariusRepoFieldLabel.setText("finetune repo", juce::dontSendNotification);
-    dariusRepoFieldLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    dariusRepoFieldLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusRepoFieldLabel.setJustificationType(juce::Justification::centredLeft);
-    dariusModelContent->addAndMakeVisible(dariusRepoFieldLabel);
-
-    // TextEditor setup
-    dariusRepoField.setMultiLine(false);
-    dariusRepoField.setReturnKeyStartsNewLine(false);
-    dariusRepoField.setText(dariusFinetuneRepo.isNotEmpty() ? dariusFinetuneRepo : "thepatch/magenta-ft");
-    dariusRepoField.setInputRestrictions(256); // keep it short
-    dariusRepoField.setScrollbarsShown(false);
-    dariusRepoField.setJustification(juce::Justification::centredLeft);
-    dariusRepoField.setTooltip("e.g. thepatch/magenta-ft");
-    dariusRepoField.onReturnKey = [this]() {
-        // Pressing Enter commits & (optionally) fetches via the checkpoint button if you want
         syncDariusRepoFromField();
-        };
-    dariusRepoField.onFocusLost = [this]() {
-        syncDariusRepoFromField();
-        };
-    dariusRepoField.onTextChange = [this]() {
-        // keep our backing value up to date
-        syncDariusRepoFromField();
-        };
-    dariusModelContent->addAndMakeVisible(dariusRepoField);
+        dariusIsFetchingCheckpoints = true;
+        dariusUI->setIsFetchingCheckpoints(true);
+        fetchDariusCheckpoints(dariusFinetuneRepo, dariusFinetuneRevision);
+    };
 
-    // Checkpoint selector button (compact)
-    dariusCheckpointButton.setButtonText("checkpoint: latest ▾");
-    dariusCheckpointButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusCheckpointButton.onClick = [this]()
-        {
-            if (!dariusConnected) return;
+    dariusUI->onApplyWarmRequested = [this]()
+    {
+        beginDariusApplyAndWarm();
+    };
 
-            // If base model is selected, finetune controls are disabled
-            if (dariusUseBaseModel) return;
+    dariusUI->onGenerateRequested = [this]()
+    {
+        onClickGenerate();
+    };
 
-            // If we don't have steps yet, fetch then open
-            if (dariusCheckpointSteps.isEmpty())
-            {
-                syncDariusRepoFromField(); // ensure latest text is in dariusFinetuneRepo
-                dariusIsFetchingCheckpoints = true;
-                dariusOpenMenuAfterFetch = true;
-                updateDariusCheckpointButtonLabel();
-                fetchDariusCheckpoints(dariusFinetuneRepo, dariusFinetuneRevision /* still "main" for now */);
-                return;
-            }
+    dariusUI->onUseBaseModelToggled = [this](bool useBase)
+    {
+        dariusUseBaseModel = useBase;
+        dariusUI->setUsingBaseModel(useBase);
+        if (useBase)
+            dariusSelectedStepStr = "latest";
+        updateDariusModelConfigUI();
+    };
 
-            // Already have them — show menu now
-            showDariusCheckpointMenu();
-        };
-    dariusModelContent->addAndMakeVisible(dariusCheckpointButton);
+    dariusUI->onFinetuneRepoChanged = [this](const juce::String& repoText)
+    {
+        auto trimmed = repoText.trim();
+        if (trimmed.isEmpty())
+            trimmed = "thepatch/magenta-ft";
+        dariusFinetuneRepo = trimmed;
+        dariusUI->setFinetuneRepo(dariusFinetuneRepo);
+    };
 
-    // Apply & Warm button (one big primary action)
-    dariusApplyWarmButton.setButtonText("apply & warm");
-    dariusApplyWarmButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    dariusApplyWarmButton.onClick = [this]() { beginDariusApplyAndWarm(); };
-    dariusModelContent->addAndMakeVisible(dariusApplyWarmButton);
+    dariusUI->onCheckpointSelected = [this](const juce::String& step)
+    {
+        dariusSelectedStepStr = step;
+    };
 
-    // Tiny “warming…” status (animated ellipsis)
-    dariusWarmStatusLabel.setText("", juce::dontSendNotification);
-    dariusWarmStatusLabel.setFont(juce::FontOptions(12.0f, juce::Font::plain));
-    dariusWarmStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    dariusWarmStatusLabel.setJustificationType(juce::Justification::centredLeft);
-    dariusWarmStatusLabel.setVisible(false);
-    dariusModelContent->addAndMakeVisible(dariusWarmStatusLabel);
+    dariusUI->onAudioSourceChanged = [this](bool useRecording)
+    {
+        audioProcessor.setTransformRecording(useRecording);
+    };
 
-
-
-    // ========== DARIUS GENERATION SUBTAB SETUP ==========
-    dariusGenerationContent = std::make_unique<juce::Component>();
-    dariusGenerationViewport = std::make_unique<juce::Viewport>();
-    dariusGenerationViewport->setViewedComponent(dariusGenerationContent.get(), false);
-    addAndMakeVisible(dariusGenerationViewport.get());
-
-    // ===== Generation: Styles header + (+) button =====
-    genStylesHeaderLabel.setText("styles & weights", juce::dontSendNotification);
-    genStylesHeaderLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
-    genStylesHeaderLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    genStylesHeaderLabel.setJustificationType(juce::Justification::centredLeft);
-    dariusGenerationContent->addAndMakeVisible(genStylesHeaderLabel);
-
-    // (+) button (cap at 4, like Swift)
-    genAddStyleButton.setButtonText("+");
-    genAddStyleButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genAddStyleButton.onClick = [this]() {
-        if ((int)genStyleRows.size() < genStylesMax) {
-            addGenStyleRow("", 1.0);
-            rebuildGenStylesUI();
-            resized(); // relayout
-        }
-        };
-    dariusGenerationContent->addAndMakeVisible(genAddStyleButton);
-
-    // Seed with one empty row (text + weight 1.0), like Swift default
-    addGenStyleRow("", 1.0);
-    rebuildGenStylesUI();
-
-    // ===== Generation: Loop influence (compact) =====
-    genLoopLabel.setText("loop influence: 0.50", juce::dontSendNotification);
-    genLoopLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genLoopLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    genLoopLabel.setJustificationType(juce::Justification::centredLeft);
-    dariusGenerationContent->addAndMakeVisible(genLoopLabel);
-
-    genLoopSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genLoopSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    genLoopSlider.setRange(0.0, 1.0, 0.01);
-    genLoopSlider.setValue(genLoopInfluence, juce::dontSendNotification);
-    genLoopSlider.setTooltip("How strongly the loop steers generation (0.00–1.00)");
-    genLoopSlider.onValueChange = [this]()
-        {
-            genLoopInfluence = genLoopSlider.getValue();
-            updateGenLoopLabel();
-        };
-    dariusGenerationContent->addAndMakeVisible(genLoopSlider);
-
-    // ===== Generation: Advanced dropdown =====
-    genAdvancedToggle.setButtonText("advanced settings");
-    genAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genAdvancedToggle.onClick = [this]()
-        {
-            genAdvancedOpen = !genAdvancedOpen;
-            updateGenAdvancedToggleText();
-            resized(); // relayout to show/hide
-        };
-    dariusGenerationContent->addAndMakeVisible(genAdvancedToggle);
-
-    // Temperature
-    genTempLabel.setText("temperature: 1.20", juce::dontSendNotification);
-    genTempLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genTempLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genTempLabel);
-
-    genTempSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genTempSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    genTempSlider.setRange(0.0, 10.0, 0.01);
-    genTempSlider.setValue(genTemperature, juce::dontSendNotification);
-    genTempSlider.onValueChange = [this]()
-        {
-            genTemperature = genTempSlider.getValue();
-            genTempLabel.setText("temperature: " + juce::String(genTemperature, 2), juce::dontSendNotification);
-        };
-    dariusGenerationContent->addAndMakeVisible(genTempSlider);
-
-    // Top-K
-    genTopKLabel.setText("top-k: 40", juce::dontSendNotification);
-    genTopKLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genTopKLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genTopKLabel);
-
-    genTopKSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genTopKSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    genTopKSlider.setRange(1.0, 300.0, 1.0); // integer steps
-    genTopKSlider.setValue((double)genTopK, juce::dontSendNotification);
-    genTopKSlider.onValueChange = [this]()
-        {
-            genTopK = (int)genTopKSlider.getValue();
-            genTopKLabel.setText("top-k: " + juce::String(genTopK), juce::dontSendNotification);
-        };
-    dariusGenerationContent->addAndMakeVisible(genTopKSlider);
-
-    // Guidance
-    genGuidanceLabel.setText("guidance: 5.00", juce::dontSendNotification);
-    genGuidanceLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genGuidanceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genGuidanceLabel);
-
-    genGuidanceSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genGuidanceSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    genGuidanceSlider.setRange(0.0, 10.0, 0.01);
-    genGuidanceSlider.setValue(genGuidance, juce::dontSendNotification);
-    genGuidanceSlider.onValueChange = [this]()
-        {
-            genGuidance = genGuidanceSlider.getValue();
-            genGuidanceLabel.setText("guidance: " + juce::String(genGuidance, 2), juce::dontSendNotification);
-        };
-    dariusGenerationContent->addAndMakeVisible(genGuidanceSlider);
-
-    // Start closed
-    updateGenAdvancedToggleText();
-    // We'll control visibility in layout
-
-    // ===== Generation: Bars + BPM =====
-    genBarsLabel.setText("bars", juce::dontSendNotification);
-    genBarsLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genBarsLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genBarsLabel);
-
-    genBars4Button.setButtonText("4");
-    genBars4Button.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genBars4Button.onClick = [this]() { genBars = 4; updateGenBarsButtons(); };
-    dariusGenerationContent->addAndMakeVisible(genBars4Button);
-
-    genBars8Button.setButtonText("8");
-    genBars8Button.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genBars8Button.onClick = [this]() { genBars = 8; updateGenBarsButtons(); };
-    dariusGenerationContent->addAndMakeVisible(genBars8Button);
-
-    genBars16Button.setButtonText("16");
-    genBars16Button.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genBars16Button.onClick = [this]() { genBars = 16; updateGenBarsButtons(); };
-    // NOTE: only a UI option; iOS looper still sends 4/8 as before
-    dariusGenerationContent->addAndMakeVisible(genBars16Button);
-
-    genBpmLabel.setText("bpm", juce::dontSendNotification);
-    genBpmLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genBpmLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genBpmLabel);
-
-    genBpmValueLabel.setText(juce::String(audioProcessor.getCurrentBPM(), 1),
-        juce::dontSendNotification);
-    genBpmValueLabel.setFont(juce::FontOptions(12.0f));
-    genBpmValueLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    dariusGenerationContent->addAndMakeVisible(genBpmValueLabel);
-
-    // Initialize radio styling
-    updateGenBarsButtons();
-
-    // ===== Generation: Input Source =====
-    genSourceLabel.setText("source", juce::dontSendNotification);
-    genSourceLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genSourceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genSourceLabel);
-
-    genRecordingButton.setButtonText("recording");
-    genRecordingButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genRecordingButton.onClick = [this]()
-        {
-            if (savedSamples > 0) { // same guard as Terry
-                audioProcessor.setTransformRecording(true);
-                genAudioSource = GenAudioSource::Recording;
-                updateGenSourceButtons();
-            }
-        };
-    dariusGenerationContent->addAndMakeVisible(genRecordingButton);
-
-    genOutputButton.setButtonText("output");
-    genOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genOutputButton.onClick = [this]()
-        {
-            genAudioSource = GenAudioSource::Output;
-            audioProcessor.setTransformRecording(false);
-            DBG("Generation audio source set to: Output");
-            updateGenSourceButtons();
-        };
-    dariusGenerationContent->addAndMakeVisible(genOutputButton);
-
-    // Guard text when recording isn't available
-    genSourceGuardLabel.setText("no saved recording found", juce::dontSendNotification);
-    genSourceGuardLabel.setFont(juce::FontOptions(11.0f));
-    genSourceGuardLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-    genSourceGuardLabel.setJustificationType(juce::Justification::centredLeft);
-    genSourceGuardLabel.setVisible(false);
-    dariusGenerationContent->addAndMakeVisible(genSourceGuardLabel);
-
-    // Initialize button states
-    updateGenSourceButtons();
-    updateGenSourceEnabled();
-
-    // ===== Generation: Generate button =====
-    genGenerateButton.setButtonText("generate");
-    genGenerateButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genGenerateButton.onClick = [this]() { onClickGenerate(); };
-    dariusGenerationContent->addAndMakeVisible(genGenerateButton);
-
-    // ===== Generation: Steering dropdown =====
-    genSteeringToggle.setButtonText("steering ▸");
-    genSteeringToggle.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    genSteeringToggle.onClick = [this]() {
-        genSteeringOpen = !genSteeringOpen;
-        updateGenSteeringToggleText();
-        resized();
-        };
-    dariusGenerationContent->addAndMakeVisible(genSteeringToggle);
-
-    genMeanLabel.setText("mean: 1.00", juce::dontSendNotification);
-    genMeanLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genMeanLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genMeanLabel);
-
-    genMeanSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genMeanSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    genMeanSlider.setRange(0.0, 2.0, 0.01);
-    genMeanSlider.setValue(genMean, juce::dontSendNotification);
-    genMeanSlider.onValueChange = [this]() {
-        genMean = genMeanSlider.getValue();
-        genMeanLabel.setText("mean: " + juce::String(genMean, 2), juce::dontSendNotification);
-        };
-    dariusGenerationContent->addAndMakeVisible(genMeanSlider);
-
-    // Centroids header
-    genCentroidsHeaderLabel.setText("centroids", juce::dontSendNotification);
-    genCentroidsHeaderLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    genCentroidsHeaderLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    dariusGenerationContent->addAndMakeVisible(genCentroidsHeaderLabel);
-
-    // Start closed
-    updateGenSteeringToggleText();
-
-    // Kick off initial asset status fetch when the editor opens
-    fetchDariusAssetsStatus();
-
-
-
-
-
-    updateDariusModelControlsEnabled();
-
-    // Set initial subtab state
-    //switchToDariusSubTab(DariusSubTab::Backend);
+    dariusUI->setBackendUrl(dariusBackendUrl);
+    dariusUI->setConnectionStatusText("not checked");
+    dariusUI->setUsingBaseModel(dariusUseBaseModel);
+    dariusUI->setFinetuneRepo(dariusFinetuneRepo);
+    dariusUI->setCheckpointSteps(dariusCheckpointSteps);
+    dariusUI->setSelectedCheckpointStep(dariusSelectedStepStr);
+    dariusUI->setConnected(dariusConnected);
+    dariusUI->setSavedRecordingAvailable(savedSamples > 0);
+    dariusUI->setOutputAudioAvailable(hasOutputAudio);
+    dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
+    dariusUI->setBpm(audioProcessor.getCurrentBPM());
+    dariusUI->setSteeringAssets(dariusAssetsMeanAvailable, dariusAssetsCentroidCount, dariusCentroidWeights);
 
     // ========== REMAINING SETUP (unchanged) ==========
+
     // Set up the "Check Connection" button
     checkConnectionIcon = IconFactory::createCheckConnectionIcon();
     if (checkConnectionIcon)
@@ -1205,30 +880,9 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     undoTransformButton.setVisible(showTerry);
 
     // Darius controls visibility
-    bool showDarius = (tab == ModelTab::Darius);
-
-    dariusLabel.setVisible(showDarius);
-
-    if (showDarius) {
-        // Show subtab buttons when Darius tab is active
-        dariusBackendTabButton.setVisible(true);
-        dariusModelTabButton.setVisible(true);
-        dariusGenerationTabButton.setVisible(true);
-
-        // Update subtab content visibility based on current subtab
-        switchToDariusSubTab(currentDariusSubTab);
-    } else {
-        // Hide all Darius content when not on Darius tab
-        dariusBackendTabButton.setVisible(false);
-        dariusModelTabButton.setVisible(false);
-        dariusGenerationTabButton.setVisible(false);
-        dariusUrlEditor.setVisible(false);
-        dariusUrlLabel.setVisible(false);
-        dariusHealthCheckButton.setVisible(false);
-        dariusStatusLabel.setVisible(false);
-        dariusModelViewport->setVisible(false);
-        dariusGenerationViewport->setVisible(false);
-    }
+    const bool showDarius = (tab == ModelTab::Darius);
+    if (dariusUI)
+        dariusUI->setVisible(showDarius);
 
     // Help button visibility
     if (helpIcon)
@@ -1465,21 +1119,12 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     jerryBpmLabel.setText("bpm: " + juce::String((int)currentBPM) + " (from daw)",
         juce::dontSendNotification);
 
-    // Keep Darius/Generation BPM display in sync too
-    genBPM = currentBPM;
-    genBpmValueLabel.setText(juce::String(genBPM, 1),
-        juce::dontSendNotification);
-
-    // Keep recording availability synced (like Terry)
-    updateGenSourceEnabled();
-
-    // Also keep the “selected” visual in sync with the processor flag
-    const bool procFlag = audioProcessor.getTransformRecording();
-    const auto desired = procFlag ? GenAudioSource::Recording : GenAudioSource::Output;
-    if (desired != genAudioSource)
+    if (dariusUI)
     {
-        genAudioSource = desired;
-        updateGenSourceButtons();
+        dariusUI->setBpm(currentBPM);
+        dariusUI->setSavedRecordingAvailable(savedSamples > 0);
+        dariusUI->setOutputAudioAvailable(hasOutputAudio);
+        dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     }
 
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
@@ -4033,13 +3678,16 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
     if (dariusBackendUrl.trim().isEmpty())
     {
         showStatusMessage("enter backend url first");
+        if (dariusUI)
+            dariusUI->setHealthCheckInProgress(false);
         return;
     }
 
-    dariusHealthCheckButton.setEnabled(false);
-    dariusHealthCheckButton.setButtonText("checking...");
-    dariusStatusLabel.setText("checking connection...", juce::dontSendNotification);
-    dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
+    if (dariusUI)
+    {
+        dariusUI->setHealthCheckInProgress(true);
+        dariusUI->setConnectionStatus("checking connection...", juce::Colours::yellow);
+    }
 
     // Create health check request in background thread
     juce::Thread::launch([this]() {
@@ -4073,126 +3721,93 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
 
 void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::String& response, bool connectionSucceeded)
 {
-    dariusHealthCheckButton.setEnabled(true);
-    dariusHealthCheckButton.setButtonText("check connection");
+    if (dariusUI)
+        dariusUI->setHealthCheckInProgress(false);
+
+    auto clearModelStatus = [this]()
+    {
+        if (dariusUI)
+            dariusUI->setModelStatus({}, {}, {}, false, false);
+    };
 
     if (!connectionSucceeded)
     {
         dariusConnected = false;
-        dariusStatusLabel.setText("connection failed", juce::dontSendNotification);
-        dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+        updateDariusModelControlsEnabled();
+        clearModelStatus();
+        if (dariusUI)
+            dariusUI->setConnectionStatus("connection failed", juce::Colours::red);
         showStatusMessage("failed to connect to darius backend");
         return;
     }
 
-    // Parse JSON response
-    try
-    {
-        auto responseVar = juce::JSON::parse(response);
-        if (auto* responseObj = responseVar.getDynamicObject())
-        {
-            juce::String status = responseObj->getProperty("status").toString();
-            bool ok = responseObj->getProperty("ok");
-
-            if (status == "template_mode")
-            {
-                dariusConnected = false;
-                dariusModelGuardLabel.setVisible(true);
-                dariusRefreshConfigButton.setEnabled(false);
-                updateDariusModelControlsEnabled();
-
-                // Also clear UI so stale info isn't shown
-                dariusActiveSizeLabel.setText("active size: ", juce::dontSendNotification);
-                dariusRepoLabel.setText("repo: ", juce::dontSendNotification);
-                dariusStepLabel.setText("step: ", juce::dontSendNotification);
-                dariusLoadedLabel.setText("loaded: ", juce::dontSendNotification);
-                dariusWarmupLabel.setText("warmup: ", juce::dontSendNotification);
-                dariusStatusLabel.setText("not ready: space is template", juce::dontSendNotification);
-                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-                showStatusMessage("not ready: this space is a GPU template. duplicate it and select an L40s/A100-class runtime to use the API.", 8000);
-            }
-            else if (status == "gpu_unavailable")
-            {
-                dariusConnected = false;
-                dariusModelGuardLabel.setVisible(true);
-                dariusRefreshConfigButton.setEnabled(false);
-                updateDariusModelControlsEnabled();
-
-                // Also clear UI so stale info isn't shown
-                dariusActiveSizeLabel.setText("active size: ", juce::dontSendNotification);
-                dariusRepoLabel.setText("repo: ", juce::dontSendNotification);
-                dariusStepLabel.setText("step: ", juce::dontSendNotification);
-                dariusLoadedLabel.setText("loaded: ", juce::dontSendNotification);
-                dariusWarmupLabel.setText("warmup: ", juce::dontSendNotification);
-                dariusStatusLabel.setText("gpu not available", juce::dontSendNotification);
-                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
-                showStatusMessage("GPU not visible - select a GPU runtime");
-            }
-            else if (ok && (status == "ready" || status == "initializing"))
-            {
-                dariusConnected = true;
-                updateDariusModelControlsEnabled();
-                bool warmed = responseObj->getProperty("warmed");
-                dariusStatusLabel.setText(warmed ? "ready" : "initializing", juce::dontSendNotification);
-                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::green);
-                showStatusMessage(warmed ? "darius backend ready" : "darius backend initializing");
-                dariusModelGuardLabel.setVisible(false);
-                dariusRefreshConfigButton.setEnabled(true);
-                fetchDariusConfig();
-            }
-            else
-            {
-                dariusConnected = false;
-                updateDariusModelControlsEnabled();
-                dariusModelGuardLabel.setVisible(true);
-                dariusRefreshConfigButton.setEnabled(false);
-
-                // Also clear UI so stale info isn't shown
-                dariusActiveSizeLabel.setText("active size: ", juce::dontSendNotification);
-                dariusRepoLabel.setText("repo: ", juce::dontSendNotification);
-                dariusStepLabel.setText("step: ", juce::dontSendNotification);
-                dariusLoadedLabel.setText("loaded: ", juce::dontSendNotification);
-                dariusWarmupLabel.setText("warmup: ", juce::dontSendNotification);
-                dariusStatusLabel.setText("unknown status: " + status, juce::dontSendNotification);
-                dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
-            }
-        }
-        else
-        {
-            dariusConnected = false;
-            updateDariusModelControlsEnabled();
-            dariusModelGuardLabel.setVisible(true);
-            dariusRefreshConfigButton.setEnabled(false);
-
-            // Also clear UI so stale info isn't shown
-            dariusActiveSizeLabel.setText("active size: ", juce::dontSendNotification);
-            dariusRepoLabel.setText("repo: ", juce::dontSendNotification);
-            dariusStepLabel.setText("step: ", juce::dontSendNotification);
-            dariusLoadedLabel.setText("loaded: ", juce::dontSendNotification);
-            dariusWarmupLabel.setText("warmup: ", juce::dontSendNotification);
-            dariusStatusLabel.setText("invalid response format", juce::dontSendNotification);
-            dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
-        }
+    juce::var parsed;
+    try { parsed = juce::JSON::parse(response); }
+    catch (...) {
+        dariusConnected = false;
+        updateDariusModelControlsEnabled();
+        clearModelStatus();
+        if (dariusUI)
+            dariusUI->setConnectionStatus("invalid health response", juce::Colours::red);
+        showStatusMessage("invalid health response");
+        return;
     }
-    catch (...)
+
+    auto* obj = parsed.getDynamicObject();
+    if (obj == nullptr)
     {
         dariusConnected = false;
         updateDariusModelControlsEnabled();
-        dariusModelGuardLabel.setVisible(true);
-        dariusRefreshConfigButton.setEnabled(false);
-
-        // Also clear UI so stale info isn't shown
-        dariusActiveSizeLabel.setText("Active size: ", juce::dontSendNotification);
-        dariusRepoLabel.setText("Repo: ", juce::dontSendNotification);
-        dariusStepLabel.setText("Step: ", juce::dontSendNotification);
-        dariusLoadedLabel.setText("Loaded: ", juce::dontSendNotification);
-        dariusWarmupLabel.setText("Warmup: ", juce::dontSendNotification);
-        dariusStatusLabel.setText("failed to parse response", juce::dontSendNotification);
-        dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::red);
+        clearModelStatus();
+        if (dariusUI)
+            dariusUI->setConnectionStatus("unexpected health format", juce::Colours::red);
+        showStatusMessage("unexpected health format");
+        return;
     }
 
-    repaint();
+    juce::String status = obj->getProperty("status").toString();
+    const bool ok = (bool)obj->getProperty("ok");
+
+    if (status == "template_mode")
+    {
+        dariusConnected = false;
+        updateDariusModelControlsEnabled();
+        clearModelStatus();
+        if (dariusUI)
+            dariusUI->setConnectionStatus("not ready: template space", juce::Colours::orange);
+        showStatusMessage("not ready: this space is a GPU template. duplicate it and select an L40s/A100-class runtime to use the API.", 8000);
+    }
+    else if (status == "gpu_unavailable")
+    {
+        dariusConnected = false;
+        updateDariusModelControlsEnabled();
+        clearModelStatus();
+        if (dariusUI)
+            dariusUI->setConnectionStatus("gpu not available", juce::Colours::red);
+        showStatusMessage("GPU not visible - select a GPU runtime");
+    }
+    else if (ok && (status == "ready" || status == "initializing"))
+    {
+        dariusConnected = true;
+        updateDariusModelControlsEnabled();
+        const bool warmed = (bool)obj->getProperty("warmed");
+        if (dariusUI)
+            dariusUI->setConnectionStatus(warmed ? "ready" : "initializing", juce::Colours::green);
+        showStatusMessage(warmed ? "darius backend ready" : "darius backend initializing");
+        fetchDariusConfig();
+    }
+    else
+    {
+        dariusConnected = false;
+        updateDariusModelControlsEnabled();
+        clearModelStatus();
+        if (dariusUI)
+            dariusUI->setConnectionStatus("unknown status: " + status, juce::Colours::red);
+        showStatusMessage("darius backend reported: " + status);
+    }
 }
+
+
 
 
 void Gary4juceAudioProcessorEditor::fetchDariusConfig()
@@ -4342,6 +3957,8 @@ void Gary4juceAudioProcessorEditor::handleDariusCheckpointsResponse(const juce::
             "empty checkpoints response";
         DBG(msg);
         showStatusMessage(msg, 3500);
+        dariusIsFetchingCheckpoints = false;
+        updateDariusModelControlsEnabled();
         return;
     }
 
@@ -4365,14 +3982,12 @@ void Gary4juceAudioProcessorEditor::handleDariusCheckpointsResponse(const juce::
         dariusLatestCheckpoint = latest;
 
         dariusIsFetchingCheckpoints = false;
-        updateDariusCheckpointButtonLabel();
+        updateDariusModelControlsEnabled();
 
-        if (dariusOpenMenuAfterFetch && !dariusUseBaseModel && currentDariusSubTab == DariusSubTab::Model)
+        if (dariusUI)
         {
-            dariusOpenMenuAfterFetch = false;
-            // If there are steps, show the menu now
-            if (!dariusCheckpointSteps.isEmpty())
-                showDariusCheckpointMenu();
+            dariusUI->setCheckpointSteps(dariusCheckpointSteps);
+            dariusUI->setSelectedCheckpointStep(dariusSelectedStepStr);
         }
 
         DBG("[/model/checkpoints] steps=" + juce::String(dariusCheckpointSteps.size())
@@ -4385,94 +4000,79 @@ void Gary4juceAudioProcessorEditor::handleDariusCheckpointsResponse(const juce::
     }
 }
 
+
 void Gary4juceAudioProcessorEditor::updateDariusModelConfigUI()
 {
-    if (!lastDariusConfig.isObject())
+    if (!dariusUI || !lastDariusConfig.isObject())
         return;
 
     auto* obj = lastDariusConfig.getDynamicObject();
+    if (obj == nullptr)
+        return;
 
     const auto size = obj->getProperty("size").toString();
-    const auto repo = obj->getProperty("repo").toString();          // optional
-    const auto step = obj->getProperty("selected_step").toString(); // optional
+    const auto repo = obj->getProperty("repo").toString();
+    const auto step = obj->getProperty("selected_step").toString();
     const bool loaded = (bool)obj->getProperty("loaded");
     const bool warm = (bool)obj->getProperty("warmup_done");
 
-    // NEW: if config is warm, clear any warming/applying UI
     if (warm && (dariusIsWarming || dariusIsApplying))
     {
         dariusIsApplying = false;
         dariusIsWarming = false;
-        stopWarmDots();
+        dariusUI->stopWarmDots();
         updateDariusModelControlsEnabled();
         showStatusMessage("Model ready (prewarmed)", 2200);
     }
 
-    // Labels
-    dariusActiveSizeLabel.setText("Active size: " + (size.isEmpty() ? " " : size), juce::dontSendNotification);
-    dariusRepoLabel.setText("Repo: " + (repo.isEmpty() ? " " : repo), juce::dontSendNotification);
-    dariusStepLabel.setText("Step: " + (step.isEmpty() ? " " : step), juce::dontSendNotification);
-    dariusLoadedLabel.setText(juce::String("Loaded: ") + (loaded ? "yes" : "no"), juce::dontSendNotification);
-    dariusWarmupLabel.setText(juce::String("Warmup: ") + (warm ? "ready" : " "), juce::dontSendNotification);
-
-    // If we’re on the Model tab, repaint that viewport’s content
-    if (currentDariusSubTab == DariusSubTab::Model && dariusModelContent)
-        dariusModelContent->repaint();
+    dariusUI->setModelStatus(size, repo, step, loaded, warm);
 }
+
 
 // MODEL SELECT
 
 void Gary4juceAudioProcessorEditor::startWarmDots()
 {
-    if (dariusDotsTicking) return;
-    dariusDotsTicking = true;
-    dariusWarmDots = 0;
-    dariusWarmStatusLabel.setVisible(true);
+    if (dariusUI)
+        dariusUI->startWarmDots();
 
-    auto tick = [this]() mutable
-        {
-            if (!dariusDotsTicking) return; // stop requested
-            // Update “warming.” → “warming..” → “warming…”
-            juce::String dots(juce::String::repeatedString(".", (size_t)((dariusWarmDots % 3) + 1)));
-            dariusWarmStatusLabel.setText("warming" + dots, juce::dontSendNotification);
-            dariusWarmDots++;
-
-            // schedule next tick
-            juce::Timer::callAfterDelay(300, [this]() { startWarmDots(); });
-        };
-
-    // run one tick now (will self-schedule as long as ticking is true)
-    tick();
 }
+
 
 void Gary4juceAudioProcessorEditor::stopWarmDots()
 {
-    dariusDotsTicking = false;
-    dariusWarmStatusLabel.setVisible(false);
-    dariusWarmStatusLabel.setText("", juce::dontSendNotification);
+    if (dariusUI)
+        dariusUI->stopWarmDots();
+
 }
+
 
 
 void Gary4juceAudioProcessorEditor::syncDariusRepoFromField()
 {
-    auto t = dariusRepoField.getText().trim();
-    if (t.isEmpty())
-        t = "thepatch/magenta-ft";
-    dariusFinetuneRepo = t;
+    if (!dariusUI)
+        return;
+
+    auto repo = dariusUI->getFinetuneRepo().trim();
+    if (repo.isEmpty())
+        repo = "thepatch/magenta-ft";
+
+    dariusFinetuneRepo = repo;
+    dariusUI->setFinetuneRepo(dariusFinetuneRepo);
 }
 
 void Gary4juceAudioProcessorEditor::beginDariusApplyAndWarm()
 {
-    if (!dariusConnected) return;
+    if (!dariusConnected || !dariusUI)
+        return;
 
-    // Busy on: lock out controls & show status
     dariusIsApplying = true;
-    startWarmDots();
-    dariusApplyWarmButton.setEnabled(false);
+    dariusUI->startWarmDots();
     updateDariusModelControlsEnabled();
 
     postDariusSelect(makeDariusSelectApplyRequest());
 }
+
 
 void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj)
 {
@@ -4679,82 +4279,24 @@ void Gary4juceAudioProcessorEditor::startDariusWarmPolling(int attempt)
 
 void Gary4juceAudioProcessorEditor::updateDariusModelControlsEnabled()
 {
-    const bool healthy = dariusConnected;
+    if (!dariusUI)
+        return;
 
-    dariusUseBaseModelToggle.setEnabled(healthy);
-    dariusRefreshConfigButton.setEnabled(healthy);
-
-    const bool finetuneEnabled = healthy && !dariusUseBaseModel;
-    dariusRepoFieldLabel.setEnabled(finetuneEnabled);
-    dariusRepoField.setEnabled(finetuneEnabled);
-    dariusCheckpointButton.setEnabled(finetuneEnabled);
-
-    // Apply & Warm is enabled when healthy and not already busy
-    const bool canApply = healthy && !dariusIsApplying && !dariusIsWarming;
-    dariusApplyWarmButton.setEnabled(canApply);
-
-    dariusModelGuardLabel.setVisible(!healthy);
-
-    updateDariusCheckpointButtonLabel();
+    dariusUI->setConnected(dariusConnected);
+    dariusUI->setUsingBaseModel(dariusUseBaseModel);
+    dariusUI->setIsFetchingCheckpoints(dariusIsFetchingCheckpoints);
+    dariusUI->setApplyInProgress(dariusIsApplying);
+    dariusUI->setWarmInProgress(dariusIsWarming);
+    dariusUI->setSelectedCheckpointStep(dariusSelectedStepStr);
 }
 
 
-void Gary4juceAudioProcessorEditor::updateDariusCheckpointButtonLabel()
-{
-    juce::String label = "checkpoint: ";
-    if (dariusIsFetchingCheckpoints)
-        label << "loading…";
-    else
-        label << (dariusSelectedStepStr.isEmpty() ? "latest" : dariusSelectedStepStr);
 
-    label << " ▾";
-    dariusCheckpointButton.setButtonText(label);
-}
 
-void Gary4juceAudioProcessorEditor::showDariusCheckpointMenu()
-{
-    juce::PopupMenu m;
 
-    const auto isSelected = [this](const juce::String& s) {
-        return dariusSelectedStepStr == s || (dariusSelectedStepStr.isEmpty() && s == "latest");
-        };
 
-    // Reserved IDs
-    constexpr int idLatest = 1;
-    constexpr int idNone = 2;
-    int nextId = 100; // numeric steps start here
 
-    m.addItem(idLatest, "latest", true, isSelected("latest"));
-    m.addItem(idNone, "none", true, isSelected("none"));
 
-    if (!dariusCheckpointSteps.isEmpty())
-    {
-        m.addSeparator();
-        for (auto step : dariusCheckpointSteps)
-        {
-            const juce::String s = juce::String(step);
-            m.addItem(nextId, s, true, isSelected(s));
-            ++nextId;
-        }
-    }
-
-    m.showMenuAsync(juce::PopupMenu::Options(),
-        [this, nextId](int result)
-        {
-            if (result == 0) return; // cancelled
-
-            if (result == 1)       dariusSelectedStepStr = "latest";
-            else if (result == 2)  dariusSelectedStepStr = "none";
-            else if (result >= 100)
-            {
-                const int index = result - 100;
-                if (juce::isPositiveAndBelow(index, dariusCheckpointSteps.size()))
-                    dariusSelectedStepStr = juce::String(dariusCheckpointSteps[(int)index]);
-            }
-
-            updateDariusCheckpointButtonLabel();
-        });
-}
 
 
 
@@ -4762,236 +4304,37 @@ void Gary4juceAudioProcessorEditor::showDariusCheckpointMenu()
 
 // GENERATION STUFF
 
-void Gary4juceAudioProcessorEditor::addGenStyleRow(const juce::String& text, double weight)
-{
-    GenStyleRow row;
-    row.text = std::make_unique<juce::TextEditor>();
-    row.text->setMultiLine(false);
-    row.text->setReturnKeyStartsNewLine(false);
-    row.text->setText(text);
-    row.text->onTextChange = [this]() { genStylesDirty = true; };
-
-    row.weight = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
-    row.weight->setRange(0.0, 1.0, 0.01);
-    row.weight->setValue(juce::jlimit(0.0, 1.0, weight));
-    row.weight->onValueChange = [this]() { genStylesDirty = true; };
-
-    row.remove = std::make_unique<CustomButton>();
-    row.remove->setButtonText("-");
-    row.remove->setButtonStyle(CustomButton::ButtonStyle::Standard);
-
-    auto* removeBtnPtr = row.remove.get();
-    row.remove->onClick = [this, removeBtnPtr]()
-        {
-            // Defer to next tick so we don't delete UI while inside the button's callback
-            juce::MessageManager::callAsync([this, removeBtnPtr]()
-                {
-                    // Find current index of this button
-                    int idx = -1;
-                    for (size_t i = 0; i < genStyleRows.size(); ++i)
-                    {
-                        if (genStyleRows[i].remove.get() == removeBtnPtr)
-                        {
-                            idx = (int)i;
-                            break;
-                        }
-                    }
-
-                    // Never remove the first row; guard invalid indices
-                    if (idx <= 0) return;
-
-                    removeGenStyleRow(idx);
-                    rebuildGenStylesUI();
-                    resized();
-                });
-        }; resized();
-
-    // Add components and push row
-    dariusGenerationContent->addAndMakeVisible(*row.text);
-    dariusGenerationContent->addAndMakeVisible(*row.weight);
-    dariusGenerationContent->addAndMakeVisible(*row.remove);
-
-    genStyleRows.push_back(std::move(row));
-}
-
-void Gary4juceAudioProcessorEditor::removeGenStyleRow(int index)
-{
-    if (!juce::isPositiveAndBelow(index, (int)genStyleRows.size())) return;
-
-    auto& row = genStyleRows[(size_t)index];
-
-    // Build an explicit array so MSVC can deduce the range type
-    juce::Component* comps[] = { row.text.get(), row.weight.get(), row.remove.get() };
-    for (auto* c : comps)
-    {
-        if (c)
-        {
-            c->setVisible(false);
-            dariusGenerationContent->removeChildComponent(c);
-        }
-    }
-
-    genStyleRows.erase(genStyleRows.begin() + index);
-    genStylesDirty = true;
-}
-
-void Gary4juceAudioProcessorEditor::rebuildGenStylesUI()
-{
-    const bool canAdd = ((int)genStyleRows.size() < genStylesMax);
-    genAddStyleButton.setEnabled(canAdd);
-
-    for (size_t i = 0; i < genStyleRows.size(); ++i)
-    {
-        auto& r = genStyleRows[i];
-        const bool showRemove = (genStyleRows.size() > 1) && (i > 0);
-
-        r.remove->setVisible(showRemove);
-        r.remove->setEnabled(showRemove);
-
-        r.text->setVisible(true);
-        r.weight->setVisible(true);
-    }
-}
 
 
-void Gary4juceAudioProcessorEditor::layoutGenStylesUI(juce::Rectangle<int>& area)
-{
-    const int rowH = 24;
-    const int gapY = 6;
-    const int textW = 180;
-    const int removeW = 22;
 
-    for (size_t i = 0; i < genStyleRows.size(); ++i)
-    {
-        auto row = area.removeFromTop(rowH);
 
-        auto& r = genStyleRows[i];
-        if (!r.text || !r.weight || !r.remove) continue;
 
-        auto textBounds = row.removeFromLeft(textW);
-        auto removeBounds = row.removeFromRight(removeW);
-        auto weightBounds = row; // middle stretch
 
-        r.text->setBounds(textBounds);
-        r.weight->setBounds(weightBounds.reduced(4, 6)); // slimmer slider
-        r.remove->setBounds(removeBounds);
 
-        area.removeFromTop(gapY);
-    }
-}
 
-juce::String Gary4juceAudioProcessorEditor::genStylesCSV() const
-{
-    juce::StringArray arr;
-    for (auto const& r : genStyleRows)
-        if (r.text) arr.add(r.text->getText().trim());
-    return arr.joinIntoString(",");
-}
 
-juce::String Gary4juceAudioProcessorEditor::genStyleWeightsCSV() const
-{
-    juce::StringArray arr;
-    for (auto const& r : genStyleRows)
-        if (r.weight) arr.add(juce::String(r.weight->getValue(), 2));
-    return arr.joinIntoString(",");
-}
 
-void Gary4juceAudioProcessorEditor::updateGenLoopLabel()
-{
-    genLoopLabel.setText("loop influence: " + juce::String(genLoopInfluence, 2),
-        juce::dontSendNotification);
-}
 
-void Gary4juceAudioProcessorEditor::updateGenAdvancedToggleText()
-{
-    genAdvancedToggle.setButtonText(genAdvancedOpen ? "advanced" : "advanced");
-}
 
-void Gary4juceAudioProcessorEditor::layoutGenAdvancedUI(juce::Rectangle<int>& area)
-{
-    const int labelH = 18;
-    const int sliderH = 22;
-    const int colW = 220;
 
-    // Make controls visible
-    genTempLabel.setVisible(true);
-    genTempSlider.setVisible(true);
-    genTopKLabel.setVisible(true);
-    genTopKSlider.setVisible(true);
-    genGuidanceLabel.setVisible(true);
-    genGuidanceSlider.setVisible(true);
 
-    // Temperature
-    auto tLabel = area.removeFromTop(labelH);
-    genTempLabel.setBounds(tLabel.removeFromLeft(colW));
-    auto tSlide = area.removeFromTop(sliderH);
-    genTempSlider.setBounds(tSlide.removeFromLeft(colW));
-    area.removeFromTop(6);
 
-    // Top-K
-    auto kLabel = area.removeFromTop(labelH);
-    genTopKLabel.setBounds(kLabel.removeFromLeft(colW));
-    auto kSlide = area.removeFromTop(sliderH);
-    genTopKSlider.setBounds(kSlide.removeFromLeft(colW));
-    area.removeFromTop(6);
 
-    // Guidance
-    auto gLabel = area.removeFromTop(labelH);
-    genGuidanceLabel.setBounds(gLabel.removeFromLeft(colW));
-    auto gSlide = area.removeFromTop(sliderH);
-    genGuidanceSlider.setBounds(gSlide.removeFromLeft(colW));
-    area.removeFromTop(8);
-}
 
-void Gary4juceAudioProcessorEditor::updateGenBarsButtons()
-{
-    // Give the selected one a “primary/active” look, the other inactive
-    genBars4Button.setButtonStyle(genBars == 4 ? CustomButton::ButtonStyle::Darius
-        : CustomButton::ButtonStyle::Inactive);
-    genBars8Button.setButtonStyle(genBars == 8 ? CustomButton::ButtonStyle::Darius
-        : CustomButton::ButtonStyle::Inactive);
-    genBars16Button.setButtonStyle(genBars == 16 ? CustomButton::ButtonStyle::Darius
-        : CustomButton::ButtonStyle::Inactive);
-}
 
-void Gary4juceAudioProcessorEditor::setDAWBPM(double bpm)
-{
-    // Call this from your BPM bridge (Message thread!)
-    genBPM = bpm;
-    genBpmValueLabel.setText(juce::String(genBPM, 1), juce::dontSendNotification);
-}
 
-void Gary4juceAudioProcessorEditor::updateGenSourceButtons()
-{
-    genRecordingButton.setButtonStyle(
-        genAudioSource == GenAudioSource::Recording
-        ? CustomButton::ButtonStyle::Darius
-        : CustomButton::ButtonStyle::Inactive);
 
-    genOutputButton.setButtonStyle(
-        genAudioSource == GenAudioSource::Output
-        ? CustomButton::ButtonStyle::Darius
-        : CustomButton::ButtonStyle::Inactive);
-}
 
-void Gary4juceAudioProcessorEditor::updateGenSourceEnabled()
-{
-    const bool hasRec = (savedSamples > 0);     // same guard Terry uses
-    const bool hasOut = hasOutputAudio;         // set when output is present
 
-    // If current choice is invalid, fall back to Output & sync processor flag
-    if (!hasRec && audioProcessor.getTransformRecording())
-    {
-        audioProcessor.setTransformRecording(false);
-        genAudioSource = GenAudioSource::Output;
-        updateGenSourceButtons();
-    }
 
-    genRecordingButton.setEnabled(hasRec);
-    genOutputButton.setEnabled(hasOut);
 
-    genSourceGuardLabel.setVisible(!hasRec); // “no saved recording found”
-}
+
+
+
+
+
+
+
 
 
 // Helper: base directory used by Terry
@@ -5012,22 +4355,36 @@ juce::String Gary4juceAudioProcessorEditor::getGenAudioFilePath() const
 
 juce::String Gary4juceAudioProcessorEditor::centroidWeightsCSV() const
 {
-    // Use all if you want; or trim to first 5 if you prefer to match the UI.
     juce::StringArray arr;
-    for (double v : genCentroidWeights) arr.add(juce::String(v, 4));
+    if (dariusUI)
+    {
+        auto weights = dariusUI->getCentroidWeights();
+        arr.ensureStorageAllocated((int)weights.size());
+        for (double v : weights)
+            arr.add(juce::String(v, 4));
+        const_cast<Gary4juceAudioProcessorEditor*>(this)->dariusCentroidWeights = weights;
+    }
+    else
+    {
+        for (double v : dariusCentroidWeights)
+            arr.add(juce::String(v, 4));
+    }
     return arr.joinIntoString(",");
 }
 
+
+
 void Gary4juceAudioProcessorEditor::onClickGenerate()
 {
-    if (genIsGenerating) return;
+    if (genIsGenerating)
+        return;
+
     if (dariusBackendUrl.trim().isEmpty())
     {
         showStatusMessage("enter backend url first");
         return;
     }
 
-    // Ensure audio source file exists
     const juce::File loopFile(getGenAudioFilePath());
     if (!loopFile.existsAsFile())
     {
@@ -5036,10 +4393,9 @@ void Gary4juceAudioProcessorEditor::onClickGenerate()
     }
 
     genIsGenerating = true;
-    genGenerateButton.setButtonText("generating…");
-    genGenerateButton.setEnabled(false);
+    if (dariusUI)
+        dariusUI->setGenerating(true);
 
-    // Optional: central state you already use in saveGeneratedAudio()
     isGenerating = true;
     generationProgress = 0;
     updateAllGenerationButtonStates();
@@ -5047,43 +4403,51 @@ void Gary4juceAudioProcessorEditor::onClickGenerate()
     postDariusGenerate();
 }
 
+
 juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL() const
 {
     juce::String base = dariusBackendUrl.trim();
     if (!base.endsWith("/")) base += "/";
     juce::URL url(base + "generate");
 
-    // File part
     const juce::File loopFile(getGenAudioFilePath());
     url = url.withFileToUpload("loop_audio", loopFile, "audio/wav");
 
-    // Required form fields
+    const double bpm = dariusUI ? dariusUI->getBpm() : audioProcessor.getCurrentBPM();
+    const int bars = dariusUI ? dariusUI->getBars() : 4;
+    const juce::String styles = dariusUI ? dariusUI->getStylesCSV() : juce::String();
+    const juce::String styleWeights = dariusUI ? dariusUI->getStyleWeightsCSV() : juce::String();
+    const double loopInfluence = dariusUI ? dariusUI->getLoopInfluence() : 0.5;
+    const double guidance = dariusUI ? dariusUI->getGuidance() : 5.0;
+    const double temperature = dariusUI ? dariusUI->getTemperature() : 1.2;
+    const int topK = dariusUI ? dariusUI->getTopK() : 40;
+
     url = url
-        .withParameter("bpm", juce::String(getGenBPM(), 3))
-        .withParameter("bars", juce::String(getGenBars()))
+        .withParameter("bpm", juce::String(bpm, 3))
+        .withParameter("bars", juce::String(bars))
         .withParameter("beats_per_bar", "4")
-        .withParameter("styles", genStylesCSV())
-        .withParameter("style_weights", genStyleWeightsCSV())
-        .withParameter("loop_weight", juce::String(getGenLoopInfluence(), 3))
-        .withParameter("guidance_weight", juce::String(getGenGuidance(), 3))
-        .withParameter("temperature", juce::String(getGenTemperature(), 3))
-        .withParameter("topk", juce::String(getGenTopK()))
+        .withParameter("styles", styles)
+        .withParameter("style_weights", styleWeights)
+        .withParameter("loop_weight", juce::String(loopInfluence, 3))
+        .withParameter("guidance_weight", juce::String(guidance, 3))
+        .withParameter("temperature", juce::String(temperature, 3))
+        .withParameter("topk", juce::String(topK))
         .withParameter("loudness_mode", "auto")
         .withParameter("loudness_headroom_db", "1.0")
-        .withParameter("intro_bars_to_drop", "0");          
+        .withParameter("intro_bars_to_drop", "0");
 
-    // Steering fields, if assets are available
     if (genAssetsAvailable())
     {
-        if (dariusAssetsMeanAvailable)
-            url = url.withParameter("mean", juce::String(genMean, 4));
+        if (dariusAssetsMeanAvailable && dariusUI)
+            url = url.withParameter("mean", juce::String(dariusUI->getMean(), 4));
 
-        if (dariusAssetsCentroidCount > 0)
+        if (dariusAssetsCentroidCount > 0 && dariusUI)
             url = url.withParameter("centroid_weights", centroidWeightsCSV());
     }
 
     return url;
 }
+
 
 void Gary4juceAudioProcessorEditor::postDariusGenerate()
 {
@@ -5125,8 +4489,8 @@ void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::Str
     auto finish = [this]()
         {
             genIsGenerating = false;
-            genGenerateButton.setButtonText("generate");
-            genGenerateButton.setEnabled(true);
+            if (dariusUI)
+                dariusUI->setGenerating(false);
 
             isGenerating = false;
             generationProgress = 0;
@@ -5166,9 +4530,7 @@ void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::Str
     finish();
 }
 
-void Gary4juceAudioProcessorEditor::updateGenSteeringToggleText() {
-    genSteeringToggle.setButtonText(genSteeringOpen ? "steering" : "steering");
-}
+
 
 void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
 {
@@ -5206,6 +4568,7 @@ void Gary4juceAudioProcessorEditor::handleDariusAssetsStatusResponse(const juce:
     juce::var parsed;
     try { parsed = juce::JSON::parse(responseText); }
     catch (...) { return; }
+
     if (auto* o = parsed.getDynamicObject())
     {
         const bool meanLoaded = (bool)o->getProperty("mean_loaded");
@@ -5216,93 +4579,17 @@ void Gary4juceAudioProcessorEditor::handleDariusAssetsStatusResponse(const juce:
         dariusAssetsMeanAvailable = meanLoaded;
         dariusAssetsCentroidCount = juce::jmax(0, centroidCount);
 
-        // Resize our weights vector to match backend count (cap UI to 5 sliders)
-        genCentroidWeights.assign((size_t)dariusAssetsCentroidCount, 0.0);
+        dariusCentroidWeights.assign((size_t)dariusAssetsCentroidCount, 0.0);
 
-        rebuildGenCentroidRows();   // (re)create up to 5 sliders
-        resized();                  // show if open
+        if (dariusUI)
+            dariusUI->setSteeringAssets(dariusAssetsMeanAvailable, dariusAssetsCentroidCount, dariusCentroidWeights);
     }
 }
 
-void Gary4juceAudioProcessorEditor::rebuildGenCentroidRows()
-{
-    // Clear old
-    for (auto* l : genCentroidLabels)   if (l) dariusGenerationContent->removeChildComponent(l);
-    for (auto* s : genCentroidSliders)  if (s) dariusGenerationContent->removeChildComponent(s);
-    genCentroidLabels.clear(); genCentroidSliders.clear();
 
-    const int showCount = juce::jmin(kMaxCentroidsUI, dariusAssetsCentroidCount);
-    for (int i = 0; i < showCount; ++i)
-    {
-        auto* lab = new juce::Label();
-        lab->setText("C" + juce::String(i + 1) + ":", juce::dontSendNotification);
-        lab->setFont(juce::FontOptions(12.0f));
-        lab->setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-        genCentroidLabels.add(lab);
-        dariusGenerationContent->addAndMakeVisible(lab);
 
-        auto* sl = new juce::Slider(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
-        sl->setRange(0.0, 2.0, 0.01);                 // same range your Swift UI uses
-        sl->setValue(genCentroidWeights[(size_t)i]);  // initial
-        const int idx = i;
-        sl->onValueChange = [this, idx, sl]() {
-            if ((size_t)idx < genCentroidWeights.size())
-                genCentroidWeights[(size_t)idx] = sl->getValue();
-            };
-        genCentroidSliders.add(sl);
-        dariusGenerationContent->addAndMakeVisible(sl);
-    }
-}
 
-void Gary4juceAudioProcessorEditor::layoutGenSteeringUI(juce::Rectangle<int>& area)
-{
-    const int labelH = 18;
-    const int sliderH = 22;
-    const int colW = 220;
 
-    // Mean (only shown if available)
-    if (dariusAssetsMeanAvailable)
-    {
-        genMeanLabel.setVisible(true);
-        genMeanSlider.setVisible(true);
-
-        auto mLbl = area.removeFromTop(labelH);
-        genMeanLabel.setBounds(mLbl.removeFromLeft(colW));
-        auto mSld = area.removeFromTop(sliderH);
-        genMeanSlider.setBounds(mSld.removeFromLeft(colW));
-        area.removeFromTop(6);
-    }
-    else
-    {
-        genMeanLabel.setVisible(false);
-        genMeanSlider.setVisible(false);
-    }
-
-    // Centroids (up to 5 compact sliders)
-    if (dariusAssetsCentroidCount > 0 && genCentroidSliders.size() > 0)
-    {
-        genCentroidsHeaderLabel.setVisible(true);
-        auto h = area.removeFromTop(labelH);
-        genCentroidsHeaderLabel.setBounds(h.removeFromLeft(colW));
-        area.removeFromTop(2);
-
-        const int showCount = genCentroidSliders.size();
-        for (int i = 0; i < showCount; ++i)
-        {
-            auto row = area.removeFromTop(sliderH);
-            if (auto* lab = genCentroidLabels[i])  lab->setBounds(row.removeFromLeft(30));
-            if (auto* sl = genCentroidSliders[i]) sl->setBounds(row.removeFromLeft(colW - 36));
-            area.removeFromTop(4);
-        }
-        area.removeFromTop(6);
-    }
-    else
-    {
-        genCentroidsHeaderLabel.setVisible(false);
-        for (auto* l : genCentroidLabels)  if (l) l->setVisible(false);
-        for (auto* s : genCentroidSliders) if (s) s->setVisible(false);
-    }
-}
 
 
 
@@ -7361,241 +6648,9 @@ void Gary4juceAudioProcessorEditor::resized()
     // Layout the combined smart loop row
     smartLoopFlexBox.performLayout(smartLoopRowBounds);
 
-    // ========== DARIUS CONTROLS LAYOUT (NESTED TABS) ==========
-    auto dariusBounds = modelControlsArea;
+    if (dariusUI)
+        dariusUI->setBounds(modelControlsArea);
 
-    // Create main FlexBox for Darius (includes subtabs)
-    juce::FlexBox dariusMainFlexBox;
-    dariusMainFlexBox.flexDirection = juce::FlexBox::Direction::column;
-    dariusMainFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    // 1. Darius main title
-    juce::FlexItem dariusTitleItem(dariusLabel);
-    dariusTitleItem.height = 30;
-    dariusTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
-
-    // 2. Subtab buttons row
-    juce::Component dariusSubTabRowComponent;
-    juce::FlexItem dariusSubTabRowItem(dariusSubTabRowComponent);
-    dariusSubTabRowItem.height = 35;
-    dariusSubTabRowItem.margin = juce::FlexItem::Margin(5, 0, 10, 0);
-
-    // 3. Content area (flexible)
-    juce::Component dariusContentComponent;
-    juce::FlexItem dariusContentItem(dariusContentComponent);
-    dariusContentItem.flexGrow = 1;
-    dariusContentItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
-
-    dariusMainFlexBox.items.add(dariusTitleItem);
-    dariusMainFlexBox.items.add(dariusSubTabRowItem);
-    dariusMainFlexBox.items.add(dariusContentItem);
-
-    // Perform main Darius layout
-    dariusMainFlexBox.performLayout(dariusBounds);
-
-    // Layout subtab buttons horizontally
-    auto subtabRowBounds = dariusMainFlexBox.items[1].currentBounds.toNearestInt();
-    auto subtabButtonWidth = subtabRowBounds.getWidth() / 3;
-    auto backendBounds = subtabRowBounds.removeFromLeft(subtabButtonWidth);
-    auto modelBounds = subtabRowBounds.removeFromLeft(subtabButtonWidth);
-    auto generationBounds = subtabRowBounds;
-    
-    dariusBackendTabButton.setBounds(backendBounds.reduced(2, 2));
-    dariusModelTabButton.setBounds(modelBounds.reduced(2, 2));
-    dariusGenerationTabButton.setBounds(generationBounds.reduced(2, 2));
-
-    // Layout content area based on current subtab
-    auto dariusContentBounds = dariusMainFlexBox.items[2].currentBounds.toNearestInt();
-
-    if (currentDariusSubTab == DariusSubTab::Backend) {
-        // Layout backend controls in content area
-        juce::FlexBox backendFlexBox;
-        backendFlexBox.flexDirection = juce::FlexBox::Direction::column;
-        backendFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-        juce::FlexItem urlLabelItem(dariusUrlLabel);
-        urlLabelItem.height = 15;
-        urlLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
-
-        juce::FlexItem urlEditorItem(dariusUrlEditor);
-        urlEditorItem.height = 25;
-        urlEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
-
-        juce::FlexItem healthCheckItem(dariusHealthCheckButton);
-        healthCheckItem.height = 35;
-        healthCheckItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
-
-        juce::FlexItem statusItem(dariusStatusLabel);
-        statusItem.height = 20;
-        statusItem.margin = juce::FlexItem::Margin(5, 5, 5, 5);
-
-        backendFlexBox.items.add(urlLabelItem);
-        backendFlexBox.items.add(urlEditorItem);
-        backendFlexBox.items.add(healthCheckItem);
-        backendFlexBox.items.add(statusItem);
-
-        backendFlexBox.performLayout(dariusContentBounds);
-
-        
-    }
-    else if (currentDariusSubTab == DariusSubTab::Model)
-    {
-        const auto contentBounds = dariusModelViewport->getParentComponent()
-            ? dariusModelViewport->getBounds()
-            : juce::Rectangle<int>(); // safety
-
-        dariusModelViewport->setBounds(dariusContentBounds); // use your existing content rect
-        // Give content an ample height so scroll works like Generation
-        dariusModelContent->setSize(dariusContentBounds.getWidth() - 20, 300);
-
-        auto area = juce::Rectangle<int>(10, 10, dariusModelContent->getWidth() - 20, 300);
-
-        // Header row
-        auto headerRow = area.removeFromTop(22);
-        dariusModelHeaderLabel.setBounds(headerRow.removeFromLeft(headerRow.getWidth() - 140));
-        dariusRefreshConfigButton.setBounds(headerRow.removeFromRight(130).reduced(4, 0));
-
-        // Toggle row
-        auto toggleRow = area.removeFromTop(22);
-        dariusUseBaseModelToggle.setBounds(toggleRow.removeFromLeft(220));
-        area.removeFromTop(6);
-
-        // Finetune repo label + field (compact two-row)
-        auto repoLabelRow = area.removeFromTop(16);
-        dariusRepoFieldLabel.setBounds(repoLabelRow.removeFromLeft(220));
-        auto repoFieldRow = area.removeFromTop(22);
-        dariusRepoField.setBounds(repoFieldRow.removeFromLeft(220));
-        area.removeFromTop(6);
-
-        // Checkpoint button row (compact)
-        auto ckptRow = area.removeFromTop(22);
-        dariusCheckpointButton.setBounds(ckptRow.removeFromLeft(220));
-        area.removeFromTop(6);
-
-        // Apply & Warm row
-        auto applyRow = area.removeFromTop(26);
-        dariusApplyWarmButton.setBounds(applyRow.removeFromLeft(220));
-        dariusWarmStatusLabel.setBounds(applyRow.removeFromLeft(120).reduced(2));
-        area.removeFromTop(6);
-
-        // Guard line
-        auto guardRow = area.removeFromTop(18);
-        dariusModelGuardLabel.setBounds(guardRow);
-
-        // Value rows
-        auto rowH = 18;
-        dariusActiveSizeLabel.setBounds(area.removeFromTop(rowH));
-        area.removeFromTop(4);
-        dariusRepoLabel.setBounds(area.removeFromTop(rowH));
-        area.removeFromTop(4);
-        dariusStepLabel.setBounds(area.removeFromTop(rowH));
-        area.removeFromTop(4);
-        dariusLoadedLabel.setBounds(area.removeFromTop(rowH));
-        area.removeFromTop(4);
-        dariusWarmupLabel.setBounds(area.removeFromTop(rowH));
-    }
-    else if (currentDariusSubTab == DariusSubTab::Generation) {
-        dariusGenerationViewport->setBounds(dariusContentBounds);
-
-        const int contentW = dariusContentBounds.getWidth() - 20;
-        auto area = juce::Rectangle<int>(10, 10, contentW - 20, 600);
-
-        // === Bars + BPM row ===
-        auto row = area.removeFromTop(24);
-        // Left: "bars" + [4] [8]
-        genBarsLabel.setBounds(row.removeFromLeft(40));
-        auto bars4 = row.removeFromLeft(28);  genBars4Button.setBounds(bars4);
-        row.removeFromLeft(6);
-        auto bars8 = row.removeFromLeft(28);  genBars8Button.setBounds(bars8);
-        row.removeFromLeft(6);
-        auto bars16 = row.removeFromLeft(28); genBars16Button.setBounds(bars16);
-
-        // Right: "bpm" + value (keep compact)
-        auto bpmValueW = 60;
-        auto bpmVal = row.removeFromRight(bpmValueW);
-        genBpmValueLabel.setBounds(bpmVal);
-        genBpmLabel.setBounds(row.removeFromRight(36));
-
-        area.removeFromTop(8);
-
-        // === Input Source row ===
-        auto srcRow = area.removeFromTop(24);
-        genSourceLabel.setBounds(srcRow.removeFromLeft(50));
-
-        auto recBounds = srcRow.removeFromLeft(92);
-        genRecordingButton.setBounds(recBounds);
-        srcRow.removeFromLeft(6);
-
-        auto outBounds = srcRow.removeFromLeft(78);
-        genOutputButton.setBounds(outBounds);
-
-        // Guard line (shows when no recording available)
-        auto guardRow = area.removeFromTop(16);
-        genSourceGuardLabel.setBounds(guardRow);
-        area.removeFromTop(6);
-
-        // (your existing Styles / Loop / Advanced layout follows)
-        layoutGenStylesUI(area);
-        area.removeFromTop(4);
-
-        // Loop influence
-        auto loopLabelRow = area.removeFromTop(18);
-        genLoopLabel.setBounds(loopLabelRow.removeFromLeft(220));
-        auto loopSliderRow = area.removeFromTop(22);
-        genLoopSlider.setBounds(loopSliderRow.removeFromLeft(220));
-        area.removeFromTop(8);
-
-        // Advanced foldout
-        auto advRow = area.removeFromTop(22);
-        genAdvancedToggle.setBounds(advRow.removeFromLeft(220));
-        area.removeFromTop(6);
-        if (genAdvancedOpen) layoutGenAdvancedUI(area);
-        else {
-            genTempLabel.setVisible(false); genTempSlider.setVisible(false);
-            genTopKLabel.setVisible(false); genTopKSlider.setVisible(false);
-            genGuidanceLabel.setVisible(false); genGuidanceSlider.setVisible(false);
-        }
-
-        // Steering dropdown header (only show toggle if assets exist at all)
-        if (genAssetsAvailable())
-        {
-            auto steerRow = area.removeFromTop(22);
-            genSteeringToggle.setBounds(steerRow.removeFromLeft(220));
-            area.removeFromTop(6);
-
-            if (genSteeringOpen)
-                layoutGenSteeringUI(area);
-            else {
-                // hide inner controls when closed
-                genMeanLabel.setVisible(false);
-                genMeanSlider.setVisible(false);
-                genCentroidsHeaderLabel.setVisible(false);
-                for (auto* l : genCentroidLabels)  if (l) l->setVisible(false);
-                for (auto* s : genCentroidSliders) if (s) s->setVisible(false);
-            }
-        }
-        else
-        {
-            // Hide everything if no assets available
-            genSteeringToggle.setBounds(0, 0, 0, 0);
-            genMeanLabel.setVisible(false);
-            genMeanSlider.setVisible(false);
-            genCentroidsHeaderLabel.setVisible(false);
-            for (auto* l : genCentroidLabels)  if (l) l->setVisible(false);
-            for (auto* s : genCentroidSliders) if (s) s->setVisible(false);
-        }
-
-
-        auto genRow = area.removeFromTop(28);
-        genGenerateButton.setBounds(genRow.removeFromLeft(220));
-        area.removeFromTop(10);
-
-        // Size content so it scrolls
-        const int contentH = area.getY() + 16;
-        dariusGenerationContent->setSize(contentW, juce::jmax(contentH, 620));
-    }
-
-    
 
 // ========== OUTPUT SECTION (FlexBox Implementation) ==========
     auto outputSection = bounds.removeFromTop(200).reduced(20, 10);
@@ -8001,44 +7056,8 @@ void Gary4juceAudioProcessorEditor::updateModelAvailability()
     DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
 }
 
-void Gary4juceAudioProcessorEditor::switchToDariusSubTab(DariusSubTab subTab)
-{
-    //if (currentDariusSubTab == subTab) return;
-
-    currentDariusSubTab = subTab;
-    updateDariusSubTabStates();
-
-    bool showBackend = (subTab == DariusSubTab::Backend);
-    bool showModel = (subTab == DariusSubTab::Model);
-    bool showGeneration = (subTab == DariusSubTab::Generation);
-
-    // Show/hide backend controls
-    dariusUrlEditor.setVisible(showBackend);
-    dariusUrlLabel.setVisible(showBackend);
-    dariusHealthCheckButton.setVisible(showBackend);
-    dariusStatusLabel.setVisible(showBackend);
-
-    // Show/hide model controls
-    dariusModelViewport->setVisible(showModel);
 
 
-    // Show/hide generation controls
-    dariusGenerationViewport->setVisible(showGeneration);
 
-    DBG("Switched to Darius subtab: " + juce::String(showBackend ? "Backend" : (showModel ? "Model" : "Generation")));
-    resized(); // Trigger layout update
-}
-
-void Gary4juceAudioProcessorEditor::updateDariusSubTabStates()
-{
-    dariusBackendTabButton.setButtonStyle(currentDariusSubTab == DariusSubTab::Backend ?
-        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
-
-    dariusModelTabButton.setButtonStyle(currentDariusSubTab == DariusSubTab::Model ?
-        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
-
-    dariusGenerationTabButton.setButtonStyle(currentDariusSubTab == DariusSubTab::Generation ?
-        CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
-}
 
 
