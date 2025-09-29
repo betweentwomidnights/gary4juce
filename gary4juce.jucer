@@ -26,6 +26,10 @@
         <FILE id="g0k9NA" name="DariusUI.cpp" compile="1" resource="0" file="Source/Components/Darius/DariusUI.cpp"/>
         <FILE id="YkGkqV" name="DariusUI.h" compile="0" resource="0" file="Source/Components/Darius/DariusUI.h"/>
       </GROUP>
+      <GROUP id="{7F2D4AFD-0B5D-4DD7-B9B7-9F9F4BB5AC4F}" name="Gary">
+        <FILE id="G7c6QK" name="GaryUI.cpp" compile="1" resource="0" file="Source/Components/Gary/GaryUI.cpp"/>
+        <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
+      </GROUP>
       <GROUP id="{D101353F-917C-44E4-6DDE-5EE9CAFC9816}" name="Layout"/>
       <GROUP id="{C8878210-05F9-1555-C130-31CE216D7E81}" name="Specialized"/>
     </GROUP>

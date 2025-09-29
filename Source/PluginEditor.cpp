@@ -44,81 +44,45 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusTabButton.onClick = [this]() { switchToTab(ModelTab::Darius); };
     addAndMakeVisible(dariusTabButton);
 
-    // ========== GARY CONTROLS SETUP ==========
-    garyLabel.setText("gary (musicgen)", juce::dontSendNotification);
-    garyLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    garyLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    garyLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(garyLabel);
+    garyUI = std::make_unique<GaryUI>();
+    addAndMakeVisible(*garyUI);
 
-    // Prompt duration slider (1-15 seconds)
-    promptDurationSlider.setRange(1.0, 15.0, 1.0);
-    promptDurationSlider.setValue(6.0);
-    promptDurationSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    promptDurationSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    promptDurationSlider.setTextValueSuffix("s");
-    promptDurationSlider.onValueChange = [this]() {
-        currentPromptDuration = (float)promptDurationSlider.getValue();
-        
-        // Update tooltips with new duration
-        sendToGaryButton.setTooltip("have gary extend the recorded audio using the first " + 
-            juce::String((int)currentPromptDuration) + " seconds as audio prompt");
-        continueButton.setTooltip("have gary extend the output audio using the last " + 
-            juce::String((int)currentPromptDuration) + " seconds as audio prompt");
-        retryButton.setTooltip("have gary retry that last continuation using different prompt duration or model if you want, or just have him do it over");
+    garyUI->onPromptDurationChanged = [this](float seconds)
+    {
+        currentPromptDuration = seconds;
+        updateAllGenerationButtonStates();
     };
-    addAndMakeVisible(promptDurationSlider);
 
-    promptDurationLabel.setText("prompt duration", juce::dontSendNotification);
-    promptDurationLabel.setFont(juce::FontOptions(12.0f));
-    promptDurationLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    promptDurationLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(promptDurationLabel);
-
-    // Model selection dropdown
-    modelComboBox.addItem("vanya_ai_dnb_0.1", 1);
-    modelComboBox.addItem("bleeps-medium", 2);
-    modelComboBox.addItem("gary_orchestra_2", 3);
-    modelComboBox.addItem("hoenn_lofi", 4);
-    modelComboBox.setSelectedId(1);
-    modelComboBox.onChange = [this]() {
-        currentModelIndex = modelComboBox.getSelectedId() - 1;
+    garyUI->onModelChanged = [this](int index)
+    {
+        currentModelIndex = index;
     };
-    addAndMakeVisible(modelComboBox);
+
+    garyUI->onSendToGary = [this]()
+    {
+        sendToGary();
+    };
+
+    garyUI->onContinue = [this]()
+    {
+        continueMusic();
+    };
+
+    garyUI->onRetry = [this]()
+    {
+        retryLastContinuation();
+    };
+
+    garyModelItems.clear();
+    garyModelItems.add("vanya_ai_dnb_0.1");
+    garyModelItems.add("bleeps-medium");
+    garyModelItems.add("gary_orchestra_2");
+    garyModelItems.add("hoenn_lofi");
+
+    garyUI->setPromptDuration(currentPromptDuration);
+    garyUI->setModelItems(garyModelItems, currentModelIndex);
 
     updateModelAvailability();
-
-    modelLabel.setText("model", juce::dontSendNotification);
-    modelLabel.setFont(juce::FontOptions(12.0f));
-    modelLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    modelLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(modelLabel);
-
-    // Send to Gary button
-    sendToGaryButton.setButtonText("send to gary");
-    sendToGaryButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
-    sendToGaryButton.onClick = [this]() { sendToGary(); };
-    sendToGaryButton.setEnabled(false); // Initially disabled until we have audio
-    sendToGaryButton.setTooltip("have gary extend the recorded audio using the first " + 
-        juce::String((int)currentPromptDuration) + " seconds as audio prompt");
-    addAndMakeVisible(sendToGaryButton);
-
-    // Continue button for Gary
-    continueButton.setButtonText("continue");
-    continueButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    continueButton.onClick = [this]() { continueMusic(); };
-    continueButton.setEnabled(false); // Initially disabled
-    continueButton.setTooltip("have gary extend the output audio using the last " + 
-        juce::String((int)currentPromptDuration) + " seconds as audio prompt");
-    addAndMakeVisible(continueButton);
-
-    // Retry button for Gary
-    retryButton.setButtonText("retry");
-    retryButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    retryButton.onClick = [this]() { retryLastContinuation(); };
-    retryButton.setEnabled(false); // Initially disabled
-    retryButton.setTooltip("have gary retry that last continuation using different prompt duration or model if you want, or just have him do it over");
-    addAndMakeVisible(retryButton);
 
     // ========== JERRY CONTROLS SETUP ==========
     jerryLabel.setText("jerry (stable audio open small)", juce::dontSendNotification);
@@ -724,7 +688,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     }
 
     undoTransformButton.setEnabled(undoAvailable && !restoredSessionId.isEmpty() && !isGenerating);
-    retryButton.setEnabled(retryAvailable && !restoredSessionId.isEmpty() && !isGenerating && isConnected);
     
     // 5. Update all button states after restoration
     updateAllGenerationButtonStates();
@@ -834,15 +797,8 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showGary = (tab == ModelTab::Gary);
     bool showJerry = (tab == ModelTab::Jerry);
 
-    // Gary controls visibility
-    garyLabel.setVisible(showGary);
-    promptDurationSlider.setVisible(showGary);
-    promptDurationLabel.setVisible(showGary);
-    modelComboBox.setVisible(showGary);
-    modelLabel.setVisible(showGary);
-    sendToGaryButton.setVisible(showGary);
-    continueButton.setVisible(showGary);
-    retryButton.setVisible(showGary);
+    if (garyUI)
+        garyUI->setVisibleForTab(showGary);
 
     // Jerry controls visibility
     jerryLabel.setVisible(showJerry);
@@ -1093,26 +1049,36 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
 
 void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
 {
-    // Gary buttons - all should be disabled during ANY generation
-    sendToGaryButton.setEnabled(savedSamples > 0 && isConnected && !isGenerating);
-    if (!isGenerating) {
-        sendToGaryButton.setButtonText("send to gary");  // Only reset text when not generating
-    }
-    continueButton.setEnabled(hasOutputAudio && isConnected && !isGenerating);
-
+    updateGaryButtonStates(!isGenerating);
     updateRetryButtonState();
-
-    // REMOVED OLD RETRY LOGIC - Let updateRetryButtonState() handle it properly!
-    // OLD BUGGY CODE (was using implicit logic):
-    // juce::String sessionId = audioProcessor.getCurrentSessionId();
-    // bool hasValidSession = !sessionId.isEmpty();
-    // retryButton.setEnabled(hasValidSession && isConnected && !isGenerating);
 
     // Jerry buttons - should be disabled during ANY generation
     generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty() && !isGenerating);
 
     // Terry buttons - already have the logic, but let's be explicit
     updateTerrySourceButtons(); // This already checks !isGenerating
+}
+
+void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
+{
+    if (!garyUI)
+        return;
+
+    const bool hasAudio = savedSamples > 0;
+    const bool continueAvailable = hasOutputAudio;
+    const juce::String sessionId = audioProcessor.getCurrentSessionId();
+    const bool hasValidSession = !sessionId.isEmpty();
+    const bool retryAvailableFlag = audioProcessor.getRetryAvailable();
+    const bool retryAvailable = hasValidSession && retryAvailableFlag;
+
+    garyUI->setButtonsEnabled(hasAudio, isConnected, isGenerating, retryAvailable, continueAvailable);
+
+    if (resetTexts || !isGenerating)
+    {
+        garyUI->setSendButtonText("send to gary");
+        garyUI->setContinueButtonText("continue");
+        garyUI->setRetryButtonText("retry");
+    }
 }
 
 
@@ -1952,7 +1918,8 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     {
                         // This was a continue operation - keep session ID and enable retry
                         continueInProgress = false;  // Reset the flag
-                        retryButton.setButtonText("retry");  // Reset retry button text
+                        if (garyUI)
+                            garyUI->setRetryButtonText("retry");  // Reset retry button text
                         updateRetryButtonState();
                         DBG("Continue operation completed - retry button enabled");
                     }
@@ -2102,8 +2069,11 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
             loadOutputAudioFile();
 
             // Reset button text after successful generation
-            sendToGaryButton.setButtonText("send to gary");
-            continueButton.setButtonText("continue");
+            if (garyUI)
+            {
+                garyUI->setSendButtonText("send to gary");
+                garyUI->setContinueButtonText("continue");
+            }
 
             // Reset generation state
             isGenerating = false;
@@ -2203,7 +2173,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     DBG("Base64 length: " + juce::String(base64Audio.length()) + " chars");
 
     // Button text feedback and status during processing (AFTER button state update)
-    sendToGaryButton.setButtonText("sending...");
+    if (garyUI)
+        garyUI->setSendButtonText("sending...");
     showStatusMessage("sending audio to gary...");
 
     updateAllGenerationButtonStates();
@@ -2372,7 +2343,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 }
                 
                 // Reset button text on error
-                sendToGaryButton.setButtonText("send to gary");
+                if (garyUI)
+                    garyUI->setSendButtonText("send to gary");
             }
 
 
@@ -2419,8 +2391,11 @@ void Gary4juceAudioProcessorEditor::debugModelSelection(const juce::String& func
     };
 
     DBG("=== MODEL SELECTION DEBUG (" + functionName + ") ===");
-    DBG("ComboBox selectedId: " + juce::String(modelComboBox.getSelectedId()));
-    DBG("ComboBox selectedText: " + modelComboBox.getText());
+    const int uiIndex = garyUI ? garyUI->getSelectedModelIndex() : currentModelIndex;
+    const juce::String uiText = (uiIndex >= 0 && uiIndex < garyModelItems.size()) ? garyModelItems[uiIndex]
+                                                                                : juce::String();
+    DBG("GaryUI selected index: " + juce::String(uiIndex));
+    DBG("GaryUI selected text: " + uiText);
     DBG("currentModelIndex: " + juce::String(currentModelIndex));
 
     if (currentModelIndex >= 0 && currentModelIndex < modelNames.size())
@@ -2455,7 +2430,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     repaint(); // Force immediate UI update
 
     // Button text feedback during processing
-    continueButton.setButtonText("continuing...");
+    if (garyUI)
+        garyUI->setContinueButtonText("continuing...");
 
     // Capture current model index NOW (before thread launch)
     int capturedModelIndex = currentModelIndex;
@@ -2585,13 +2561,15 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                     {
                         auto error = obj->getProperty("error").toString();
                         showStatusMessage("continue failed: " + error, 5000);
-                        continueButton.setButtonText("continue");
+                        if (garyUI)
+                            garyUI->setContinueButtonText("continue");
                     }
                 }
                 else
                 {
                     showStatusMessage("invalid response format", 3000);
-                    continueButton.setButtonText("continue");
+                    if (garyUI)
+                        garyUI->setContinueButtonText("continue");
                 }
             }
             else
@@ -2633,7 +2611,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                     });
                 }
                 
-                continueButton.setButtonText("continue");
+                if (garyUI)
+                    garyUI->setContinueButtonText("continue");
             }
             });
         });
@@ -2678,7 +2657,8 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     repaint();
 
     // Button text feedback during processing
-    retryButton.setButtonText("retrying...");
+    if (garyUI)
+        garyUI->setRetryButtonText("retrying...");
     
     showStatusMessage("retrying last continuation...", 2000);
 
@@ -4776,9 +4756,9 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         stopOutputButton.setEnabled(false);
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
-        continueButton.setEnabled(false);
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;  // Reset to default
+        updateGaryButtonStates(!isGenerating);
         return;
     }
     // Read the audio file
@@ -4800,11 +4780,11 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         stopOutputButton.setEnabled(true);  // Always enabled when we have audio
         clearOutputButton.setEnabled(true);
         cropButton.setEnabled(true);
-        continueButton.setEnabled(true);
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
             juce::String(totalAudioDuration, 2) + " seconds at " +
             juce::String(reader->sampleRate) + " Hz");
+        updateGaryButtonStates(!isGenerating);
     }
     else
     {
@@ -4813,9 +4793,9 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         playOutputButton.setEnabled(false);
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
-        continueButton.setEnabled(false);
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;  // Reset to default
+        updateGaryButtonStates(!isGenerating);
     }
 }
 
@@ -5363,9 +5343,9 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
     hasOutputAudio = false;
     outputAudioBuffer.clear();
     playOutputButton.setEnabled(false);
-    clearOutputButton.setEnabled(false);
+   clearOutputButton.setEnabled(false);
     cropButton.setEnabled(false);
-    continueButton.setEnabled(false);
+    updateGaryButtonStates(!isGenerating);
 
     // Reset playback tracking
     currentPlaybackPosition = 0.0;
@@ -6445,124 +6425,24 @@ void Gary4juceAudioProcessorEditor::resized()
     // Model controls area (below tabs)
     modelControlsArea = tabSectionBounds.reduced(0, 5);
 
-    // ========== GARY CONTROLS LAYOUT (FlexBox Implementation) ==========
-    auto garyBounds = modelControlsArea;
-
-    // Create main FlexBox for Gary controls (vertical layout)
-    juce::FlexBox garyFlexBox;
-    garyFlexBox.flexDirection = juce::FlexBox::Direction::column;
-    garyFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    // 1. Gary section title (fixed height)
-    juce::FlexItem garyTitleItem(garyLabel);
-    garyTitleItem.height = 35;  // Consistent height
-    garyTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);  // 5px top/bottom margins
-
-    // 2. Prompt duration row (fixed height)
-    juce::Component promptRowComponent;
-    juce::FlexItem promptRowItem(promptRowComponent);
-    promptRowItem.height = 35;  // Consistent height for control rows
-    promptRowItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
-
-    // 3. Model selection row (fixed height)
-    juce::Component modelRowComponent;
-    juce::FlexItem modelRowItem(modelRowComponent);
-    modelRowItem.height = 35;  // Same height as prompt row
-    modelRowItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
-
-    // 4. Send to Gary button (fixed height)
-    juce::FlexItem sendToGaryItem(sendToGaryButton);
-    sendToGaryItem.height = 40;  // Standard button height
-    sendToGaryItem.margin = juce::FlexItem::Margin(10, 50, 5, 50);  // 10px top, 50px left/right, 5px bottom
-
-    // 5. Button row container (continue + retry buttons)
-    juce::Component garyButtonRowComponent;
-    juce::FlexItem garyButtonRowItem(garyButtonRowComponent);
-    garyButtonRowItem.height = 40;
-    garyButtonRowItem.margin = juce::FlexItem::Margin(5, 50, 10, 50);
-
-    // Add all items to Gary FlexBox
-    garyFlexBox.items.add(garyTitleItem);
-    garyFlexBox.items.add(promptRowItem);
-    garyFlexBox.items.add(modelRowItem);
-    garyFlexBox.items.add(sendToGaryItem);
-    garyFlexBox.items.add(garyButtonRowItem);
-
-    // Perform layout for Gary controls
-    garyFlexBox.performLayout(garyBounds);
-
-    // Layout continue and retry buttons side by side
-    auto garyButtonRowBounds = garyFlexBox.items[4].currentBounds.toNearestInt();
-
-    juce::FlexBox garyButtonFlexBox;
-    garyButtonFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    garyButtonFlexBox.justifyContent = juce::FlexBox::JustifyContent::spaceAround;
-
-    juce::FlexItem continueItem(continueButton);
-    continueItem.flexGrow = 1;
-    continueItem.margin = juce::FlexItem::Margin(0, 3, 0, 0);  // Small gap on right
-
-    juce::FlexItem retryItem(retryButton);
-    retryItem.flexGrow = 1;
-    retryItem.margin = juce::FlexItem::Margin(0, 0, 0, 3);     // Small gap on left
-
-    garyButtonFlexBox.items.add(continueItem);
-    garyButtonFlexBox.items.add(retryItem);
-    garyButtonFlexBox.performLayout(garyButtonRowBounds);
-
-    // Position Gary help icon next to title text (only if Gary tab is active)
-    if (helpIcon && currentTab == ModelTab::Gary)
+    // ========== GARY CONTROLS LAYOUT ==========
+    if (garyUI)
     {
-        auto garyLabelBounds = garyFlexBox.items[0].currentBounds.toNearestInt(); // Title item
-        auto textWidth = garyLabel.getFont().getStringWidth(garyLabel.getText());
-        auto textStartX = garyLabelBounds.getX() + (garyLabelBounds.getWidth() - textWidth) / 2; // Center-aligned text start
-        auto garyHelpArea = juce::Rectangle<int>(
-            textStartX + textWidth + 5,  // 5px to the right of actual text
-            garyLabelBounds.getY() + (garyLabelBounds.getHeight() - 20) / 2,  // Vertically centered
-            20, 20  // Bigger 20x20 icon
-        );
-        garyHelpButton.setBounds(garyHelpArea);
+        garyUI->setBounds(modelControlsArea);
     }
 
-    // Extract calculated bounds for control rows
-    auto promptRowBounds = garyFlexBox.items[1].currentBounds.toNearestInt();
-    auto modelRowBounds = garyFlexBox.items[2].currentBounds.toNearestInt();
-
-    // Layout prompt duration controls (horizontal FlexBox)
-    juce::FlexBox promptFlexBox;
-    promptFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    promptFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem promptLabelItem(promptDurationLabel);
-    promptLabelItem.width = 100;  // Fixed width for label
-    promptLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);  // 5px right margin
-
-    juce::FlexItem promptSliderItem(promptDurationSlider);
-    promptSliderItem.flexGrow = 1;  // Fill remaining space
-    promptSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);  // 5px left margin
-
-    promptFlexBox.items.add(promptLabelItem);
-    promptFlexBox.items.add(promptSliderItem);
-    promptFlexBox.performLayout(promptRowBounds);
-
-    // Layout model selection controls (horizontal FlexBox)
-    juce::FlexBox modelFlexBox;
-    modelFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    modelFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem modelLabelItem(modelLabel);
-    modelLabelItem.width = 100;  // Same width as prompt label
-    modelLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);  // 5px right margin
-
-    juce::FlexItem modelComboItem(modelComboBox);
-    modelComboItem.flexGrow = 1;  // Fill remaining space
-    modelComboItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);  // 5px left margin
-
-    modelFlexBox.items.add(modelLabelItem);
-    modelFlexBox.items.add(modelComboItem);
-    modelFlexBox.performLayout(modelRowBounds);
-
-    // Replace the JERRY CONTROLS LAYOUT section in your resized() method with this:
+    if (helpIcon && currentTab == ModelTab::Gary && garyUI)
+    {
+        auto titleBounds = garyUI->getTitleBounds().translated(garyUI->getX(), garyUI->getY());
+        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("gary (musicgen)"));
+        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
+        auto helpBounds = juce::Rectangle<int>(
+            textStartX + textWidth + 5,
+            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
+            20, 20);
+        garyHelpButton.setBounds(helpBounds);
+    }
 
 // ========== JERRY CONTROLS LAYOUT (WITH HORIZONTAL SMART LOOP ROW) ==========
     auto jerryBounds = modelControlsArea;
@@ -6816,8 +6696,9 @@ void Gary4juceAudioProcessorEditor::updateRetryButtonState()
     // FIXED: Include retryAvailable in the canRetry calculation
     bool canRetry = hasValidSession && retryAvailable && !isGenerating && isConnected;
 
-    retryButton.setEnabled(canRetry);
-    retryButton.setButtonText("retry");
+    updateGaryButtonStates(false);
+    if (garyUI)
+        garyUI->setRetryButtonText("retry");
 
     DBG("=== RETRY BUTTON STATE UPDATE ===");
     DBG("Session ID (validated): '" + sessionId + "'");
@@ -6830,10 +6711,9 @@ void Gary4juceAudioProcessorEditor::updateRetryButtonState()
 
 void Gary4juceAudioProcessorEditor::updateContinueButtonState()
 {
-    // Continue button should be enabled if we have output audio and are connected
-    bool canContinue = hasOutputAudio && isConnected && !isGenerating;
-    continueButton.setEnabled(canContinue);
-    continueButton.setButtonText("continue");
+    updateGaryButtonStates(false);
+    if (garyUI)
+        garyUI->setContinueButtonText("continue");
 }
 
 //==============================================================================
@@ -7107,17 +6987,19 @@ void Gary4juceAudioProcessorEditor::updateModelAvailability()
     // hoenn_lofi (ID 4) is only available on localhost
     bool hoennLofiAvailable = isUsingLocalhost;
 
-    modelComboBox.setItemEnabled(4, hoennLofiAvailable);
-
-    // If hoenn_lofi is currently selected but no longer available, switch to default model
-    if (!hoennLofiAvailable && modelComboBox.getSelectedId() == 4)
+    if (garyUI)
     {
-        // Switch to vanya_ai_dnb_0.1 (ID 1) as default
-        modelComboBox.setSelectedId(1);
-        currentModelIndex = 0; // Update the index to match
+        garyUI->setModelItemEnabled(3, hoennLofiAvailable);
 
-        DBG("Switched from hoenn_lofi to vanya_ai_dnb_0.1 due to backend change");
-        showStatusMessage("switched to vanya_ai_dnb_0.1 (hoenn_lofi not available on remote)", 4000);
+        // If hoenn_lofi is currently selected but no longer available, switch to default model
+        if (!hoennLofiAvailable && garyUI->getSelectedModelIndex() == 3)
+        {
+            currentModelIndex = 0;
+            garyUI->setSelectedModelIndex(currentModelIndex, juce::dontSendNotification);
+
+            DBG("Switched from hoenn_lofi to vanya_ai_dnb_0.1 due to backend change");
+            showStatusMessage("switched to vanya_ai_dnb_0.1 (hoenn_lofi not available on remote)", 4000);
+        }
     }
 
     DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));

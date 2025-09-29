@@ -11,6 +11,7 @@
 #include "Components/Base/CustomTextEditor.h"
 #include "Components/Base/CustomComboBox.h"
 #include "Components/Darius/DariusUI.h"
+#include "Components/Gary/GaryUI.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 
@@ -58,6 +59,7 @@ public:
     void mouseUp(const juce::MouseEvent& event) override;
 
     void updateAllGenerationButtonStates();
+    void updateGaryButtonStates(bool resetTexts = false);
 
     
 
@@ -125,15 +127,8 @@ private:
     void updateTabButtonStates();
     juce::Rectangle<int> fullTabAreaRect;  // Store the calculated tab area
 
-    // ========== GARY CONTROLS ==========
-    juce::Label garyLabel;
-    CustomSlider promptDurationSlider;
-    juce::Label promptDurationLabel;
-    CustomComboBox modelComboBox;
-    juce::Label modelLabel;
-    CustomButton sendToGaryButton;
-    CustomButton continueButton;
-    CustomButton retryButton;
+    std::unique_ptr<GaryUI> garyUI;
+    juce::StringArray garyModelItems;
 
     // Current Gary settings
     float currentPromptDuration = 6.0f;
