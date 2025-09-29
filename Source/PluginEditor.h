@@ -203,6 +203,7 @@ private:
 
     void fetchDariusAssetsStatus();
     void handleDariusAssetsStatusResponse(const juce::String& responseText, int statusCode);
+    void clearDariusSteeringAssets();
 
     bool dariusAssetsMeanAvailable = false;
     int  dariusAssetsCentroidCount = 0;

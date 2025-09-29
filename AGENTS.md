@@ -1,147 +1,196 @@
-# Task: Restore Darius “styles & weights” UI (+/− rows, weight display) and tidy layout
+# AGENTS.md — Sanitize Non-ASCII UI Strings in JUCE (Limited Scope)
 
-This task is **intentionally small and reversible**. It fixes two regressions introduced during the DariusUI extraction and restores parity with the previous `PluginEditor.cpp` behavior.
+## Goal (Very Limited Scope)
+Remove or safely normalize **non-ASCII characters** from **runtime UI string literals** in our JUCE plugin so Windows builds no longer trip the `juce::String(const char*)` / shaped-text assertions. **Do not change functionality** beyond the cosmetic substitution of glyphs. **Do not** touch audio/DSP/backend logic.
 
----
+Target files (primary focus):
+- `PluginEditor.cpp`  ← **behemoth; main target**
+- (Secondary if needed) `DariusUI.cpp`, `DariusUI.h`
 
-## Why we’re doing this (diff-based summary)
-
-1) **“+” button vanished**
-   - In `DariusUI`, we **add** `genStylesHeaderLabel` and `genAddStyleButton`, but we never **position** them in `resized()`. The Generation branch lays out source/bpm rows and then calls `layoutGenStylesUI(area)` directly, skipping a header row entirely. Result: the “+” control has zero-sized bounds and appears missing.
-   - New code: header controls are added (see `DariusUI.cpp` around construction), but no `setBounds` in `resized()`.
-   - Old code placed all Generation controls, including a visible add button.
-
-2) **Weight slider reads like `1.00 wat / wgt` and not just a number**
-   - Old behavior: **No text box** for the style weight slider; simple horizontal slider, range **0.0–1.0**.
-   - New behavior: slider uses `TextBoxRight` with a `setTextValueSuffix(" wgt")` and a broader range **0.0–2.0**. The suffix is unwanted (“wat/wgt”), and the broader range diverges from the prior UI and may confuse server expectations.
-
-3) **“−” remove button callback is index-captured (can drift after edits)**
-   - Old code located the **current** row index at click time using a pointer to the clicked button inside a `MessageManager::callAsync(...)` safe callback. This avoids stale indices and deleting while inside the callback.
-   - New code captures `index` by value when the row is created. After deletions, that index can point at the wrong row.
-
-References in repo:
-- Old slider + remove pattern in `PluginEditor.cpp`: linear slider **NoTextBox**, range **0–1**, “-” remove button with pointer lookup + async.  
-- New code in `DariusUI.cpp`: `TextBoxRight` + `" wgt"` suffix, range **0–2**, remove callback capturing the original `index`.
+> We **do not** want a new helper function. Prefer plain ASCII. Only if a symbol is essential (e.g., a triangle), use an explicit UTF-8 constructor inline at the call site.
 
 ---
 
-## Acceptance criteria
-
-- Generation *Styles & weights* **header row** (label left, “+” button right) is **visible** and laid out at the top of the styles section in the Generation subtab.
-- The style **weight slider** shows **just the numeric value** (no suffix). Use the same interaction model as before (either NoTextBox like the old UI, or TextBoxRight **without any suffix**). Keep **two decimals** if a text box is used.
-- Slider **range is 0.0–1.0** (step 0.01), matching previous behavior.
-- The “−” remove button works reliably even after insertions/removals. (Do not remove the first row.)
-- The “+” button is **enabled only if** `genStyleRows.size() < genStylesMax` (unchanged behavior).
+## Background
+- JUCE asserts when constructing `juce::String` from 8-bit literals that contain bytes > 127, because encoding is ambiguous (ASCII vs. UTF-8 vs. codepage).
+- We previously saw crashes with: ellipsis `…`, en/em dashes `– —`, triangles `▸ ▾`, smart quotes `“ ” ‘ ’`, etc.
+- We’ve fixed some spots; we now want a **complete, repeatable sweep** of `PluginEditor.cpp` (and optionally `DariusUI.*`) to ensure there are **no non-ASCII glyphs in string literals** that are used at runtime.
 
 ---
 
-## Concrete edits
+## High-Level Plan
+1. **Detect** any non-ASCII bytes **inside C/C++ string literals**.
+2. **Replace** them with safe ASCII equivalents (preferred), or (only when essential) with `juce::String(juce::CharPointer_UTF8(u8"..."))` inline at the call site.
+3. **Verify** no runtime strings contain non-ASCII; produce a diff.
+4. **Build & smoke test** (compile only) to ensure zero functional changes beyond text.
 
-> Keep changes minimal and scoped to **DariusUI** files.
+---
 
-### 1) Lay out the header row (label + “+” button)
+## Branch / Safeguards
+- Create a branch: `fix/non-ascii-ui-strings`.
+- Work only under that branch. Do not change other files.
+- Commit in small, logically grouped chunks (detection → replacement → verification).
 
-In `DariusUI::resized()` → *Generation* branch, before `layoutGenStylesUI(area)`, add a header row.
+```bash
+git checkout -b fix/non-ascii-ui-strings
+```
 
+---
+
+## What to Replace (Mapping Table)
+
+Prefer ASCII. Use these canonical mappings:
+
+| Glyph | Unicode | Replace with (ASCII) | Notes |
+|------:|:-------:|:---------------------|:------|
+| `…`   | U+2026  | `...`                | Ellipsis → three dots |
+| `–`   | U+2013  | `-`                  | En dash |
+| `—`   | U+2014  | `--`                 | Em dash → double hyphen |
+| `“`   | U+201C  | `"`                  | Left double quote |
+| `”`   | U+201D  | `"`                  | Right double quote |
+| `‘`   | U+2018  | `'`                  | Left single quote |
+| `’`   | U+2019  | `'`                  | Right single quote / apostrophe |
+| `×`   | U+00D7  | `x`                  | Multiply sign |
+| `•`   | U+2022  | `*`                  | Bullet |
+| `°`   | U+00B0  | ` deg`               | Degree symbol |
+| `→`   | U+2192  | `->`                 | Arrow |
+| `←`   | U+2190  | `<-`                 | Arrow |
+| `▲`   | U+25B2  | `^`                  | Triangle up |
+| `▼`   | U+25BC  | `v`                  | Triangle down |
+| `▸`   | U+25B8  | `>`                  | Triangle right |
+| `▾`   | U+25BE  | `v`                  | Triangle down small |
+| any other non-ASCII | (various) | replace with closest ASCII | If truly essential, see “UTF-8 inline” below |
+
+> Ranges like `0.00–1.00` must become `0.00-1.00`.
+
+**UTF-8 inline (only if symbol must be preserved):**
 ```cpp
-// Header: "styles & weights" (left) + [+] (right)
-{
-    auto headerRow = area.removeFromTop(20);
-    // Leave a small gap under header
-    auto headerLeft = headerRow.removeFromLeft(headerRow.getWidth() - 28);
-    genStylesHeaderLabel.setBounds(headerLeft);
-    genAddStyleButton.setBounds(headerRow.removeFromRight(24));
-    area.removeFromTop(6);
+// Example: keep a right triangle symbol at a single call site
+someButton.setButtonText(juce::String(juce::CharPointer_UTF8(u8"\u25B8"))); // ▸
+```
+
+Do **not** introduce a global helper. Inline the explicit constructor only where strictly necessary.
+
+---
+
+## Detection Strategy
+
+We want to flag **non-ASCII characters inside string literals** (i.e., `"..."` or `u8"..."`). A quick coarse pass:
+
+### Option A: Python detector (preferred, single file pass)
+Runs on `PluginEditor.cpp` and prints every offending literal with context and byte/line positions, plus a suggested ASCII replacement from the mapping table.
+
+```python
+# tools/find_non_ascii_strings.py
+import re, sys, pathlib
+
+mapping = {
+    "…":"...","–":"-","—":"--","“":'"',"”":'"',"‘":"'", "’":"'",
+    "×":"x","•":"*","°":" deg","→":"->","←":"<-",
+    "▲":"^","▼":"v","▸":">","▾":"v",
 }
+
+str_pat = re.compile(r'("([^"\\]|\\.)*")')  # naive C string literal matcher (OK for our file)
+path = pathlib.Path(sys.argv[1])
+txt  = path.read_text(encoding="utf-8", errors="ignore")
+
+for i, m in enumerate(str_pat.finditer(txt), 1):
+    s = m.group(1)
+    # find non-ascii
+    bad = [ch for ch in s if ord(ch) > 127]
+    if bad:
+        line = txt.count("\n", 0, m.start()) + 1
+        print(f"\nLine {line}: {s}")
+        uniq = sorted(set(bad))
+        print("  Non-ASCII:", uniq)
+        print("  Suggestions:", {ch: mapping.get(ch, "<decide>") for ch in uniq})
 ```
 
-This mirrors how other compact rows are placed in the Generation branch and guarantees the (+) button is visible.
-
-### 2) Restore weight slider display + range
-
-In `DariusUI::addGenStyleRowInternal(...)`, change the style weight slider to match old semantics:
-
-```cpp
-// Old behavior: no text box; range 0..1; 0.01 step
-row.weight = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
-row.weight->setRange(0.0, 1.0, 0.01);
-row.weight->setValue(juce::jlimit(0.0, 1.0, weight), juce::dontSendNotification);
-// If we prefer to keep a text box, then use TextBoxRight but **no suffix**:
-// row.weight->setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 20);
-// row.weight->setNumDecimalPlacesToDisplay(2);
-// row.weight->setTextValueSuffix("");
+Run:
+```bash
+python tools/find_non_ascii_strings.py PluginEditor.cpp
 ```
 
-Also **remove** the suffix line if present:
-
-```cpp
-// REMOVE this in the new code path:
-// row.weight->setTextValueSuffix(" wgt");
+### Option B: ripgrep (quick coarse check)
+```bash
+# highlight any byte > 0x7F
+rg -n --passthru "[^\x00-\x7F]" PluginEditor.cpp
 ```
 
-### 3) Make the remove button robust (no stale index)
-
-Replace the index-captured callback with the safe pointer-lookup pattern:
-
-```cpp
-row.remove = std::make_unique<CustomButton>();
-row.remove->setButtonText("-");
-row.remove->setButtonStyle(CustomButton::ButtonStyle::Standard);
-
-auto* removeBtnPtr = row.remove.get();
-row.remove->onClick = [this, removeBtnPtr]()
-{
-    juce::MessageManager::callAsync([this, removeBtnPtr]()
-    {
-        int idx = -1;
-        for (size_t i = 0; i < genStyleRows.size(); ++i)
-        {
-            if (genStyleRows[i].remove.get() == removeBtnPtr)
-            {
-                idx = (int)i;
-                break;
-            }
-        }
-        if (idx <= 0) return; // never remove first row
-        handleRemoveStyleRow(idx);   // or the local remove implementation
-        rebuildGenStylesUI();
-        resized();
-    });
-};
-```
-
-> If you prefer to centralize deletion logic, keep `handleRemoveStyleRow(int)` and call it from the async block after computing `idx`.
-
-Ensure `rebuildGenStylesUI()` still:
-- Enables/disables the (+) button based on row count.
-- Hides the remove button for the first row (and when only 1 row total).
-
-No other logic (CSV building, etc.) needs to change for this task.
+> Use A for precise string-literal hits; B will also flag comments. We mainly care about **literals that feed JUCE text APIs**.
 
 ---
 
-## Scope guardrails
+## Replacement Workflow
 
-- **Do not** touch networking (e.g., `sendToGary`, `sendToTerry`) or any non-Darius tabs.
-- **Do not** alter CSV formatting or downstream request-building aside from the slider range/display noted above.
-- **Do not** change visual themes or shared components.
+1. **Manual, targeted edits** in `PluginEditor.cpp`:
+   - Replace per the table **inside the string literals**.
+   - Where a symbol is essential and has no decent ASCII (rare), switch the entire argument to:
+     ```cpp
+     someLabel.setText(juce::String(juce::CharPointer_UTF8(u8"...")), juce::dontSendNotification);
+     ```
+
+2. **Do not** change variable names, code logic, or anything but string content.
+3. Keep punctuation/spacing sane after substitution.
+
+Commit:
+```bash
+git add PluginEditor.cpp
+git commit -m "Sanitize non-ASCII UI literals in PluginEditor.cpp (ASCII or UTF-8 inline)"
+```
+
+Optional: repeat on `DariusUI.cpp` / `.h` if detector flags anything there.
 
 ---
 
-## Test checklist
+## Verification
 
-- Switch to the **Darius → Generation** subtab.
-- Confirm header shows **“styles & weights”** left and **“+”** right.
-- Click **“+”** repeatedly: rows increase up to `genStylesMax` (default 4). On the 5th click, (+) disables.
-- Row 0 has **no “−”**. Rows 1..N have a **“−”** that removes the correct row after any sequence of add/remove.
-- Each row’s weight slider operates **0.00–1.00** and shows **no “wgt/wat” suffix**.
-- Layout remains stable with viewport scrolling.
+1. **Detector must be clean**:
+```bash
+python tools/find_non_ascii_strings.py PluginEditor.cpp
+rg -n --passthru "[^\x00-\x7F]" PluginEditor.cpp | rg -v '^\s*//'
+```
+
+2. **Build** (no warnings/errors from JUCE string asserts at runtime):
+- Windows: open solution / build, or
+```powershell
+msbuild /m /p:Configuration=Release
+```
+
+3. **Runtime smoke** (manual):
+- Click **Generate** multiple times
+- Toggle any buttons/labels that previously used special glyphs (triangles, dashes, ranges, ellipses)
+- Confirm no shaped-text assertions
+
+4. **Diff** (ensure limited blast radius):
+```bash
+git --no-pager diff --word-diff=plain HEAD~1
+```
 
 ---
 
-## PR notes
+## Out-of-Scope (do NOT change)
+- Audio/DSP processing
+- Backend/networking logic
+- Any function signatures or behavior
+- Any non-UI files
+- Comments are fine to leave as-is (but removing Unicode in comments is harmless)
 
-- Title: `darius-ui: restore styles header/plus and weight slider semantics`
-- Labels: `ui`, `regression`, `small`
-- Risk: low (UI-only, scoped to Darius Generation section)
-- Rollback: revert this commit
+---
+
+## Deliverables
+- A single PR/commit on `fix/non-ascii-ui-strings` updating **only** `PluginEditor.cpp` (and optionally `DariusUI.*` if flagged by detector).
+- Detector output **before/after** (in PR description).
+- Short note listing any spots where UTF-8 inline was used instead of ASCII (should be minimal).
+
+---
+
+## Gotchas & Notes
+- Some fonts don’t contain certain glyphs even if encoded as UTF-8; that’s another reason we prefer ASCII where possible.
+- If a string concatenates variables and literals, ensure you replace only the literal part.
+- If you see `StringRef`/`TRANS`/`translate()` calls, still treat their literals the same way (ASCII or explicit UTF-8).
+
+---
+
+## Contact
+If any ambiguity arises (e.g., symbol choice), pick the closest ASCII and leave a code comment `// ascii: was U+2014` for future design polish. No behavioral changes allowed.

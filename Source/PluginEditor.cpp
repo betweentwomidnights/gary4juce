@@ -5,6 +5,7 @@
 */
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "./Utils/BarTrim.h"
 
 //==============================================================================
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
@@ -388,6 +389,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     dariusUI->onRefreshConfigRequested = [this]()
     {
+        clearDariusSteeringAssets();
         fetchDariusConfig();
     };
 
@@ -424,7 +426,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         dariusUseBaseModel = useBase;
         dariusUI->setUsingBaseModel(useBase);
         if (useBase)
+        {
             dariusSelectedStepStr = "latest";
+            clearDariusSteeringAssets();
+        }
         updateDariusModelConfigUI();
     };
 
@@ -445,6 +450,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     dariusUI->onAudioSourceChanged = [this](bool useRecording)
     {
+        DBG("Darius generation source set to " + juce::String(useRecording ? "Recording" : "Output"));
         audioProcessor.setTransformRecording(useRecording);
     };
 
@@ -2916,7 +2922,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     }
 
     // Button text feedback and status during processing
-    generateWithJerryButton.setButtonText("generating...");
+    generateWithJerryButton.setButtonText("generating");
     showStatusMessage(statusText, 2000);
 
     // Create HTTP request in background thread
@@ -3796,6 +3802,7 @@ void Gary4juceAudioProcessorEditor::handleDariusHealthResponse(const juce::Strin
         if (dariusUI)
             dariusUI->setConnectionStatus(warmed ? "ready" : "initializing", juce::Colours::green);
         showStatusMessage(warmed ? "darius backend ready" : "darius backend initializing");
+        clearDariusSteeringAssets();
         fetchDariusConfig();
     }
     else
@@ -3901,13 +3908,25 @@ void Gary4juceAudioProcessorEditor::handleDariusConfigResponse(const juce::Strin
     const bool warmed = (bool)obj->getProperty("warmup_done");
 
     DBG("[/model/config] size=" + size +
-        " repo=" + (repo.isEmpty() ? "—" : repo) +
-        " step=" + (selectedStep.isEmpty() ? "—" : selectedStep) +
+        " repo=" + (repo.isEmpty() ? "-" : repo) +
+        " step=" + (selectedStep.isEmpty() ? "-" : selectedStep) +
         " loaded=" + juce::String(loaded ? "true" : "false") +
         " warmup=" + juce::String(warmed ? "true" : "false"));
 
     // Friendly, short status ping so we can see something in the UI for now
     showStatusMessage("config: " + size + (warmed ? " (warm)" : ""), 2500);
+
+    fetchDariusAssetsStatus();
+}
+
+void Gary4juceAudioProcessorEditor::clearDariusSteeringAssets()
+{
+    dariusAssetsMeanAvailable = false;
+    dariusAssetsCentroidCount = 0;
+    dariusCentroidWeights.clear();
+
+    if (dariusUI)
+        dariusUI->setSteeringAssets(false, 0, {});
 }
 
 void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& repo, const juce::String& revision)
@@ -4075,6 +4094,8 @@ void Gary4juceAudioProcessorEditor::beginDariusApplyAndWarm()
 {
     if (!dariusConnected || !dariusUI)
         return;
+
+    clearDariusSteeringAssets();
 
     dariusIsApplying = true;
     dariusUI->startWarmDots();
@@ -4359,8 +4380,10 @@ juce::String Gary4juceAudioProcessorEditor::getGenAudioFilePath() const
 {
     const bool useRec = audioProcessor.getTransformRecording(); // shared Terry flag
     auto garyDir = getGaryDir();
-    return (useRec ? garyDir.getChildFile("myBuffer.wav")
-        : garyDir.getChildFile("myOutput.wav")).getFullPathName();
+    const auto audioFile = useRec ? garyDir.getChildFile("myBuffer.wav")
+                                  : garyDir.getChildFile("myOutput.wav");
+    DBG("Darius generate path: " + audioFile.getFullPathName());
+    return audioFile.getFullPathName();
 }
 
 juce::String Gary4juceAudioProcessorEditor::centroidWeightsCSV() const
@@ -4420,10 +4443,23 @@ juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL() const
     if (!base.endsWith("/")) base += "/";
     juce::URL url(base + "generate");
 
-    const juce::File loopFile(getGenAudioFilePath());
-    url = url.withFileToUpload("loop_audio", loopFile, "audio/wav");
-
+    const juce::File originalFile(getGenAudioFilePath());
     const double bpm = dariusUI ? dariusUI->getBpm() : audioProcessor.getCurrentBPM();
+    const int    beatsPerBar = 4;
+
+    // NEW: trim to whole bars AND ≤ maxSeconds (only writes a copy when needed)
+    const double maxSeconds = 9.9; // MRT wants <10s context
+    juce::File uploadFile = makeBarAlignedMaxSecondsCopy(originalFile, bpm, beatsPerBar, maxSeconds);
+
+    // Defensive fallback
+    if (!uploadFile.existsAsFile() || uploadFile.getSize() <= 0)
+        uploadFile = originalFile;
+
+    DBG("Generate upload: " + uploadFile.getFullPathName()
+        + " (" + juce::String((int)uploadFile.getSize()) + " bytes)");
+
+    url = url.withFileToUpload("loop_audio", uploadFile, "audio/wav");
+
     const int bars = dariusUI ? dariusUI->getBars() : 4;
     const juce::String styles = dariusUI ? dariusUI->getStylesCSV() : juce::String();
     const juce::String styleWeights = dariusUI ? dariusUI->getStyleWeightsCSV() : juce::String();
@@ -4544,6 +4580,8 @@ void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::Str
 
 void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
 {
+    clearDariusSteeringAssets();
+
     if (dariusBackendUrl.trim().isEmpty())
         return;
 
@@ -4586,10 +4624,29 @@ void Gary4juceAudioProcessorEditor::handleDariusAssetsStatusResponse(const juce:
         if (o->hasProperty("centroid_count") && !o->getProperty("centroid_count").isVoid())
             centroidCount = (int)o->getProperty("centroid_count");
 
+        std::vector<double> weights;
+        if (auto weightsVar = o->getProperty("centroid_weights"); weightsVar.isArray())
+        {
+            if (auto* arr = weightsVar.getArray())
+            {
+                weights.reserve(arr->size());
+                for (const auto& v : *arr)
+                    weights.push_back((double)v);
+            }
+        }
+
         dariusAssetsMeanAvailable = meanLoaded;
         dariusAssetsCentroidCount = juce::jmax(0, centroidCount);
 
-        dariusCentroidWeights.assign((size_t)dariusAssetsCentroidCount, 0.0);
+        if (!weights.empty())
+            dariusCentroidWeights = weights;
+        else
+            dariusCentroidWeights.assign((size_t)dariusAssetsCentroidCount, 0.0);
+
+        if ((int)dariusCentroidWeights.size() > dariusAssetsCentroidCount)
+            dariusCentroidWeights.resize((size_t)dariusAssetsCentroidCount);
+        if ((int)dariusCentroidWeights.size() < dariusAssetsCentroidCount)
+            dariusCentroidWeights.resize((size_t)dariusAssetsCentroidCount, 0.0);
 
         if (dariusUI)
             dariusUI->setSteeringAssets(dariusAssetsMeanAvailable, dariusAssetsCentroidCount, dariusCentroidWeights);
@@ -7065,6 +7122,3 @@ void Gary4juceAudioProcessorEditor::updateModelAvailability()
 
     DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
 }
-
-
-

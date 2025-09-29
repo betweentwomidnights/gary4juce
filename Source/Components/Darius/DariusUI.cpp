@@ -98,7 +98,7 @@ DariusUI::DariusUI()
     dariusModelContent->addAndMakeVisible(dariusUseBaseModelToggle);
 
     auto prepStatusRow = [this](juce::Label& label, const juce::String& name) {
-        label.setText(name + ": —", juce::dontSendNotification);
+        label.setText(name + ": -", juce::dontSendNotification);
         label.setFont(juce::FontOptions(12.0f));
         label.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
         label.setJustificationType(juce::Justification::centredLeft);
@@ -139,7 +139,7 @@ DariusUI::DariusUI()
     };
     dariusModelContent->addAndMakeVisible(dariusRepoField);
 
-    dariusCheckpointButton.setButtonText("checkpoint: latest ▾");
+    dariusCheckpointButton.setButtonText("checkpoint: latest");
     dariusCheckpointButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     dariusCheckpointButton.onClick = [this]() { handleCheckpointButtonClicked(); };
     dariusModelContent->addAndMakeVisible(dariusCheckpointButton);
@@ -337,7 +337,7 @@ DariusUI::DariusUI()
     };
     dariusGenerationContent->addAndMakeVisible(genGenerateButton);
 
-    genSteeringToggle.setButtonText("steering ▸");
+    genSteeringToggle.setButtonText("steering");
     genSteeringToggle.setButtonStyle(CustomButton::ButtonStyle::Standard);
     genSteeringToggle.onClick = [this]() {
         genSteeringOpen = !genSteeringOpen;
@@ -752,6 +752,7 @@ void DariusUI::setAudioSourceRecording(bool useRecording)
 {
     genAudioSource = useRecording ? GenAudioSource::Recording : GenAudioSource::Output;
     updateGenSourceButtons();
+    updateGenSourceEnabled();
 }
 
 void DariusUI::setGenerating(bool generating)
@@ -760,7 +761,7 @@ void DariusUI::setGenerating(bool generating)
         return;
 
     genIsGenerating = generating;
-    genGenerateButton.setButtonText(generating ? "generating…" : "generate");
+    genGenerateButton.setButtonText(generating ? "generating" : "generate");
     genGenerateButton.setEnabled(!generating);
 }
 
@@ -1226,6 +1227,14 @@ void DariusUI::updateGenSourceEnabled()
         updateGenSourceButtons();
         if (onAudioSourceChanged)
             onAudioSourceChanged(false);
+    }
+
+    if (!outputAudioAvailable && genAudioSource == GenAudioSource::Output && savedRecordingAvailable)
+    {
+        genAudioSource = GenAudioSource::Recording;
+        updateGenSourceButtons();
+        if (onAudioSourceChanged)
+            onAudioSourceChanged(true);
     }
 
     genRecordingButton.setEnabled(savedRecordingAvailable);
