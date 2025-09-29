@@ -26,17 +26,6 @@ Target files (primary focus):
 
 ---
 
-## Branch / Safeguards
-- Create a branch: `fix/non-ascii-ui-strings`.
-- Work only under that branch. Do not change other files.
-- Commit in small, logically grouped chunks (detection → replacement → verification).
-
-```bash
-git checkout -b fix/non-ascii-ui-strings
-```
-
----
-
 ## What to Replace (Mapping Table)
 
 Prefer ASCII. Use these canonical mappings:
@@ -132,12 +121,6 @@ rg -n --passthru "[^\x00-\x7F]" PluginEditor.cpp
 
 2. **Do not** change variable names, code logic, or anything but string content.
 3. Keep punctuation/spacing sane after substitution.
-
-Commit:
-```bash
-git add PluginEditor.cpp
-git commit -m "Sanitize non-ASCII UI literals in PluginEditor.cpp (ASCII or UTF-8 inline)"
-```
 
 Optional: repeat on `DariusUI.cpp` / `.h` if detector flags anything there.
 

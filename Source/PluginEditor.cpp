@@ -1618,7 +1618,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                     juce::MessageManager::callAsync([this]()
                         {
                             // keep user informed but gentle
-                            showStatusMessage("warming up� (network jitter)", 2500);
+                            showStatusMessage("warming up... (network jitter)", 2500);
                             // also reset stall timer so we don�t trip
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
@@ -1651,7 +1651,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 {
                     juce::MessageManager::callAsync([this]()
                         {
-                            showStatusMessage("warming up� (transient)", 2500);
+                            showStatusMessage("warming up... (transient)", 2500);
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
@@ -1670,7 +1670,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 {
                     juce::MessageManager::callAsync([this]()
                         {
-                            showStatusMessage("warming up� (transient)", 2500);
+                            showStatusMessage("warming up... (transient)", 2500);
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
@@ -4297,7 +4297,7 @@ void Gary4juceAudioProcessorEditor::startDariusWarmPolling(int attempt)
                 dariusIsWarming = false;
                 stopWarmDots();
                 updateDariusModelControlsEnabled();
-                showStatusMessage("Still warming… try again or check backend logs", 3000);
+                showStatusMessage("Still warming... try again or check backend logs", 3000);
                 return;
             }
 
