@@ -7,16 +7,16 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "Components/Base/CustomButton.h"
-#include "Components/Base/CustomSlider.h"
-#include "Components/Base/CustomTextEditor.h"
-#include "Components/Base/CustomComboBox.h"
+#include "Components/Terry/TerryUI.h"
 #include "Components/Darius/DariusUI.h"
 #include "Components/Gary/GaryUI.h"
+#include "Components/Jerry/JerryUI.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 
 #include <atomic>
 #include <future>
+#include <memory>
 #include <vector>
 
 //==============================================================================
@@ -118,6 +118,17 @@ private:
 
     };
 
+    // Tracks which operation (if any) is in-flight, independent of the visible tab.
+    enum class ActiveOp
+    {
+        None = 0,
+        GaryGenerate,
+        GaryContinue,
+        GaryRetry,
+        TerryTransform,
+        JerryGenerate
+    };
+
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
     CustomButton garyTabButton;
     CustomButton jerryTabButton;
@@ -127,6 +138,10 @@ private:
     void updateTabButtonStates();
     juce::Rectangle<int> fullTabAreaRect;  // Store the calculated tab area
 
+    void setActiveOp(ActiveOp op) { activeOp = op; }
+    ActiveOp getActiveOp() const { return activeOp; }
+    juce::String currentOperationVerb() const;
+
     std::unique_ptr<GaryUI> garyUI;
     juce::StringArray garyModelItems;
 
@@ -134,19 +149,7 @@ private:
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
 
-    // ========== JERRY CONTROLS ==========
-    juce::Label jerryLabel;
-    CustomTextEditor jerryPromptEditor;
-    juce::Label jerryPromptLabel;
-    CustomSlider jerryCfgSlider;
-    juce::Label jerryCfgLabel;
-    CustomSlider jerryStepsSlider;
-    juce::Label jerryStepsLabel;
-    CustomButton generateWithJerryButton;
-    juce::Label jerryBpmLabel;
-
-
-
+    std::unique_ptr<JerryUI> jerryUI;
 
     // Add Darius tab button (with other tab buttons)
     CustomButton dariusTabButton;
@@ -215,19 +218,6 @@ private:
     juce::URL makeGenerateURL() const;
     void handleDariusGenerateResponse(const juce::String& responseText, int statusCode);
 
-    // Smart loop controls
-    CustomButton generateAsLoopButton;
-    void styleSmartLoopButton();
-
-    // Loop type radio buttons (only visible when smart loop is enabled)
-    CustomButton loopTypeAutoButton;
-    CustomButton loopTypeDrumsButton;
-    CustomButton loopTypeInstrumentsButton;
-
-    // Add to header private section:
-    void setLoopType(const juce::String& type);
-    void styleLoopTypeButton(CustomButton& button, bool selected);
-
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
     float currentJerryCfg = 1.0f;
@@ -235,27 +225,8 @@ private:
     bool generateAsLoop = false;          // New: tracks smart loop toggle
     juce::String currentLoopType = "auto"; // New: tracks selected loop type
 
-    void updateLoopTypeVisibility();
-
-    // ========== TERRY CONTROLS ==========
-    juce::Label terryLabel;
-    CustomComboBox terryVariationComboBox;
-    juce::Label terryVariationLabel;
-    CustomTextEditor terryCustomPromptEditor;
-    juce::Label terryCustomPromptLabel;
-    CustomSlider terryFlowstepSlider;
-    juce::Label terryFlowstepLabel;
-    juce::ToggleButton terrySolverToggle;  // false = euler, true = midpoint
-    juce::Label terrySolverLabel;
-
-    // Audio source selection
-    juce::ToggleButton transformRecordingButton;
-    juce::ToggleButton transformOutputButton;
-    juce::Label terrySourceLabel;
-
-    // Transform and undo buttons
-    CustomButton transformWithTerryButton;
-    CustomButton undoTransformButton;
+    std::unique_ptr<TerryUI> terryUI;
+    juce::StringArray terryVariationNames;
 
     // Current Terry settings
     int currentTerryVariation = 0;  // Index into variations array
@@ -265,7 +236,7 @@ private:
     bool transformRecording = false; // false = transform output, true = transform recording
 
     // Terry helper methods
-    void updateTerrySourceButtons();
+    void updateTerryEnablementSnapshot();
     void setTerryAudioSource(bool useRecording);
     void sendToTerry();
     void undoTerryTransform();
@@ -295,6 +266,7 @@ private:
     int generationProgress = 0;  // 0-100 for progress visualization
     bool isGenerating = false;
     bool continueInProgress = false;  // Track if current generation is a continue operation
+    ActiveOp activeOp = ActiveOp::None;
 
     // UI areas
     juce::Rectangle<int> outputWaveformArea;

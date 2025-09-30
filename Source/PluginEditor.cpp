@@ -7,6 +7,71 @@
 #include "PluginEditor.h"
 #include "./Utils/BarTrim.h"
 
+namespace
+{
+    int loopTypeStringToIndex(const juce::String& type)
+    {
+        if (type.equalsIgnoreCase("drums"))
+            return 1;
+        if (type.equalsIgnoreCase("instruments"))
+            return 2;
+        return 0;
+    }
+
+    juce::String loopTypeIndexToString(int index)
+    {
+        switch (index)
+        {
+        case 1: return "drums";
+        case 2: return "instruments";
+        default: return "auto";
+        }
+    }
+
+    const juce::StringArray& getTerryVariationNames()
+    {
+        static const juce::StringArray names = []()
+        {
+            juce::StringArray arr;
+            arr.add("accordion_folk");
+            arr.add("banjo_bluegrass");
+            arr.add("piano_classical");
+            arr.add("celtic");
+            arr.add("strings_quartet");
+            arr.add("synth_retro");
+            arr.add("synth_modern");
+            arr.add("synth_edm");
+            arr.add("lofi_chill");
+            arr.add("synth_bass");
+            arr.add("rock_band");
+            arr.add("cinematic_epic");
+            arr.add("retro_rpg");
+            arr.add("chiptune");
+            arr.add("steel_drums");
+            arr.add("gamelan_fusion");
+            arr.add("music_box");
+            arr.add("trap_808");
+            arr.add("lo_fi_drums");
+            arr.add("boom_bap");
+            arr.add("percussion_ensemble");
+            arr.add("future_bass");
+            arr.add("synthwave_retro");
+            arr.add("melodic_techno");
+            arr.add("dubstep_wobble");
+            arr.add("glitch_hop");
+            arr.add("digital_disruption");
+            arr.add("circuit_bent");
+            arr.add("orchestral_glitch");
+            arr.add("vapor_drums");
+            arr.add("industrial_textures");
+            arr.add("jungle_breaks");
+            return arr;
+        }();
+
+        return names;
+    }
+}
+
 //==============================================================================
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p),
@@ -85,257 +150,105 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     updateModelAvailability();
 
     // ========== JERRY CONTROLS SETUP ==========
-    jerryLabel.setText("jerry (stable audio open small)", juce::dontSendNotification);
-    jerryLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    jerryLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    jerryLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(jerryLabel);
+    jerryUI = std::make_unique<JerryUI>();
+    addAndMakeVisible(*jerryUI);
 
-    // Text prompt editor
-    jerryPromptEditor.setMultiLine(true);
-    jerryPromptEditor.setReturnKeyStartsNewLine(true);
-    jerryPromptEditor.setTextToShowWhenEmpty("enter your audio generation prompt here...", juce::Colours::darkgrey);
-    jerryPromptEditor.onTextChange = [this]() {
-        currentJerryPrompt = jerryPromptEditor.getText();
-        // Update button state whenever prompt changes
+    jerryUI->onPromptChanged = [this](const juce::String& text)
+    {
+        currentJerryPrompt = text;
         updateAllGenerationButtonStates();
-        };
-    addAndMakeVisible(jerryPromptEditor);
+    };
 
-    jerryPromptLabel.setText("text prompt", juce::dontSendNotification);
-    jerryPromptLabel.setFont(juce::FontOptions(12.0f));
-    jerryPromptLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    jerryPromptLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(jerryPromptLabel);
+    jerryUI->onCfgChanged = [this](float value)
+    {
+        currentJerryCfg = value;
+    };
 
-    // CFG slider (0.5 to 2.0 in 0.1 increments)
-    jerryCfgSlider.setRange(0.5, 2.0, 0.1);
-    jerryCfgSlider.setValue(1.0);
-    jerryCfgSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    jerryCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    jerryCfgSlider.onValueChange = [this]() {
-        currentJerryCfg = (float)jerryCfgSlider.getValue();
-        };
-    addAndMakeVisible(jerryCfgSlider);
+    jerryUI->onStepsChanged = [this](int value)
+    {
+        currentJerrySteps = value;
+    };
 
-    jerryCfgLabel.setText("cfg scale", juce::dontSendNotification);
-    jerryCfgLabel.setFont(juce::FontOptions(12.0f));
-    jerryCfgLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    jerryCfgLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(jerryCfgLabel);
+    jerryUI->onSmartLoopToggled = [this](bool enabled)
+    {
+        generateAsLoop = enabled;
+        updateAllGenerationButtonStates();
+    };
 
-    // Steps slider (4 to 16 in increments of 1)
-    jerryStepsSlider.setRange(4.0, 16.0, 1.0);
-    jerryStepsSlider.setValue(8.0);
-    jerryStepsSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    jerryStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    jerryStepsSlider.onValueChange = [this]() {
-        currentJerrySteps = (int)jerryStepsSlider.getValue();
-        };
-    addAndMakeVisible(jerryStepsSlider);
+    jerryUI->onLoopTypeChanged = [this](int index)
+    {
+        currentLoopType = loopTypeIndexToString(index);
+    };
 
-    jerryStepsLabel.setText("steps", juce::dontSendNotification);
-    jerryStepsLabel.setFont(juce::FontOptions(12.0f));
-    jerryStepsLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    jerryStepsLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(jerryStepsLabel);
+    jerryUI->onGenerate = [this]()
+    {
+        sendToJerry();
+    };
 
-    // BPM info label (will show DAW BPM)
-    jerryBpmLabel.setText("bpm: " + juce::String((int)audioProcessor.getCurrentBPM()),
-        juce::dontSendNotification);
-    jerryBpmLabel.setFont(juce::FontOptions(11.0f));
-    jerryBpmLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-    jerryBpmLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(jerryBpmLabel);
+    jerryUI->setPromptText(currentJerryPrompt);
+    jerryUI->setCfg(currentJerryCfg);
+    jerryUI->setSteps(currentJerrySteps);
+    jerryUI->setSmartLoop(generateAsLoop);
+    jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
+    jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
+    jerryUI->setButtonsEnabled(false, isConnected, isGenerating);
 
-    // Generate with Jerry button
-    generateWithJerryButton.setButtonText("generate with jerry");
-    generateWithJerryButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
-    generateWithJerryButton.onClick = [this]() { sendToJerry(); };
-    generateWithJerryButton.setEnabled(false); // Initially disabled until connected
-    generateWithJerryButton.setTooltip("generate audio from text prompt with current daw bpm");
-    addAndMakeVisible(generateWithJerryButton);
+    // ========== TERRY UI SETUP ==========
+    terryUI = std::make_unique<TerryUI>();
+    addAndMakeVisible(*terryUI);
 
-    // Smart loop button (rectangular toggle style) - HORIZONTAL LAYOUT
-    generateAsLoopButton.setButtonText("smart loop");  // SHORTER text for horizontal layout
-    generateAsLoopButton.setClickingTogglesState(true);
-    generateAsLoopButton.onClick = [this]() {
-        generateAsLoop = generateAsLoopButton.getToggleState();
-        updateLoopTypeVisibility();  // Show/hide the three type buttons
-        styleSmartLoopButton();      // Update visual styling
-        };
-    addAndMakeVisible(generateAsLoopButton);
+    terryVariationNames = getTerryVariationNames();
 
-    // Loop type buttons (compact rectangular buttons for horizontal layout)
-    loopTypeAutoButton.setButtonText("auto");
-    loopTypeAutoButton.onClick = [this]() { setLoopType("auto"); };
+    terryUI->setVariations(terryVariationNames, currentTerryVariation);
+    terryUI->setCustomPrompt(currentTerryCustomPrompt);
+    terryUI->setFlowstep(currentTerryFlowstep);
+    terryUI->setUseMidpointSolver(useMidpointSolver);
+    terryUI->setAudioSourceRecording(transformRecording);
+    terryUI->setVisibleForTab(false);
+    terryUI->setBpm(audioProcessor.getCurrentBPM());
 
-    loopTypeDrumsButton.setButtonText("drums");
-    loopTypeDrumsButton.onClick = [this]() { setLoopType("drums"); };
-
-    loopTypeInstrumentsButton.setButtonText("instr");  // SHORTENED for compact layout
-    loopTypeInstrumentsButton.onClick = [this]() { setLoopType("instruments"); };
-
-    addAndMakeVisible(loopTypeAutoButton);
-    addAndMakeVisible(loopTypeDrumsButton);
-    addAndMakeVisible(loopTypeInstrumentsButton);
-
-    // Initial styling and state
-    styleSmartLoopButton();
-    setLoopType("auto");  // This will style the segmented control
-    updateLoopTypeVisibility();  // Initially hide loop type controls
-
-    // Style loop buttons with theme
-    generateAsLoopButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    loopTypeAutoButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    loopTypeDrumsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    loopTypeInstrumentsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-
-    // ========== TERRY CONTROLS SETUP ==========
-    terryLabel.setText("terry (melodyflow)", juce::dontSendNotification);
-    terryLabel.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    terryLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    terryLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(terryLabel);
-
-    // Variation dropdown - populate with all variations
-    terryVariationComboBox.addItem("accordion_folk", 1);
-    terryVariationComboBox.addItem("banjo_bluegrass", 2);
-    terryVariationComboBox.addItem("piano_classical", 3);
-    terryVariationComboBox.addItem("celtic", 4);
-    terryVariationComboBox.addItem("strings_quartet", 5);
-    terryVariationComboBox.addItem("synth_retro", 6);
-    terryVariationComboBox.addItem("synth_modern", 7);
-    terryVariationComboBox.addItem("synth_edm", 8);
-    terryVariationComboBox.addItem("lofi_chill", 9);
-    terryVariationComboBox.addItem("synth_bass", 10);
-    terryVariationComboBox.addItem("rock_band", 11);
-    terryVariationComboBox.addItem("cinematic_epic", 12);
-    terryVariationComboBox.addItem("retro_rpg", 13);
-    terryVariationComboBox.addItem("chiptune", 14);
-    terryVariationComboBox.addItem("steel_drums", 15);
-    terryVariationComboBox.addItem("gamelan_fusion", 16);
-    terryVariationComboBox.addItem("music_box", 17);
-    terryVariationComboBox.addItem("trap_808", 18);
-    terryVariationComboBox.addItem("lo_fi_drums", 19);
-    terryVariationComboBox.addItem("boom_bap", 20);
-    terryVariationComboBox.addItem("percussion_ensemble", 21);
-    terryVariationComboBox.addItem("future_bass", 22);
-    terryVariationComboBox.addItem("synthwave_retro", 23);
-    terryVariationComboBox.addItem("melodic_techno", 24);
-    terryVariationComboBox.addItem("dubstep_wobble", 25);
-    terryVariationComboBox.addItem("glitch_hop", 26);
-    terryVariationComboBox.addItem("digital_disruption", 27);
-    terryVariationComboBox.addItem("circuit_bent", 28);
-    terryVariationComboBox.addItem("orchestral_glitch", 29);
-    terryVariationComboBox.addItem("vapor_drums", 30);
-    terryVariationComboBox.addItem("industrial_textures", 31);
-    terryVariationComboBox.addItem("jungle_breaks", 32);
-    terryVariationComboBox.setSelectedId(1); // Default to first variation
-    terryVariationComboBox.onChange = [this]() {
-        currentTerryVariation = terryVariationComboBox.getSelectedId() - 1;
-        // Clear custom prompt when variation is selected
-        if (currentTerryVariation >= 0) {
-            terryCustomPromptEditor.clear();
+    terryUI->onVariationChanged = [this](int index)
+    {
+        currentTerryVariation = index;
+        if (currentTerryVariation >= 0)
             currentTerryCustomPrompt = "";
-        }
-        };
-    addAndMakeVisible(terryVariationComboBox);
+        updateTerryEnablementSnapshot();
+    };
 
-    terryVariationLabel.setText("variation", juce::dontSendNotification);
-    terryVariationLabel.setFont(juce::FontOptions(12.0f));
-    terryVariationLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    terryVariationLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(terryVariationLabel);
-
-    // Custom prompt editor (alternative to variations)
-    terryCustomPromptEditor.setMultiLine(false);
-    terryCustomPromptEditor.setReturnKeyStartsNewLine(false);
-    terryCustomPromptEditor.setTextToShowWhenEmpty("or enter custom prompt...", juce::Colours::darkgrey);
-    terryCustomPromptEditor.onTextChange = [this]() {
-        currentTerryCustomPrompt = terryCustomPromptEditor.getText();
-        // Clear variation selection when custom prompt is used
-        if (!currentTerryCustomPrompt.trim().isEmpty()) {
-            terryVariationComboBox.setSelectedId(0); // Deselect
+    terryUI->onCustomPromptChanged = [this](const juce::String& text)
+    {
+        currentTerryCustomPrompt = text;
+        if (!currentTerryCustomPrompt.trim().isEmpty())
             currentTerryVariation = -1;
-        }
-        };
-    addAndMakeVisible(terryCustomPromptEditor);
+        updateTerryEnablementSnapshot();
+    };
 
-    terryCustomPromptLabel.setText("custom prompt", juce::dontSendNotification);
-    terryCustomPromptLabel.setFont(juce::FontOptions(12.0f));
-    terryCustomPromptLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    terryCustomPromptLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(terryCustomPromptLabel);
+    terryUI->onFlowstepChanged = [this](float value)
+    {
+        currentTerryFlowstep = value;
+    };
 
-    // Flowstep slider (0.050 to 0.150, default 0.130)
-    terryFlowstepSlider.setRange(0.050, 0.150, 0.001);
-    terryFlowstepSlider.setValue(0.130);
-    terryFlowstepSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    terryFlowstepSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
-    terryFlowstepSlider.setNumDecimalPlacesToDisplay(3);
-    terryFlowstepSlider.onValueChange = [this]() {
-        currentTerryFlowstep = (float)terryFlowstepSlider.getValue();
-        };
-    addAndMakeVisible(terryFlowstepSlider);
+    terryUI->onSolverChanged = [this](bool useMidpointValue)
+    {
+        useMidpointSolver = useMidpointValue;
+    };
 
-    terryFlowstepLabel.setText("flowstep", juce::dontSendNotification);
-    terryFlowstepLabel.setFont(juce::FontOptions(12.0f));
-    terryFlowstepLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    terryFlowstepLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(terryFlowstepLabel);
+    terryUI->onAudioSourceChanged = [this](bool useRecording)
+    {
+        setTerryAudioSource(useRecording);
+    };
 
-    // Solver toggle (euler/midpoint)
-    terrySolverToggle.setButtonText("use midpoint solver");
-    terrySolverToggle.setToggleState(false, juce::dontSendNotification); // Default to euler
-    terrySolverToggle.onClick = [this]() {
-        useMidpointSolver = terrySolverToggle.getToggleState();
-        DBG("Solver changed to: " + juce::String(useMidpointSolver ? "midpoint" : "euler"));
-        };
-    addAndMakeVisible(terrySolverToggle);
+    terryUI->onTransform = [this]()
+    {
+        sendToTerry();
+    };
 
-    terrySolverLabel.setText("solver", juce::dontSendNotification);
-    terrySolverLabel.setFont(juce::FontOptions(12.0f));
-    terrySolverLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    terrySolverLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(terrySolverLabel);
+    terryUI->onUndo = [this]()
+    {
+        undoTerryTransform();
+    };
 
-    // Audio source selection
-    terrySourceLabel.setText("transform", juce::dontSendNotification);
-    terrySourceLabel.setFont(juce::FontOptions(12.0f));
-    terrySourceLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    terrySourceLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(terrySourceLabel);
-
-    transformRecordingButton.setButtonText("recording");
-    transformRecordingButton.setRadioGroupId(1001); // Same group for mutual exclusion
-    transformRecordingButton.onClick = [this]() { setTerryAudioSource(true); };
-    addAndMakeVisible(transformRecordingButton);
-
-    transformOutputButton.setButtonText("output");
-    transformOutputButton.setRadioGroupId(1001); // Same group for mutual exclusion
-    transformOutputButton.setToggleState(true, juce::dontSendNotification); // Default selection
-    transformOutputButton.onClick = [this]() { setTerryAudioSource(false); };
-    addAndMakeVisible(transformOutputButton);
-
-    // Transform button
-    transformWithTerryButton.setButtonText("transform with terry");
-    transformWithTerryButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
-    transformWithTerryButton.onClick = [this]() { sendToTerry(); };
-    transformWithTerryButton.setEnabled(false); // Initially disabled until we have audio
-    transformWithTerryButton.setTooltip("transform selected audio source according to variation or custom prompt. max: ~40 seconds");
-    addAndMakeVisible(transformWithTerryButton);
-
-    // Undo button  
-    undoTransformButton.setButtonText("undo transform");
-    undoTransformButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    undoTransformButton.onClick = [this]() { undoTerryTransform(); };
-    // Enable if we have a session ID stored from previous session
-    undoTransformButton.setEnabled(false);
-    undoTransformButton.setTooltip("restore audio to state before last transformation");
-    addAndMakeVisible(undoTransformButton);
-
-
+    updateTerryEnablementSnapshot();
 
     // ========== DARIUS UI ==========
     dariusUI = std::make_unique<DariusUI>();
@@ -631,28 +544,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
 
     
-    // 3. CRITICAL: Sync Terry radio button logic with visual state
-    // The transformOutputButton is visually checked by default, so sync the logic
-    bool restoredTransformRecording = audioProcessor.getTransformRecording();
-    
-    if (transformOutputButton.getToggleState() && restoredTransformRecording)
-    {
-        // Visual says "output" but logic says "recording" - fix the mismatch
-        DBG("Syncing Terry state: UI shows output selected, fixing logic state");
-        setTerryAudioSource(false);  // This sets transformRecording = false
-    }
-    else if (transformRecordingButton.getToggleState() && !restoredTransformRecording)
-    {
-        // Visual says "recording" but logic says "output" - fix the mismatch  
-        DBG("Syncing Terry state: UI shows recording selected, fixing logic state");
-        setTerryAudioSource(true);   // This sets transformRecording = true
-    }
-    else
-    {
-        // States match, just update the processor
-        audioProcessor.setTransformRecording(transformRecording);
-        DBG("Terry states already in sync: " + juce::String(transformRecording ? "recording" : "output"));
-    }
+    // 3. CRITICAL: Restore Terry audio source selection
+    const bool restoredTransformRecording = audioProcessor.getTransformRecording();
+    setTerryAudioSource(restoredTransformRecording);
 
     // 3. CRITICAL: Restore session ID and validate undo/retry state
     juce::String restoredSessionId = audioProcessor.getCurrentSessionId();
@@ -687,18 +581,16 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         DBG("INFO: Session ID exists but no operations available. This might be from an initial generation.");
     }
 
-    undoTransformButton.setEnabled(undoAvailable && !restoredSessionId.isEmpty() && !isGenerating);
-    
     // 5. Update all button states after restoration
     updateAllGenerationButtonStates();
     updateRetryButtonState();        
     updateContinueButtonState();     
-    updateTerrySourceButtons(); 
+    updateTerryEnablementSnapshot(); 
 
     // 6. Double-check button states after connection stabilizes
     juce::Timer::callAfterDelay(2000, [this]() {
         updateRetryButtonState();
-        updateTerrySourceButtons();
+        updateTerryEnablementSnapshot();
         DBG("Button states updated after connection check");
         });
     
@@ -737,6 +629,8 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
     DBG("Background operations stopped - threads should abort");
     DBG("Session ID preserved: '" + audioProcessor.getCurrentSessionId() + "'");
+
+    setActiveOp(ActiveOp::None);
 }
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
@@ -800,48 +694,13 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     if (garyUI)
         garyUI->setVisibleForTab(showGary);
 
-    // Jerry controls visibility
-    jerryLabel.setVisible(showJerry);
-    jerryPromptEditor.setVisible(showJerry);
-    jerryPromptLabel.setVisible(showJerry);
-    jerryCfgSlider.setVisible(showJerry);
-    jerryCfgLabel.setVisible(showJerry);
-    jerryStepsSlider.setVisible(showJerry);
-    jerryStepsLabel.setVisible(showJerry);
-    jerryBpmLabel.setVisible(showJerry);
-    generateWithJerryButton.setVisible(showJerry);
-
-    // FIXED: Show/hide the smart loop toggle button
-    generateAsLoopButton.setVisible(showJerry);
-
-    // Loop type controls follow the smart loop toggle visibility
-    if (showJerry) {
-        updateLoopTypeVisibility();  // This will show/hide based on toggle state
-    }
-    else {
-        // Hide loop type controls when Jerry tab is hidden
-        loopTypeAutoButton.setVisible(false);
-        loopTypeDrumsButton.setVisible(false);
-        loopTypeInstrumentsButton.setVisible(false);
-    }
+    if (jerryUI)
+        jerryUI->setVisibleForTab(showJerry);
 
     // Terry controls visibility
     bool showTerry = (tab == ModelTab::Terry);
-
-    terryLabel.setVisible(showTerry);
-    terryVariationComboBox.setVisible(showTerry);
-    terryVariationLabel.setVisible(showTerry);
-    terryCustomPromptEditor.setVisible(showTerry);
-    terryCustomPromptLabel.setVisible(showTerry);
-    terryFlowstepSlider.setVisible(showTerry);
-    terryFlowstepLabel.setVisible(showTerry);
-    terrySolverToggle.setVisible(showTerry);
-    terrySolverLabel.setVisible(showTerry);
-    terrySourceLabel.setVisible(showTerry);
-    transformRecordingButton.setVisible(showTerry);
-    transformOutputButton.setVisible(showTerry);
-    transformWithTerryButton.setVisible(showTerry);
-    undoTransformButton.setVisible(showTerry);
+    if (terryUI)
+        terryUI->setVisibleForTab(showTerry);
 
     // Darius controls visibility
     const bool showDarius = (tab == ModelTab::Darius);
@@ -855,174 +714,6 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         jerryHelpButton.setVisible(showJerry);
         terryHelpButton.setVisible(showTerry);
     }
-
-
-
-    // ========== TERRY CONTROLS LAYOUT (FlexBox Implementation) ==========
-    auto terryBounds = modelControlsArea;
-
-    // Create main FlexBox for Terry controls (vertical layout)
-    juce::FlexBox terryFlexBox;
-    terryFlexBox.flexDirection = juce::FlexBox::Direction::column;
-    terryFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    // 1. Terry section title
-    juce::FlexItem terryTitleItem(terryLabel);
-    terryTitleItem.height = 30;
-    terryTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
-
-    // 2. Variation controls row
-    juce::Component terryVariationRowComponent;
-    juce::FlexItem terryVariationRowItem(terryVariationRowComponent);
-    terryVariationRowItem.height = 30;
-    terryVariationRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
-
-    // 3. Custom prompt label
-    juce::FlexItem terryCustomPromptLabelItem(terryCustomPromptLabel);
-    terryCustomPromptLabelItem.height = 15;
-    terryCustomPromptLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
-
-    // 4. Custom prompt editor
-    juce::FlexItem terryCustomPromptEditorItem(terryCustomPromptEditor);
-    terryCustomPromptEditorItem.height = 25;
-    terryCustomPromptEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
-
-    // 5. Flowstep controls row
-    juce::Component terryFlowstepRowComponent;
-    juce::FlexItem terryFlowstepRowItem(terryFlowstepRowComponent);
-    terryFlowstepRowItem.height = 30;
-    terryFlowstepRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
-
-    // 6. Solver controls row
-    juce::Component terrySolverRowComponent;
-    juce::FlexItem terrySolverRowItem(terrySolverRowComponent);
-    terrySolverRowItem.height = 25;
-    terrySolverRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
-
-    // 7. Audio source selection row
-    juce::Component terrySourceRowComponent;
-    juce::FlexItem terrySourceRowItem(terrySourceRowComponent);
-    terrySourceRowItem.height = 25;
-    terrySourceRowItem.margin = juce::FlexItem::Margin(3, 0, 8, 0);
-
-    // 8. Transform button
-    juce::FlexItem transformTerryItem(transformWithTerryButton);
-    transformTerryItem.height = 35;
-    transformTerryItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
-
-    // 9. Undo button
-    juce::FlexItem undoTerryItem(undoTransformButton);
-    undoTerryItem.height = 35;
-    undoTerryItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
-
-    // Add all items to Terry FlexBox
-    terryFlexBox.items.add(terryTitleItem);
-    terryFlexBox.items.add(terryVariationRowItem);
-    terryFlexBox.items.add(terryCustomPromptLabelItem);
-    terryFlexBox.items.add(terryCustomPromptEditorItem);
-    terryFlexBox.items.add(terryFlowstepRowItem);
-    terryFlexBox.items.add(terrySolverRowItem);
-    terryFlexBox.items.add(terrySourceRowItem);
-    terryFlexBox.items.add(transformTerryItem);
-    terryFlexBox.items.add(undoTerryItem);
-
-    // Perform layout for Terry controls
-    terryFlexBox.performLayout(terryBounds);
-
-    // Position Terry help icon next to title text (only if Terry tab is active)
-    if (helpIcon && currentTab == ModelTab::Terry)
-    {
-        auto terryLabelBounds = terryFlexBox.items[0].currentBounds.toNearestInt(); // Title item
-        auto textWidth = terryLabel.getFont().getStringWidth(terryLabel.getText());
-        auto textStartX = terryLabelBounds.getX() + (terryLabelBounds.getWidth() - textWidth) / 2; // Center-aligned text start
-        auto terryHelpArea = juce::Rectangle<int>(
-            textStartX + textWidth + 5,  // 5px to the right of actual text
-            terryLabelBounds.getY() + (terryLabelBounds.getHeight() - 20) / 2,
-            20, 20  
-        );
-        terryHelpButton.setBounds(terryHelpArea);
-    }
-
-    // Extract calculated bounds for control rows
-    auto terryVariationRowBounds = terryFlexBox.items[1].currentBounds.toNearestInt();
-    auto terryFlowstepRowBounds = terryFlexBox.items[4].currentBounds.toNearestInt();
-    auto terrySolverRowBounds = terryFlexBox.items[5].currentBounds.toNearestInt();
-    auto terrySourceRowBounds = terryFlexBox.items[6].currentBounds.toNearestInt();
-
-    // Layout variation controls (horizontal FlexBox)
-    juce::FlexBox terryVariationFlexBox;
-    terryVariationFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    terryVariationFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem terryVariationLabelItem(terryVariationLabel);
-    terryVariationLabelItem.width = 80;
-    terryVariationLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-
-    juce::FlexItem terryVariationComboItem(terryVariationComboBox);
-    terryVariationComboItem.flexGrow = 1;
-    terryVariationComboItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
-
-    terryVariationFlexBox.items.add(terryVariationLabelItem);
-    terryVariationFlexBox.items.add(terryVariationComboItem);
-    terryVariationFlexBox.performLayout(terryVariationRowBounds);
-
-    // Layout flowstep controls (horizontal FlexBox)
-    juce::FlexBox terryFlowstepFlexBox;
-    terryFlowstepFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    terryFlowstepFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem terryFlowstepLabelItem(terryFlowstepLabel);
-    terryFlowstepLabelItem.width = 80;
-    terryFlowstepLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-
-    juce::FlexItem terryFlowstepSliderItem(terryFlowstepSlider);
-    terryFlowstepSliderItem.flexGrow = 1;
-    terryFlowstepSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
-
-    terryFlowstepFlexBox.items.add(terryFlowstepLabelItem);
-    terryFlowstepFlexBox.items.add(terryFlowstepSliderItem);
-    terryFlowstepFlexBox.performLayout(terryFlowstepRowBounds);
-
-    // Layout solver controls (horizontal FlexBox)
-    juce::FlexBox terrySolverFlexBox;
-    terrySolverFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    terrySolverFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem terrySolverLabelItem(terrySolverLabel);
-    terrySolverLabelItem.width = 80;
-    terrySolverLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-
-    juce::FlexItem terrySolverToggleItem(terrySolverToggle);
-    terrySolverToggleItem.flexGrow = 1;
-    terrySolverToggleItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
-
-    terrySolverFlexBox.items.add(terrySolverLabelItem);
-    terrySolverFlexBox.items.add(terrySolverToggleItem);
-    terrySolverFlexBox.performLayout(terrySolverRowBounds);
-
-    // Layout audio source controls (horizontal FlexBox)
-    juce::FlexBox terrySourceFlexBox;
-    terrySourceFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    terrySourceFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem terrySourceLabelItem(terrySourceLabel);
-    terrySourceLabelItem.width = 80;
-    terrySourceLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-
-    juce::FlexItem transformRecordingItem(transformRecordingButton);
-    transformRecordingItem.width = 80;
-    transformRecordingItem.margin = juce::FlexItem::Margin(0, 5, 0, 5);
-
-    juce::FlexItem transformOutputItem(transformOutputButton);
-    transformOutputItem.width = 80;
-    transformOutputItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
-
-    terrySourceFlexBox.items.add(terrySourceLabelItem);
-    terrySourceFlexBox.items.add(transformRecordingItem);
-    terrySourceFlexBox.items.add(transformOutputItem);
-    terrySourceFlexBox.performLayout(terrySourceRowBounds);
-
-
 
     DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showTerry ? "Terry" : "Darius"))));
 
@@ -1052,11 +743,14 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
     updateGaryButtonStates(!isGenerating);
     updateRetryButtonState();
 
-    // Jerry buttons - should be disabled during ANY generation
-    generateWithJerryButton.setEnabled(isConnected && !currentJerryPrompt.trim().isEmpty() && !isGenerating);
+    if (jerryUI)
+    {
+        const bool canGenerate = isConnected && !currentJerryPrompt.trim().isEmpty();
+        const bool canSmartLoop = isConnected;
+        jerryUI->setButtonsEnabled(canGenerate, canSmartLoop, isGenerating);
+    }
 
-    // Terry buttons - already have the logic, but let's be explicit
-    updateTerrySourceButtons(); // This already checks !isGenerating
+    updateTerryEnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
@@ -1090,8 +784,11 @@ void Gary4juceAudioProcessorEditor::timerCallback()
 
     // Update Jerry BPM display with current DAW BPM
     double currentBPM = audioProcessor.getCurrentBPM();
-    jerryBpmLabel.setText("bpm: " + juce::String((int)currentBPM) + " (from daw)",
-        juce::dontSendNotification);
+    if (jerryUI)
+        jerryUI->setBpm(juce::roundToInt(currentBPM));
+
+    if (terryUI)
+        terryUI->setBpm(currentBPM);
 
     if (dariusUI)
     {
@@ -1671,6 +1368,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 showStatusMessage("backend reachable but no response; retry", 3000);
             }
             });
+        setActiveOp(ActiveOp::None);
         return;
     }
 
@@ -1716,6 +1414,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 stopPolling();
                 showStatusMessage("processing failed", 3000);
+                setActiveOp(ActiveOp::None);
                 return;
             }
 
@@ -1837,31 +1536,21 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else if (serverProgress > 0 || queueStatus == "ready")
                 {
-                    // Show progress-based messages only when actually processing (not queued)
-                    if (currentTab == ModelTab::Terry)
-                    {
-                        showStatusMessage("transforming: " + juce::String(serverProgress) + "%", 5000);
-                        DBG("Transform progress: " + juce::String(serverProgress) + "%, animating from " +
-                            juce::String(lastKnownProgress));
-                    }
-                    else
-                    {
-                        showStatusMessage("cooking: " + juce::String(serverProgress) + "%", 5000);
-                        DBG("Generation progress: " + juce::String(serverProgress) + "%, animating from " +
-                            juce::String(lastKnownProgress));
-                    }
+                    juce::String verb = currentOperationVerb();
+                    if (verb == "processing")
+                        verb = transformInProgress ? "transforming" : "cooking";
+
+                    showStatusMessage(verb + ": " + juce::String(serverProgress) + "%", 5000);
+                    DBG("Progress (" + verb + "): " + juce::String(serverProgress) + "%, animating from " +
+                        juce::String(lastKnownProgress));
                 }
                 else
                 {
                     // Fallback message when we have no specific queue info but task is in progress
-                    if (currentTab == ModelTab::Terry)
-                    {
+                    if (getActiveOp() == ActiveOp::TerryTransform || transformInProgress)
                         showStatusMessage("processing transform...", 5000);
-                    }
                     else
-                    {
                         showStatusMessage("processing audio...", 5000);
-                    }
                 }
 
                 return;
@@ -1870,6 +1559,8 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             // COMPLETED - Check what TYPE of completion this is FIRST
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
+            const auto activeOp = getActiveOp();
+            const bool isTransformOp = transformInProgress || activeOp == ActiveOp::TerryTransform;
 
             withinWarmup = false; // completed/terminal statuses should clear warmup
 
@@ -1889,19 +1580,21 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 isGenerating = false;
 
                 // DIFFERENTIATE: Check if we're completing a transform vs generation
-                if (transformInProgress || currentTab == ModelTab::Terry)
+                if (isTransformOp)
                 {
                     // TRANSFORM COMPLETION - Keep session ID for undo
-                    transformWithTerryButton.setButtonText("transform with terry");
+                    if (terryUI)
+                        terryUI->setTransformButtonText("transform with terry");
                     showStatusMessage("transform complete!", 3000);
                     saveGeneratedAudio(audioData);
                     DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
 
                     // Enable undo button now that transform is complete
                     audioProcessor.setUndoTransformAvailable(true); // ADD THIS
-                    undoTransformButton.setEnabled(true);
                     audioProcessor.setRetryAvailable(false);
                     // DON'T clear currentSessionId - we need it for undo!
+
+                    updateTerryEnablementSnapshot();
 
                 }
                 else
@@ -1935,6 +1628,8 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
                     updateContinueButtonState();
                 }
+
+                setActiveOp(ActiveOp::None);
             }
             else
             {
@@ -1944,11 +1639,10 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     auto error = responseObj->getProperty("error").toString();
                     stopPolling();
 
-                    if (transformInProgress || currentTab == ModelTab::Terry)
+                    if (isTransformOp)
                     {
                         showStatusMessage("transform failed: " + error, 5000);
                         audioProcessor.setUndoTransformAvailable(false);
-                        undoTransformButton.setEnabled(false);
                         audioProcessor.setRetryAvailable(false);
                         updateRetryButtonState();
                     }
@@ -1963,12 +1657,14 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     isCurrentlyQueued = false;
                     updateAllGenerationButtonStates();
                     repaint();
+
+                    setActiveOp(ActiveOp::None);
                 }
                 else if (status == "completed")
                 {
                     stopPolling();
 
-                    if (transformInProgress || currentTab == ModelTab::Terry)
+                    if (isTransformOp)
                     {
                         showStatusMessage("transform completed but no audio received", 3000);
                     }
@@ -1981,6 +1677,8 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     isCurrentlyQueued = false;
                     updateAllGenerationButtonStates();
                     repaint();
+
+                    setActiveOp(ActiveOp::None);
                 }
             }
         }
@@ -2003,6 +1701,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     showStatusMessage("bad response; retry", 3000);
                 }
                 });
+            setActiveOp(ActiveOp::None);
         }
     }
     catch (...)
@@ -2024,6 +1723,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 showStatusMessage("parse error; retry", 3000);
             }
             });
+        setActiveOp(ActiveOp::None);
     }
 }
 
@@ -2098,6 +1798,15 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
 void Gary4juceAudioProcessorEditor::sendToGary()
 {
+    setActiveOp(ActiveOp::GaryGenerate);
+
+    auto cancelGaryOperation = [this]() {
+        isGenerating = false;
+        continueInProgress = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+    };
+
     // Reset generation state immediately
     isGenerating = true;
     continueInProgress = false;  // This is NOT a continue operation
@@ -2110,14 +1819,14 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     
     if (savedSamples <= 0)
     {
-        isGenerating = false; // Reset if we're returning early
+        cancelGaryOperation();
         showStatusMessage("please save your recording first!");
         return;
     }
 
     if (!isConnected)
     {
-        isGenerating = false; // Reset if we're returning early
+        cancelGaryOperation();
         showStatusMessage("backend not connected - check connection first");
         return;
     }
@@ -2147,6 +1856,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
     if (!audioFile.exists())
     {
+        cancelGaryOperation();
         showStatusMessage("audio file not found - save recording first");
         return;
     }
@@ -2155,6 +1865,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     juce::MemoryBlock audioData;
     if (!audioFile.loadFileAsData(audioData))
     {
+        cancelGaryOperation();
         showStatusMessage("failed to read audio file");
         return;
     }
@@ -2162,6 +1873,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     // Verify we have audio data
     if (audioData.getSize() == 0)
     {
+        cancelGaryOperation();
         showStatusMessage("audio file is empty");
         return;
     }
@@ -2181,7 +1893,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     repaint(); // Force immediate UI update
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, selectedModel, base64Audio]() {
+    juce::Thread::launch([this, selectedModel, base64Audio, cancelGaryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Gary request aborted - generation stopped");
@@ -2257,7 +1969,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, cancelGaryOperation]() {
             // SAFETY: Don't process if generation stopped
             if (!isGenerating) {
                 DBG("Gary callback aborted");
@@ -2295,12 +2007,20 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                         juce::String error = responseObj->getProperty("error").toString();
                         showStatusMessage("Error: " + error, 5000);
                         DBG("Server error: " + error);
+
+                        cancelGaryOperation();
+                        if (garyUI)
+                            garyUI->setSendButtonText("send to gary");
                     }
                 }
                 else
                 {
                     showStatusMessage("Invalid JSON response from server", 4000);
                     DBG("Failed to parse JSON response: " + responseText.substring(0, 100));
+
+                    cancelGaryOperation();
+                    if (garyUI)
+                        garyUI->setSendButtonText("send to gary");
                 }
             }
             else
@@ -2325,7 +2045,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Gary request failed: " + errorMsg);
-                
+
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
@@ -2341,10 +2061,12 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                         }
                     });
                 }
-                
+
                 // Reset button text on error
                 if (garyUI)
                     garyUI->setSendButtonText("send to gary");
+
+                cancelGaryOperation();
             }
 
 
@@ -2354,9 +2076,17 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
 void Gary4juceAudioProcessorEditor::continueMusic()
 {
+    setActiveOp(ActiveOp::GaryContinue);
+
+    auto cancelContinueOperation = [this]() {
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+    };
+
     if (!hasOutputAudio)
     {
         showStatusMessage("no audio to continue", 2000);
+        cancelContinueOperation();
         return;
     }
 
@@ -2364,6 +2094,7 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     if (!outputAudioFile.exists())
     {
         showStatusMessage("output file not found", 2000);
+        cancelContinueOperation();
         return;
     }
 
@@ -2372,6 +2103,7 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     if (!outputAudioFile.loadFileAsData(audioData))
     {
         showStatusMessage("failed to read audio file", 3000);
+        cancelContinueOperation();
         return;
     }
 
@@ -2418,6 +2150,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
     showStatusMessage("requesting continuation...", 3000);
 
+    auto cancelContinueOperation = [this]() {
+        isGenerating = false;
+        continueInProgress = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+    };
+
     // Reset generation state immediately
     isGenerating = true;
     continueInProgress = true;  // Mark this as a continue operation
@@ -2438,7 +2177,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     DBG("Captured model index for continue: " + juce::String(capturedModelIndex));
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, audioData, capturedModelIndex]() {
+    juce::Thread::launch([this, audioData, capturedModelIndex, cancelContinueOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Continue request aborted - generation stopped");
@@ -2533,7 +2272,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode]() {
+        juce::MessageManager::callAsync([this, responseText, statusCode, cancelContinueOperation]() {
             // SAFETY: Don't process if generation stopped
             if (!isGenerating) {
                 DBG("Continue callback aborted");
@@ -2563,6 +2302,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                         showStatusMessage("continue failed: " + error, 5000);
                         if (garyUI)
                             garyUI->setContinueButtonText("continue");
+
+                        cancelContinueOperation();
                     }
                 }
                 else
@@ -2570,6 +2311,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                     showStatusMessage("invalid response format", 3000);
                     if (garyUI)
                         garyUI->setContinueButtonText("continue");
+
+                    cancelContinueOperation();
                 }
             }
             else
@@ -2613,6 +2356,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 
                 if (garyUI)
                     garyUI->setContinueButtonText("continue");
+
+                cancelContinueOperation();
             }
             });
         });
@@ -2620,17 +2365,28 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
 void Gary4juceAudioProcessorEditor::retryLastContinuation()
 {
+    setActiveOp(ActiveOp::GaryRetry);
+
+    auto cancelRetryOperation = [this]() {
+        isGenerating = false;
+        continueInProgress = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+    };
+
     // Check if we have a session ID from the last continue operation
     juce::String sessionId = audioProcessor.getCurrentSessionId();
     if (sessionId.isEmpty())
     {
         showStatusMessage("no previous continuation to retry", 3000);
+        cancelRetryOperation();
         return;
     }
 
     if (!isConnected)
     {
         showStatusMessage("backend not connected - check connection first");
+        cancelRetryOperation();
         return;
     }
 
@@ -2663,7 +2419,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     showStatusMessage("retrying last continuation...", 2000);
 
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([this, sessionId]() {
+    juce::Thread::launch([this, sessionId, cancelRetryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Retry request aborted - generation stopped");
@@ -2729,7 +2485,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode]() {
+        juce::MessageManager::callAsync([this, responseText, statusCode, cancelRetryOperation]() {
             // SAFETY: Don't process if generation stopped
             if (!isGenerating) {
                 DBG("Retry callback aborted");
@@ -2756,12 +2512,20 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                         auto error = obj->getProperty("error").toString();
                         showStatusMessage("retry failed: " + error, 5000);
                         updateRetryButtonState();
+                        if (garyUI)
+                            garyUI->setRetryButtonText("retry");
+
+                        cancelRetryOperation();
                     }
                 }
                 else
                 {
                     showStatusMessage("invalid retry response format", 3000);
                     updateRetryButtonState();
+                    if (garyUI)
+                        garyUI->setRetryButtonText("retry");
+
+                    cancelRetryOperation();
                 }
             }
             else
@@ -2802,58 +2566,15 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                         }
                     });
                 }
-                
+
                 updateRetryButtonState();
+                if (garyUI)
+                    garyUI->setRetryButtonText("retry");
+
+                cancelRetryOperation();
             }
         });
     });
-}
-
-void Gary4juceAudioProcessorEditor::styleSmartLoopButton()
-{
-    // Remove rounded corners and make rectangular
-    generateAsLoopButton.setRadioGroupId(0);  // Clear any radio group
-
-    if (generateAsLoop)
-    {
-        // Active state - enabled smart loop
-        generateAsLoopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::orange);
-        generateAsLoopButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-        generateAsLoopButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-    }
-    else
-    {
-        // Inactive state - regular generation
-        generateAsLoopButton.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgrey);
-        generateAsLoopButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
-        generateAsLoopButton.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
-    }
-}
-
-void Gary4juceAudioProcessorEditor::styleLoopTypeButton(CustomButton& button, bool selected)
-{
-    if (selected)
-    {
-        // Selected state - use Gary style for visual emphasis (red theme)
-        button.setButtonStyle(CustomButton::ButtonStyle::Gary);
-    }
-    else
-    {
-        // Unselected state - standard button style
-        button.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    }
-}
-
-void Gary4juceAudioProcessorEditor::setLoopType(const juce::String& type)
-{
-    currentLoopType = type;
-
-    // Update button styling to show selection
-    styleLoopTypeButton(loopTypeAutoButton, type == "auto");
-    styleLoopTypeButton(loopTypeDrumsButton, type == "drums");
-    styleLoopTypeButton(loopTypeInstrumentsButton, type == "instruments");
-
-    DBG("Loop type set to: " + type);
 }
 
 // Replace your entire sendToJerry() function with this updated version:
@@ -2902,7 +2623,8 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     }
 
     // Button text feedback and status during processing
-    generateWithJerryButton.setButtonText("generating");
+    if (jerryUI)
+        jerryUI->setGenerateButtonText("generating");
     showStatusMessage(statusText, 2000);
 
     // Create HTTP request in background thread
@@ -3002,8 +2724,8 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                         if (audioBase64.isNotEmpty())
                         {
-                            // Reset button text on successful completion
-                            generateWithJerryButton.setButtonText("generate with jerry");
+                            if (jerryUI)
+                                jerryUI->setGenerateButtonText("generate with jerry");
                             
                             // Save generated audio (same as Gary's saveGeneratedAudio function)
                             saveGeneratedAudio(audioBase64);
@@ -3110,78 +2832,68 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 }
             }
 
-            // Reset button text on error
-            generateWithJerryButton.setButtonText("generate with jerry");
+            if (jerryUI)
+                jerryUI->setGenerateButtonText("generate with jerry");
             });
         });
-}
-
-void Gary4juceAudioProcessorEditor::updateLoopTypeVisibility()
-{
-    // In the horizontal layout, the type buttons are only visible when:
-    // 1. We're on Jerry tab (handled by switchToTab)
-    // 2. Smart loop toggle is enabled
-    bool showLoopType = generateAsLoop;
-
-    DBG("updateLoopTypeVisibility() - Smart loop enabled: " + juce::String(showLoopType ? "true" : "false"));
-
-    loopTypeAutoButton.setVisible(showLoopType);
-    loopTypeDrumsButton.setVisible(showLoopType);
-    loopTypeInstrumentsButton.setVisible(showLoopType);
-
-    // Since we're in a horizontal layout, we need to trigger a layout update
-    // when visibility changes to ensure proper spacing
-    repaint();
 }
 
 void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
 {
     transformRecording = useRecording;
-    
-    // CRITICAL: Persist this state in processor
+
+    // Persist this state in processor so rest of app is aware
     audioProcessor.setTransformRecording(useRecording);
-    
+
     DBG("Terry audio source set to: " + juce::String(useRecording ? "Recording" : "Output"));
-    updateTerrySourceButtons();
+    if (terryUI)
+        terryUI->setAudioSourceRecording(useRecording);
+
+    updateTerryEnablementSnapshot();
 }
 
-void Gary4juceAudioProcessorEditor::updateTerrySourceButtons()
+void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()
 {
+    if (!terryUI)
+        return;
+
+    const bool recordingAvailable = savedSamples > 0;
+    const bool outputAvailable = hasOutputAudio;
+    terryUI->setAudioSourceAvailability(recordingAvailable, outputAvailable);
+
+    const bool hasVariation = currentTerryVariation >= 0;
+    const bool hasCustomPrompt = !currentTerryCustomPrompt.trim().isEmpty();
+
     bool canTransform = false;
-    
-    DBG("=== TERRY BUTTON UPDATE ===");
-    DBG("transformRecording: " + juce::String(transformRecording ? "true" : "false"));
-    DBG("savedSamples: " + juce::String(savedSamples));
-    DBG("hasOutputAudio: " + juce::String(hasOutputAudio ? "true" : "false"));
-    DBG("isConnected: " + juce::String(isConnected ? "true" : "false"));
-    DBG("isGenerating: " + juce::String(isGenerating ? "true" : "false"));
-
     if (transformRecording)
-    {
-        canTransform = (savedSamples > 0 && isConnected);
-        DBG("Using recording source - canTransform: " + juce::String(canTransform ? "true" : "false"));
-    }
+        canTransform = recordingAvailable;
     else
+        canTransform = outputAvailable;
+
+    canTransform = canTransform && isConnected && (hasVariation || hasCustomPrompt);
+
+    const bool undoAvailable = audioProcessor.getUndoTransformAvailable() &&
+        !audioProcessor.getCurrentSessionId().isEmpty();
+
+    terryUI->setButtonsEnabled(canTransform, isGenerating, undoAvailable);
+
+    if (!isGenerating)
     {
-        canTransform = (hasOutputAudio && isConnected);
-        DBG("Using output source - canTransform: " + juce::String(canTransform ? "true" : "false"));
+        terryUI->setTransformButtonText("transform with terry");
+        terryUI->setUndoButtonText("undo transform");
     }
-
-    transformWithTerryButton.setEnabled(canTransform && !isGenerating);
-    if (!isGenerating) {
-        transformWithTerryButton.setButtonText("transform with terry");
-    }
-
-    // Enable/disable radio buttons
-    transformRecordingButton.setEnabled(savedSamples > 0);
-    transformOutputButton.setEnabled(hasOutputAudio);
-
-    // REMOVE THIS LINE - let transform operations handle undo button:
-    // undoTransformButton.setEnabled(!currentSessionId.isEmpty() && !isGenerating);
 }
 
 void Gary4juceAudioProcessorEditor::sendToTerry()
 {
+    setActiveOp(ActiveOp::TerryTransform);
+
+    auto cancelTerryOperation = [this]() {
+        isGenerating = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+    };
+
     // Reset generation state immediately (like Gary)
     isGenerating = true;
     generationProgress = 0;
@@ -3202,8 +2914,8 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     // Basic validation checks (like Gary and Jerry)
     if (!isConnected)
     {
-        isGenerating = false;
         showStatusMessage("backend not connected - check connection first");
+        cancelTerryOperation();
         return;
     }
 
@@ -3213,8 +2925,9 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
     if (!hasVariation && !hasCustomPrompt)
     {
-        isGenerating = false;
         showStatusMessage("please select a variation OR enter a custom prompt");
+        cancelTerryOperation();
+        updateAllGenerationButtonStates();
         return;
     }
 
@@ -3223,8 +2936,9 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     {
         if (savedSamples <= 0)
         {
-            isGenerating = false;
             showStatusMessage("no recording available - save your recording first");
+            cancelTerryOperation();
+            updateAllGenerationButtonStates();
             return;
         }
     }
@@ -3232,23 +2946,15 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     {
         if (!hasOutputAudio)
         {
-            isGenerating = false;
             showStatusMessage("no output audio available - generate with gary or jerry first");
+            cancelTerryOperation();
+            updateAllGenerationButtonStates();
             return;
         }
     }
 
     // Get the variation names array (matches your backend list)
-    const juce::StringArray variationNames = {
-        "accordion_folk", "banjo_bluegrass", "piano_classical", "celtic",
-        "strings_quartet", "synth_retro", "synth_modern", "synth_edm",
-        "lofi_chill", "synth_bass", "rock_band", "cinematic_epic",
-        "retro_rpg", "chiptune", "steel_drums", "gamelan_fusion",
-        "music_box", "trap_808", "lo_fi_drums", "boom_bap",
-        "percussion_ensemble", "future_bass", "synthwave_retro", "melodic_techno",
-        "dubstep_wobble", "glitch_hop", "digital_disruption", "circuit_bent",
-        "orchestral_glitch", "vapor_drums", "industrial_textures", "jungle_breaks"
-    };
+    const auto& variationNames = terryVariationNames.isEmpty() ? getTerryVariationNames() : terryVariationNames;
 
     // Determine which audio file to read
     juce::File audioFile;
@@ -3268,8 +2974,9 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
     if (!audioFile.exists())
     {
-        isGenerating = false;
         showStatusMessage("audio file not found - " + audioFile.getFileName());
+        cancelTerryOperation();
+        updateAllGenerationButtonStates();
         return;
     }
 
@@ -3277,15 +2984,17 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     juce::MemoryBlock audioData;
     if (!audioFile.loadFileAsData(audioData))
     {
-        isGenerating = false;
         showStatusMessage("failed to read audio file");
+        cancelTerryOperation();
+        updateAllGenerationButtonStates();
         return;
     }
 
     if (audioData.getSize() == 0)
     {
-        isGenerating = false;
         showStatusMessage("audio file is empty");
+        cancelTerryOperation();
+        updateAllGenerationButtonStates();
         return;
     }
 
@@ -3298,11 +3007,12 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     DBG("Terry solver: " + juce::String(useMidpointSolver ? "midpoint" : "euler"));
 
     // Button text feedback and status during processing
-    transformWithTerryButton.setButtonText("transforming...");
+    if (terryUI)
+        terryUI->setTransformButtonText("transforming...");
     showStatusMessage("sending audio to terry for transformation...");
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
-    juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt]() {
+    juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt, cancelTerryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Terry request aborted - generation stopped");
@@ -3392,7 +3102,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
         }
 
         // Handle response on main thread (same pattern as Gary)
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, cancelTerryOperation]() {
             // SAFETY: Don't process if generation stopped
             if (!isGenerating) {
                 DBG("Terry callback aborted");
@@ -3421,19 +3131,27 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                         startPollingForResults(sessionId);  // This sets currentSessionId = sessionId
 
                         // Disable undo button until transform completes
-                        undoTransformButton.setEnabled(false);
+                        updateTerryEnablementSnapshot();
                     }
                     else
                     {
                         juce::String error = responseObj->getProperty("error").toString();
                         showStatusMessage("terry error: " + error, 5000);
                         DBG("Terry server error: " + error);
+
+                        if (terryUI)
+                            terryUI->setTransformButtonText("transform with terry");
+                        cancelTerryOperation();
                     }
                 }
                 else
                 {
                     showStatusMessage("invalid JSON response from terry", 4000);
                     DBG("Failed to parse Terry JSON response: " + responseText.substring(0, 100));
+
+                    if (terryUI)
+                        terryUI->setTransformButtonText("transform with terry");
+                    cancelTerryOperation();
                 }
             }
             else
@@ -3474,12 +3192,15 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                         }
                     });
                 }
-                
-                transformWithTerryButton.setButtonText("transform with terry");
+
+                if (terryUI)
+                    terryUI->setTransformButtonText("transform with terry");
+
+                cancelTerryOperation();
             }
 
             // Re-enable transform button (same pattern as Gary/Jerry)
-            updateTerrySourceButtons(); // This will set the right enabled state
+            updateTerryEnablementSnapshot();
 
             });
         });
@@ -3500,8 +3221,9 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
     // Disable undo button during request
     audioProcessor.setUndoTransformAvailable(false);
-    undoTransformButton.setEnabled(false);
-    undoTransformButton.setButtonText("undoing...");
+    updateTerryEnablementSnapshot();
+    if (terryUI)
+        terryUI->setUndoButtonText("undoing...");
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, sessionId]() {
@@ -3600,9 +3322,11 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
                             // Clear session ID since undo is complete
                             audioProcessor.clearCurrentSessionId();
-                            undoTransformButton.setEnabled(false);  // Disable undo button
                             audioProcessor.setRetryAvailable(false);          // ADD THIS
-                            undoTransformButton.setButtonText("undo transform");  // Reset button text
+                            updateTerryEnablementSnapshot();
+                            if (terryUI)
+                                terryUI->setUndoButtonText("undo transform");
+                            updateRetryButtonState();
                         }
                         else
                         {
@@ -3610,8 +3334,9 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                             DBG("Terry undo success but missing audio data");
                             // Re-enable undo button since this is an error case
                             audioProcessor.setUndoTransformAvailable(true);
-                            undoTransformButton.setEnabled(true);
-                            undoTransformButton.setButtonText("undo transform");
+                            updateTerryEnablementSnapshot();
+                            if (terryUI)
+                                terryUI->setUndoButtonText("undo transform");
                         }
                     }
                     else
@@ -3619,20 +3344,20 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                         auto error = responseObj->getProperty("error").toString();
                         showStatusMessage("undo failed: " + error, 4000);
                         DBG("Terry undo server error: " + error);
-                        // Re-enable undo button since this is an error case
                         audioProcessor.setUndoTransformAvailable(true);
-                        undoTransformButton.setEnabled(true);
-                        undoTransformButton.setButtonText("undo transform");
+                        updateTerryEnablementSnapshot();
+                        if (terryUI)
+                            terryUI->setUndoButtonText("undo transform");
                     }
                 }
                 else
                 {
                     showStatusMessage("invalid undo response format", 3000);
                     DBG("Failed to parse Terry undo JSON response");
-                    // Re-enable undo button since this is an error case
                     audioProcessor.setUndoTransformAvailable(true);
-                    undoTransformButton.setEnabled(true);
-                    undoTransformButton.setButtonText("undo transform");
+                    updateTerryEnablementSnapshot();
+                    if (terryUI)
+                        terryUI->setUndoButtonText("undo transform");
                 }
             }
             else
@@ -3649,10 +3374,10 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Terry undo request failed: " + errorMsg);
-                // Re-enable undo button since this is an error case
                 audioProcessor.setUndoTransformAvailable(true);
-                undoTransformButton.setEnabled(true);
-                undoTransformButton.setButtonText("undo transform");
+                updateTerryEnablementSnapshot();
+                if (terryUI)
+                    terryUI->setUndoButtonText("undo transform");
             }
             });
         });
@@ -4799,6 +4524,22 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
     }
 }
 
+juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
+{
+    switch (getActiveOp())
+    {
+        case ActiveOp::TerryTransform:
+            return "transforming";
+        case ActiveOp::GaryGenerate:
+        case ActiveOp::GaryContinue:
+        case ActiveOp::GaryRetry:
+        case ActiveOp::JerryGenerate:
+            return "cooking";
+        default:
+            return "processing";
+    }
+}
+
 void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const juce::Rectangle<int>& area)
 {
     // Black background
@@ -4859,25 +4600,39 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
         if (isCurrentlyQueued)
         {
             // Show queue status instead of confusing "cooking: 0%"
-            if (currentTab == ModelTab::Terry)
+            switch (getActiveOp())
             {
-                displayText = "queued for transform";
-            }
-            else
-            {
-                displayText = "queued for generation";
+                case ActiveOp::TerryTransform:
+                    displayText = "queued for transform";
+                    break;
+                case ActiveOp::GaryGenerate:
+                case ActiveOp::GaryContinue:
+                case ActiveOp::GaryRetry:
+                case ActiveOp::JerryGenerate:
+                    displayText = "queued for generation";
+                    break;
+                default:
+                    displayText = "queued for processing";
+                    break;
             }
         }
         else
         {
             // Show traditional progress when actually processing
-            if (currentTab == ModelTab::Terry)
+            switch (getActiveOp())
             {
-                displayText = "transforming: " + juce::String(generationProgress) + "%";
-            }
-            else
-            {
-                displayText = "cooking: " + juce::String(generationProgress) + "%";
+                case ActiveOp::TerryTransform:
+                    displayText = "transforming: " + juce::String(generationProgress) + "%";
+                    break;
+                case ActiveOp::GaryGenerate:
+                case ActiveOp::GaryContinue:
+                case ActiveOp::GaryRetry:
+                case ActiveOp::JerryGenerate:
+                    displayText = "cooking: " + juce::String(generationProgress) + "%";
+                    break;
+                default:
+                    displayText = "processing: " + juce::String(generationProgress) + "%";
+                    break;
             }
         }
 
@@ -6097,7 +5852,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     audioProcessor.setUndoTransformAvailable(false);
     audioProcessor.setRetryAvailable(false);
     updateRetryButtonState();
-    updateTerrySourceButtons();
+    updateTerryEnablementSnapshot();
 
     // Force a repaint to update the waveform display
     repaint();
@@ -6444,156 +6199,37 @@ void Gary4juceAudioProcessorEditor::resized()
         garyHelpButton.setBounds(helpBounds);
     }
 
-// ========== JERRY CONTROLS LAYOUT (WITH HORIZONTAL SMART LOOP ROW) ==========
-    auto jerryBounds = modelControlsArea;
+    if (jerryUI)
+        jerryUI->setBounds(modelControlsArea);
 
-    // Create main FlexBox for Jerry controls (vertical layout)
-    juce::FlexBox jerryFlexBox;
-    jerryFlexBox.flexDirection = juce::FlexBox::Direction::column;
-    jerryFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    // 1. Jerry section title
-    juce::FlexItem jerryTitleItem(jerryLabel);
-    jerryTitleItem.height = 30;
-    jerryTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
-
-    // 2. Text prompt label
-    juce::FlexItem jerryPromptLabelItem(jerryPromptLabel);
-    jerryPromptLabelItem.height = 20;
-    jerryPromptLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
-
-    // 3. Text prompt editor
-    juce::FlexItem jerryPromptEditorItem(jerryPromptEditor);
-    jerryPromptEditorItem.height = 45;
-    jerryPromptEditorItem.margin = juce::FlexItem::Margin(0, 5, 8, 5);
-
-    // 4. CFG controls row
-    juce::Component jerryCfgRowComponent;
-    juce::FlexItem jerryCfgRowItem(jerryCfgRowComponent);
-    jerryCfgRowItem.height = 30;
-    jerryCfgRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
-
-    // 5. Steps controls row
-    juce::Component jerryStepsRowComponent;
-    juce::FlexItem jerryStepsRowItem(jerryStepsRowComponent);
-    jerryStepsRowItem.height = 30;
-    jerryStepsRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
-
-    // 6. COMBINED smart loop row (toggle + type buttons in one horizontal row)
-    juce::Component smartLoopRowComponent;
-    juce::FlexItem smartLoopRowItem(smartLoopRowComponent);
-    smartLoopRowItem.height = 32;
-    smartLoopRowItem.margin = juce::FlexItem::Margin(5, 10, 5, 10);
-
-    // 7. BPM info label
-    juce::FlexItem jerryBpmItem(jerryBpmLabel);
-    jerryBpmItem.height = 20;
-    jerryBpmItem.margin = juce::FlexItem::Margin(3, 0, 8, 0);
-
-    // 8. Generate button
-    juce::FlexItem generateJerryItem(generateWithJerryButton);
-    generateJerryItem.height = 35;
-    generateJerryItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
-
-    // Add all items to Jerry FlexBox
-    jerryFlexBox.items.add(jerryTitleItem);
-    jerryFlexBox.items.add(jerryPromptLabelItem);
-    jerryFlexBox.items.add(jerryPromptEditorItem);
-    jerryFlexBox.items.add(jerryCfgRowItem);
-    jerryFlexBox.items.add(jerryStepsRowItem);
-    jerryFlexBox.items.add(smartLoopRowItem);  // Combined row
-    jerryFlexBox.items.add(jerryBpmItem);
-    jerryFlexBox.items.add(generateJerryItem);
-
-    // Perform layout for Jerry controls
-    jerryFlexBox.performLayout(jerryBounds);
-
-    // Position Jerry help icon next to title text (only if Jerry tab is active)
-    if (helpIcon && currentTab == ModelTab::Jerry)
+    if (helpIcon && currentTab == ModelTab::Jerry && jerryUI)
     {
-        auto jerryLabelBounds = jerryFlexBox.items[0].currentBounds.toNearestInt(); // Title item  
-        auto textWidth = jerryLabel.getFont().getStringWidth(jerryLabel.getText());
-        auto textStartX = jerryLabelBounds.getX() + (jerryLabelBounds.getWidth() - textWidth) / 2; // Center-aligned text start
-        auto jerryHelpArea = juce::Rectangle<int>(
-            textStartX + textWidth + 5,  // 5px to the right of actual text
-            jerryLabelBounds.getY() + (jerryLabelBounds.getHeight() - 20) / 2,
-            20, 20
-        );
-        jerryHelpButton.setBounds(jerryHelpArea);
+        auto titleBounds = jerryUI->getTitleBounds().translated(jerryUI->getX(), jerryUI->getY());
+        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("jerry (stable audio open small)"));
+        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
+        auto helpBounds = juce::Rectangle<int>(
+            textStartX + textWidth + 5,
+            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
+            20, 20);
+        jerryHelpButton.setBounds(helpBounds);
     }
 
-    // Extract calculated bounds for control rows
-    auto jerryCfgRowBounds = jerryFlexBox.items[3].currentBounds.toNearestInt();
-    auto jerryStepsRowBounds = jerryFlexBox.items[4].currentBounds.toNearestInt();
-    auto smartLoopRowBounds = jerryFlexBox.items[5].currentBounds.toNearestInt();  // Combined row
+    if (terryUI)
+        terryUI->setBounds(modelControlsArea);
 
-    // Layout CFG controls (unchanged)
-    juce::FlexBox jerryCfgFlexBox;
-    jerryCfgFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    jerryCfgFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem jerryCfgLabelItem(jerryCfgLabel);
-    jerryCfgLabelItem.width = 80;
-    jerryCfgLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-
-    juce::FlexItem jerryCfgSliderItem(jerryCfgSlider);
-    jerryCfgSliderItem.flexGrow = 1;
-    jerryCfgSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
-
-    jerryCfgFlexBox.items.add(jerryCfgLabelItem);
-    jerryCfgFlexBox.items.add(jerryCfgSliderItem);
-    jerryCfgFlexBox.performLayout(jerryCfgRowBounds);
-
-    // Layout Steps controls (unchanged)
-    juce::FlexBox jerryStepsFlexBox;
-    jerryStepsFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    jerryStepsFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    juce::FlexItem jerryStepsLabelItem(jerryStepsLabel);
-    jerryStepsLabelItem.width = 80;
-    jerryStepsLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-
-    juce::FlexItem jerryStepsSliderItem(jerryStepsSlider);
-    jerryStepsSliderItem.flexGrow = 1;
-    jerryStepsSliderItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
-
-    jerryStepsFlexBox.items.add(jerryStepsLabelItem);
-    jerryStepsFlexBox.items.add(jerryStepsSliderItem);
-    jerryStepsFlexBox.performLayout(jerryStepsRowBounds);
-
-    // NEW: Layout the combined smart loop row (horizontal layout)
-    juce::FlexBox smartLoopFlexBox;
-    smartLoopFlexBox.flexDirection = juce::FlexBox::Direction::row;
-    smartLoopFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-
-    // Smart loop toggle button (left side)
-    juce::FlexItem smartLoopToggleItem(generateAsLoopButton);
-    smartLoopToggleItem.width = 140;  // Fixed width for "Generate as smart loop"
-    smartLoopToggleItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
-
-    // Auto button (only visible when smart loop is enabled)
-    juce::FlexItem loopTypeAutoItem(loopTypeAutoButton);
-    loopTypeAutoItem.width = 50;  // Compact width
-    loopTypeAutoItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
-
-    // Drums button
-    juce::FlexItem loopTypeDrumsItem(loopTypeDrumsButton);
-    loopTypeDrumsItem.width = 55;  // Compact width
-    loopTypeDrumsItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
-
-    // Instruments button
-    juce::FlexItem loopTypeInstrumentsItem(loopTypeInstrumentsButton);
-    loopTypeInstrumentsItem.width = 80;  // Compact width
-    loopTypeInstrumentsItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);  // No margins - will touch
-
-    // Add items to horizontal FlexBox
-    smartLoopFlexBox.items.add(smartLoopToggleItem);
-    smartLoopFlexBox.items.add(loopTypeAutoItem);
-    smartLoopFlexBox.items.add(loopTypeDrumsItem);
-    smartLoopFlexBox.items.add(loopTypeInstrumentsItem);
-
-    // Layout the combined smart loop row
-    smartLoopFlexBox.performLayout(smartLoopRowBounds);
+    if (helpIcon && currentTab == ModelTab::Terry && terryUI)
+    {
+        auto titleBounds = terryUI->getTitleBounds().translated(terryUI->getX(), terryUI->getY());
+        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("terry (melodyflow)"));
+        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
+        auto helpBounds = juce::Rectangle<int>(
+            textStartX + textWidth + 5,
+            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
+            20, 20);
+        terryHelpButton.setBounds(helpBounds);
+    }
 
     if (dariusUI)
         dariusUI->setBounds(modelControlsArea);
@@ -6810,14 +6446,16 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
     
     // Update connection status
     updateConnectionStatus(false);
-    
+
     // Update all button states centrally
     updateAllGenerationButtonStates();
-    
+
     // Show user-friendly error with communication options
     showBackendDisconnectionDialog();
-    
+
     repaint();
+
+    setActiveOp(ActiveOp::None);
 }
 
 void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& reason)
@@ -6834,11 +6472,13 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
     
     // Update all button states centrally
     updateAllGenerationButtonStates();
-    
+
     // Show error message
     showStatusMessage(reason, 5000);
-    
+
     repaint();
+
+    setActiveOp(ActiveOp::None);
 }
 
 void Gary4juceAudioProcessorEditor::resetStallDetection()

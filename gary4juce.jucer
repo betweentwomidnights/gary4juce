@@ -6,6 +6,10 @@
   <MAINGROUP id="DH6yqq" name="gary4juce">
     <GROUP id="{28B6528D-59DF-0DCA-1E43-B839575ABC1A}" name="New Group"/>
     <GROUP id="{CDB2FDFC-AC96-7A2F-13CC-D983E5D40D90}" name="Components">
+      <GROUP id="{A022E90B-1D83-85D7-E010-3266D3B87D96}" name="Terry">
+        <FILE id="T2PJUJ" name="TerryUI.cpp" compile="1" resource="0" file="Source/Components/Terry/TerryUI.cpp"/>
+        <FILE id="QwPDAZ" name="TerryUI.h" compile="0" resource="0" file="Source/Components/Terry/TerryUI.h"/>
+      </GROUP>
       <GROUP id="{C347B464-81BE-08DB-7D1E-28D13CD23C19}" name="Base">
         <FILE id="hsfnS0" name="CustomButton.cpp" compile="1" resource="0"
               file="Source/Components/Base/CustomButton.cpp"/>
@@ -29,6 +33,10 @@
       <GROUP id="{7F2D4AFD-0B5D-4DD7-B9B7-9F9F4BB5AC4F}" name="Gary">
         <FILE id="G7c6QK" name="GaryUI.cpp" compile="1" resource="0" file="Source/Components/Gary/GaryUI.cpp"/>
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
+      </GROUP>
+      <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
+        <FILE id="YwJazQ" name="JerryUI.cpp" compile="1" resource="0" file="Source/Components/Jerry/JerryUI.cpp"/>
+        <FILE id="SHFQj0" name="JerryUI.h" compile="0" resource="0" file="Source/Components/Jerry/JerryUI.h"/>
       </GROUP>
       <GROUP id="{D101353F-917C-44E4-6DDE-5EE9CAFC9816}" name="Layout"/>
       <GROUP id="{C8878210-05F9-1555-C130-31CE216D7E81}" name="Specialized"/>

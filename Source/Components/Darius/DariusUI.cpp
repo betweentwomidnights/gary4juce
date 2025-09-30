@@ -189,7 +189,7 @@ DariusUI::DariusUI()
     genLoopSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     genLoopSlider.setRange(0.0, 1.0, 0.01);
     genLoopSlider.setValue(genLoopInfluence, juce::dontSendNotification);
-    genLoopSlider.setTooltip("How strongly the loop steers generation (0.00–1.00)");
+    genLoopSlider.setTooltip("How strongly the loop steers generation (0.00-1.00)");
     genLoopSlider.onValueChange = [this]() {
         genLoopInfluence = genLoopSlider.getValue();
         updateGenLoopLabel();
