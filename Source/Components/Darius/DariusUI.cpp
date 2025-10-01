@@ -1175,8 +1175,16 @@ void DariusUI::layoutGenSteeringUI(juce::Rectangle<int>& area)
         for (int i = 0; i < showCount; ++i)
         {
             auto row = area.removeFromTop(sliderH);
-            if (auto* label = genCentroidLabels[i]) label->setBounds(row.removeFromLeft(30));
-            if (auto* slider = genCentroidSliders[i]) slider->setBounds(row.removeFromLeft(colW - 36));
+
+            if (auto* label = genCentroidLabels[i]) {
+                label->setVisible(true);                  // <-- add this
+                label->setBounds(row.removeFromLeft(30));
+            }
+            if (auto* slider = genCentroidSliders[i]) {
+                slider->setVisible(true);                 // <-- and this
+                slider->setBounds(row.removeFromLeft(colW - 36));
+            }
+
             area.removeFromTop(4);
         }
         area.removeFromTop(6);

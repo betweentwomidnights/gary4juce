@@ -705,7 +705,13 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     // Darius controls visibility
     const bool showDarius = (tab == ModelTab::Darius);
     if (dariusUI)
+    {
         dariusUI->setVisible(showDarius);
+
+        // Only fetch when showing Darius (avoid needless calls when leaving the tab)
+        if (showDarius)
+            fetchDariusAssetsStatus();  // async; callback should re-check currentTab == ModelTab::Darius
+    }
 
     // Help button visibility
     if (helpIcon)
