@@ -126,7 +126,8 @@ private:
         GaryContinue,
         GaryRetry,
         TerryTransform,
-        JerryGenerate
+        JerryGenerate,
+        DariusGenerate
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -215,8 +216,20 @@ private:
     juce::String getGenAudioFilePath() const;
     void onClickGenerate();
     void postDariusGenerate();
-    juce::URL makeGenerateURL() const;
+    juce::URL makeGenerateURL(const juce::String& requestId) const;  // NEW
     void handleDariusGenerateResponse(const juce::String& responseText, int statusCode);
+
+    bool        dariusIsPollingProgress = false;
+    juce::String dariusProgressRequestId;
+    int         dariusProgressPollTick = 0;   // ticks within timerCallback
+    int         dariusLastKnownPercent = 0;   // for local smoothing if you prefer
+    int         dariusTargetPercent = 0;
+    juce::int64 dariusLastUpdateMs = 0;
+
+    void startDariusProgressPoll(const juce::String& requestId);
+    void stopDariusProgressPoll();
+    void pollDariusProgress();                       // GET /progress?request_id=...
+    juce::URL makeDariusProgressURL(const juce::String& reqId) const;
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";

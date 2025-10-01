@@ -804,6 +804,14 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     }
 
+    // Darius progress polling cadence (every ~250ms)
+    if (dariusIsPollingProgress) {
+        if (++dariusProgressPollTick >= 5) { // 5 * 50ms = 250ms
+            dariusProgressPollTick = 0;
+            pollDariusProgress();
+        }
+    }
+
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
     if (isPlayingOutput)
     {
@@ -4148,7 +4156,7 @@ void Gary4juceAudioProcessorEditor::onClickGenerate()
 }
 
 
-juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL() const
+juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL(const juce::String& requestId) const
 {
     juce::String base = dariusBackendUrl.trim();
     if (!base.endsWith("/")) base += "/";
@@ -4191,7 +4199,8 @@ juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL() const
         .withParameter("topk", juce::String(topK))
         .withParameter("loudness_mode", "auto")
         .withParameter("loudness_headroom_db", "1.0")
-        .withParameter("intro_bars_to_drop", "0");
+        .withParameter("intro_bars_to_drop", "0")
+        .withParameter("request_id", requestId);
 
     if (genAssetsAvailable())
     {
@@ -4208,17 +4217,33 @@ juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL() const
 
 void Gary4juceAudioProcessorEditor::postDariusGenerate()
 {
-    juce::Thread::launch([this]()
-        {
-            juce::URL url = makeGenerateURL();
+    // Create request_id and start polling immediately so UI shows 0%
+    const juce::String reqId = juce::Uuid().toString();
+    startDariusProgressPoll(reqId);
 
+    // mark UI busy state (reuse your existing flags)
+    isGenerating = true;
+    genIsGenerating = true;
+    setActiveOp(ActiveOp::DariusGenerate);
+    generationProgress = 0;
+    targetProgress = 0;
+    lastKnownProgress = 0;
+    smoothProgressAnimation = false;
+    if (dariusUI) dariusUI->setGenerating(true);
+
+    // Build the URL with request_id included
+    juce::URL url = makeGenerateURL(reqId);
+
+    // Fire the POST on a worker thread
+    juce::Thread::launch([this, url]()
+        {
             juce::String responseText;
             int statusCode = 0;
 
             try
             {
                 auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inPostData)
-                    .withHttpRequestCmd("POST")                               // belt & suspenders
+                    .withHttpRequestCmd("POST")
                     .withConnectionTimeoutMs(180000);
 
                 auto stream = url.createInputStream(options);
@@ -4241,51 +4266,130 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
         });
 }
 
+
 void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::String& responseText, int statusCode)
 {
     auto finish = [this]()
         {
+            stopDariusProgressPoll();            // <-- ensure we stop polling
+
             genIsGenerating = false;
-            if (dariusUI)
-                dariusUI->setGenerating(false);
+            if (dariusUI) dariusUI->setGenerating(false);
 
             isGenerating = false;
-            generationProgress = 0;
+
+            // snap to 100 on success; on error we’ll reset below
+            // (if you prefer, leave whatever the poller last reported)
             updateAllGenerationButtonStates();
+            resized();
+            repaint();
         };
 
     if (responseText.isEmpty())
     {
-        // Treat empty as timeout; don’t crash the UX—just reset controls.
         showStatusMessage(statusCode == 0 ? "generate: no connection"
             : "generate error (HTTP " + juce::String(statusCode) + ")", 3500);
+        generationProgress = 0;             // reset on error
         finish();
         return;
     }
 
     juce::var parsed;
     try { parsed = juce::JSON::parse(responseText); }
-    catch (...) { showStatusMessage("invalid generate response", 3000); finish(); return; }
-
-    juce::String audio64;
-    if (auto* o = parsed.getDynamicObject())
-    {
-        audio64 = o->getProperty("audio_base64").toString();
-        // Optional: you can read o->getProperty("metadata") and display bpm/bars, etc.
-    }
-
-    if (audio64.isEmpty())
-    {
-        showStatusMessage("generate failed (no audio)", 3000);
+    catch (...) {
+        showStatusMessage("invalid generate response", 3000);
+        generationProgress = 0;
         finish();
         return;
     }
 
-    // Save to myOutput.wav and refresh the waveform (you already have this helper)
-    saveGeneratedAudio(audio64);
+    juce::String audio64;
+    if (auto* o = parsed.getDynamicObject())
+        audio64 = o->getProperty("audio_base64").toString();
 
+    if (audio64.isEmpty())
+    {
+        showStatusMessage("generate failed (no audio)", 3000);
+        generationProgress = 0;
+        finish();
+        return;
+    }
+
+    // success
+    saveGeneratedAudio(audio64);
+    generationProgress = 100;               // snap to full
+    showStatusMessage("Generated!", 1500);
     finish();
 }
+
+
+juce::URL Gary4juceAudioProcessorEditor::makeDariusProgressURL(const juce::String& reqId) const
+{
+    juce::URL u(dariusBackendUrl);                    // from DariusUI
+    return u.withNewSubPath("progress")
+        .withParameter("request_id", reqId);
+}
+
+void Gary4juceAudioProcessorEditor::startDariusProgressPoll(const juce::String& requestId)
+{
+    dariusProgressRequestId = requestId;
+    dariusIsPollingProgress = true;
+    dariusProgressPollTick = 0;
+    // ensure the main 50ms timer is running (you already startTimer(50) in ctor)
+}
+
+void Gary4juceAudioProcessorEditor::stopDariusProgressPoll()
+{
+    dariusIsPollingProgress = false;
+    dariusProgressRequestId.clear();
+}
+
+void Gary4juceAudioProcessorEditor::pollDariusProgress()
+{
+    if (!dariusIsPollingProgress || dariusProgressRequestId.isEmpty())
+        return;
+
+    auto url = makeDariusProgressURL(dariusProgressRequestId);
+
+    std::async(std::launch::async, [this, url]()
+        {
+            std::unique_ptr<juce::InputStream> s(url.createInputStream(false, nullptr, nullptr, {}, 10000));
+            if (!s) return;
+
+            auto jsonText = s->readEntireStreamAsString();
+            juce::var resp = juce::JSON::parse(jsonText);
+            if (!resp.isObject()) return;
+
+            if (auto* obj = resp.getDynamicObject())
+            {
+                // Use Identifiers and guard missing values
+                const juce::var pctVar = obj->getProperty(juce::Identifier("percent"));
+                const juce::var stageVar = obj->getProperty(juce::Identifier("stage"));
+
+                const int pct = pctVar.isVoid() ? 0 : (int)pctVar;
+                const juce::String stage = stageVar.toString();
+
+                juce::MessageManager::callAsync([this, pct, stage]()
+                    {
+                        if (!dariusIsPollingProgress) return;
+
+                        // feed your smoothing fields
+                        lastKnownProgress = generationProgress;
+                        targetProgress = juce::jlimit(0, 100, pct);
+                        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        smoothProgressAnimation = true;
+
+                        if (stage == "done" || stage == "error" || pct >= 100)
+                        {
+                            stopDariusProgressPoll();
+                            // leave isGenerating changes to the POST response handler
+                        }
+                    });
+            }
+        });
+}
+
+
 
 
 
