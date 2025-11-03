@@ -231,13 +231,36 @@ private:
     void pollDariusProgress();                       // GET /progress?request_id=...
     juce::URL makeDariusProgressURL(const juce::String& reqId) const;
 
+
+
+
+
+
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
     float currentJerryCfg = 1.0f;
     int currentJerrySteps = 8;
-    bool generateAsLoop = false;          // New: tracks smart loop toggle
-    juce::String currentLoopType = "auto"; // New: tracks selected loop type
+    bool generateAsLoop = false;
+    juce::String currentLoopType = "auto";
 
+    // Model selection state
+    int currentJerryModelIndex = 0;
+    juce::String currentJerryModelKey = "standard_saos";  // Keep for reference
+    juce::String currentJerryModelType = "standard";      // NEW: 'standard' or 'finetune'
+    juce::String currentJerryFinetuneRepo = "";           // NEW: e.g., 'thepatch/jerry_grunge'
+    juce::String currentJerryFinetuneCheckpoint = "";     // NEW: e.g., 'jerry_encoded_epoch=33-step=100.ckpt'
+    bool currentJerryIsFinetune = false;
+    juce::String currentJerrySamplerType = "pingpong";
+
+    void fetchJerryAvailableModels();
+    void handleJerryModelsResponse(const juce::String& responseText);
+
+
+
+    
+    
+    
+    
     std::unique_ptr<TerryUI> terryUI;
     juce::StringArray terryVariationNames;
 

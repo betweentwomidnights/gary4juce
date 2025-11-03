@@ -185,6 +185,36 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         sendToJerry();
     };
 
+    jerryUI->onModelChanged = [this](int index, bool isFinetune)
+        {
+            DBG("Jerry model changed to index " + juce::String(index) +
+                " (isFinetune: " + juce::String(isFinetune ? "true" : "false") + ")");
+
+            currentJerryModelIndex = index;
+            currentJerryIsFinetune = isFinetune;
+
+            if (jerryUI)
+            {
+                currentJerryModelKey = jerryUI->getSelectedModelKey();
+                currentJerryModelType = jerryUI->getSelectedModelType();
+                currentJerryFinetuneRepo = jerryUI->getSelectedFinetuneRepo();
+                currentJerryFinetuneCheckpoint = jerryUI->getSelectedFinetuneCheckpoint();
+                currentJerrySamplerType = jerryUI->getSelectedSamplerType();
+
+                DBG("Selected model components:");
+                DBG("  Type: " + currentJerryModelType);
+                DBG("  Repo: " + currentJerryFinetuneRepo);
+                DBG("  Checkpoint: " + currentJerryFinetuneCheckpoint);
+                DBG("  Sampler: " + currentJerrySamplerType);
+            }
+        };
+
+    jerryUI->onSamplerTypeChanged = [this](const juce::String& samplerType)
+        {
+            currentJerrySamplerType = samplerType;
+            DBG("Jerry sampler type changed to: " + samplerType);
+        };
+
     jerryUI->setPromptText(currentJerryPrompt);
     jerryUI->setCfg(currentJerryCfg);
     jerryUI->setSteps(currentJerrySteps);
@@ -695,7 +725,15 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         garyUI->setVisibleForTab(showGary);
 
     if (jerryUI)
+    {
         jerryUI->setVisibleForTab(showJerry);
+
+        // NEW: Fetch available models when switching to Jerry tab
+        if (showJerry)
+        {
+            fetchJerryAvailableModels();
+        }
+    }
 
     // Terry controls visibility
     bool showTerry = (tab == ModelTab::Terry);
@@ -2591,7 +2629,191 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     });
 }
 
-// Replace your entire sendToJerry() function with this updated version:
+
+
+
+
+
+
+
+
+
+
+// JERRY API CALLS
+
+void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
+{
+    if (!isConnected)
+    {
+        DBG("Not connected - skipping model fetch");
+        return;
+    }
+
+    juce::Thread::launch([this]()
+        {
+            // Determine endpoint based on connection type (same pattern as sendToJerry)
+            juce::String endpoint = audioProcessor.getIsUsingLocalhost()
+                ? "/models/status"           // Localhost: no /audio prefix
+                : "/audio/models/status";    // Remote: requires /audio prefix
+
+            juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000)
+            ));
+
+            juce::String responseText;
+            if (stream != nullptr)
+                responseText = stream->readEntireStreamAsString();
+
+            juce::MessageManager::callAsync([this, responseText]()
+                {
+                    handleJerryModelsResponse(responseText);
+                });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String& responseText)
+{
+    if (responseText.isEmpty())
+    {
+        DBG("Empty models response");
+        return;
+    }
+
+    DBG("=== RAW MODELS RESPONSE ===");
+    DBG("Response length: " + juce::String(responseText.length()) + " characters");
+
+    try
+    {
+        auto parsed = juce::JSON::parse(responseText);
+
+        if (!parsed.isObject())
+        {
+            DBG("Invalid models response format - not an object");
+            return;
+        }
+
+        auto* obj = parsed.getDynamicObject();
+        if (!obj || !obj->hasProperty("model_details"))
+        {
+            DBG("Response missing 'model_details' property");
+            return;
+        }
+
+        auto modelDetails = obj->getProperty("model_details");
+        if (!modelDetails.isObject())
+        {
+            DBG("model_details is not an object");
+            return;
+        }
+
+        // Parse models into component arrays
+        juce::StringArray modelNames;
+        juce::StringArray modelKeys;
+        juce::StringArray modelTypes;
+        juce::StringArray modelRepos;
+        juce::StringArray modelCheckpoints;
+        juce::Array<bool> isFinetune;
+
+        auto* detailsObj = modelDetails.getDynamicObject();
+        if (!detailsObj)
+        {
+            DBG("Failed to get model_details as dynamic object");
+            return;
+        }
+
+        DBG("Found " + juce::String(detailsObj->getProperties().size()) + " models in cache");
+
+        for (auto& entry : detailsObj->getProperties())
+        {
+            juce::String modelKey = entry.name.toString();
+            auto* modelData = entry.value.getDynamicObject();
+
+            if (modelData)
+            {
+                juce::String source = modelData->getProperty("source").toString();
+                juce::String type = modelData->getProperty("type").toString();
+
+                DBG("Processing model - Key: " + modelKey + ", Source: " + source + ", Type: " + type);
+
+                juce::String displayName;
+                juce::String repo;
+                juce::String checkpoint;
+
+                if (type == "standard")
+                {
+                    displayName = "Standard SAOS";
+                    repo = "";
+                    checkpoint = "";
+                }
+                else if (type == "finetune")
+                {
+                    // Parse source: "thepatch/jerry_grunge/jerry_encoded_epoch=33-step=100.ckpt"
+                    juce::StringArray parts;
+                    parts.addTokens(source, "/", "");
+
+                    if (parts.size() >= 3)
+                    {
+                        repo = parts[0] + "/" + parts[1];  // "thepatch/jerry_grunge"
+                        checkpoint = parts[2];              // "jerry_encoded_epoch=33-step=100.ckpt"
+
+                        // Create display name from middle part
+                        displayName = parts[1].replace("_", " ");
+
+                        // Capitalize each word
+                        juce::StringArray words;
+                        words.addTokens(displayName, " ", "");
+                        displayName.clear();
+                        for (auto& word : words)
+                        {
+                            if (word.isNotEmpty())
+                            {
+                                displayName += word.substring(0, 1).toUpperCase() +
+                                    word.substring(1).toLowerCase() + " ";
+                            }
+                        }
+                        displayName = displayName.trim();
+                    }
+                    else
+                    {
+                        displayName = "Unknown Finetune";
+                        repo = source;
+                        checkpoint = "";
+                    }
+                }
+                else
+                {
+                    displayName = "Unknown Model";
+                    repo = "";
+                    checkpoint = "";
+                }
+
+                modelNames.add(displayName);
+                modelKeys.add(modelKey);
+                modelTypes.add(type);
+                modelRepos.add(repo);
+                modelCheckpoints.add(checkpoint);
+                isFinetune.add(type == "finetune");
+
+                DBG("Added model: " + displayName);
+                DBG("  Type: " + type + ", Repo: " + repo + ", Checkpoint: " + checkpoint);
+            }
+        }
+
+        if (jerryUI && modelNames.size() > 0)
+        {
+            jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
+                modelTypes, modelRepos, modelCheckpoints);
+            DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
+        }
+    }
+    catch (...)
+    {
+        DBG("Exception parsing models response");
+    }
+}
 
 void Gary4juceAudioProcessorEditor::sendToJerry()
 {
@@ -2626,12 +2848,18 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         // Remote backend requires /audio prefix
         endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
     }
+
     juce::String statusText = generateAsLoop ?
         "cooking a smart loop with jerry..." : "baking with jerry...";
 
+    DBG("=== JERRY GENERATION REQUEST ===");
     DBG("Jerry generating with prompt: " + fullPrompt);
     DBG("Endpoint: " + endpoint);
+    DBG("Model key: " + currentJerryModelKey);
+    DBG("Model is finetune: " + juce::String(currentJerryIsFinetune ? "true" : "false"));
+    DBG("Sampler type: " + currentJerrySamplerType);
     DBG("CFG: " + juce::String(currentJerryCfg, 1) + ", Steps: " + juce::String(currentJerrySteps));
+
     if (generateAsLoop) {
         DBG("Loop Type: " + currentLoopType);
     }
@@ -2643,22 +2871,27 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
     // Create HTTP request in background thread
     juce::Thread::launch([this, fullPrompt, endpoint]() {
-        
-
         auto startTime = juce::Time::getCurrentTime();
 
-        // Create JSON payload - different structure based on endpoint
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("prompt", fullPrompt);
         jsonRequest->setProperty("steps", currentJerrySteps);
         jsonRequest->setProperty("cfg_scale", currentJerryCfg);
         jsonRequest->setProperty("return_format", "base64");
-        jsonRequest->setProperty("seed", -1);  // Random seed
+        jsonRequest->setProperty("seed", -1);
+
+        // NEW: Send model components instead of model_key
+        jsonRequest->setProperty("model_type", currentJerryModelType);
+        if (currentJerryIsFinetune)
+        {
+            jsonRequest->setProperty("finetune_repo", currentJerryFinetuneRepo);
+            jsonRequest->setProperty("finetune_checkpoint", currentJerryFinetuneCheckpoint);
+        }
+        jsonRequest->setProperty("sampler_type", currentJerrySamplerType);
 
         // Add loop-specific parameters if using smart loop
         if (generateAsLoop) {
             jsonRequest->setProperty("loop_type", currentLoopType);
-            // Note: bars parameter is omitted - backend will auto-calculate based on BPM
         }
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
@@ -4197,7 +4430,7 @@ juce::URL Gary4juceAudioProcessorEditor::makeGenerateURL(const juce::String& req
         .withParameter("guidance_weight", juce::String(guidance, 3))
         .withParameter("temperature", juce::String(temperature, 3))
         .withParameter("topk", juce::String(topK))
-        .withParameter("loudness_mode", "auto")
+        .withParameter("loudness_mode", "none")
         .withParameter("loudness_headroom_db", "1.0")
         .withParameter("intro_bars_to_drop", "0")
         .withParameter("request_id", requestId);

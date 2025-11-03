@@ -5,14 +5,14 @@ namespace
 {
     constexpr int kOuterMargin = 12;
     constexpr int kTitleHeight = 28;
-    constexpr int kPromptLabelHeight = 18;
-    constexpr int kPromptEditorHeight = 26;
-    constexpr int kRowHeight = 26;
-    constexpr int kSmartLoopHeight = 28;
-    constexpr int kBpmHeight = 16;
-    constexpr int kButtonHeight = 32;
-    constexpr int kLabelWidth = 92;
-    constexpr int kInterRowGap = 3;
+    constexpr int kPromptLabelHeight = 12;      // Reduced from 18
+    constexpr int kPromptEditorHeight = 24;     // Reduced from 26
+    constexpr int kRowHeight = 20;              // Reduced from 26
+    constexpr int kSmartLoopHeight = 22;        // Reduced from 28
+    constexpr int kBpmHeight = 14;              // Reduced from 16
+    constexpr int kButtonHeight = 32;           // Keep same
+    constexpr int kLabelWidth = 70;             // Reduced from 92 (shorter labels)
+    constexpr int kInterRowGap = 2;             // Reduced from 3
     constexpr int kLoopButtonGap = 4;
 }
 
@@ -23,6 +23,73 @@ JerryUI::JerryUI()
     jerryLabel.setColour(juce::Label::textColourId, Theme::Colors::TextPrimary);
     jerryLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(jerryLabel);
+
+    // Model selector
+    jerryModelLabel.setText("model", juce::dontSendNotification);
+    jerryModelLabel.setFont(juce::FontOptions(12.0f));
+    jerryModelLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    jerryModelLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(jerryModelLabel);
+
+    jerryModelComboBox.setTextWhenNothingSelected("loading models...");
+    jerryModelComboBox.onChange = [this]()
+        {
+            const int selectedId = jerryModelComboBox.getSelectedId();
+            const int newIndex = selectedId > 0 ? selectedId - 1 : 0;
+
+            if (selectedModelIndex != newIndex)
+            {
+                selectedModelIndex = newIndex;
+
+                bool isFinetune = false;
+                if (newIndex >= 0 && newIndex < modelIsFinetune.size())
+                    isFinetune = modelIsFinetune[newIndex];
+
+                // Update UI for model type
+                updateSliderRangesForModel(isFinetune);
+                updateSamplerVisibility();
+
+                if (onModelChanged)
+                    onModelChanged(newIndex, isFinetune);
+            }
+        };
+    addAndMakeVisible(jerryModelComboBox);
+
+    // Sampler type selector (hidden by default, shown for finetunes)
+    jerrySamplerLabel.setText("sampler", juce::dontSendNotification);
+    jerrySamplerLabel.setFont(juce::FontOptions(12.0f));
+    jerrySamplerLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    jerrySamplerLabel.setJustificationType(juce::Justification::centredLeft);
+    jerrySamplerLabel.setVisible(false);
+    addAndMakeVisible(jerrySamplerLabel);
+
+    samplerEulerButton.setButtonText("euler");
+    samplerEulerButton.setRadioGroupId(2001);  // Different from Terry's 1001
+    samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+    samplerEulerButton.onClick = [this]()
+        {
+            // Radio group handles mutual exclusivity automatically
+            // Just update our internal state
+            currentSamplerType = "euler";
+            if (onSamplerTypeChanged)
+                onSamplerTypeChanged(currentSamplerType);
+        };
+    samplerEulerButton.setVisible(false);
+    addAndMakeVisible(samplerEulerButton);
+
+    samplerDpmppButton.setButtonText("dpmpp");
+    samplerDpmppButton.setRadioGroupId(2001);
+    samplerDpmppButton.setToggleState(true, juce::dontSendNotification);  // Default for finetunes
+    samplerDpmppButton.onClick = [this]()
+        {
+            // Radio group handles mutual exclusivity automatically
+            // Just update our internal state
+            currentSamplerType = "dpmpp";
+            if (onSamplerTypeChanged)
+                onSamplerTypeChanged(currentSamplerType);
+        };
+    samplerDpmppButton.setVisible(false);
+    addAndMakeVisible(samplerDpmppButton);
 
     jerryPromptLabel.setText("text prompt", juce::dontSendNotification);
     jerryPromptLabel.setFont(juce::FontOptions(12.0f));
@@ -36,11 +103,11 @@ JerryUI::JerryUI()
     jerryPromptEditor.setScrollbarsShown(false);
     jerryPromptEditor.setBorder(juce::BorderSize<int>(2));
     jerryPromptEditor.onTextChange = [this]()
-    {
-        promptText = jerryPromptEditor.getText();
-        if (onPromptChanged)
-            onPromptChanged(promptText);
-    };
+        {
+            promptText = jerryPromptEditor.getText();
+            if (onPromptChanged)
+                onPromptChanged(promptText);
+        };
     addAndMakeVisible(jerryPromptEditor);
 
     jerryCfgLabel.setText("cfg scale", juce::dontSendNotification);
@@ -54,11 +121,11 @@ JerryUI::JerryUI()
     jerryCfgSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     jerryCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
     jerryCfgSlider.onValueChange = [this]()
-    {
-        cfg = (float)jerryCfgSlider.getValue();
-        if (onCfgChanged)
-            onCfgChanged(cfg);
-    };
+        {
+            cfg = (float)jerryCfgSlider.getValue();
+            if (onCfgChanged)
+                onCfgChanged(cfg);
+        };
     addAndMakeVisible(jerryCfgSlider);
 
     jerryStepsLabel.setText("steps", juce::dontSendNotification);
@@ -72,11 +139,11 @@ JerryUI::JerryUI()
     jerryStepsSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     jerryStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
     jerryStepsSlider.onValueChange = [this]()
-    {
-        steps = (int)jerryStepsSlider.getValue();
-        if (onStepsChanged)
-            onStepsChanged(steps);
-    };
+        {
+            steps = (int)jerryStepsSlider.getValue();
+            if (onStepsChanged)
+                onStepsChanged(steps);
+        };
     addAndMakeVisible(jerryStepsSlider);
 
     jerryBpmLabel.setFont(juce::FontOptions(11.0f));
@@ -89,33 +156,33 @@ JerryUI::JerryUI()
     generateWithJerryButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
     generateWithJerryButton.setTooltip("generate audio from text prompt with current daw bpm");
     generateWithJerryButton.onClick = [this]()
-    {
-        if (onGenerate)
-            onGenerate();
-    };
+        {
+            if (onGenerate)
+                onGenerate();
+        };
     addAndMakeVisible(generateWithJerryButton);
 
     generateAsLoopButton.setButtonText("smart loop");
     generateAsLoopButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     generateAsLoopButton.setClickingTogglesState(true);
     generateAsLoopButton.onClick = [this]()
-    {
-        smartLoop = generateAsLoopButton.getToggleState();
-        updateSmartLoopStyle();
-        refreshLoopTypeVisibility();
-        applyEnablement(lastCanGenerate, lastCanSmartLoop, lastIsGenerating);
-        if (onSmartLoopToggled)
-            onSmartLoopToggled(smartLoop);
-    };
+        {
+            smartLoop = generateAsLoopButton.getToggleState();
+            updateSmartLoopStyle();
+            refreshLoopTypeVisibility();
+            applyEnablement(lastCanGenerate, lastCanSmartLoop, lastIsGenerating);
+            if (onSmartLoopToggled)
+                onSmartLoopToggled(smartLoop);
+        };
     addAndMakeVisible(generateAsLoopButton);
 
     auto handleLoopTypeClick = [this](int index)
-    {
-        loopTypeIndex = index;
-        updateLoopTypeStyles();
-        if (onLoopTypeChanged)
-            onLoopTypeChanged(loopTypeIndex);
-    };
+        {
+            loopTypeIndex = index;
+            updateLoopTypeStyles();
+            if (onLoopTypeChanged)
+                onLoopTypeChanged(loopTypeIndex);
+        };
 
     loopTypeAutoButton.setButtonText("auto");
     loopTypeAutoButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -145,30 +212,65 @@ void JerryUI::resized()
 {
     auto area = getLocalBounds().reduced(kOuterMargin);
 
+    // Title at the very top
     titleBounds = area.removeFromTop(kTitleHeight);
     jerryLabel.setBounds(titleBounds);
     area.removeFromTop(kInterRowGap);
 
+    // Model selector row (label + combobox)
+    auto modelRow = area.removeFromTop(kRowHeight);
+    auto modelLabelBounds = modelRow.removeFromLeft(kLabelWidth);
+    jerryModelLabel.setBounds(modelLabelBounds);
+    jerryModelComboBox.setBounds(modelRow);
+    area.removeFromTop(kInterRowGap);
+
+    // Sampler selector row (only visible for finetunes)
+    if (showingSamplerSelector)
+    {
+        auto samplerRow = area.removeFromTop(kRowHeight);
+        auto samplerLabelBounds = samplerRow.removeFromLeft(kLabelWidth);
+        jerrySamplerLabel.setBounds(samplerLabelBounds);
+
+        // Layout the two radio buttons side by side - MADE MORE COMPACT
+        const int buttonWidth = 60;     // Reduced from 70
+        const int buttonGap = 4;        // Reduced from 5
+
+        auto eulerBounds = samplerRow.removeFromLeft(buttonWidth);
+        samplerEulerButton.setBounds(eulerBounds);
+
+        samplerRow.removeFromLeft(buttonGap);
+
+        auto dpmppBounds = samplerRow.removeFromLeft(buttonWidth);
+        samplerDpmppButton.setBounds(dpmppBounds);
+
+        area.removeFromTop(kInterRowGap);
+    }
+
+    // Prompt label
     auto promptLabelBounds = area.removeFromTop(kPromptLabelHeight);
     jerryPromptLabel.setBounds(promptLabelBounds);
     area.removeFromTop(kInterRowGap);
 
+    // Prompt editor
     auto promptBounds = area.removeFromTop(kPromptEditorHeight);
     jerryPromptEditor.setBounds(promptBounds);
     area.removeFromTop(kInterRowGap);
 
+    // CFG row
     auto cfgRow = area.removeFromTop(kRowHeight);
     auto cfgLabelBounds = cfgRow.removeFromLeft(kLabelWidth);
     jerryCfgLabel.setBounds(cfgLabelBounds);
     jerryCfgSlider.setBounds(cfgRow);
     area.removeFromTop(kInterRowGap);
 
+    // Steps row
     auto stepsRow = area.removeFromTop(kRowHeight);
     auto stepsLabelBounds = stepsRow.removeFromLeft(kLabelWidth);
     jerryStepsLabel.setBounds(stepsLabelBounds);
     jerryStepsSlider.setBounds(stepsRow);
     area.removeFromTop(kInterRowGap);
 
+    // Smart loop row (existing logic)
     auto smartLoopRow = area.removeFromTop(kSmartLoopHeight);
     const int smartLoopWidth = juce::jmin(110, smartLoopRow.getWidth());
     auto smartLoopButtonBounds = smartLoopRow.removeFromLeft(smartLoopWidth);
@@ -188,10 +290,12 @@ void JerryUI::resized()
     }
     area.removeFromTop(kInterRowGap);
 
+    // BPM label
     auto bpmBounds = area.removeFromTop(kBpmHeight);
     jerryBpmLabel.setBounds(bpmBounds);
     area.removeFromTop(kInterRowGap);
 
+    // Generate button
     auto generateRow = area.removeFromTop(kButtonHeight);
     auto buttonWidth = juce::jmin(240, generateRow.getWidth());
     auto buttonBounds = generateRow.withWidth(buttonWidth).withCentre(generateRow.getCentre());
@@ -202,6 +306,148 @@ void JerryUI::setVisibleForTab(bool visible)
 {
     setVisible(visible);
     setInterceptsMouseClicks(visible, visible);
+}
+
+void JerryUI::setAvailableModels(const juce::StringArray& models,
+    const juce::Array<bool>& isFinetune,
+    const juce::StringArray& keys,
+    const juce::StringArray& types,
+    const juce::StringArray& repos,
+    const juce::StringArray& checkpoints)
+{
+    modelNames = models;
+    modelIsFinetune = isFinetune;
+    modelKeys = keys;
+    modelTypes = types;           // NEW
+    modelRepos = repos;           // NEW
+    modelCheckpoints = checkpoints; // NEW
+
+    jerryModelComboBox.clear(juce::dontSendNotification);
+    for (int i = 0; i < models.size(); ++i)
+        jerryModelComboBox.addItem(models[i], i + 1);
+
+    if (models.size() > 0)
+    {
+        selectedModelIndex = 0;
+        jerryModelComboBox.setSelectedId(1, juce::dontSendNotification);
+
+        // Set initial state based on first model
+        bool firstIsFinetune = isFinetune.size() > 0 ? isFinetune[0] : false;
+        updateSliderRangesForModel(firstIsFinetune);
+        updateSamplerVisibility();
+
+        // IMPORTANT: Trigger the callback so PluginEditor knows about the initial selection
+        if (onModelChanged)
+            onModelChanged(0, firstIsFinetune);
+    }
+}
+
+juce::String JerryUI::getSelectedModelType() const
+{
+    if (selectedModelIndex >= 0 && selectedModelIndex < modelTypes.size())
+        return modelTypes[selectedModelIndex];
+    return "standard";
+}
+
+juce::String JerryUI::getSelectedFinetuneRepo() const
+{
+    if (selectedModelIndex >= 0 && selectedModelIndex < modelRepos.size())
+        return modelRepos[selectedModelIndex];
+    return "";
+}
+
+juce::String JerryUI::getSelectedFinetuneCheckpoint() const
+{
+    if (selectedModelIndex >= 0 && selectedModelIndex < modelCheckpoints.size())
+        return modelCheckpoints[selectedModelIndex];
+    return "";
+}
+
+void JerryUI::setSelectedModel(int index)
+{
+    if (index >= 0 && index < modelNames.size())
+    {
+        selectedModelIndex = index;
+        jerryModelComboBox.setSelectedId(index + 1, juce::dontSendNotification);
+
+        bool isFinetune = modelIsFinetune[index];
+        updateSliderRangesForModel(isFinetune);
+        updateSamplerVisibility();
+    }
+}
+
+int JerryUI::getSelectedModelIndex() const
+{
+    return selectedModelIndex;
+}
+
+juce::String JerryUI::getSelectedModelKey() const
+{
+    if (selectedModelIndex >= 0 && selectedModelIndex < modelKeys.size())
+        return modelKeys[selectedModelIndex];
+    return "standard_saos";
+}
+
+bool JerryUI::getSelectedModelIsFinetune() const
+{
+    if (selectedModelIndex >= 0 && selectedModelIndex < modelIsFinetune.size())
+        return modelIsFinetune[selectedModelIndex];
+    return false;
+}
+
+juce::String JerryUI::getSelectedSamplerType() const
+{
+    return currentSamplerType;
+}
+
+void JerryUI::updateSamplerVisibility()
+{
+    bool isFinetune = getSelectedModelIsFinetune();
+    showingSamplerSelector = isFinetune;
+
+    jerrySamplerLabel.setVisible(isFinetune);
+    samplerEulerButton.setVisible(isFinetune);
+    samplerDpmppButton.setVisible(isFinetune);
+
+    // Reset sampler to default when switching
+    if (isFinetune)
+    {
+        // Default to dpmpp for finetunes
+        currentSamplerType = "dpmpp";
+        samplerDpmppButton.setToggleState(true, juce::dontSendNotification);
+        samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+    }
+    else
+    {
+        // Standard model always uses pingpong
+        currentSamplerType = "pingpong";
+    }
+
+    resized();  // Re-layout to show/hide sampler row
+}
+
+void JerryUI::updateSliderRangesForModel(bool isFinetune)
+{
+    if (isFinetune)
+    {
+        // Finetune ranges: steps 4-50 (default 30), cfg 1.0-7.0 (default 4.0)
+        jerryStepsSlider.setRange(4.0, 50.0, 1.0);
+        jerryStepsSlider.setValue(30, juce::sendNotification);
+
+        jerryCfgSlider.setRange(1.0, 7.0, 0.1);
+        jerryCfgSlider.setValue(4.0, juce::sendNotification);
+    }
+    else
+    {
+        // Standard SAOS ranges: steps 4-16 (default 8), cfg 0.5-2.0 (default 1.0)
+        jerryStepsSlider.setRange(4.0, 16.0, 1.0);
+        jerryStepsSlider.setValue(8, juce::sendNotification);
+
+        jerryCfgSlider.setRange(0.5, 2.0, 0.1);
+        jerryCfgSlider.setValue(1.0, juce::sendNotification);
+    }
+
+    DBG("Updated slider ranges for " + juce::String(isFinetune ? "finetune" : "standard") + " model");
 }
 
 void JerryUI::setBpm(int bpm)
@@ -295,11 +541,11 @@ void JerryUI::refreshLoopTypeVisibility()
 void JerryUI::updateLoopTypeStyles()
 {
     loopTypeAutoButton.setButtonStyle(loopTypeIndex == 0 ? CustomButton::ButtonStyle::Gary
-                                                         : CustomButton::ButtonStyle::Standard);
+        : CustomButton::ButtonStyle::Standard);
     loopTypeDrumsButton.setButtonStyle(loopTypeIndex == 1 ? CustomButton::ButtonStyle::Gary
-                                                          : CustomButton::ButtonStyle::Standard);
+        : CustomButton::ButtonStyle::Standard);
     loopTypeInstrumentsButton.setButtonStyle(loopTypeIndex == 2 ? CustomButton::ButtonStyle::Gary
-                                                                : CustomButton::ButtonStyle::Standard);
+        : CustomButton::ButtonStyle::Standard);
 }
 
 void JerryUI::updateSmartLoopStyle()
@@ -318,6 +564,27 @@ void JerryUI::updateSmartLoopStyle()
         generateAsLoopButton.setColour(juce::TextButton::textColourOffId, juce::Colours::lightgrey);
         generateAsLoopButton.setColour(juce::TextButton::textColourOnId, juce::Colours::lightgrey);
     }
+}
+
+void JerryUI::applySamplerSelection(const juce::String& samplerType)
+{
+    currentSamplerType = samplerType;
+
+    // For programmatic changes, we need to explicitly set both button states
+    // Use dontSendNotification to avoid triggering callbacks
+    if (samplerType == "euler")
+    {
+        samplerEulerButton.setToggleState(true, juce::dontSendNotification);
+        samplerDpmppButton.setToggleState(false, juce::dontSendNotification);
+    }
+    else if (samplerType == "dpmpp")
+    {
+        samplerDpmppButton.setToggleState(true, juce::dontSendNotification);
+        samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+    }
+
+    // Don't trigger callback here - this is for programmatic restoration
+    // If you want to trigger callback, call it manually after this function
 }
 
 void JerryUI::applyEnablement(bool canGenerate, bool canSmartLoop, bool isGenerating)

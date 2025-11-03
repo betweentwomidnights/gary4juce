@@ -42,6 +42,27 @@ public:
     std::function<void(int)> onLoopTypeChanged;
     std::function<void()> onGenerate;
 
+    // Model selection
+    void setAvailableModels(const juce::StringArray& models,
+        const juce::Array<bool>& isFinetune,
+        const juce::StringArray& keys,
+        const juce::StringArray& types,
+        const juce::StringArray& repos,
+        const juce::StringArray& checkpoints);
+    void setSelectedModel(int index);
+    int getSelectedModelIndex() const;
+    juce::String getSelectedModelKey() const;
+    bool getSelectedModelIsFinetune() const;
+    juce::String getSelectedSamplerType() const;
+
+    // Callbacks
+    std::function<void(int, bool)> onModelChanged;  // index, isFinetune
+    std::function<void(const juce::String&)> onSamplerTypeChanged;
+
+    juce::String getSelectedModelType() const;
+    juce::String getSelectedFinetuneRepo() const;
+    juce::String getSelectedFinetuneCheckpoint() const;
+
 private:
     void refreshLoopTypeVisibility();
     void updateLoopTypeStyles();
@@ -72,6 +93,31 @@ private:
     bool lastCanGenerate { false };
     bool lastCanSmartLoop { false };
     bool lastIsGenerating { false };
+
+    // Model selection components
+    juce::Label jerryModelLabel;
+    juce::ComboBox jerryModelComboBox;
+
+    // Sampler type components (only for finetunes)
+    juce::Label jerrySamplerLabel;
+    juce::ToggleButton samplerEulerButton;
+    juce::ToggleButton samplerDpmppButton;
+
+    // Model state
+    juce::StringArray modelNames;
+    juce::StringArray modelKeys;
+    juce::StringArray modelTypes;           // NEW: 'standard' or 'finetune'
+    juce::StringArray modelRepos;           // NEW: repo names
+    juce::StringArray modelCheckpoints;     // NEW: checkpoint filenames
+    juce::Array<bool> modelIsFinetune;
+    int selectedModelIndex = 0;
+    bool showingSamplerSelector = false;
+    juce::String currentSamplerType = "pingpong";  // Default for standard
+
+    // Helper methods
+    void updateSamplerVisibility();
+    void updateSliderRangesForModel(bool isFinetune);
+    void applySamplerSelection(const juce::String& samplerType);
 
     juce::Rectangle<int> titleBounds;
 };
