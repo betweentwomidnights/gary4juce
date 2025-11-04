@@ -59,9 +59,21 @@ public:
     std::function<void(int, bool)> onModelChanged;  // index, isFinetune
     std::function<void(const juce::String&)> onSamplerTypeChanged;
 
+    // Custom finetune callbacks
+    std::function<void(const juce::String&)> onFetchCheckpoints;
+    std::function<void(const juce::String&, const juce::String&)> onAddCustomModel;
+
     juce::String getSelectedModelType() const;
     juce::String getSelectedFinetuneRepo() const;
     juce::String getSelectedFinetuneCheckpoint() const;
+
+    // Custom finetune methods
+    void setUsingLocalhost(bool localhost);
+    void setFetchingCheckpoints(bool fetching);
+    void setAvailableCheckpoints(const juce::StringArray& checkpoints);
+    void toggleCustomFinetuneSection();
+    void setLoadingModel(bool loading, const juce::String& modelInfo = "");
+    void selectModelByRepo(const juce::String& repo);
 
 private:
     void refreshLoopTypeVisibility();
@@ -118,6 +130,19 @@ private:
     void updateSamplerVisibility();
     void updateSliderRangesForModel(bool isFinetune);
     void applySamplerSelection(const juce::String& samplerType);
+
+    // Custom finetune UI (only shown on localhost)
+    juce::Label customFinetuneLabel;
+    juce::TextEditor repoTextEditor;
+    CustomButton fetchCheckpointsButton;
+    juce::ComboBox checkpointComboBox;
+    CustomButton addModelButton;
+    CustomButton toggleCustomSectionButton;  // "+" button
+
+    bool showingCustomFinetuneSection = false;
+    bool isUsingLocalhost = false;
+    bool isFetchingCheckpoints = false;
+    bool isLoadingModel = false;
 
     juce::Rectangle<int> titleBounds;
 };

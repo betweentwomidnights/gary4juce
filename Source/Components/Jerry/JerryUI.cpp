@@ -91,6 +91,66 @@ JerryUI::JerryUI()
     samplerDpmppButton.setVisible(false);
     addAndMakeVisible(samplerDpmppButton);
 
+    // Custom finetune section (localhost only)
+    toggleCustomSectionButton.setButtonText("+");
+    toggleCustomSectionButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    toggleCustomSectionButton.setTooltip("add custom finetune (localhost only)");
+    toggleCustomSectionButton.onClick = [this]() { toggleCustomFinetuneSection(); };
+    toggleCustomSectionButton.setVisible(false);  // Hidden by default
+    addAndMakeVisible(toggleCustomSectionButton);
+
+    customFinetuneLabel.setText("add custom finetune", juce::dontSendNotification);
+    customFinetuneLabel.setFont(juce::FontOptions(11.0f));
+    customFinetuneLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    customFinetuneLabel.setJustificationType(juce::Justification::centredLeft);
+    customFinetuneLabel.setVisible(false);
+    addAndMakeVisible(customFinetuneLabel);
+
+    repoTextEditor.setTextToShowWhenEmpty("thepatch/jerry_grunge", juce::Colours::darkgrey);
+    repoTextEditor.setMultiLine(false);
+    repoTextEditor.setReturnKeyStartsNewLine(false);
+    repoTextEditor.setScrollbarsShown(false);
+    repoTextEditor.setBorder(juce::BorderSize<int>(2));
+    repoTextEditor.setVisible(false);
+    addAndMakeVisible(repoTextEditor);
+
+    fetchCheckpointsButton.setButtonText("fetch");
+    fetchCheckpointsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    fetchCheckpointsButton.onClick = [this]() {
+        auto repo = repoTextEditor.getText().trim();
+        if (repo.isEmpty()) {
+            repo = "thepatch/jerry_grunge";  // Default
+        }
+        if (onFetchCheckpoints)
+            onFetchCheckpoints(repo);
+    };
+    fetchCheckpointsButton.setVisible(false);
+    addAndMakeVisible(fetchCheckpointsButton);
+
+    checkpointComboBox.setTextWhenNothingSelected("fetch checkpoints first...");
+    checkpointComboBox.setVisible(false);
+    addAndMakeVisible(checkpointComboBox);
+
+    addModelButton.setButtonText("add to models");
+    addModelButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    addModelButton.onClick = [this]() {
+        auto repo = repoTextEditor.getText().trim();
+        if (repo.isEmpty()) repo = "thepatch/jerry_grunge";
+
+        auto selectedId = checkpointComboBox.getSelectedId();
+        if (selectedId <= 0) return;
+
+        auto checkpoint = checkpointComboBox.getItemText(selectedId - 1);
+        if (onAddCustomModel)
+            onAddCustomModel(repo, checkpoint);
+
+        // Collapse section after adding
+        toggleCustomFinetuneSection();
+    };
+    addModelButton.setEnabled(false);
+    addModelButton.setVisible(false);
+    addAndMakeVisible(addModelButton);
+
     jerryPromptLabel.setText("text prompt", juce::dontSendNotification);
     jerryPromptLabel.setFont(juce::FontOptions(12.0f));
     jerryPromptLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -217,12 +277,47 @@ void JerryUI::resized()
     jerryLabel.setBounds(titleBounds);
     area.removeFromTop(kInterRowGap);
 
-    // Model selector row (label + combobox)
+    // Model selector row with "+" button
     auto modelRow = area.removeFromTop(kRowHeight);
     auto modelLabelBounds = modelRow.removeFromLeft(kLabelWidth);
     jerryModelLabel.setBounds(modelLabelBounds);
+
+    // Reserve space for "+" button if on localhost
+    if (isUsingLocalhost) {
+        auto plusButtonBounds = modelRow.removeFromRight(25);
+        toggleCustomSectionButton.setBounds(plusButtonBounds);
+        modelRow.removeFromRight(3);  // Small gap
+    }
+
     jerryModelComboBox.setBounds(modelRow);
     area.removeFromTop(kInterRowGap);
+
+    // Custom finetune section (collapsible)
+    if (showingCustomFinetuneSection && isUsingLocalhost) {
+        // Label
+        auto customLabelBounds = area.removeFromTop(kPromptLabelHeight);
+        customFinetuneLabel.setBounds(customLabelBounds);
+        area.removeFromTop(kInterRowGap);
+
+        // Repo text + fetch button
+        auto repoRow = area.removeFromTop(kPromptEditorHeight);
+        auto fetchButtonBounds = repoRow.removeFromRight(60);
+        repoRow.removeFromRight(3);  // Gap
+        repoTextEditor.setBounds(repoRow);
+        fetchCheckpointsButton.setBounds(fetchButtonBounds);
+        area.removeFromTop(kInterRowGap);
+
+        // Checkpoint dropdown
+        auto checkpointRow = area.removeFromTop(kRowHeight);
+        checkpointComboBox.setBounds(checkpointRow);
+        area.removeFromTop(kInterRowGap);
+
+        // Add button
+        auto addButtonRow = area.removeFromTop(kButtonHeight);
+        auto addButtonBounds = addButtonRow.withWidth(150).withCentre(addButtonRow.getCentre());
+        addModelButton.setBounds(addButtonBounds);
+        area.removeFromTop(kInterRowGap);
+    }
 
     // Sampler selector row (only visible for finetunes)
     if (showingSamplerSelector)
@@ -593,8 +688,9 @@ void JerryUI::applyEnablement(bool canGenerate, bool canSmartLoop, bool isGenera
     lastCanSmartLoop = canSmartLoop;
     lastIsGenerating = isGenerating;
 
-    const bool allowGenerate = canGenerate && !isGenerating;
-    const bool allowSmartLoop = canSmartLoop && !isGenerating;
+    // IMPORTANT: Disable if model is loading
+    const bool allowGenerate = canGenerate && !isGenerating && !isLoadingModel;
+    const bool allowSmartLoop = canSmartLoop && !isGenerating && !isLoadingModel;
     const bool allowLoopTypes = allowSmartLoop && smartLoop;
 
     generateWithJerryButton.setEnabled(allowGenerate);
@@ -602,4 +698,106 @@ void JerryUI::applyEnablement(bool canGenerate, bool canSmartLoop, bool isGenera
     loopTypeAutoButton.setEnabled(allowLoopTypes);
     loopTypeDrumsButton.setEnabled(allowLoopTypes);
     loopTypeInstrumentsButton.setEnabled(allowLoopTypes);
+}
+
+void JerryUI::setUsingLocalhost(bool localhost)
+{
+    isUsingLocalhost = localhost;
+    toggleCustomSectionButton.setVisible(localhost);
+
+    // If switching away from localhost, hide custom section
+    if (!localhost && showingCustomFinetuneSection) {
+        toggleCustomFinetuneSection();
+    }
+
+    resized();
+}
+
+void JerryUI::toggleCustomFinetuneSection()
+{
+    showingCustomFinetuneSection = !showingCustomFinetuneSection;
+
+    customFinetuneLabel.setVisible(showingCustomFinetuneSection);
+    repoTextEditor.setVisible(showingCustomFinetuneSection);
+    fetchCheckpointsButton.setVisible(showingCustomFinetuneSection);
+    checkpointComboBox.setVisible(showingCustomFinetuneSection);
+    addModelButton.setVisible(showingCustomFinetuneSection);
+
+    // Update button text
+    toggleCustomSectionButton.setButtonText(showingCustomFinetuneSection ? "-" : "+");
+
+    resized();
+}
+
+void JerryUI::setFetchingCheckpoints(bool fetching)
+{
+    isFetchingCheckpoints = fetching;
+    fetchCheckpointsButton.setEnabled(!fetching);
+    fetchCheckpointsButton.setButtonText(fetching ? "fetching..." : "fetch");
+}
+
+void JerryUI::setAvailableCheckpoints(const juce::StringArray& checkpoints)
+{
+    checkpointComboBox.clear();
+
+    for (int i = 0; i < checkpoints.size(); ++i) {
+        checkpointComboBox.addItem(checkpoints[i], i + 1);
+    }
+
+    addModelButton.setEnabled(checkpoints.size() > 0);
+
+    if (checkpoints.size() > 0) {
+        checkpointComboBox.setSelectedId(1);  // Select first by default
+    }
+}
+
+void JerryUI::setLoadingModel(bool loading, const juce::String& modelInfo)
+{
+    isLoadingModel = loading;
+
+    if (loading)
+    {
+        // CRITICAL: Clear the current selection to avoid showing stale model name
+        jerryModelComboBox.setSelectedId(0, juce::dontSendNotification);
+
+        // Add a temporary "Loading..." item to the dropdown and select it
+        // This ensures the dropdown visibly shows the loading state
+        jerryModelComboBox.clear(juce::dontSendNotification);
+
+        if (!modelInfo.isEmpty())
+        {
+            jerryModelComboBox.addItem("Loading " + modelInfo + "...", 999);
+        }
+        else
+        {
+            jerryModelComboBox.addItem("Loading model...", 999);
+        }
+
+        jerryModelComboBox.setSelectedId(999, juce::dontSendNotification);
+
+        // Disable generation during load
+        generateWithJerryButton.setEnabled(false);
+        generateAsLoopButton.setEnabled(false);
+    }
+    else
+    {
+        // Loading complete - the model list will be refreshed by fetchJerryAvailableModels()
+        // No need to do anything here, just re-enable buttons
+        applyEnablement(lastCanGenerate, lastCanSmartLoop, lastIsGenerating);
+    }
+}
+
+void JerryUI::selectModelByRepo(const juce::String& repo)
+{
+    // Look through the current model list to find a finetune model from the specified repo
+    // and select it as the active model
+    for (int i = 0; i < modelRepos.size(); ++i)
+    {
+        if (modelRepos[i] == repo && modelIsFinetune[i])
+        {
+            DBG("Found and selecting model from repo: " + repo + " at index " + juce::String(i));
+            setSelectedModel(i);
+            break;
+        }
+    }
 }

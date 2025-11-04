@@ -215,6 +215,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             DBG("Jerry sampler type changed to: " + samplerType);
         };
 
+    jerryUI->onFetchCheckpoints = [this](const juce::String& repo) {
+        fetchJerryCheckpoints(repo);
+    };
+
+    jerryUI->onAddCustomModel = [this](const juce::String& repo, const juce::String& checkpoint) {
+        addCustomJerryModel(repo, checkpoint);
+    };
+
     jerryUI->setPromptText(currentJerryPrompt);
     jerryUI->setCfg(currentJerryCfg);
     jerryUI->setSteps(currentJerrySteps);
@@ -222,6 +230,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
     jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
     jerryUI->setButtonsEnabled(false, isConnected, isGenerating);
+
+    // Update localhost status
+    jerryUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
 
     // ========== TERRY UI SETUP ==========
     terryUI = std::make_unique<TerryUI>();
@@ -2759,22 +2770,34 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
                         repo = parts[0] + "/" + parts[1];  // "thepatch/jerry_grunge"
                         checkpoint = parts[2];              // "jerry_encoded_epoch=33-step=100.ckpt"
 
-                        // Create display name from middle part
-                        displayName = parts[1].replace("_", " ");
+                        // Create base display name from repo
+                        juce::String baseName = parts[1].replace("_", " ");
 
                         // Capitalize each word
                         juce::StringArray words;
-                        words.addTokens(displayName, " ", "");
-                        displayName.clear();
+                        words.addTokens(baseName, " ", "");
+                        baseName.clear();
                         for (auto& word : words)
                         {
                             if (word.isNotEmpty())
                             {
-                                displayName += word.substring(0, 1).toUpperCase() +
+                                baseName += word.substring(0, 1).toUpperCase() +
                                     word.substring(1).toLowerCase() + " ";
                             }
                         }
-                        displayName = displayName.trim();
+                        baseName = baseName.trim();
+
+                        // NEW: Extract step/epoch info from checkpoint filename
+                        juce::String checkpointInfo = extractCheckpointInfo(checkpoint);
+
+                        if (checkpointInfo.isNotEmpty())
+                        {
+                            displayName = baseName + " (" + checkpointInfo + ")";
+                        }
+                        else
+                        {
+                            displayName = baseName;
+                        }
                     }
                     else
                     {
@@ -2814,6 +2837,235 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         DBG("Exception parsing models response");
     }
 }
+
+void Gary4juceAudioProcessorEditor::fetchJerryCheckpoints(const juce::String& repo)
+{
+    if (jerryUI)
+        jerryUI->setFetchingCheckpoints(true);
+
+    juce::Thread::launch([this, repo]() {
+        juce::String endpoint = "/models/checkpoints";  // No /audio prefix on localhost
+        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+
+        // Build JSON body
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("finetune_repo", repo);
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        juce::URL postUrl = url.withPOSTData(jsonString);
+
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(10000)
+            .withExtraHeaders("Content-Type: application/json");
+
+        std::unique_ptr<juce::InputStream> stream(postUrl.createInputStream(options));
+
+        juce::String responseText;
+        if (stream != nullptr)
+            responseText = stream->readEntireStreamAsString();
+
+        juce::MessageManager::callAsync([this, responseText]() {
+            handleJerryCheckpointsResponse(responseText);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::handleJerryCheckpointsResponse(const juce::String& responseText)
+{
+    if (jerryUI)
+        jerryUI->setFetchingCheckpoints(false);
+
+    if (responseText.isEmpty()) {
+        showStatusMessage("failed to fetch checkpoints", 3000);
+        return;
+    }
+
+    try {
+        auto parsed = juce::JSON::parse(responseText);
+        if (auto* obj = parsed.getDynamicObject()) {
+            bool success = obj->getProperty("success");
+
+            if (success) {
+                juce::StringArray checkpoints;
+                auto checkpointsArray = obj->getProperty("checkpoints");
+
+                if (auto* arr = checkpointsArray.getArray()) {
+                    for (auto& item : *arr) {
+                        checkpoints.add(item.toString());
+                    }
+                }
+
+                if (jerryUI)
+                    jerryUI->setAvailableCheckpoints(checkpoints);
+
+                showStatusMessage(juce::String(checkpoints.size()) + " checkpoints found", 2500);
+            } else {
+                auto error = obj->getProperty("error").toString();
+                showStatusMessage("fetch failed: " + error, 4000);
+            }
+        }
+    } catch (...) {
+        showStatusMessage("invalid checkpoint response", 3000);
+    }
+}
+
+void Gary4juceAudioProcessorEditor::addCustomJerryModel(const juce::String& repo, const juce::String& checkpoint)
+{
+    // Extract display info for loading message
+    juce::String checkpointInfo = extractCheckpointInfo(checkpoint);
+    juce::String loadingMessage = checkpointInfo.isNotEmpty()
+        ? "loading " + checkpointInfo
+        : "loading " + checkpoint;
+
+    showStatusMessage(loadingMessage + "...", 15000);  // Much longer duration for model downloads
+
+    // Set loading state in UI
+    if (jerryUI)
+    {
+        jerryUI->setLoadingModel(true, checkpointInfo);
+    }
+
+    juce::Thread::launch([this, repo, checkpoint]() {
+        juce::String endpoint = "/models/switch";  // No /audio prefix on localhost
+        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+
+        // Build JSON body
+        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+        jsonRequest->setProperty("model_type", "finetune");
+        jsonRequest->setProperty("finetune_repo", repo);
+        jsonRequest->setProperty("finetune_checkpoint", checkpoint);
+        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+        juce::URL postUrl = url.withPOSTData(jsonString);
+
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(300000)  // Increased to 5 minutes - model downloads can take several minutes!
+            .withExtraHeaders("Content-Type: application/json");
+
+        std::unique_ptr<juce::InputStream> stream(postUrl.createInputStream(options));
+
+        juce::String responseText;
+        if (stream != nullptr)
+            responseText = stream->readEntireStreamAsString();
+
+        juce::MessageManager::callAsync([this, responseText, repo, checkpoint]() {
+            handleAddCustomModelResponse(responseText, repo, checkpoint);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::handleAddCustomModelResponse(const juce::String& responseText,
+                                                                  const juce::String& repo,
+                                                                  const juce::String& checkpoint)
+{
+    if (responseText.isEmpty()) {
+        showStatusMessage("failed to switch model - connection timeout", 5000);
+
+        // Clear loading state on error
+        if (jerryUI)
+        {
+            jerryUI->setLoadingModel(false);
+        }
+        return;
+    }
+
+    try {
+        auto parsed = juce::JSON::parse(responseText);
+        if (auto* obj = parsed.getDynamicObject()) {
+            bool success = obj->getProperty("success");
+
+            if (success) {
+                // Show success message with checkpoint info
+                juce::String checkpointInfo = extractCheckpointInfo(checkpoint);
+                juce::String successMsg = checkpointInfo.isNotEmpty()
+                    ? "model loaded: " + checkpointInfo
+                    : "model loaded successfully";
+
+                showStatusMessage(successMsg + "!", 4000);
+
+                DBG("Model switch successful - refreshing model list");
+
+                // CRITICAL: Refresh model list FIRST, then clear loading state
+                // The refresh will update the dropdown with the new model
+                fetchJerryAvailableModels();
+
+                // Clear loading state after a short delay to ensure model list refresh completes
+                // Also try to select the newly loaded model if we can identify it
+                juce::Timer::callAfterDelay(500, [this, checkpointInfo, repo]() {
+                    if (jerryUI)
+                    {
+                        jerryUI->setLoadingModel(false);
+
+                        // Try to select the newly loaded model by looking for one that matches our repo
+                        // This is a best-effort attempt to auto-select the model we just loaded
+                        jerryUI->selectModelByRepo(repo);
+                    }
+                });
+            } else {
+                auto error = obj->getProperty("error").toString();
+                showStatusMessage("load failed: " + error, 5000);
+
+                // Clear loading state on error
+                if (jerryUI)
+                {
+                    jerryUI->setLoadingModel(false);
+                }
+
+                DBG("Model switch failed: " + error);
+            }
+        }
+    } catch (...) {
+        showStatusMessage("invalid response from server", 4000);
+
+        // Clear loading state on error
+        if (jerryUI)
+        {
+            jerryUI->setLoadingModel(false);
+        }
+    }
+}
+
+juce::String Gary4juceAudioProcessorEditor::extractCheckpointInfo(const juce::String& checkpoint)
+{
+    // Try to extract step or epoch from checkpoint filename
+    // Examples:
+    // "jerry_encoded_epoch=33-step=100.ckpt" → "step 100"
+    // "jerry_un-encoded_epoch=32-step=2000.ckpt" → "step 2000"
+    // "model_epoch=5.ckpt" → "epoch 5"
+
+    // Try step first (preferred)
+    if (checkpoint.contains("step="))
+    {
+        auto stepStart = checkpoint.indexOf("step=") + 5;
+        auto stepEnd = checkpoint.indexOfChar(stepStart, '.');
+        if (stepEnd < 0) stepEnd = checkpoint.indexOfChar(stepStart, '-');
+        if (stepEnd < 0) stepEnd = checkpoint.length();
+
+        auto stepValue = checkpoint.substring(stepStart, stepEnd);
+        if (stepValue.containsOnly("0123456789"))
+        {
+            return "step " + stepValue;
+        }
+    }
+
+    // Fall back to epoch
+    if (checkpoint.contains("epoch="))
+    {
+        auto epochStart = checkpoint.indexOf("epoch=") + 6;
+        auto epochEnd = checkpoint.indexOfChar(epochStart, '.');
+        if (epochEnd < 0) epochEnd = checkpoint.indexOfChar(epochStart, '-');
+        if (epochEnd < 0) epochEnd = checkpoint.length();
+
+        auto epochValue = checkpoint.substring(epochStart, epochEnd);
+        if (epochValue.containsOnly("0123456789"))
+        {
+            return "epoch " + epochValue;
+        }
+    }
+
+    return "";  // No step/epoch info found
+}
+
 
 void Gary4juceAudioProcessorEditor::sendToJerry()
 {
@@ -4793,8 +5045,15 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     // NEW: Update model availability based on new backend
     updateModelAvailability();
 
-    // Update connection status display (this can stay)
+    // Update connection status display
     updateConnectionStatus(false);
+
+    // Clear any loading state when switching backends
+    if (jerryUI)
+    {
+        jerryUI->setLoadingModel(false);
+        jerryUI->setUsingLocalhost(isUsingLocalhost);
+    }
 
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
 }

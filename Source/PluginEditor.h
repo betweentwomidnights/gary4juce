@@ -255,6 +255,15 @@ private:
     void fetchJerryAvailableModels();
     void handleJerryModelsResponse(const juce::String& responseText);
 
+    // Custom finetune methods
+    void fetchJerryCheckpoints(const juce::String& repo);
+    void handleJerryCheckpointsResponse(const juce::String& responseText);
+    void addCustomJerryModel(const juce::String& repo, const juce::String& checkpoint);
+    void handleAddCustomModelResponse(const juce::String& responseText,
+                                       const juce::String& repo,
+                                       const juce::String& checkpoint);
+    juce::String extractCheckpointInfo(const juce::String& checkpoint);
+
 
 
     
