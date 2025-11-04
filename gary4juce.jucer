@@ -54,6 +54,10 @@
     </GROUP>
     <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
       <FILE id="lx8qMz" name="BarTrim.h" compile="0" resource="0" file="Source/Utils/BarTrim.h"/>
+      <FILE id="WYW43J" name="CustomLookAndFeel.cpp" compile="1" resource="0"
+            file="Source/Utils/CustomLookAndFeel.cpp"/>
+      <FILE id="wethBI" name="CustomLookAndFeel.h" compile="0" resource="0"
+            file="Source/Utils/CustomLookAndFeel.h"/>
       <FILE id="kqT1iT" name="Theme.h" compile="0" resource="0" file="Source/Utils/Theme.h"/>
     </GROUP>
     <FILE id="EdSVM4" name="IconFactory.cpp" compile="1" resource="0" file="Source/Utils/IconFactory.cpp"/>

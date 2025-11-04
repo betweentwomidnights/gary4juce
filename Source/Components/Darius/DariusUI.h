@@ -5,6 +5,7 @@
 #include "../Base/CustomButton.h"
 #include "../Base/CustomSlider.h"
 #include "../Base/CustomTextEditor.h"
+#include "../../Utils/CustomLookAndFeel.h"
 
 #include <functional>
 #include <vector>
@@ -20,6 +21,7 @@ public:
     };
 
     DariusUI();
+    ~DariusUI() override;
 
     // juce::Component
     void paint(juce::Graphics&) override;
@@ -118,7 +120,7 @@ private:
     struct GenStyleRow
     {
         std::unique_ptr<juce::TextEditor> text;
-        std::unique_ptr<juce::Slider> weight;
+        std::unique_ptr<CustomSlider> weight;
         std::unique_ptr<CustomButton> remove;
     };
 
@@ -163,19 +165,19 @@ private:
     int genStylesMax = 4;
 
     juce::Label genLoopLabel;
-    juce::Slider genLoopSlider;
+    CustomSlider genLoopSlider;
     double genLoopInfluence = 0.5;
 
     CustomButton genAdvancedToggle;
     bool genAdvancedOpen = false;
     juce::Label genTempLabel;
-    juce::Slider genTempSlider;
+    CustomSlider genTempSlider;
     double genTemperature = 1.2;
     juce::Label genTopKLabel;
-    juce::Slider genTopKSlider;
+    CustomSlider genTopKSlider;
     int genTopK = 40;
     juce::Label genGuidanceLabel;
-    juce::Slider genGuidanceSlider;
+    CustomSlider genGuidanceSlider;
     double genGuidance = 5.0;
 
     juce::Label genBarsLabel;
@@ -201,11 +203,11 @@ private:
     CustomButton genSteeringToggle;
     bool genSteeringOpen = false;
     juce::Label genMeanLabel;
-    juce::Slider genMeanSlider;
+    CustomSlider genMeanSlider;
     double genMean = 1.0;
     juce::Label genCentroidsHeaderLabel;
     juce::OwnedArray<juce::Label> genCentroidLabels;
-    juce::OwnedArray<juce::Slider> genCentroidSliders;
+    juce::OwnedArray<CustomSlider> genCentroidSliders;
     std::vector<double> genCentroidWeights;
     static constexpr int kMaxCentroidsUI = 5;
 
@@ -228,4 +230,6 @@ private:
     juce::String backendUrl;
     juce::String connectionStatusText { "not checked" };
     juce::String finetuneRepoText;
+
+    CustomLookAndFeel customLookAndFeel;
 };

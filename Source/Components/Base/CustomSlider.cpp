@@ -50,26 +50,26 @@ void CustomSlider::paint(juce::Graphics& g)
     g.setColour(Theme::Colors::TextPrimary);
     g.drawRect(trackBounds, 1);
     
-    // Draw filled portion of track - bright red
+    // Draw filled portion of track - accent color
     auto filledWidth = thumbX + (thumbSize / 2) - trackBounds.getX();
     auto filledBounds = trackBounds.withWidth(juce::jmax(0, (int)filledWidth));
-    
+
     if (filledWidth > 0)
     {
-        g.setColour(Theme::Colors::PrimaryRed);
+        g.setColour(accentColour);
         g.fillRect(filledBounds);
-        
+
         // Add subtle inner glow to filled area
-        g.setColour(Theme::Colors::PrimaryRed.brighter(0.3f));
+        g.setColour(accentColour.brighter(0.3f));
         g.drawRect(filledBounds.reduced(1), 1);
     }
-    
+
     // Draw rectangular thumb - sharp edges, high contrast
-    g.setColour(Theme::Colors::TextPrimary);  // White base
+    g.setColour(thumbColour);
     g.fillRect(thumbBounds);
-    
-    // Add red border to thumb for that grungy edge
-    g.setColour(Theme::Colors::PrimaryRed);
+
+    // Add accent border to thumb for that grungy edge
+    g.setColour(accentColour);
     g.drawRect(thumbBounds, 2);
     
     // Add inner highlight for dimension
@@ -80,16 +80,17 @@ void CustomSlider::paint(juce::Graphics& g)
     // We only need to draw the slider track and thumb here
 }
 
-void CustomSlider::setThemeColors(juce::Colour track, juce::Colour thumb, juce::Colour text)
+void CustomSlider::setThemeColors(juce::Colour track, juce::Colour accent, juce::Colour thumb, juce::Colour text)
 {
     trackColour = track;
+    accentColour = accent;
     thumbColour = thumb;
     textColour = text;
-    
+
     // Update JUCE slider colors
     setColour(juce::Slider::trackColourId, trackColour);
     setColour(juce::Slider::thumbColourId, thumbColour);
     setColour(juce::Slider::textBoxTextColourId, textColour);
-    
+
     repaint();
 }

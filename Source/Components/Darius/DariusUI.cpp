@@ -30,7 +30,7 @@ DariusUI::DariusUI()
     addAndMakeVisible(dariusUrlLabel);
 
     dariusHealthCheckButton.setButtonText("check connection");
-    dariusHealthCheckButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusHealthCheckButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusHealthCheckButton.setTooltip("check magentaRT backend connection");
     dariusHealthCheckButton.onClick = [this]() {
         if (onHealthCheckRequested)
@@ -55,10 +55,17 @@ DariusUI::DariusUI()
     prepSubTabButton(dariusModelTabButton, "model", SubTab::Model);
     prepSubTabButton(dariusGenerationTabButton, "generation", SubTab::Generation);
 
+    // Generation tab starts disabled until backend is connected
+    dariusGenerationTabButton.setEnabled(false);
+    dariusGenerationTabButton.setTooltip("Connect to backend first");
+
     // Model viewport/content
     dariusModelContent = std::make_unique<juce::Component>();
     dariusModelViewport = std::make_unique<juce::Viewport>();
     dariusModelViewport->setViewedComponent(dariusModelContent.get(), false);
+    dariusModelViewport->setScrollBarsShown(true, false);  // Show vertical, hide horizontal
+    customLookAndFeel.setScrollbarAccentColour(Theme::Colors::Darius);  // Magenta for MagentaRT
+    dariusModelViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
     addAndMakeVisible(dariusModelViewport.get());
 
     // Model UI elements
@@ -76,7 +83,7 @@ DariusUI::DariusUI()
     dariusModelContent->addAndMakeVisible(dariusModelGuardLabel);
 
     dariusRefreshConfigButton.setButtonText("refresh config");
-    dariusRefreshConfigButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusRefreshConfigButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusRefreshConfigButton.onClick = [this]() {
         if (onRefreshConfigRequested)
             onRefreshConfigRequested();
@@ -140,12 +147,12 @@ DariusUI::DariusUI()
     dariusModelContent->addAndMakeVisible(dariusRepoField);
 
     dariusCheckpointButton.setButtonText("checkpoint: latest");
-    dariusCheckpointButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusCheckpointButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusCheckpointButton.onClick = [this]() { handleCheckpointButtonClicked(); };
     dariusModelContent->addAndMakeVisible(dariusCheckpointButton);
 
     dariusApplyWarmButton.setButtonText("apply & warm");
-    dariusApplyWarmButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    dariusApplyWarmButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusApplyWarmButton.onClick = [this]() {
         if (onApplyWarmRequested)
             onApplyWarmRequested();
@@ -163,6 +170,8 @@ DariusUI::DariusUI()
     dariusGenerationContent = std::make_unique<juce::Component>();
     dariusGenerationViewport = std::make_unique<juce::Viewport>();
     dariusGenerationViewport->setViewedComponent(dariusGenerationContent.get(), false);
+    dariusGenerationViewport->setScrollBarsShown(true, false);  // Show vertical, hide horizontal
+    dariusGenerationViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
     addAndMakeVisible(dariusGenerationViewport.get());
 
     genStylesHeaderLabel.setText("styles & weights", juce::dontSendNotification);
@@ -172,7 +181,7 @@ DariusUI::DariusUI()
     dariusGenerationContent->addAndMakeVisible(genStylesHeaderLabel);
 
     genAddStyleButton.setButtonText("+");
-    genAddStyleButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    genAddStyleButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     genAddStyleButton.onClick = [this]() { handleAddStyleRow(); };
     dariusGenerationContent->addAndMakeVisible(genAddStyleButton);
 
@@ -185,11 +194,10 @@ DariusUI::DariusUI()
     genLoopLabel.setJustificationType(juce::Justification::centredLeft);
     dariusGenerationContent->addAndMakeVisible(genLoopLabel);
 
-    genLoopSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genLoopSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     genLoopSlider.setRange(0.0, 1.0, 0.01);
     genLoopSlider.setValue(genLoopInfluence, juce::dontSendNotification);
     genLoopSlider.setTooltip("How strongly the loop steers generation (0.00-1.00)");
+    genLoopSlider.setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
     genLoopSlider.onValueChange = [this]() {
         genLoopInfluence = genLoopSlider.getValue();
         updateGenLoopLabel();
@@ -197,7 +205,7 @@ DariusUI::DariusUI()
     dariusGenerationContent->addAndMakeVisible(genLoopSlider);
 
     genAdvancedToggle.setButtonText("advanced settings");
-    genAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    genAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Darius);
     genAdvancedToggle.onClick = [this]() {
         genAdvancedOpen = !genAdvancedOpen;
         updateGenAdvancedToggleText();
@@ -210,10 +218,9 @@ DariusUI::DariusUI()
     genTempLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dariusGenerationContent->addAndMakeVisible(genTempLabel);
 
-    genTempSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genTempSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     genTempSlider.setRange(0.0, 10.0, 0.01);
     genTempSlider.setValue(genTemperature, juce::dontSendNotification);
+    genTempSlider.setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
     genTempSlider.onValueChange = [this]() {
         genTemperature = genTempSlider.getValue();
         genTempLabel.setText("temperature: " + juce::String(genTemperature, 2), juce::dontSendNotification);
@@ -225,10 +232,9 @@ DariusUI::DariusUI()
     genTopKLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dariusGenerationContent->addAndMakeVisible(genTopKLabel);
 
-    genTopKSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genTopKSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     genTopKSlider.setRange(1.0, 300.0, 1.0);
     genTopKSlider.setValue(genTopK, juce::dontSendNotification);
+    genTopKSlider.setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
     genTopKSlider.onValueChange = [this]() {
         genTopK = (int)genTopKSlider.getValue();
         genTopKLabel.setText("top-k: " + juce::String(genTopK), juce::dontSendNotification);
@@ -240,10 +246,9 @@ DariusUI::DariusUI()
     genGuidanceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dariusGenerationContent->addAndMakeVisible(genGuidanceLabel);
 
-    genGuidanceSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genGuidanceSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     genGuidanceSlider.setRange(0.0, 10.0, 0.01);
     genGuidanceSlider.setValue(genGuidance, juce::dontSendNotification);
+    genGuidanceSlider.setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
     genGuidanceSlider.onValueChange = [this]() {
         genGuidance = genGuidanceSlider.getValue();
         genGuidanceLabel.setText("guidance: " + juce::String(genGuidance, 2), juce::dontSendNotification);
@@ -330,7 +335,7 @@ DariusUI::DariusUI()
     dariusGenerationContent->addAndMakeVisible(genSourceGuardLabel);
 
     genGenerateButton.setButtonText("generate");
-    genGenerateButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    genGenerateButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     genGenerateButton.onClick = [this]() {
         if (onGenerateRequested)
             onGenerateRequested();
@@ -338,7 +343,7 @@ DariusUI::DariusUI()
     dariusGenerationContent->addAndMakeVisible(genGenerateButton);
 
     genSteeringToggle.setButtonText("steering");
-    genSteeringToggle.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    genSteeringToggle.setButtonStyle(CustomButton::ButtonStyle::Darius);
     genSteeringToggle.onClick = [this]() {
         genSteeringOpen = !genSteeringOpen;
         updateGenSteeringToggleText();
@@ -351,10 +356,9 @@ DariusUI::DariusUI()
     genMeanLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     dariusGenerationContent->addAndMakeVisible(genMeanLabel);
 
-    genMeanSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    genMeanSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     genMeanSlider.setRange(0.0, 2.0, 0.01);
     genMeanSlider.setValue(genMean, juce::dontSendNotification);
+    genMeanSlider.setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
     genMeanSlider.onValueChange = [this]() {
         genMean = genMeanSlider.getValue();
         genMeanLabel.setText("mean: " + juce::String(genMean, 2), juce::dontSendNotification);
@@ -373,6 +377,16 @@ DariusUI::DariusUI()
     updateGenSteeringToggleText();
     refreshModelControls();
     setCurrentSubTab(SubTab::Backend);
+}
+
+DariusUI::~DariusUI()
+{
+    // Reset LookAndFeel to avoid dangling pointers
+    if (dariusModelViewport)
+        dariusModelViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
+
+    if (dariusGenerationViewport)
+        dariusGenerationViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
 
 void DariusUI::paint(juce::Graphics& g)
@@ -767,6 +781,13 @@ void DariusUI::setGenerating(bool generating)
 
 void DariusUI::setCurrentSubTab(SubTab tab)
 {
+    // Prevent switching to generation tab if backend not connected
+    if (tab == SubTab::Generation && !connected)
+    {
+        // Stay on current tab or switch to backend tab
+        tab = SubTab::Backend;
+    }
+
     currentSubTab = tab;
     updateSubTabStates();
 
@@ -935,6 +956,13 @@ void DariusUI::refreshModelControls()
 
     dariusModelGuardLabel.setVisible(!connected);
 
+    // Enable/disable generation tab based on connection status
+    dariusGenerationTabButton.setEnabled(connected);
+    if (connected)
+        dariusGenerationTabButton.setTooltip("");
+    else
+        dariusGenerationTabButton.setTooltip("Connect to backend first");
+
     refreshCheckpointButton();
 }
 
@@ -1029,13 +1057,14 @@ void DariusUI::addGenStyleRowInternal(const juce::String& text, double weight)
     row.text->setReturnKeyStartsNewLine(false);
     row.text->setText(text, juce::dontSendNotification);
 
-    row.weight = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
+    row.weight = std::make_unique<CustomSlider>();
     row.weight->setRange(0.0, 1.0, 0.01);
     row.weight->setValue(juce::jlimit(0.0, 1.0, weight), juce::dontSendNotification);
+    row.weight->setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
 
     row.remove = std::make_unique<CustomButton>();
     row.remove->setButtonText("-");
-    row.remove->setButtonStyle(CustomButton::ButtonStyle::Standard);
+    row.remove->setButtonStyle(CustomButton::ButtonStyle::Darius);
     auto* removeBtnPtr = row.remove.get();
     row.remove->onClick = [this, removeBtnPtr]()
     {
@@ -1087,7 +1116,7 @@ void DariusUI::layoutGenStylesUI(juce::Rectangle<int>& area)
 {
     const int rowH = 24;
     const int gapY = 6;
-    const int textW = 180;
+    const int textW = 120;  // Reduced from 180 to give more room to slider
     const int removeW = 22;
 
     for (size_t i = 0; i < genStyleRows.size(); ++i)
@@ -1281,8 +1310,9 @@ void DariusUI::rebuildGenCentroidRows()
         genCentroidLabels.add(label);
         dariusGenerationContent->addAndMakeVisible(label);
 
-        auto* slider = new juce::Slider(juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
+        auto* slider = new CustomSlider();
         slider->setRange(0.0, 2.0, 0.01);
+        slider->setThemeColors(Theme::Colors::ButtonInactive, Theme::Colors::Darius, Theme::Colors::TextPrimary, Theme::Colors::TextSecondary);
         if ((size_t)i < genCentroidWeights.size())
             slider->setValue(genCentroidWeights[(size_t)i], juce::dontSendNotification);
         const int idx = i;
