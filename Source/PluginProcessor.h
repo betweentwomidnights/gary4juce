@@ -97,6 +97,17 @@ public:
 
     double getCurrentBPM() const { return currentBPM.load(); }
 
+    // Output audio playback control (for host audio)
+    void loadOutputAudioForPlayback(const juce::File& audioFile);
+    void startOutputPlayback(double fromPosition = 0.0);
+    void pauseOutputPlayback();
+    void stopOutputPlayback();
+    void seekOutputPlayback(double positionInSeconds);
+    bool getIsPlayingOutput() const { return isPlayingOutputAudio.load(); }
+    bool getIsPausedOutput() const { return isPausedOutputAudio.load(); }
+    double getOutputPlaybackPosition() const { return outputPlaybackPosition.load(); }
+    double getOutputAudioDuration() const { return outputAudioDuration.load(); }
+
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessor)
@@ -138,6 +149,16 @@ private:
     std::atomic<bool> transformRecording{ false };  // Default to output (to match UI default)
     std::atomic<bool> undoTransformAvailable{ false };
     std::atomic<bool> retryAvailable{ false };
+
+    // Output audio playback state (for host audio mixing)
+    juce::AudioBuffer<float> outputPlaybackBuffer;
+    juce::CriticalSection playbackBufferLock;
+    std::atomic<bool> isPlayingOutputAudio{false};
+    std::atomic<bool> isPausedOutputAudio{false};
+    std::atomic<double> outputPlaybackPosition{0.0};  // In seconds
+    std::atomic<double> outputAudioDuration{0.0};     // Total duration in seconds
+    std::atomic<double> outputAudioSampleRate{44100.0};
+    int outputPlaybackReadPosition = 0;  // In samples, accessed under lock
 
     // Private methods
     void startRecording();

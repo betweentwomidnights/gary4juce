@@ -686,35 +686,8 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     // CRITICAL: Stop all timers first to prevent any callbacks during destruction
     stopTimer();
 
-    // CRITICAL: Stop all audio playback immediately before any cleanup
-    if (transportSource)
-    {
-        transportSource->stop();
-        transportSource->setSource(nullptr);
-    }
-
-    // Reset playback state flags to prevent any ongoing callbacks from accessing destroyed objects
-    isPlayingOutput = false;
-    isPausedOutput = false;
-
-    // Remove audio callback BEFORE destroying any audio objects
-    if (audioDeviceManager && audioSourcePlayer)
-    {
-        audioDeviceManager->removeAudioCallback(audioSourcePlayer.get());
-    }
-
-    // Disconnect audio source player from transport source
-    if (audioSourcePlayer)
-    {
-        audioSourcePlayer->setSource(nullptr);
-    }
-
-    // Clean up audio objects in proper order (reverse of creation)
-    readerSource.reset();           // First, destroy the file reader
-    transportSource.reset();        // Then the transport source
-    audioSourcePlayer.reset();      // Then the source player
-    audioDeviceManager.reset();     // Then the device manager
-    audioFormatManager.reset();     // Finally the format manager
+    // Stop playback through processor (host audio)
+    audioProcessor.stopOutputPlayback();
 
     DBG("Audio playback safely cleaned up");
 }
@@ -5084,33 +5057,40 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
         totalAudioDuration = 0.0;
-        currentAudioSampleRate = 44100.0;  // Reset to default
+        currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
         return;
     }
-    // Read the audio file
+
+    // Read the audio file for waveform display
     juce::AudioFormatManager formatManager;
     formatManager.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(outputAudioFile));
+
     if (reader != nullptr)
     {
-        // Resize buffer to fit the audio
+        // Load into editor buffer for waveform visualization
         outputAudioBuffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
-        // Read the audio data
         reader->read(&outputAudioBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
-        // Calculate total duration
+
+        // Store properties
         totalAudioDuration = (double)reader->lengthInSamples / reader->sampleRate;
-        // ADDED: Store the file's sample rate
         currentAudioSampleRate = reader->sampleRate;
+
+        // Load into processor for host audio playback
+        audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+
         hasOutputAudio = true;
         playOutputButton.setEnabled(true);
-        stopOutputButton.setEnabled(true);  // Always enabled when we have audio
+        stopOutputButton.setEnabled(true);
         clearOutputButton.setEnabled(true);
         cropButton.setEnabled(true);
+
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
             juce::String(totalAudioDuration, 2) + " seconds at " +
             juce::String(reader->sampleRate) + " Hz");
+
         updateGaryButtonStates(!isGenerating);
     }
     else
@@ -5121,7 +5101,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
         totalAudioDuration = 0.0;
-        currentAudioSampleRate = 44100.0;  // Reset to default
+        currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
     }
 }
@@ -5376,197 +5356,57 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
         return;
     }
 
-    // If currently playing, pause it
-    if (isPlayingOutput)
+    // Get current state from processor
+    bool processorIsPlaying = audioProcessor.getIsPlayingOutput();
+    bool processorIsPaused = audioProcessor.getIsPausedOutput();
+
+    if (processorIsPlaying)
     {
-        pauseOutputPlayback();
-        return;
-    }
-
-    // If paused, resume from paused position
-    if (isPausedOutput)
-    {
-        resumeOutputPlayback();
-        return;
-    }
-
-    // Starting fresh playback
-    startOutputPlayback();
-}
-
-void Gary4juceAudioProcessorEditor::startOutputPlayback()
-{
-    // Stop any current playback (but don't clear everything)
-    if (transportSource && isPlayingOutput)
-    {
-        transportSource->stop();
-    }
-
-    // Initialize audio playback if needed
-    if (!audioDeviceManager)
-    {
-        auto initStartTime = juce::Time::getCurrentTime();
-        initializeAudioPlayback();
-        auto initDuration = juce::Time::getCurrentTime() - initStartTime;
-
-        // If initialization took too long or failed, likely due to exclusive ASIO
-        if (initDuration.inMilliseconds() > 1000 || !audioDeviceManager->getCurrentAudioDevice())
-        {
-            DBG("Audio initialization slow/failed - likely exclusive ASIO blocking");
-            showAsioDriverWarning("ASIO driver (possibly ASIO4ALL)");
-            return;
-        }
-    }
-
-    // Create a new reader for the output file
-    if (audioFormatManager)
-    {
-        std::unique_ptr<juce::AudioFormatReader> reader(
-            audioFormatManager->createReaderFor(outputAudioFile));
-
-        if (reader != nullptr)
-        {
-            // Get the sample rate BEFORE releasing the reader
-            double sampleRate = reader->sampleRate;
-
-            // Create reader source (this takes ownership of the reader)
-            readerSource = std::make_unique<juce::AudioFormatReaderSource>(reader.release(), true);
-
-            // Set up transport source
-            if (!transportSource)
-                transportSource = std::make_unique<juce::AudioTransportSource>();
-
-            transportSource->setSource(readerSource.get(), 0, nullptr, sampleRate);
-
-            // Start from seek position if we have one, otherwise from beginning
-            double startPosition = (isPausedOutput || currentPlaybackPosition > 0.0) ?
-                currentPlaybackPosition : 0.0;
-
-            transportSource->setPosition(startPosition);
-            transportSource->start();
-
-            // Check if it actually started
-            juce::Timer::callAfterDelay(100, [this]() {
-                if (transportSource && !transportSource->isPlaying()) {
-                    DBG("Playback failed to start - likely ASIO blocking");
-                    showAsioDriverWarning("ASIO driver");
-                }
-                });
-
-            isPlayingOutput = true;
-            isPausedOutput = false;
-
-            // Update button icon
-            updatePlayButtonIcon();
-
-            showStatusMessage("playing output...", 2000);
-            DBG("Started output playback from " + juce::String(startPosition, 2) + "s");
-        }
-        else
-        {
-            showStatusMessage("failed to read output audio");
-        }
-    }
-}
-
-// New function: Pause playback (keep position)
-void Gary4juceAudioProcessorEditor::pauseOutputPlayback()
-{
-    if (transportSource && isPlayingOutput)
-    {
-        // Save current position before stopping
-        pausedPosition = transportSource->getCurrentPosition();
-        currentPlaybackPosition = pausedPosition;
-
-        transportSource->stop();
-
-        isPlayingOutput = false;
+        // Currently playing -> pause it
+        audioProcessor.pauseOutputPlayback();
         isPausedOutput = true;
-
+        isPlayingOutput = false;
+        pausedPosition = audioProcessor.getOutputPlaybackPosition();
+        currentPlaybackPosition = pausedPosition;
         updatePlayButtonIcon();
-
         showStatusMessage("paused", 1500);
-        DBG("Paused output playback at " + juce::String(pausedPosition, 2) + "s");
-
-        repaint(); // Keep cursor visible at paused position
+        repaint();
     }
-}
-
-// New function: Resume from paused position
-// Updated resumeOutputPlayback() - remove the callAfterDelay
-// Updated resumeOutputPlayback() - reinitialize if needed
-void Gary4juceAudioProcessorEditor::resumeOutputPlayback()
-{
-    if (isPausedOutput)
+    else if (processorIsPaused || isPausedOutput || currentPlaybackPosition > 0.0)
     {
-        // Check if transport source still has audio loaded
-        if (!transportSource || !readerSource)
-        {
-            // Need to reinitialize - transport was cleared
-            if (!audioDeviceManager)
-            {
-                initializeAudioPlayback();
-            }
-
-            if (audioFormatManager)
-            {
-                std::unique_ptr<juce::AudioFormatReader> reader(
-                    audioFormatManager->createReaderFor(outputAudioFile));
-
-                if (reader != nullptr)
-                {
-                    double sampleRate = reader->sampleRate;
-                    readerSource = std::make_unique<juce::AudioFormatReaderSource>(reader.release(), true);
-
-                    if (!transportSource)
-                        transportSource = std::make_unique<juce::AudioTransportSource>();
-
-                    transportSource->setSource(readerSource.get(), 0, nullptr, sampleRate);
-                }
-                else
-                {
-                    showStatusMessage("failed to read output audio");
-                    return;
-                }
-            }
-        }
-
-        // Resume from saved position
-        transportSource->setPosition(pausedPosition);
-        transportSource->start();
-
+        // Paused or has seek position -> resume from that position
+        audioProcessor.startOutputPlayback(currentPlaybackPosition);
         isPlayingOutput = true;
         isPausedOutput = false;
-
         updatePlayButtonIcon();
-
-        showStatusMessage("resumed from " + juce::String(pausedPosition, 1) + "s", 1500);
-        DBG("Resumed output playback from " + juce::String(pausedPosition, 2) + "s");
+        showStatusMessage("resumed from " + juce::String(currentPlaybackPosition, 1) + "s", 1500);
+    }
+    else
+    {
+        // Fresh start from beginning
+        audioProcessor.startOutputPlayback(0.0);
+        isPlayingOutput = true;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        updatePlayButtonIcon();
+        showStatusMessage("playing output...", 2000);
     }
 }
 
 // Updated stopOutputPlayback() - distinguish between pause and full stop
 void Gary4juceAudioProcessorEditor::stopOutputPlayback()
 {
-    if (transportSource)
-    {
-        transportSource->stop();
-        transportSource->setSource(nullptr);
-        readerSource.reset();
-    }
+    audioProcessor.stopOutputPlayback();
 
     isPlayingOutput = false;
     isPausedOutput = false;
-
-    updatePlayButtonIcon();
-
-    // Reset to beginning
     currentPlaybackPosition = 0.0;
     pausedPosition = 0.0;
 
+    updatePlayButtonIcon();
     repaint();
 
-    DBG("Stopped output playback completely");
+    DBG("Stopped output playback");
 }
 
 // New function: Full stop (different from pause)
@@ -5575,123 +5415,25 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
     stopOutputPlayback(); // This does everything we need for a full stop
 }
 
-void Gary4juceAudioProcessorEditor::showAsioDriverWarning(const juce::String& driverName)
-{
-    // Show immediate status message
-    showStatusMessage("audio driver may block playback - see output section", 6000);
-
-    // Create a delayed popup with clickable link after a brief moment
-    juce::Timer::callAfterDelay(1500, [this, driverName]() {
-        // SAFETY: Check component is still valid
-        if (!isEditorValid.load()) return;
-
-        auto* alertWindow = new juce::AlertWindow(
-            "audio driver compatibility",
-            driverName + " may block audio playback in VSTs.\n"
-            "FlexASIO (free, open-source) works much better.",
-            juce::MessageBoxIconType::InfoIcon,
-            this);
-
-        // Add download button that opens the GitHub releases page
-        alertWindow->addButton("download FlexASIO", 1);
-        alertWindow->addButton("continue anyway", 0);
-
-        // Add note below the buttons
-        alertWindow->addTextBlock("Note: After installing/switching to a new audio driver,\n"
-            "you'll need to reload this VST in your DAW.");
-
-        alertWindow->enterModalState(true,
-            juce::ModalCallbackFunction::create([this, alertWindow](int result) {
-                if (result == 1) // Download button clicked
-                {
-                    juce::URL("https://github.com/dechamps/FlexASIO/releases").launchInDefaultBrowser();
-                    showStatusMessage("opened FlexASIO download page", 4000);
-                }
-                // Both buttons will close the modal - clean up the AlertWindow
-                delete alertWindow;
-                }));
-        });
-}
-
-void Gary4juceAudioProcessorEditor::initializeAudioPlayback()
-{
-    // Initialize audio format manager
-    audioFormatManager = std::make_unique<juce::AudioFormatManager>();
-    audioFormatManager->registerBasicFormats();
-
-    // Initialize audio device manager
-    audioDeviceManager = std::make_unique<juce::AudioDeviceManager>();
-
-    // Use default device with common settings
-    juce::String error = audioDeviceManager->initialise(
-        0,    // numInputChannelsNeeded
-        2,    // numOutputChannelsNeeded  
-        nullptr, // savedState
-        true  // selectDefaultDeviceOnFailure
-    );
-
-    if (error.isNotEmpty())
-    {
-        DBG("Audio device manager error: " + error);
-        // Continue anyway - might still work
-    }
-
-    // CHECK FOR PROBLEMATIC ASIO DRIVERS
-    auto* currentDevice = audioDeviceManager->getCurrentAudioDevice();
-    if (currentDevice != nullptr)
-    {
-        auto driverName = currentDevice->getName().toLowerCase();
-        auto typeName = currentDevice->getTypeName().toLowerCase();
-
-        bool isProblematicDriver = driverName.contains("asio4all") ||
-            driverName.contains("asio 4 all") ||
-            driverName.contains("realtek asio") ||
-            typeName.contains("asio4all") ||
-            typeName.contains("realtek asio");
-
-        if (isProblematicDriver)
-        {
-            DBG("Detected problematic ASIO driver: " + driverName + " (" + typeName + ")");
-            showAsioDriverWarning(driverName);
-        }
-        else
-        {
-            DBG("Audio driver OK: " + driverName + " (" + typeName + ")");
-        }
-    }
-
-    // Create transport source
-    transportSource = std::make_unique<juce::AudioTransportSource>();
-
-    // Create audio source player (this is the AudioIODeviceCallback)
-    audioSourcePlayer = std::make_unique<juce::AudioSourcePlayer>();
-
-    // Set the transport source as the audio source for the player
-    audioSourcePlayer->setSource(transportSource.get());
-
-    // Add the audio source player as audio callback (not the transport source directly)
-    audioDeviceManager->addAudioCallback(audioSourcePlayer.get());
-
-    DBG("Audio playback initialized");
-}
-
 // Updated checkPlaybackStatus() - full stop when audio finishes naturally
 void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 {
-    if (transportSource && isPlayingOutput)
+    // Update position from processor
+    if (isPlayingOutput)
     {
-        if (!transportSource->isPlaying())
+        currentPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
+
+        // Check if processor has stopped (reached end)
+        if (!audioProcessor.getIsPlayingOutput())
         {
-            // Playback finished naturally - do a full stop and reset to beginning
-            stopOutputPlayback(); // This resets everything to beginning
+            isPlayingOutput = false;
+            isPausedOutput = false;
+            currentPlaybackPosition = 0.0;
+            updatePlayButtonIcon();
             showStatusMessage("playback finished", 1500);
         }
-        else
-        {
-            // Update current playback position
-            currentPlaybackPosition = transportSource->getCurrentPosition();
-            repaint();
-        }
+
+        repaint();
     }
 }
 
@@ -5838,37 +5580,29 @@ void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
     // Clamp time to valid range
     timeInSeconds = juce::jlimit(0.0, totalAudioDuration, timeInSeconds);
 
+    // Update processor's seek position
+    audioProcessor.seekOutputPlayback(timeInSeconds);
+
+    // Update local tracking
+    currentPlaybackPosition = timeInSeconds;
+    pausedPosition = timeInSeconds;
+
     if (isPlayingOutput)
     {
-        // Currently playing - seek and continue playing
-        if (transportSource)
-        {
-            transportSource->setPosition(timeInSeconds);
-            currentPlaybackPosition = timeInSeconds;
-
-            showStatusMessage("seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
-            repaint(); // Update cursor position immediately
-        }
+        showStatusMessage("seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
     }
     else if (isPausedOutput)
     {
-        // Currently paused - move cursor and stay paused
-        pausedPosition = timeInSeconds;
-        currentPlaybackPosition = timeInSeconds;
-
         showStatusMessage("seek to " + juce::String(timeInSeconds, 1) + "s (paused)", 1500);
-        repaint(); // Update cursor position immediately
     }
     else if (hasOutputAudio)
     {
-        // Not playing but we have audio - move cursor and prepare for playback
-        currentPlaybackPosition = timeInSeconds;
-        pausedPosition = timeInSeconds;
-        isPausedOutput = true; // Set paused state so next play resumes from here
-
+        // Set paused state so next play resumes from here
+        isPausedOutput = true;
         showStatusMessage("seek to " + juce::String(timeInSeconds, 1) + "s", 1500);
-        repaint(); // Update cursor position immediately
     }
+
+    repaint();
 }
 
 void Gary4juceAudioProcessorEditor::startAudioDrag()
@@ -6269,21 +6003,11 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
         return;
     }
 
-    // CRITICAL: Stop ALL audio playback and DISCONNECT from file
+    // Stop playback through processor
     fullStopOutputPlayback();
 
-    // CRITICAL: Additional cleanup to ensure file is released
-    if (transportSource)
-    {
-        transportSource->setSource(nullptr);  // Disconnect from file
-    }
-    if (readerSource)
-    {
-        readerSource.reset();  // Release file reader
-    }
-
-    // Give the system a moment to release file handles
-    juce::Thread::sleep(100);
+    // Give the system a moment to ensure processor has stopped
+    juce::Thread::sleep(50);
 
     DBG("Starting crop operation at " + juce::String(cropPosition, 2) + "s");
 

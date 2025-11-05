@@ -50,7 +50,6 @@ public:
     void playOutputAudio();
     void clearOutputAudio();
 
-    void initializeAudioPlayback();
     void stopOutputPlayback();
     void checkPlaybackStatus();
 
@@ -326,11 +325,6 @@ private:
     CustomButton stopOutputButton;
     juce::DrawableButton cropButton;
 
-    std::unique_ptr<juce::AudioFormatManager> audioFormatManager;
-    std::unique_ptr<juce::AudioTransportSource> transportSource;
-    std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
-    std::unique_ptr<juce::AudioDeviceManager> audioDeviceManager;
-    std::unique_ptr<juce::AudioSourcePlayer> audioSourcePlayer;
     bool isPlayingOutput = false;
 
     // Playback cursor tracking
@@ -341,9 +335,6 @@ private:
     bool isPausedOutput = false;       // True when paused (different from stopped)
     double pausedPosition = 0.0;       // Position where we paused
 
-    void startOutputPlayback();        // Start fresh from beginning
-    void pauseOutputPlayback();        // Pause at current position
-    void resumeOutputPlayback();       // Resume from paused position
     void fullStopOutputPlayback();     // Complete stop (different from pause)
 
     // Smooth progress animation
@@ -442,8 +433,6 @@ private:
 
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);
-
-    void showAsioDriverWarning(const juce::String& driverName);
 
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)

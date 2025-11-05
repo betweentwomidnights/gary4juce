@@ -622,11 +622,53 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // Pass audio through unchanged
+    // NEW: Mix output playback if active
+    if (isPlayingOutputAudio.load() && outputPlaybackBuffer.getNumSamples() > 0)
+    {
+        if (playbackBufferLock.tryEnter())
+        {
+            const int numSamplesToMix = juce::jmin(
+                buffer.getNumSamples(),
+                outputPlaybackBuffer.getNumSamples() - outputPlaybackReadPosition
+            );
+
+            if (numSamplesToMix > 0)
+            {
+                // Mix playback buffer into output
+                for (int channel = 0; channel < juce::jmin(totalNumOutputChannels, outputPlaybackBuffer.getNumChannels()); ++channel)
+                {
+                    buffer.addFrom(
+                        channel, 0,
+                        outputPlaybackBuffer,
+                        channel, outputPlaybackReadPosition,
+                        numSamplesToMix
+                    );
+                }
+
+                // Update read position
+                outputPlaybackReadPosition += numSamplesToMix;
+
+                // Update playback position in seconds (for UI)
+                double newPosition = (double)outputPlaybackReadPosition / outputAudioSampleRate.load();
+                outputPlaybackPosition.store(newPosition);
+
+                // Check if we've reached the end
+                if (outputPlaybackReadPosition >= outputPlaybackBuffer.getNumSamples())
+                {
+                    isPlayingOutputAudio.store(false);
+                    outputPlaybackReadPosition = 0;
+                    outputPlaybackPosition.store(0.0);
+                }
+            }
+
+            playbackBufferLock.exit();
+        }
+    }
+
+    // Pass input audio through unchanged
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
-        auto* channelData = buffer.getWritePointer(channel);
-        // Audio processing would go here
+        // Input pass-through (existing behavior)
     }
 }
 //==============================================================================
@@ -729,6 +771,103 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
 
         // Trigger a health check to restore connection status
         checkBackendHealth();
+    }
+}
+
+//==============================================================================
+// Output Audio Playback Methods (Host Audio Implementation)
+
+void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audioFile)
+{
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+
+    if (reader != nullptr)
+    {
+        juce::ScopedLock lock(playbackBufferLock);
+
+        // Store file properties
+        outputAudioSampleRate.store(reader->sampleRate);
+        outputAudioDuration.store((double)reader->lengthInSamples / reader->sampleRate);
+
+        // Load audio into buffer
+        outputPlaybackBuffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
+        reader->read(&outputPlaybackBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
+
+        // Reset playback state
+        outputPlaybackReadPosition = 0;
+        outputPlaybackPosition.store(0.0);
+
+        DBG("Loaded output audio for playback: " + juce::String(reader->lengthInSamples) +
+            " samples at " + juce::String(reader->sampleRate) + " Hz");
+    }
+    else
+    {
+        DBG("Failed to load audio file for playback: " + audioFile.getFullPathName());
+    }
+}
+
+void Gary4juceAudioProcessor::startOutputPlayback(double fromPosition)
+{
+    juce::ScopedLock lock(playbackBufferLock);
+
+    if (outputPlaybackBuffer.getNumSamples() > 0)
+    {
+        // Calculate sample position from time
+        int samplePosition = (int)(fromPosition * outputAudioSampleRate.load());
+        samplePosition = juce::jlimit(0, outputPlaybackBuffer.getNumSamples() - 1, samplePosition);
+
+        outputPlaybackReadPosition = samplePosition;
+        outputPlaybackPosition.store(fromPosition);
+        isPausedOutputAudio.store(false);
+        isPlayingOutputAudio.store(true);
+
+        DBG("Started output playback from " + juce::String(fromPosition, 2) + "s");
+    }
+}
+
+void Gary4juceAudioProcessor::pauseOutputPlayback()
+{
+    if (isPlayingOutputAudio.load())
+    {
+        isPlayingOutputAudio.store(false);
+        isPausedOutputAudio.store(true);
+
+        DBG("Paused output playback at " + juce::String(outputPlaybackPosition.load(), 2) + "s");
+    }
+}
+
+void Gary4juceAudioProcessor::stopOutputPlayback()
+{
+    juce::ScopedLock lock(playbackBufferLock);
+
+    isPlayingOutputAudio.store(false);
+    isPausedOutputAudio.store(false);
+    outputPlaybackReadPosition = 0;
+    outputPlaybackPosition.store(0.0);
+
+    DBG("Stopped output playback");
+}
+
+void Gary4juceAudioProcessor::seekOutputPlayback(double positionInSeconds)
+{
+    juce::ScopedLock lock(playbackBufferLock);
+
+    if (outputPlaybackBuffer.getNumSamples() > 0)
+    {
+        // Clamp position to valid range
+        positionInSeconds = juce::jlimit(0.0, outputAudioDuration.load(), positionInSeconds);
+
+        // Calculate sample position
+        int samplePosition = (int)(positionInSeconds * outputAudioSampleRate.load());
+        samplePosition = juce::jlimit(0, outputPlaybackBuffer.getNumSamples() - 1, samplePosition);
+
+        outputPlaybackReadPosition = samplePosition;
+        outputPlaybackPosition.store(positionInSeconds);
+
+        DBG("Seeked to " + juce::String(positionInSeconds, 2) + "s");
     }
 }
 
