@@ -411,7 +411,7 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton;
 
     // Allow an extended grace period when we're at 0% but still receiving polls
     const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes

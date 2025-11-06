@@ -78,6 +78,7 @@ public:
     bool getAudioSourceUsesRecording() const;
     double getMean() const;
     const std::vector<double>& getCentroidWeights() const;
+    juce::Rectangle<int> getTitleBounds() const;
 
     // Behaviour helpers
     void refreshModelControls();
@@ -230,6 +231,7 @@ private:
     juce::String backendUrl;
     juce::String connectionStatusText { "not checked" };
     juce::String finetuneRepoText;
+    juce::Rectangle<int> titleBounds;
 
     CustomLookAndFeel customLookAndFeel;
 };

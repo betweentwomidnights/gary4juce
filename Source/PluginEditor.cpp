@@ -78,7 +78,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton("Crop", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
-    terryHelpButton("terry help", juce::DrawableButton::ImageFitted)
+    terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
+    dariusHelpButton("darius help", juce::DrawableButton::ImageFitted)
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
@@ -558,6 +559,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://huggingface.co/spaces/facebook/MelodyFlow").launchInDefaultBrowser();
         };
         addAndMakeVisible(terryHelpButton);
+
+        // darius help button
+        dariusHelpButton.setImages(helpIcon.get());
+        dariusHelpButton.setTooltip("learn more about magenta-realtime");
+        dariusHelpButton.onClick = [this]() {
+            juce::URL("https://huggingface.co/spaces/thecollabagepatch/magenta-retry").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(dariusHelpButton);
     }
     
     // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
@@ -6559,6 +6568,19 @@ void Gary4juceAudioProcessorEditor::resized()
 
     if (dariusUI)
         dariusUI->setBounds(modelControlsArea);
+
+    if (helpIcon && currentTab == ModelTab::Darius && dariusUI)
+    {
+        auto titleBounds = dariusUI->getTitleBounds().translated(dariusUI->getX(), dariusUI->getY());
+        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("darius (magentaRT)"));
+        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
+        auto helpBounds = juce::Rectangle<int>(
+            textStartX + textWidth + 5,
+            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
+            20, 20);
+        dariusHelpButton.setBounds(helpBounds);
+    }
 
 
 // ========== OUTPUT SECTION (FlexBox Implementation) ==========

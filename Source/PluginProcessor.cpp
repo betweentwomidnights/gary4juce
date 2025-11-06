@@ -634,22 +634,41 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
             if (numSamplesToMix > 0)
             {
-                // Mix playback buffer into output
-                for (int channel = 0; channel < juce::jmin(totalNumOutputChannels, outputPlaybackBuffer.getNumChannels()); ++channel)
+                // FIXED: Handle mono → stereo conversion
+                if (outputPlaybackBuffer.getNumChannels() == 1)
                 {
-                    buffer.addFrom(
-                        channel, 0,
-                        outputPlaybackBuffer,
-                        channel, outputPlaybackReadPosition,
-                        numSamplesToMix
-                    );
+                    // Mono source - duplicate to all output channels
+                    for (int channel = 0; channel < totalNumOutputChannels; ++channel)
+                    {
+                        buffer.addFrom(
+                            channel, 0,
+                            outputPlaybackBuffer,
+                            0,  // Always read from channel 0 (mono)
+                            outputPlaybackReadPosition,
+                            numSamplesToMix
+                        );
+                    }
+                }
+                else
+                {
+                    // Stereo/multi-channel source - normal channel mapping
+                    for (int channel = 0; channel < juce::jmin(totalNumOutputChannels, outputPlaybackBuffer.getNumChannels()); ++channel)
+                    {
+                        buffer.addFrom(
+                            channel, 0,
+                            outputPlaybackBuffer,
+                            channel, outputPlaybackReadPosition,
+                            numSamplesToMix
+                        );
+                    }
                 }
 
                 // Update read position
                 outputPlaybackReadPosition += numSamplesToMix;
 
                 // Update playback position in seconds (for UI)
-                double newPosition = (double)outputPlaybackReadPosition / outputAudioSampleRate.load();
+                // NOTE: Use currentSampleRate (host rate) since buffer is now resampled
+                double newPosition = (double)outputPlaybackReadPosition / currentSampleRate;
                 outputPlaybackPosition.store(newPosition);
 
                 // Check if we've reached the end
@@ -788,20 +807,85 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
     {
         juce::ScopedLock lock(playbackBufferLock);
 
-        // Store file properties
-        outputAudioSampleRate.store(reader->sampleRate);
-        outputAudioDuration.store((double)reader->lengthInSamples / reader->sampleRate);
+        const double fileSampleRate = reader->sampleRate;
+        const int fileNumChannels = (int)reader->numChannels;
+        const int fileNumSamples = (int)reader->lengthInSamples;
 
-        // Load audio into buffer
-        outputPlaybackBuffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
-        reader->read(&outputPlaybackBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
+        DBG("Loading audio file: " + juce::String(fileNumSamples) + " samples at " +
+            juce::String(fileSampleRate) + " Hz, " + juce::String(fileNumChannels) + " channels");
+
+        // Check if we need sample rate conversion
+        const bool needsResampling = (fileSampleRate != currentSampleRate);
+
+        if (needsResampling)
+        {
+            DBG("Sample rate mismatch: file=" + juce::String(fileSampleRate) +
+                " Hz, host=" + juce::String(currentSampleRate) + " Hz - resampling...");
+
+            // Calculate how many samples we'll need after resampling
+            const double sizeRatio = currentSampleRate / fileSampleRate;
+            const int resampledNumSamples = (int)(fileNumSamples * sizeRatio);
+
+            // Calculate speed ratio for interpolator (how fast to read input samples)
+            // For upsampling (44.1→48kHz): speedRatio < 1.0 (read slower)
+            // For downsampling (48→44.1kHz): speedRatio > 1.0 (read faster)
+            const double speedRatio = fileSampleRate / currentSampleRate;
+
+            DBG("Size ratio: " + juce::String(sizeRatio) + ", Speed ratio: " + juce::String(speedRatio));
+
+            // Load original audio into temporary buffer
+            juce::AudioBuffer<float> tempBuffer(fileNumChannels, fileNumSamples);
+            reader->read(&tempBuffer, 0, fileNumSamples, 0, true, true);
+
+            // Create output buffer at host sample rate
+            outputPlaybackBuffer.setSize(fileNumChannels, resampledNumSamples);
+
+            // Resample each channel using JUCE's Lagrange interpolator
+            for (int channel = 0; channel < fileNumChannels; ++channel)
+            {
+                juce::LagrangeInterpolator interpolator;
+                interpolator.reset();
+
+                // Read pointer from temp buffer, write pointer to output buffer
+                const float* readPtr = tempBuffer.getReadPointer(channel);
+                float* writePtr = outputPlaybackBuffer.getWritePointer(channel);
+
+                // Perform resampling
+                interpolator.process(
+                    speedRatio,             // Speed ratio for reading input (inverse of size ratio)
+                    readPtr,                // Source data
+                    writePtr,               // Destination data
+                    resampledNumSamples,    // Number of output samples
+                    fileNumSamples,         // Number of input samples available
+                    0                       // Wrap (0 = no wrap)
+                );
+            }
+
+            // Store final properties (at host sample rate)
+            outputAudioSampleRate.store(currentSampleRate);
+            outputAudioDuration.store((double)resampledNumSamples / currentSampleRate);
+
+            DBG("Resampling complete: " + juce::String(resampledNumSamples) + " samples at " +
+                juce::String(currentSampleRate) + " Hz");
+        }
+        else
+        {
+            // No resampling needed - direct load
+            DBG("Sample rates match - loading directly");
+
+            outputPlaybackBuffer.setSize(fileNumChannels, fileNumSamples);
+            reader->read(&outputPlaybackBuffer, 0, fileNumSamples, 0, true, true);
+
+            // Store file properties
+            outputAudioSampleRate.store(fileSampleRate);
+            outputAudioDuration.store((double)fileNumSamples / fileSampleRate);
+        }
 
         // Reset playback state
         outputPlaybackReadPosition = 0;
         outputPlaybackPosition.store(0.0);
 
-        DBG("Loaded output audio for playback: " + juce::String(reader->lengthInSamples) +
-            " samples at " + juce::String(reader->sampleRate) + " Hz");
+        DBG("Loaded output audio for playback successfully");
     }
     else
     {

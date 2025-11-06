@@ -405,6 +405,7 @@ void DariusUI::resized()
     juce::FlexItem dariusTitleItem(dariusLabel);
     dariusTitleItem.height = 30;
     dariusTitleItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
+    titleBounds = juce::Rectangle<int>(bounds.getX(), bounds.getY() + 5, bounds.getWidth(), 30);
 
     juce::Component subTabDummy;
     juce::FlexItem subTabItem(subTabDummy);
@@ -1385,4 +1386,9 @@ void DariusUI::updateSubTabStates()
     dariusGenerationTabButton.setButtonStyle(currentSubTab == SubTab::Generation
                                                  ? CustomButton::ButtonStyle::Darius
                                                  : CustomButton::ButtonStyle::Inactive);
+}
+
+juce::Rectangle<int> DariusUI::getTitleBounds() const
+{
+    return titleBounds;
 }
