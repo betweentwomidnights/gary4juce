@@ -30,6 +30,9 @@ public:
     void setIcon(std::unique_ptr<juce::Drawable> icon);
     void clearIcon();
 
+    // Custom paint callback - if set, this will be called instead of default painting
+    std::function<void(juce::Graphics&, juce::Rectangle<int>)> onPaint;
+
 private:
     ButtonStyle currentStyle = ButtonStyle::Standard;
     std::unique_ptr<juce::Drawable> buttonIcon;

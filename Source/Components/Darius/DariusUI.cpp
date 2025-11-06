@@ -13,6 +13,21 @@ DariusUI::DariusUI()
     dariusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(dariusLabel);
 
+    // Backend viewport/content
+    dariusBackendContent = std::make_unique<juce::Component>();
+    dariusBackendViewport = std::make_unique<juce::Viewport>();
+    dariusBackendViewport->setViewedComponent(dariusBackendContent.get(), false);
+    dariusBackendViewport->setScrollBarsShown(true, false);
+    customLookAndFeel.setScrollbarAccentColour(Theme::Colors::Darius);
+    dariusBackendViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
+    addAndMakeVisible(dariusBackendViewport.get());
+
+    auto addBackendComponent = [this](juce::Component& comp)
+    {
+        if (dariusBackendContent != nullptr)
+            dariusBackendContent->addAndMakeVisible(comp);
+    };
+
     // Backend URL editor
     dariusUrlEditor.setMultiLine(false);
     dariusUrlEditor.setReturnKeyStartsNewLine(false);
@@ -21,13 +36,15 @@ DariusUI::DariusUI()
         if (onUrlChanged)
             onUrlChanged(backendUrl);
     };
-    addAndMakeVisible(dariusUrlEditor);
+    addBackendComponent(dariusUrlEditor);
+    backendUrl = "http://localhost:7860";
+    dariusUrlEditor.setText(backendUrl, juce::dontSendNotification);
 
     dariusUrlLabel.setText("backend url", juce::dontSendNotification);
     dariusUrlLabel.setFont(juce::FontOptions(12.0f));
     dariusUrlLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     dariusUrlLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(dariusUrlLabel);
+    addBackendComponent(dariusUrlLabel);
 
     dariusHealthCheckButton.setButtonText("check connection");
     dariusHealthCheckButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
@@ -36,13 +53,74 @@ DariusUI::DariusUI()
         if (onHealthCheckRequested)
             onHealthCheckRequested();
     };
-    addAndMakeVisible(dariusHealthCheckButton);
+    addBackendComponent(dariusHealthCheckButton);
 
     dariusStatusLabel.setText(connectionStatusText, juce::dontSendNotification);
     dariusStatusLabel.setFont(juce::FontOptions(11.0f));
     dariusStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     dariusStatusLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(dariusStatusLabel);
+    addBackendComponent(dariusStatusLabel);
+
+    // Setup Guide Toggle
+    setupGuideToggle.setButtonText("setup guide");
+    setupGuideToggle.setButtonStyle(CustomButton::ButtonStyle::Darius);
+    setupGuideToggle.onClick = [this]() {
+        setupGuideOpen = !setupGuideOpen;
+        updateSetupGuideToggleText();
+        if (!setupGuideOpen && dariusBackendViewport != nullptr)
+            dariusBackendViewport->setViewPosition(0, 0);
+        resized();
+    };
+    addBackendComponent(setupGuideToggle);
+
+    // Docker Setup Card
+    setupDockerHeaderLabel.setText("Local Docker", juce::dontSendNotification);
+    setupDockerHeaderLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    setupDockerHeaderLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    setupDockerHeaderLabel.setJustificationType(juce::Justification::centredLeft);
+    addBackendComponent(setupDockerHeaderLabel);
+
+    setupDockerDescLabel.setText("For GPUs with 24GB+ VRAM", juce::dontSendNotification);
+    setupDockerDescLabel.setFont(juce::FontOptions(11.0f));
+    setupDockerDescLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    setupDockerDescLabel.setJustificationType(juce::Justification::centredLeft);
+    addBackendComponent(setupDockerDescLabel);
+
+    setupDockerLinkButton.setButtonText("Open GitHub Repo");
+    setupDockerLinkButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
+    setupDockerLinkButton.onClick = [this]() {
+        juce::URL("https://github.com/betweentwomidnights/magenta-rt").launchInDefaultBrowser();
+    };
+    addBackendComponent(setupDockerLinkButton);
+
+    // HuggingFace Setup Card
+    setupHfHeaderLabel.setText("HuggingFace Space", juce::dontSendNotification);
+    setupHfHeaderLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    setupHfHeaderLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    setupHfHeaderLabel.setJustificationType(juce::Justification::centredLeft);
+    addBackendComponent(setupHfHeaderLabel);
+
+    setupHfDescLabel.setText("Use L40s infrastructure", juce::dontSendNotification);
+    setupHfDescLabel.setFont(juce::FontOptions(11.0f));
+    setupHfDescLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    setupHfDescLabel.setJustificationType(juce::Justification::centredLeft);
+    addBackendComponent(setupHfDescLabel);
+
+    setupHfLinkButton.setButtonText("Duplicate Space");
+    setupHfLinkButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
+    setupHfLinkButton.onClick = [this]() {
+        juce::URL("https://huggingface.co/spaces/thecollabagepatch/magenta-retry").launchInDefaultBrowser();
+    };
+    addBackendComponent(setupHfLinkButton);
+
+    setupDockerHeaderLabel.setVisible(false);
+    setupDockerDescLabel.setVisible(false);
+    setupDockerLinkButton.setVisible(false);
+    setupHfHeaderLabel.setVisible(false);
+    setupHfDescLabel.setVisible(false);
+    setupHfLinkButton.setVisible(false);
+
+    updateSetupGuideToggleText();
 
     // Subtab buttons
     auto prepSubTabButton = [this](CustomButton& button, const juce::String& text, SubTab tab) {
@@ -382,6 +460,8 @@ DariusUI::DariusUI()
 DariusUI::~DariusUI()
 {
     // Reset LookAndFeel to avoid dangling pointers
+    if (dariusBackendViewport)
+        dariusBackendViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
     if (dariusModelViewport)
         dariusModelViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 
@@ -437,35 +517,91 @@ void DariusUI::resized()
 
     if (currentSubTab == SubTab::Backend)
     {
-        juce::FlexBox backendFlexBox;
-        backendFlexBox.flexDirection = juce::FlexBox::Direction::column;
-        backendFlexBox.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+        if (dariusBackendViewport != nullptr)
+        {
+            dariusBackendViewport->setVisible(true);
+            dariusBackendViewport->setBounds(contentBounds);
+        }
+        if (dariusModelViewport != nullptr)
+            dariusModelViewport->setVisible(false);
+        if (dariusGenerationViewport != nullptr)
+            dariusGenerationViewport->setVisible(false);
 
-        juce::FlexItem urlLabelItem(dariusUrlLabel);
-        urlLabelItem.height = 15;
-        urlLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+        setupGuideToggle.setVisible(true);
 
-        juce::FlexItem urlEditorItem(dariusUrlEditor);
-        urlEditorItem.height = 25;
-        urlEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
+        const int viewportWidth = contentBounds.getWidth();
+        const int contentLeft = 5;
+        const int contentWidth = juce::jmax(0, viewportWidth - contentLeft * 2);
+        const int buttonSideMargin = 50;
+        int buttonWidth = viewportWidth - buttonSideMargin * 2;
+        int buttonX = buttonSideMargin;
+        if (buttonWidth <= 0)
+        {
+            buttonX = contentLeft;
+            buttonWidth = contentWidth;
+        }
+        buttonWidth = juce::jmax(0, buttonWidth);
 
-        juce::FlexItem healthItem(dariusHealthCheckButton);
-        healthItem.height = 35;
-        healthItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+        int y = 10;
 
-        juce::FlexItem statusItem(dariusStatusLabel);
-        statusItem.height = 20;
-        statusItem.margin = juce::FlexItem::Margin(5, 5, 5, 5);
+        dariusUrlLabel.setBounds(contentLeft, y, contentWidth, 15);
+        y += 15 + 2;
 
-        backendFlexBox.items.add(urlLabelItem);
-        backendFlexBox.items.add(urlEditorItem);
-        backendFlexBox.items.add(healthItem);
-        backendFlexBox.items.add(statusItem);
+        dariusUrlEditor.setBounds(contentLeft, y, contentWidth, 25);
+        y += 25 + 8;
 
-        backendFlexBox.performLayout(contentBounds);
+        const int toggleHeight = 30;
+        setupGuideToggle.setBounds(buttonX, y, buttonWidth, toggleHeight);
+        y += toggleHeight + (setupGuideOpen ? 6 : 12);
+
+        if (setupGuideOpen)
+        {
+            const int guideSideMargin = 20;
+            const int guideHeight = 150;
+            juce::Rectangle<int> guideArea(guideSideMargin,
+                                           y,
+                                           juce::jmax(0, viewportWidth - guideSideMargin * 2),
+                                           guideHeight);
+            layoutSetupGuideUI(guideArea);
+            y += guideHeight + 10;
+        }
+        else
+        {
+            setupDockerHeaderLabel.setVisible(false);
+            setupDockerDescLabel.setVisible(false);
+            setupDockerLinkButton.setVisible(false);
+            setupHfHeaderLabel.setVisible(false);
+            setupHfDescLabel.setVisible(false);
+            setupHfLinkButton.setVisible(false);
+        }
+
+        const int healthHeight = 35;
+        dariusHealthCheckButton.setBounds(buttonX, y, buttonWidth, healthHeight);
+        y += healthHeight + 6;
+
+        const int statusHeight = 20;
+        dariusStatusLabel.setBounds(contentLeft, y, contentWidth, statusHeight);
+        y += statusHeight + 8;
+
+        if (dariusBackendContent != nullptr)
+            dariusBackendContent->setSize(juce::jmax(viewportWidth, contentLeft * 2 + contentWidth), y + 10);
     }
     else if (currentSubTab == SubTab::Model)
     {
+        if (dariusBackendViewport != nullptr)
+            dariusBackendViewport->setVisible(false);
+        if (dariusGenerationViewport != nullptr)
+            dariusGenerationViewport->setVisible(false);
+        setupGuideToggle.setVisible(false);
+        setupDockerHeaderLabel.setVisible(false);
+        setupDockerDescLabel.setVisible(false);
+        setupDockerLinkButton.setVisible(false);
+        setupHfHeaderLabel.setVisible(false);
+        setupHfDescLabel.setVisible(false);
+        setupHfLinkButton.setVisible(false);
+
+        if (dariusModelViewport != nullptr)
+            dariusModelViewport->setVisible(true);
         dariusModelViewport->setBounds(contentBounds);
         const auto contentW = contentBounds.getWidth() - 20;
         dariusModelContent->setSize(contentW, 300);
@@ -511,6 +647,20 @@ void DariusUI::resized()
     }
     else if (currentSubTab == SubTab::Generation)
     {
+        if (dariusBackendViewport != nullptr)
+            dariusBackendViewport->setVisible(false);
+        if (dariusModelViewport != nullptr)
+            dariusModelViewport->setVisible(false);
+        setupGuideToggle.setVisible(false);
+        setupDockerHeaderLabel.setVisible(false);
+        setupDockerDescLabel.setVisible(false);
+        setupDockerLinkButton.setVisible(false);
+        setupHfHeaderLabel.setVisible(false);
+        setupHfDescLabel.setVisible(false);
+        setupHfLinkButton.setVisible(false);
+
+        if (dariusGenerationViewport != nullptr)
+            dariusGenerationViewport->setVisible(true);
         dariusGenerationViewport->setBounds(contentBounds);
         const int contentW = contentBounds.getWidth() - 20;
         auto area = juce::Rectangle<int>(10, 10, contentW - 20, 600);
@@ -1088,9 +1238,39 @@ void DariusUI::addGenStyleRowInternal(const juce::String& text, double weight)
         });
     };
 
+    // Create dice button
+    row.dice = std::make_unique<CustomButton>();
+    row.dice->setButtonText("");  // No text, we'll draw the icon
+    row.dice->setButtonStyle(CustomButton::ButtonStyle::Darius);
+    row.dice->setTooltip("get a random style");
+    auto* dicePtr = row.dice.get();
+    row.dice->onClick = [this, dicePtr]()
+    {
+        // Find which row this dice button belongs to
+        for (size_t i = 0; i < genStyleRows.size(); ++i)
+        {
+            if (genStyleRows[i].dice.get() == dicePtr)
+            {
+                // Generate next cycling prompt
+                juce::String prompt = magentaPrompts.getNextCyclingStyle();
+                genStyleRows[i].text->setText(prompt, juce::sendNotification);
+                break;
+            }
+        }
+    };
+
+    // Override paint to draw custom dice icon with hover/pressed states
+    row.dice->onPaint = [this, dicePtr](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        bool isHovered = dicePtr->isMouseOver();
+        bool isPressed = dicePtr->isDown();
+        drawDiceIcon(g, bounds.toFloat().reduced(2), isHovered, isPressed);
+    };
+
     dariusGenerationContent->addAndMakeVisible(*row.text);
     dariusGenerationContent->addAndMakeVisible(*row.weight);
     dariusGenerationContent->addAndMakeVisible(*row.remove);
+    dariusGenerationContent->addAndMakeVisible(*row.dice);
 
     genStyleRows.push_back(std::move(row));
 }
@@ -1110,6 +1290,7 @@ void DariusUI::rebuildGenStylesUI()
 
         row.text->setVisible(true);
         row.weight->setVisible(true);
+        row.dice->setVisible(true);  // Always show dice button
     }
 }
 
@@ -1117,21 +1298,27 @@ void DariusUI::layoutGenStylesUI(juce::Rectangle<int>& area)
 {
     const int rowH = 24;
     const int gapY = 6;
-    const int textW = 120;  // Reduced from 180 to give more room to slider
+    const int textW = 115;  // Increased for better prompt visibility
+    const int diceW = 18;   // Dice button width (slightly smaller)
     const int removeW = 22;
 
     for (size_t i = 0; i < genStyleRows.size(); ++i)
     {
         auto slice = area.removeFromTop(rowH);
         auto& row = genStyleRows[i];
-        if (!row.text || !row.weight || !row.remove)
+        if (!row.text || !row.weight || !row.remove || !row.dice)
             continue;
 
         auto textBounds = slice.removeFromLeft(textW);
+        auto diceBounds = slice.removeFromLeft(diceW);  // Dice button space
         auto removeBounds = slice.removeFromRight(removeW);
         auto weightBounds = slice;
 
+        // Make dice button square by centering it vertically in the row
+        auto diceSquare = diceBounds.withHeight(diceW).withY(diceBounds.getY() + (rowH - diceW) / 2);
+
         row.text->setBounds(textBounds);
+        row.dice->setBounds(diceSquare);  // Position dice button (now square)
         row.weight->setBounds(weightBounds.reduced(4, 6));
         row.remove->setBounds(removeBounds);
 
@@ -1225,6 +1412,53 @@ void DariusUI::layoutGenSteeringUI(juce::Rectangle<int>& area)
         for (auto* l : genCentroidLabels)  if (l) l->setVisible(false);
         for (auto* s : genCentroidSliders) if (s) s->setVisible(false);
     }
+}
+
+void DariusUI::updateSetupGuideToggleText()
+{
+    setupGuideToggle.setButtonText(setupGuideOpen ? "hide setup guide" : "setup guide");
+}
+
+void DariusUI::layoutSetupGuideUI(juce::Rectangle<int>& area)
+{
+    setupDockerHeaderLabel.setVisible(true);
+    setupDockerDescLabel.setVisible(true);
+    setupDockerLinkButton.setVisible(true);
+    setupHfHeaderLabel.setVisible(true);
+    setupHfDescLabel.setVisible(true);
+    setupHfLinkButton.setVisible(true);
+
+    const int cardGap = 10;
+    const int cardHeight = 65;
+    const int headerH = 18;
+    const int descH = 14;
+    const int buttonH = 26;
+
+    auto dockerCard = area.removeFromTop(cardHeight);
+    auto dockerHeader = dockerCard.removeFromTop(headerH);
+    setupDockerHeaderLabel.setBounds(dockerHeader);
+
+    auto dockerDesc = dockerCard.removeFromTop(descH);
+    setupDockerDescLabel.setBounds(dockerDesc);
+
+    dockerCard.removeFromTop(2);
+    auto dockerButton = dockerCard.removeFromTop(buttonH);
+    const int dockerWidth = juce::jmin(180, dockerButton.getWidth());
+    setupDockerLinkButton.setBounds(dockerButton.removeFromLeft(dockerWidth));
+
+    area.removeFromTop(cardGap);
+
+    auto hfCard = area.removeFromTop(cardHeight);
+    auto hfHeader = hfCard.removeFromTop(headerH);
+    setupHfHeaderLabel.setBounds(hfHeader);
+
+    auto hfDesc = hfCard.removeFromTop(descH);
+    setupHfDescLabel.setBounds(hfDesc);
+
+    hfCard.removeFromTop(2);
+    auto hfButton = hfCard.removeFromTop(buttonH);
+    const int hfWidth = juce::jmin(180, hfButton.getWidth());
+    setupHfLinkButton.setBounds(hfButton.removeFromLeft(hfWidth));
 }
 
 void DariusUI::updateGenLoopLabel()
@@ -1362,7 +1596,7 @@ void DariusUI::handleRemoveStyleRow(int index)
         return;
 
     auto& row = genStyleRows[(size_t)index];
-    juce::Component* comps[] = { row.text.get(), row.weight.get(), row.remove.get() };
+    juce::Component* comps[] = { row.text.get(), row.weight.get(), row.remove.get(), row.dice.get() };
     for (auto* comp : comps)
         if (comp != nullptr)
         {
@@ -1373,6 +1607,60 @@ void DariusUI::handleRemoveStyleRow(int index)
     genStyleRows.erase(genStyleRows.begin() + index);
     rebuildGenStylesUI();
     resized();
+}
+
+void DariusUI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed)
+{
+    // Choose colors based on state
+    juce::Colour bgColour, pipColour;
+
+    if (isPressed)
+    {
+        // Pressed: inverted colors for that satisfying click
+        bgColour = Theme::Colors::Darius;
+        pipColour = Theme::Colors::Background;
+    }
+    else if (isHovered)
+    {
+        // Hover: brighter pink background with white dots
+        bgColour = Theme::Colors::Darius.brighter(0.3f);
+        pipColour = juce::Colours::white;
+    }
+    else
+    {
+        // Normal: pink/magenta background with white dots
+        bgColour = Theme::Colors::Darius.withAlpha(0.8f);
+        pipColour = juce::Colours::white;
+    }
+
+    // Draw dice square with rounded corners
+    juce::Path dicePath;
+    dicePath.addRoundedRectangle(bounds, 2.0f);
+
+    g.setColour(bgColour);
+    g.fillPath(dicePath);
+
+    // Draw 5 pips in classic dice pattern (like a 5-face)
+    float pipRadius = bounds.getWidth() * 0.12f;
+
+    float cx = bounds.getCentreX();
+    float cy = bounds.getCentreY();
+    float offset = bounds.getWidth() * 0.25f;
+
+    // Center pip
+    g.setColour(pipColour);
+    g.fillEllipse(cx - pipRadius, cy - pipRadius, pipRadius * 2, pipRadius * 2);
+
+    // Four corner pips
+    auto drawPip = [&](float x, float y)
+    {
+        g.fillEllipse(x - pipRadius, y - pipRadius, pipRadius * 2, pipRadius * 2);
+    };
+
+    drawPip(cx - offset, cy - offset);  // Top-left
+    drawPip(cx + offset, cy - offset);  // Top-right
+    drawPip(cx - offset, cy + offset);  // Bottom-left
+    drawPip(cx + offset, cy + offset);  // Bottom-right
 }
 
 void DariusUI::updateSubTabStates()

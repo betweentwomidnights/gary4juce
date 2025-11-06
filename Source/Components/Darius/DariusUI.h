@@ -6,6 +6,7 @@
 #include "../Base/CustomSlider.h"
 #include "../Base/CustomTextEditor.h"
 #include "../../Utils/CustomLookAndFeel.h"
+#include "MagentaPrompts.h"
 
 #include <functional>
 #include <vector>
@@ -113,16 +114,20 @@ private:
     void updateSubTabStates();
     void updateGenSteeringToggleText();
     void rebuildGenCentroidRows();
+    void updateSetupGuideToggleText();
+    void layoutSetupGuideUI(juce::Rectangle<int>& area);
 
     void handleCheckpointButtonClicked();
     void handleAddStyleRow();
     void handleRemoveStyleRow(int index);
+    void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
 
     struct GenStyleRow
     {
         std::unique_ptr<juce::TextEditor> text;
         std::unique_ptr<CustomSlider> weight;
         std::unique_ptr<CustomButton> remove;
+        std::unique_ptr<CustomButton> dice;  // Dice button for random prompts
     };
 
     // Backend
@@ -131,6 +136,20 @@ private:
     juce::Label dariusUrlLabel;
     CustomButton dariusHealthCheckButton;
     juce::Label dariusStatusLabel;
+    std::unique_ptr<juce::Viewport> dariusBackendViewport;
+    std::unique_ptr<juce::Component> dariusBackendContent;
+    // Backend setup guide (add near other backend members)
+    CustomButton setupGuideToggle;
+    bool setupGuideOpen = false;
+
+    // Setup guide cards
+    juce::Label setupDockerHeaderLabel;
+    juce::Label setupDockerDescLabel;
+    CustomButton setupDockerLinkButton;
+
+    juce::Label setupHfHeaderLabel;
+    juce::Label setupHfDescLabel;
+    CustomButton setupHfLinkButton;
 
     // Subtabs
     SubTab currentSubTab = SubTab::Backend;
@@ -234,4 +253,5 @@ private:
     juce::Rectangle<int> titleBounds;
 
     CustomLookAndFeel customLookAndFeel;
+    MagentaPrompts magentaPrompts;  // Prompt generator instance
 };

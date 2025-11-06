@@ -29,6 +29,13 @@ void CustomButton::setCustomColors(juce::Colour buttonColour, juce::Colour textC
 
 void CustomButton::paint(juce::Graphics& g)
 {
+    // If custom paint is defined, use it
+    if (onPaint)
+    {
+        onPaint(g, getLocalBounds());
+        return;
+    }
+
     auto bounds = getLocalBounds();
     auto buttonDown = getToggleState() || isDown();
     auto buttonOver = isMouseOver();

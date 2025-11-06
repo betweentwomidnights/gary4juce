@@ -29,12 +29,24 @@
       <GROUP id="{F6C4A86F-6C48-88AF-BC8A-DA05FDE59F7C}" name="Darius">
         <FILE id="g0k9NA" name="DariusUI.cpp" compile="1" resource="0" file="Source/Components/Darius/DariusUI.cpp"/>
         <FILE id="YkGkqV" name="DariusUI.h" compile="0" resource="0" file="Source/Components/Darius/DariusUI.h"/>
+        <FILE id="z2MVJZ" name="MagentaPrompts.cpp" compile="1" resource="0"
+              file="Source/Components/Darius/MagentaPrompts.cpp"/>
+        <FILE id="h540W6" name="MagentaPrompts.h" compile="0" resource="0"
+              file="Source/Components/Darius/MagentaPrompts.h"/>
       </GROUP>
       <GROUP id="{7F2D4AFD-0B5D-4DD7-B9B7-9F9F4BB5AC4F}" name="Gary">
         <FILE id="G7c6QK" name="GaryUI.cpp" compile="1" resource="0" file="Source/Components/Gary/GaryUI.cpp"/>
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
       </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
+        <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0"
+              file="Source/Components/Jerry/BeatPrompts.cpp"/>
+        <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0"
+              file="Source/Components/Jerry/BeatPrompts.h"/>
+        <FILE id="InPr0m" name="InstrumentPrompts.cpp" compile="1" resource="0"
+              file="Source/Components/Jerry/InstrumentPrompts.cpp"/>
+        <FILE id="InPr0h" name="InstrumentPrompts.h" compile="0" resource="0"
+              file="Source/Components/Jerry/InstrumentPrompts.h"/>
         <FILE id="YwJazQ" name="JerryUI.cpp" compile="1" resource="0" file="Source/Components/Jerry/JerryUI.cpp"/>
         <FILE id="SHFQj0" name="JerryUI.h" compile="0" resource="0" file="Source/Components/Jerry/JerryUI.h"/>
       </GROUP>
