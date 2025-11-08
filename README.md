@@ -284,9 +284,9 @@ steps:
 ## TODO
 
 ### high priority
-- [ ] dice button for darius styles & weights (import from hf space magenta-prompts.js)
-- [ ] dice button for jerry prompts (import from untitled jamming app for standard SAOS)
-- [ ] system to load prompts from finetune metadata (jerry custom models)
+- [x] dice button for darius styles & weights (import from hf space magenta-prompts.js)
+- [x] dice button for jerry prompts (import from untitled jamming app for standard SAOS)
+- [x] system to load prompts from finetune metadata (jerry custom models)
 
 ### documentation
 - [ ] create finetuning guide for stable-audio-open-small (youtube + written)
