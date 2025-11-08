@@ -170,6 +170,28 @@ JerryUI::JerryUI()
         };
     addAndMakeVisible(jerryPromptEditor);
 
+    // Dice button for prompt generation
+    promptDiceButton = std::make_unique<CustomButton>();
+    promptDiceButton->setButtonText("");
+    promptDiceButton->setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    promptDiceButton->setTooltip("Generate random prompt");
+
+    promptDiceButton->onClick = [this]()
+        {
+            juce::String prompt = generateConditionalPrompt();
+            jerryPromptEditor.setText(prompt, juce::sendNotification);
+            setPromptText(prompt);
+        };
+
+    promptDiceButton->onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+        {
+            bool isHovered = promptDiceButton->isMouseOver();
+            bool isPressed = promptDiceButton->isDown();
+            drawDiceIcon(g, bounds.toFloat().reduced(2), isHovered, isPressed);
+        };
+
+    addAndMakeVisible(*promptDiceButton);
+
     jerryCfgLabel.setText("cfg scale", juce::dontSendNotification);
     jerryCfgLabel.setFont(juce::FontOptions(12.0f));
     jerryCfgLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -346,9 +368,19 @@ void JerryUI::resized()
     jerryPromptLabel.setBounds(promptLabelBounds);
     area.removeFromTop(kInterRowGap);
 
-    // Prompt editor
-    auto promptBounds = area.removeFromTop(kPromptEditorHeight);
-    jerryPromptEditor.setBounds(promptBounds);
+    // Prompt editor with dice button
+    auto promptRow = area.removeFromTop(kPromptEditorHeight);
+    const int diceW = 22;
+    auto diceBounds = promptRow.removeFromRight(diceW);
+    promptRow.removeFromRight(2);
+    jerryPromptEditor.setBounds(promptRow);
+
+    if (promptDiceButton)
+    {
+        auto diceSquare = diceBounds.withHeight(diceW).withY(diceBounds.getY() + (kPromptEditorHeight - diceW) / 2);
+        promptDiceButton->setBounds(diceSquare);
+    }
+
     area.removeFromTop(kInterRowGap);
 
     // CFG row
@@ -401,6 +433,389 @@ void JerryUI::setVisibleForTab(bool visible)
 {
     setVisible(visible);
     setInterceptsMouseClicks(visible, visible);
+
+    if (promptDiceButton)
+        promptDiceButton->setVisible(visible);
+}
+
+// --- Helpers ---
+
+static juce::String stripBpm(juce::String s)
+{
+    // Remove the substring "bpm" regardless of case
+    s = s.replace("bpm", "", true /* ignoreCase */);
+
+    // Strip a bit of punctuation; keep hyphens like "reverb-heavy" if you like them
+    s = s.removeCharacters(".,;:");
+
+    // Tokenize on space/tab
+    juce::StringArray toks;
+    toks.addTokens(s, " \t", "");
+    toks.removeEmptyStrings(true);
+
+    // Keep only tokens with no digits
+    juce::StringArray out;
+    for (auto t : toks)
+    {
+        bool hasDigit = false;
+        for (auto ch : t)
+        {
+            if (juce::CharacterFunctions::isDigit(ch)) { hasDigit = true; break; }
+        }
+        if (!hasDigit) out.add(t);
+    }
+
+    return out.joinIntoString(" ");
+}
+
+static juce::String shrinkTokensRandom(juce::String in, int minKeep = 3, int maxKeep = 5)
+{
+    juce::StringArray toks;
+    toks.addTokens(in, " \t", "");
+    toks.removeEmptyStrings(true);
+    if (toks.isEmpty()) return {};
+
+    auto& rnd = juce::Random::getSystemRandom();
+
+    // Choose K in [minKeep, maxKeep]
+    const int K = juce::jlimit(minKeep, maxKeep, rnd.nextInt(juce::Range<int>(minKeep, maxKeep + 1)));
+
+    // Sample K indices without replacement
+    juce::Array<int> idx;
+    idx.ensureStorageAllocated(toks.size());
+    for (int i = 0; i < toks.size(); ++i) idx.add(i);
+    for (int i = idx.size() - 1; i > 0; --i) idx.swap(i, rnd.nextInt(i + 1));
+    idx.removeRange(K, idx.size() - K);   // keep first K after shuffle
+    idx.sort();                           // restore original order
+
+    juce::StringArray kept;
+    kept.ensureStorageAllocated(K);
+    for (int i = 0; i < idx.size(); ++i) kept.add(toks[idx[i]]);
+
+    return kept.joinIntoString(" ");
+}
+
+
+// Pull top_unigrams (supports both [["term",count], ...] and [{"term":..,"count":..}, ...])
+static juce::StringArray getTopUnigrams(const juce::var& root, int limit = 32)
+{
+    juce::StringArray out;
+    if (!root.isObject()) return out;
+    if (auto* obj = root.getDynamicObject())
+    {
+        auto terms = obj->getProperty("terms");
+        if (terms.isObject())
+        {
+            if (auto* t = terms.getDynamicObject())
+            {
+                auto uni = t->getProperty("top_unigrams");
+                if (auto* arr = uni.getArray())
+                {
+                    for (int i = 0; i < arr->size() && out.size() < limit; ++i)
+                    {
+                        const auto& row = (*arr)[i];
+                        if (row.isArray())
+                        {
+                            auto* r = row.getArray();
+                            if (r->size() > 0) out.add(r->getReference(0).toString());
+                        }
+                        else if (row.isObject())
+                        {
+                            if (auto* o = row.getDynamicObject())
+                                out.add(o->getProperty("term").toString());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// Pull top_bigrams (same dual format support)
+static juce::StringArray getTopBigrams(const juce::var& root, int limit = 16)
+{
+    juce::StringArray out;
+    if (!root.isObject()) return out;
+    if (auto* obj = root.getDynamicObject())
+    {
+        auto terms = obj->getProperty("terms");
+        if (terms.isObject())
+        {
+            if (auto* t = terms.getDynamicObject())
+            {
+                auto bi = t->getProperty("top_bigrams");
+                if (auto* arr = bi.getArray())
+                {
+                    for (int i = 0; i < arr->size() && out.size() < limit; ++i)
+                    {
+                        const auto& row = (*arr)[i];
+                        if (row.isArray())
+                        {
+                            auto* r = row.getArray();
+                            if (r->size() > 0) out.add(r->getReference(0).toString());
+                        }
+                        else if (row.isObject())
+                        {
+                            if (auto* o = row.getDynamicObject())
+                                out.add(o->getProperty("bigram").toString());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+
+static const juce::Array<juce::var>* getDiceArray(const juce::var& root, const char* key)
+{
+    if (!root.isObject()) return nullptr;
+    if (auto* obj = root.getDynamicObject())
+    {
+        auto diceVar = obj->getProperty("dice");
+        if (diceVar.isObject())
+        {
+            if (auto* dice = diceVar.getDynamicObject())
+            {
+                auto v = dice->getProperty(juce::Identifier(key));
+                if (auto* arr = v.getArray(); arr && !arr->isEmpty())
+                    return arr;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Return an Array* for prompts.prompt_bank.generic if present and non-empty
+static const juce::Array<juce::var>* getPromptBankGeneric(const juce::var& root)
+{
+    if (!root.isObject()) return nullptr;
+    if (auto* obj = root.getDynamicObject())
+    {
+        auto bank = obj->getProperty("prompt_bank");
+        if (bank.isObject())
+        {
+            if (auto* b = bank.getDynamicObject())
+            {
+                auto v = b->getProperty("generic");
+                if (auto* arr = v.getArray(); arr && !arr->isEmpty())
+                    return arr;
+            }
+        }
+    }
+    return nullptr;
+}
+
+void JerryUI::setFinetunePromptBank(const juce::String& repo,
+    const juce::String& checkpoint,
+    const juce::var& promptsJson)
+{
+    const auto key = repo + "|" + checkpoint;
+    finetunePromptBanks.set(key, promptsJson);
+
+    // Debug sizes
+    if (auto* g = getPromptBankGeneric(promptsJson))
+        DBG("[dice] bank set for " + key + " generic size=" + juce::String(g->size()));
+    else
+        DBG("[dice] bank set for " + key + " generic size=0");
+}
+
+
+
+juce::String JerryUI::generateConditionalPrompt()
+{
+    auto& rnd = juce::Random::getSystemRandom();
+
+    // Try to use finetune bank when the currently selected finetune matches a loaded bank
+    const auto repo = getSelectedFinetuneRepo();
+    const auto ckpt = getSelectedFinetuneCheckpoint();
+    const auto key = repo + "|" + ckpt;
+
+    auto pickFromArray = [&](const juce::Array<juce::var>* arr) -> juce::String
+        {
+            if (!arr || arr->isEmpty()) return {};
+            return (*arr)[rnd.nextInt(arr->size())].toString();
+        };
+
+    auto getBucket = [&](const juce::var& prompts, const juce::Identifier& which) -> const juce::Array<juce::var>*
+        {
+            if (!prompts.isObject()) return nullptr;
+            if (auto* obj = prompts.getDynamicObject())
+            {
+                auto diceVar = obj->getProperty("dice");
+                if (diceVar.isObject())
+                {
+                    if (auto* dice = diceVar.getDynamicObject())
+                    {
+                        auto arrVar = dice->getProperty(which);
+                        return arrVar.getArray();
+                    }
+                }
+            }
+            return nullptr;
+        };
+
+    auto fallbackBeatOrInstr = [&]() -> juce::String
+        {
+            const bool useBeat = rnd.nextBool();
+            return useBeat ? beatPrompts.getRandomPrompt()
+                : instrumentPrompts.getRandomGenrePrompt();
+        };
+
+    // If we have a bank for the current finetune, try to use it
+    if (finetunePromptBanks.contains(key))
+    {
+        const juce::var& prompts = finetunePromptBanks[key];
+
+        // NEW: prefer prompt_bank.generic if present (your current backend schema)
+        if (auto* genericPB = getPromptBankGeneric(prompts))
+        {
+            auto& rnd = juce::Random::getSystemRandom();
+
+            // 30% of the time: compose from stats (short + varied)
+            if (rnd.nextDouble() < 0.30)
+            {
+                auto unis = getTopUnigrams(prompts, 24);
+                auto bigs = getTopBigrams(prompts, 12);
+
+                juce::StringArray pieces;
+
+                // pick 0-1 bigram
+                if (bigs.size() > 0 && rnd.nextBool())
+                {
+                    auto bi = bigs[rnd.nextInt(bigs.size())];
+                    bi = stripBpm(bi);
+                    bi = bi.replaceCharacter('_', ' '); // just in case
+                    pieces.add(bi);
+                }
+
+                // pick 1-3 unigrams
+                const int uCount = 1 + rnd.nextInt(3); // 1..3
+                for (int i = 0; i < uCount && unis.size() > 0; ++i)
+                {
+                    auto u = unis[rnd.nextInt(unis.size())];
+                    pieces.add(u);
+                }
+
+                // Dedup + trim
+                juce::String joined = pieces.joinIntoString(" ");
+                joined = stripBpm(joined);
+                joined = shrinkTokensRandom(joined, 2, 5); // keep it short
+
+                if (joined.isNotEmpty())
+                    return joined;
+                // else fall back to bank prompt path
+            }
+
+            // 70% (or fallback) use a bank prompt, but shorten it
+            auto s = (*genericPB)[rnd.nextInt(genericPB->size())].toString();
+            s = stripBpm(s);
+            s = shrinkTokensRandom(s, 3, 6);
+            if (!s.isEmpty())
+                return s;
+        }
+
+        // Back-compat: older schema with dice.*
+        if (!smartLoop || loopTypeIndex == 0)
+        {
+            if (auto* generic = getBucket(prompts, juce::Identifier("generic")))
+                if (!generic->isEmpty())
+                    return pickFromArray(generic);
+
+            const bool chooseDrums = rnd.nextBool();
+            if (chooseDrums)
+            {
+                if (auto* drums = getBucket(prompts, juce::Identifier("drums")))
+                    if (!drums->isEmpty())
+                        return pickFromArray(drums);
+            }
+            else
+            {
+                if (auto* instr = getBucket(prompts, juce::Identifier("instrumental")))
+                    if (!instr->isEmpty())
+                        return pickFromArray(instr);
+            }
+            return fallbackBeatOrInstr();
+        }
+
+        if (loopTypeIndex == 1)  // drums
+        {
+            if (auto* drums = getBucket(prompts, juce::Identifier("drums")))
+                if (!drums->isEmpty())
+                    return pickFromArray(drums);
+            return beatPrompts.getRandomPrompt();
+        }
+
+        if (loopTypeIndex == 2)  // instrumental
+        {
+            if (auto* instr = getBucket(prompts, juce::Identifier("instrumental")))
+                if (!instr->isEmpty())
+                    return pickFromArray(instr);
+            return instrumentPrompts.getRandomGenrePrompt();
+        }
+
+        return beatPrompts.getRandomPrompt();
+    }
+
+    // No finetune bank ? original behavior
+    if (!smartLoop || loopTypeIndex == 0)
+    {
+        const bool useBeat = rnd.nextBool();
+        return useBeat ? beatPrompts.getRandomPrompt()
+            : instrumentPrompts.getRandomGenrePrompt();
+    }
+    if (loopTypeIndex == 1) return beatPrompts.getRandomPrompt();
+    if (loopTypeIndex == 2) return instrumentPrompts.getRandomGenrePrompt();
+    return beatPrompts.getRandomPrompt();
+}
+
+
+
+void JerryUI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed)
+{
+    juce::Colour bgColour;
+    juce::Colour pipColour;
+
+    if (isPressed)
+    {
+        bgColour = Theme::Colors::Jerry.brighter(0.2f);
+        pipColour = juce::Colours::white;
+    }
+    else if (isHovered)
+    {
+        bgColour = Theme::Colors::Jerry.brighter(0.3f);
+        pipColour = juce::Colours::white;
+    }
+    else
+    {
+        bgColour = Theme::Colors::Jerry.withAlpha(0.9f);
+        pipColour = juce::Colours::white;
+    }
+
+    juce::Path dicePath;
+    dicePath.addRoundedRectangle(bounds, 2.0f);
+    g.setColour(bgColour);
+    g.fillPath(dicePath);
+
+    const float pipRadius = bounds.getWidth() * 0.12f;
+    const float cx = bounds.getCentreX();
+    const float cy = bounds.getCentreY();
+    const float offset = bounds.getWidth() * 0.25f;
+
+    g.setColour(pipColour);
+    g.fillEllipse(cx - pipRadius, cy - pipRadius, pipRadius * 2.0f, pipRadius * 2.0f);
+
+    const auto drawPip = [&](float x, float y)
+    {
+        g.fillEllipse(x - pipRadius, y - pipRadius, pipRadius * 2.0f, pipRadius * 2.0f);
+    };
+
+    drawPip(cx - offset, cy - offset);
+    drawPip(cx + offset, cy - offset);
+    drawPip(cx - offset, cy + offset);
+    drawPip(cx + offset, cy + offset);
 }
 
 void JerryUI::setAvailableModels(const juce::StringArray& models,

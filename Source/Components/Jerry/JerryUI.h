@@ -6,6 +6,9 @@
 #include "../Base/CustomSlider.h"
 #include "../Base/CustomTextEditor.h"
 
+#include "BeatPrompts.h"
+#include "InstrumentPrompts.h"
+
 #include <functional>
 
 class JerryUI : public juce::Component
@@ -75,7 +78,26 @@ public:
     void setLoadingModel(bool loading, const juce::String& modelInfo = "");
     void selectModelByRepo(const juce::String& repo);
 
+    void setFinetunePromptBank(const juce::String& repo,
+        const juce::String& checkpoint,
+        const juce::var& promptsJson);
+
+    //juce::String generateConditionalPrompt(); // your dice handler calls this
+
 private:
+    // Prompt generators
+    BeatPrompts beatPrompts;
+    InstrumentPrompts instrumentPrompts;
+
+    // Dice button
+    std::unique_ptr<CustomButton> promptDiceButton;
+
+    // Helper methods
+    void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
+    juce::String generateConditionalPrompt();
+
+    juce::HashMap<juce::String, juce::var> finetunePromptBanks; // key = repo + "|" + checkpoint
+
     void refreshLoopTypeVisibility();
     void updateLoopTypeStyles();
     void updateSmartLoopStyle();

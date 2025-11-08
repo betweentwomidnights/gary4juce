@@ -191,11 +191,11 @@ void TerryUI::resized()
     variationRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
 
     juce::FlexItem promptLabelItem(terryCustomPromptLabel);
-    promptLabelItem.height = 15;
-    promptLabelItem.margin = juce::FlexItem::Margin(2, 0, 2, 0);
+    promptLabelItem.height = 18;  // Changed from 15
+    promptLabelItem.margin = juce::FlexItem::Margin(2, 0, 4, 0);
 
     juce::FlexItem promptEditorItem(terryCustomPromptEditor);
-    promptEditorItem.height = 25;
+    promptEditorItem.height = 28;
     promptEditorItem.margin = juce::FlexItem::Margin(0, 5, 5, 5);
 
     juce::Component flowRowComponent;

@@ -54,6 +54,7 @@ private:
     bool chance(double probability);
     template<typename T>
     T oneOf(const std::vector<T>& arr);
+    juce::String oneOf(const juce::StringArray& arr);
 
     // Data pools (matching Swift version)
     std::vector<juce::String> genrePrompts;

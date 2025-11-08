@@ -18,6 +18,7 @@
 #include <future>
 #include <memory>
 #include <vector>
+#include <cstdint>
 
 //==============================================================================
 /**
@@ -263,8 +264,24 @@ private:
                                        const juce::String& checkpoint);
     juce::String extractCheckpointInfo(const juce::String& checkpoint);
 
+    void fetchJerryPrompts(const juce::String& repo, const juce::String& checkpoint);
+    void applyJerryPromptsToUI(const juce::String& repo,
+        const juce::String& checkpoint,
+        const juce::String& jsonText,
+        int statusCode = 200);
 
+    void maybeFetchRemoteJerryPrompts(); // gatekeeper for remote mode, avoids hammering
 
+    // Optional local cache to avoid re-fetching
+    juce::HashMap<juce::String, juce::String> promptsCache; // key: repo + "|" + checkpoint
+
+    // Debounce/TTL state
+    std::atomic<bool> promptsFetchInFlight{ false };
+    std::int64_t lastPromptsFetchMs = 0;
+    static constexpr std::int64_t kPromptsTTLms = 5 * 60 * 1000; // 5 minutes
+
+    juce::URL Gary4juceAudioProcessorEditor::buildPromptsUrl(const juce::String& repo,
+        const juce::String& checkpoint) const;
     
     
     

@@ -232,3 +232,12 @@ T BeatPrompts::oneOf(const std::vector<T>& arr)
     int idx = random.nextInt((int)arr.size());
     return arr[idx];
 }
+
+juce::String BeatPrompts::oneOf(const juce::StringArray& arr)
+{
+    if (arr.isEmpty())
+        return {};
+
+    const int idx = random.nextInt(arr.size());
+    return arr[idx];
+}

@@ -96,7 +96,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     jerryTabButton.setButtonText("jerry");
     jerryTabButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
-    jerryTabButton.onClick = [this]() { switchToTab(ModelTab::Jerry); };
+    jerryTabButton.onClick = [this]()
+        {
+            const bool wasJerry = (currentTab == ModelTab::Jerry);
+            switchToTab(ModelTab::Jerry);
+
+            // If we were already on Jerry, still allow a fetch (remote-only, TTL’d)
+            if (wasJerry && !audioProcessor.getIsUsingLocalhost())
+                maybeFetchRemoteJerryPrompts();
+        };
     addAndMakeVisible(jerryTabButton);
 
     terryTabButton.setButtonText("terry");
@@ -207,6 +215,24 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 DBG("  Repo: " + currentJerryFinetuneRepo);
                 DBG("  Checkpoint: " + currentJerryFinetuneCheckpoint);
                 DBG("  Sampler: " + currentJerrySamplerType);
+            }
+            if (!audioProcessor.getIsUsingLocalhost())
+            {
+                // Remote mode: avoid hammering, but ensure we fetch when selection changes.
+                if (isFinetune
+                    && currentJerryFinetuneRepo.isNotEmpty()
+                    && currentJerryFinetuneCheckpoint.isNotEmpty())
+                {
+                    DBG("[prompts] onModelChanged -> remote -> fetching by repo+ckpt: "
+                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
+                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
+                }
+                else
+                {
+                    // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
+                    DBG("[prompts] onModelChanged -> remote -> using prefer=finetune (TTL guarded)");
+                    maybeFetchRemoteJerryPrompts(); // will no-op if TTL/in-flight/cache says so
+                }
             }
         };
 
@@ -725,6 +751,10 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         if (showJerry)
         {
             fetchJerryAvailableModels();
+
+            // NEW: Only for remote backend, fetch prompts once (TTL’d) for the active finetune
+            if (!audioProcessor.getIsUsingLocalhost())
+                maybeFetchRemoteJerryPrompts();
         }
     }
 
@@ -750,6 +780,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         garyHelpButton.setVisible(showGary);
         jerryHelpButton.setVisible(showJerry);
         terryHelpButton.setVisible(showTerry);
+        dariusHelpButton.setVisible(showDarius);
     }
 
     DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showTerry ? "Terry" : "Darius"))));
@@ -2891,6 +2922,199 @@ void Gary4juceAudioProcessorEditor::handleJerryCheckpointsResponse(const juce::S
     }
 }
 
+juce::URL Gary4juceAudioProcessorEditor::buildPromptsUrl(const juce::String& repo,
+    const juce::String& checkpoint) const
+{
+    const bool isLocal = audioProcessor.getIsUsingLocalhost();
+    const juce::String endpoint = isLocal ? "/models/prompts" : "/audio/models/prompts";
+
+    // getServiceUrl(...) -> juce::String  ⇒  wrap it into a juce::URL
+    juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+
+    url = url.withParameter("repo", repo)
+        .withParameter("checkpoint", checkpoint);
+
+    return url;
+}
+
+// --- In PluginEditor.cpp ---
+void Gary4juceAudioProcessorEditor::fetchJerryPrompts(const juce::String& repo,
+    const juce::String& checkpoint)
+{
+    const auto cacheKey = repo + "|" + checkpoint;
+    if (promptsCache.contains(cacheKey))
+    {
+        DBG("[prompts] cache hit for " + cacheKey + " - applying");
+        applyJerryPromptsToUI(repo, checkpoint, promptsCache[cacheKey]);
+        return;
+    }
+
+    juce::Thread::launch([this, repo, checkpoint]()
+        {
+            juce::URL url = buildPromptsUrl(repo, checkpoint);
+
+            int statusCode = 0;
+            juce::StringPairArray responseHeaders;
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000)
+                .withStatusCode(&statusCode)
+                .withResponseHeaders(&responseHeaders);
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(options));
+            juce::String responseText;
+            if (stream) responseText = stream->readEntireStreamAsString();
+
+            DBG("[prompts] GET " + url.toString(true) +
+                " status=" + juce::String(statusCode) +
+                " bytes=" + juce::String((int)responseText.getNumBytesAsUTF8()));
+
+            if (statusCode < 200 || statusCode >= 300)
+            {
+                DBG("[prompts] non-2xx - first512: " + responseText.substring(0, 512));
+            }
+
+            juce::MessageManager::callAsync([this, repo, checkpoint, responseText, statusCode]()
+                {
+                    applyJerryPromptsToUI(repo, checkpoint, responseText, statusCode);
+                });
+        });
+}
+
+
+void Gary4juceAudioProcessorEditor::maybeFetchRemoteJerryPrompts()
+{
+    DBG("[prompts] maybeFetchRemoteJerryPrompts called");
+    // Don’t re-enter
+    if (promptsFetchInFlight) { DBG("[prompts] in flight – skipping"); return; }
+
+    // TTL: only refresh every 5 minutes (tweak if you want)
+    const auto now = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
+    if (now - lastPromptsFetchMs < kPromptsTTLms) {
+        DBG("[prompts] TTL not expired – skipping");
+        return;
+    }
+
+    // If we already have a bank for the currently selected finetune, bail early
+    if (jerryUI)
+    {
+        const auto repo = jerryUI->getSelectedFinetuneRepo();
+        const auto ckpt = jerryUI->getSelectedFinetuneCheckpoint();
+        if (repo.isNotEmpty() && ckpt.isNotEmpty())
+        {
+            const auto key = repo + "|" + ckpt;
+            if (promptsCache.contains(key))
+            {
+                DBG("[prompts] cache hit for " + key + " – applying");
+                // We already have it cached – apply it to the UI and skip fetch
+                applyJerryPromptsToUI(repo, ckpt, promptsCache[key]);
+                lastPromptsFetchMs = now;
+                return;
+            }
+        }
+    }
+
+    // If we don't know exact repo/ckpt (or not cached), ask backend for the active finetune
+    promptsFetchInFlight = true;
+
+    juce::Thread::launch([this]()
+        {
+            // Prefer whatever finetune is currently active on the remote cache
+            juce::URL url(getServiceUrl(ServiceType::Jerry, "/audio/models/prompts"));
+            url = url.withParameter("prefer", "finetune");
+
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(8000);
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(options));
+            juce::String responseText;
+            if (stream) responseText = stream->readEntireStreamAsString();
+
+            juce::MessageManager::callAsync([this, responseText]()
+                {
+                    promptsFetchInFlight = false;
+                    lastPromptsFetchMs = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
+                    if (responseText.isEmpty()) return;
+
+                    // Parse and store under the resolved repo/ckpt that the backend returns
+                    auto parsed = juce::JSON::parse(responseText);
+                    if (auto* obj = parsed.getDynamicObject())
+                    {
+                        if (!obj->getProperty("success")) return;
+
+                        const auto promptsVar = obj->getProperty("prompts");
+                        const auto repo = obj->getProperty("source").toString();
+                        const auto ckpt = obj->getProperty("checkpoint").toString();
+
+                        if (promptsVar.isObject() && repo.isNotEmpty() && ckpt.isNotEmpty())
+                        {
+                            const auto cacheKey = repo + "|" + ckpt;
+                            promptsCache.set(cacheKey, responseText);
+
+                            if (jerryUI)
+                                jerryUI->setFinetunePromptBank(repo, ckpt, promptsVar);
+                        }
+                    }
+                });
+        });
+}
+
+
+void Gary4juceAudioProcessorEditor::applyJerryPromptsToUI(const juce::String& repo,
+    const juce::String& checkpoint,
+    const juce::String& jsonText,
+    int statusCode /* = 200 */)
+{
+    if (jsonText.isEmpty())
+    {
+        DBG("[prompts] empty response - skipping");
+        return;
+    }
+
+    juce::var parsed;
+    try
+    {
+        parsed = juce::JSON::parse(jsonText);
+    }
+    catch (...)
+    {
+        DBG("[prompts] JSON parse error - first512: " + jsonText.substring(0, 512));
+        return;
+    }
+
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        if (!obj->getProperty("success"))
+        {
+            DBG("[prompts] success=false - payload first512: " + jsonText.substring(0, 512));
+            return;
+        }
+
+        auto promptsVar = obj->getProperty("prompts");
+        if (!promptsVar.isObject())
+        {
+            DBG("[prompts] prompts missing/invalid - payload first512: " + jsonText.substring(0, 512));
+            return;
+        }
+
+        // Trust backend's resolved source/checkpoint if provided; otherwise use ours
+        auto resolvedRepo = obj->getProperty("source").toString();
+        auto resolvedCkpt = obj->getProperty("checkpoint").toString();
+        if (resolvedRepo.isEmpty()) resolvedRepo = repo;
+        if (resolvedCkpt.isEmpty()) resolvedCkpt = checkpoint;
+
+        const auto cacheKey = resolvedRepo + "|" + resolvedCkpt;
+        promptsCache.set(cacheKey, jsonText);
+
+        if (jerryUI)
+            jerryUI->setFinetunePromptBank(resolvedRepo, resolvedCkpt, promptsVar);
+
+        DBG("[prompts] stored bank for " + cacheKey);
+    }
+}
+
+
+
 void Gary4juceAudioProcessorEditor::addCustomJerryModel(const juce::String& repo, const juce::String& checkpoint)
 {
     // Extract display info for loading message
@@ -2973,16 +3197,18 @@ void Gary4juceAudioProcessorEditor::handleAddCustomModelResponse(const juce::Str
 
                 // Clear loading state after a short delay to ensure model list refresh completes
                 // Also try to select the newly loaded model if we can identify it
-                juce::Timer::callAfterDelay(500, [this, checkpointInfo, repo]() {
+                juce::Timer::callAfterDelay(500, [this, checkpointInfo, repo, checkpoint]() {
                     if (jerryUI)
                     {
                         jerryUI->setLoadingModel(false);
 
-                        // Try to select the newly loaded model by looking for one that matches our repo
-                        // This is a best-effort attempt to auto-select the model we just loaded
+                        // Best-effort auto-select by repo (you already do this)
                         jerryUI->selectModelByRepo(repo);
+
+                        // Now fetch prompts for THIS finetune explicitly
+                        fetchJerryPrompts(repo, checkpoint);
                     }
-                });
+                    });
             } else {
                 auto error = obj->getProperty("error").toString();
                 showStatusMessage("load failed: " + error, 5000);
