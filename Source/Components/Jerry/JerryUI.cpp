@@ -1,5 +1,6 @@
 #include "JerryUI.h"
 #include "../../Utils/Theme.h"
+#include "PromptHelpers.h"
 
 namespace
 {
@@ -705,7 +706,7 @@ juce::String JerryUI::generateConditionalPrompt()
                 joined = shrinkTokensRandom(joined, 2, 5); // keep it short
 
                 if (joined.isNotEmpty())
-                    return joined;
+                    return PromptHelpers::cleanupPrompt(joined, loopTypeIndex, smartLoop);
                 // else fall back to bank prompt path
             }
 
@@ -714,7 +715,7 @@ juce::String JerryUI::generateConditionalPrompt()
             s = stripBpm(s);
             s = shrinkTokensRandom(s, 3, 6);
             if (!s.isEmpty())
-                return s;
+                return PromptHelpers::cleanupPrompt(s, loopTypeIndex, smartLoop);
         }
 
         // Back-compat: older schema with dice.*
@@ -722,53 +723,53 @@ juce::String JerryUI::generateConditionalPrompt()
         {
             if (auto* generic = getBucket(prompts, juce::Identifier("generic")))
                 if (!generic->isEmpty())
-                    return pickFromArray(generic);
+                    return PromptHelpers::cleanupPrompt(pickFromArray(generic), loopTypeIndex, smartLoop);
 
             const bool chooseDrums = rnd.nextBool();
             if (chooseDrums)
             {
                 if (auto* drums = getBucket(prompts, juce::Identifier("drums")))
                     if (!drums->isEmpty())
-                        return pickFromArray(drums);
+                        return PromptHelpers::cleanupPrompt(pickFromArray(drums), loopTypeIndex, smartLoop);
             }
             else
             {
                 if (auto* instr = getBucket(prompts, juce::Identifier("instrumental")))
                     if (!instr->isEmpty())
-                        return pickFromArray(instr);
+                        return PromptHelpers::cleanupPrompt(pickFromArray(instr), loopTypeIndex, smartLoop);
             }
-            return fallbackBeatOrInstr();
+            return PromptHelpers::cleanupPrompt(fallbackBeatOrInstr(), loopTypeIndex, smartLoop);
         }
 
         if (loopTypeIndex == 1)  // drums
         {
             if (auto* drums = getBucket(prompts, juce::Identifier("drums")))
                 if (!drums->isEmpty())
-                    return pickFromArray(drums);
-            return beatPrompts.getRandomPrompt();
+                    return PromptHelpers::cleanupPrompt(pickFromArray(drums), loopTypeIndex, smartLoop);
+            return PromptHelpers::cleanupPrompt(beatPrompts.getRandomPrompt(), loopTypeIndex, smartLoop);
         }
 
         if (loopTypeIndex == 2)  // instrumental
         {
             if (auto* instr = getBucket(prompts, juce::Identifier("instrumental")))
                 if (!instr->isEmpty())
-                    return pickFromArray(instr);
-            return instrumentPrompts.getRandomGenrePrompt();
+                    return PromptHelpers::cleanupPrompt(pickFromArray(instr), loopTypeIndex, smartLoop);
+            return PromptHelpers::cleanupPrompt(instrumentPrompts.getRandomGenrePrompt(), loopTypeIndex, smartLoop);
         }
 
-        return beatPrompts.getRandomPrompt();
+        return PromptHelpers::cleanupPrompt(beatPrompts.getRandomPrompt(), loopTypeIndex, smartLoop);
     }
 
     // No finetune bank ? original behavior
     if (!smartLoop || loopTypeIndex == 0)
     {
         const bool useBeat = rnd.nextBool();
-        return useBeat ? beatPrompts.getRandomPrompt()
-            : instrumentPrompts.getRandomGenrePrompt();
+        return PromptHelpers::cleanupPrompt(useBeat ? beatPrompts.getRandomPrompt()
+            : instrumentPrompts.getRandomGenrePrompt(), loopTypeIndex, smartLoop);
     }
-    if (loopTypeIndex == 1) return beatPrompts.getRandomPrompt();
-    if (loopTypeIndex == 2) return instrumentPrompts.getRandomGenrePrompt();
-    return beatPrompts.getRandomPrompt();
+    if (loopTypeIndex == 1) return PromptHelpers::cleanupPrompt(beatPrompts.getRandomPrompt(), loopTypeIndex, smartLoop);
+    if (loopTypeIndex == 2) return PromptHelpers::cleanupPrompt(instrumentPrompts.getRandomGenrePrompt(), loopTypeIndex, smartLoop);
+    return PromptHelpers::cleanupPrompt(beatPrompts.getRandomPrompt(), loopTypeIndex, smartLoop);
 }
 
 
