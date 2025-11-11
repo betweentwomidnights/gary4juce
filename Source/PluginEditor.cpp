@@ -7,8 +7,12 @@
 #include "PluginEditor.h"
 #include "./Utils/BarTrim.h"
 
+static juce::File getGaryDir();
+static bool ensureParentDirExists(const juce::File& targetFile, const juce::String& context);
+
 namespace
 {
+
     int loopTypeStringToIndex(const juce::String& type)
     {
         if (type.equalsIgnoreCase("drums"))
@@ -488,6 +492,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     outputLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     outputLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(outputLabel);
+#if JUCE_LINUX
+    copyDraggedAudioButton.setButtonText("copy");
+    copyDraggedAudioButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    copyDraggedAudioButton.setTooltip("save a copy to dragged_audio (Linux workaround)");
+    copyDraggedAudioButton.onClick = [this]() { copyDraggedAudioFileToClipboard(); };
+    copyDraggedAudioButton.setEnabled(false);
+    addAndMakeVisible(copyDraggedAudioButton);
+#endif
 
     // Play output button
     playIcon = IconFactory::createPlayIcon();
@@ -530,15 +542,27 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(cropButton);
 
-    // Initialize output file path
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
+    // Initialize output file path (idempotent + robust)
+    auto garyDir = getGaryDir();
     outputAudioFile = garyDir.getChildFile("myOutput.wav");
+    DBG("Output file path: " + outputAudioFile.getFullPathName());
 
-    // Check if output file already exists and load it
-    if (outputAudioFile.exists())
+    if (outputAudioFile.existsAsFile())
     {
-        loadOutputAudioFile();
+        const auto existingSize = outputAudioFile.getSize();
+        DBG("Existing output file detected (" + juce::String(existingSize) + " bytes)");
+        if (existingSize > 0)
+        {
+            loadOutputAudioFile();
+        }
+        else
+        {
+            DBG("Existing output file is empty; skipping load");
+        }
+    }
+    else
+    {
+        DBG("No previous output file found at: " + outputAudioFile.getFullPathName());
     }
 
     // Enable drag and drop for this component
@@ -608,18 +632,26 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     DBG("Restored connection status: " + juce::String(isConnected ? "connected" : "disconnected"));
     
     // 2. Restore output audio state by checking file existence
-    if (outputAudioFile.exists())
+    const bool outputFileExists = outputAudioFile.existsAsFile();
+    if (!hasOutputAudio && outputFileExists)
     {
-        loadOutputAudioFile();  // This sets hasOutputAudio = true
-        DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName());
+        const auto outputSize = outputAudioFile.getSize();
+        if (outputSize > 0)
+        {
+            loadOutputAudioFile();  // This sets hasOutputAudio = true
+            DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName()
+                + " (" + juce::String(outputSize) + " bytes)");
+        }
+        else
+        {
+            DBG("Output audio file exists but is empty, skipping load: " + outputAudioFile.getFullPathName());
+        }
     }
-    else
+    else if (!outputFileExists)
     {
         DBG("No output audio file found");
     }
 
-
-    
     // 3. CRITICAL: Restore Terry audio source selection
     const bool restoredTransformRecording = audioProcessor.getTransformRecording();
     setTerryAudioSource(restoredTransformRecording);
@@ -841,6 +873,11 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
         garyUI->setContinueButtonText("continue");
         garyUI->setRetryButtonText("retry");
     }
+
+#if JUCE_LINUX
+    const bool copyEnabled = hasOutputAudio && outputAudioFile.existsAsFile() && outputAudioFile.getSize() > 0;
+    copyDraggedAudioButton.setEnabled(copyEnabled);
+#endif
 }
 
 
@@ -1206,22 +1243,26 @@ void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
 
     DBG("Save buffer button clicked with " + juce::String(recordedSamples) + " samples");
 
-    // Create gary4juce directory in Documents
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-
-    // Create directory if it doesn't exist
-    if (!garyDir.exists())
-    {
-        auto result = garyDir.createDirectory();
-        DBG("Created gary4juce directory: " + juce::String(result ? "success" : "failed"));
-    }
-
-    // Always save to the same filename (overwrite each time)
+    auto garyDir = getGaryDir();
     auto recordingFile = garyDir.getChildFile("myBuffer.wav");
 
-    DBG("Saving to: " + recordingFile.getFullPathName());
+    DBG("Saving recording to: " + recordingFile.getFullPathName());
+    if (!ensureParentDirExists(recordingFile, "saveRecordingBuffer"))
+    {
+        showStatusMessage("unable to access recording folder", 4000);
+        return;
+    }
+
     audioProcessor.saveRecordingToFile(recordingFile);
+
+    if (recordingFile.existsAsFile())
+    {
+        DBG("Recording saved (" + juce::String(recordingFile.getSize()) + " bytes)");
+    }
+    else
+    {
+        DBG("Recording save did not produce file: " + recordingFile.getFullPathName());
+    }
 
     // Get the saved samples from processor (source of truth)
     savedSamples = audioProcessor.getSavedSamples();
@@ -1821,17 +1862,24 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         const juce::MemoryBlock& audioData = outputStream.getMemoryBlock();
 
         // Save to gary4juce directory as myOutput.wav (overwrite each time)
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto garyDir = getGaryDir();
 
         // FIXED: Always save as myOutput.wav
         outputAudioFile = garyDir.getChildFile("myOutput.wav");
+        DBG("Generated audio target: " + outputAudioFile.getFullPathName());
+
+        if (!ensureParentDirExists(outputAudioFile, "saveGeneratedAudio"))
+        {
+            showStatusMessage("failed to create output folder", 3000);
+            return;
+        }
 
         // Write to file
         if (outputAudioFile.replaceWithData(audioData.getData(), audioData.getSize()))
         {
             showStatusMessage("generated audio ready", 3000);
-            DBG("Generated audio saved to: " + outputAudioFile.getFullPathName());
+            DBG("Generated audio saved to: " + outputAudioFile.getFullPathName()
+                + " (" + juce::String(outputAudioFile.getSize()) + " bytes)");
 
             // STOP any current playback before loading new audio
             // This prevents confusion where old audio plays but new waveform shows
@@ -1863,7 +1911,7 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         }
         else
         {
-            DBG("Failed to save generated audio file");
+            DBG("Failed to save generated audio file: " + outputAudioFile.getFullPathName());
         }
     }
     catch (...)
@@ -1926,11 +1974,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     DBG("Current prompt duration value: " + juce::String(currentPromptDuration) + " (will be cast to: " + juce::String((int)currentPromptDuration) + ")");
 
     // Read the saved audio file
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
+    auto garyDir = getGaryDir();
     auto audioFile = garyDir.getChildFile("myBuffer.wav");
+    DBG("Gary upload source: " + audioFile.getFullPathName());
 
-    if (!audioFile.exists())
+    if (!audioFile.existsAsFile())
     {
         cancelGaryOperation();
         showStatusMessage("audio file not found - save recording first");
@@ -2167,7 +2215,7 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     }
 
     // Encode current output audio as base64
-    if (!outputAudioFile.exists())
+    if (!outputAudioFile.existsAsFile())
     {
         showStatusMessage("output file not found", 2000);
         cancelContinueOperation();
@@ -3665,21 +3713,20 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
     // Determine which audio file to read
     juce::File audioFile;
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
+    auto garyDir = getGaryDir();
 
     if (transformRecording)
     {
         audioFile = garyDir.getChildFile("myBuffer.wav");
-        DBG("Terry transforming recording: myBuffer.wav");
+        DBG("Terry transforming recording: " + audioFile.getFullPathName());
     }
     else
     {
         audioFile = garyDir.getChildFile("myOutput.wav");
-        DBG("Terry transforming output: myOutput.wav");
+        DBG("Terry transforming output: " + audioFile.getFullPathName());
     }
 
-    if (!audioFile.exists())
+    if (!audioFile.existsAsFile())
     {
         showStatusMessage("audio file not found - " + audioFile.getFileName());
         cancelTerryOperation();
@@ -4778,13 +4825,68 @@ void Gary4juceAudioProcessorEditor::updateDariusModelControlsEnabled()
 
 
 
-
-
-// Helper: base directory used by Terry
 static juce::File getGaryDir()
 {
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    return documentsDir.getChildFile("gary4juce");
+    using namespace juce;
+
+    File documents = File::getSpecialLocation(File::userDocumentsDirectory);
+    if (!documents.isDirectory())
+        documents = File::getSpecialLocation(File::userHomeDirectory).getChildFile("Documents");
+    if (!documents.isDirectory())
+        documents = File::getSpecialLocation(File::userHomeDirectory);
+
+    auto dir = documents.getChildFile("gary4juce");
+    auto res = dir.createDirectory(); // idempotent
+    DBG("getGaryDir path: " + dir.getFullPathName());
+    if (!res.wasOk())
+        DBG("ERROR: couldn't create " + dir.getFullPathName() + " : " + res.getErrorMessage());
+    return dir;
+}
+
+static bool ensureParentDirExists(const juce::File& targetFile, const juce::String& context)
+{
+    auto parent = targetFile.getParentDirectory();
+    const bool parentExists = parent.isDirectory();
+    DBG(context + " parent: " + parent.getFullPathName()
+        + " exists=" + juce::String(parentExists ? "true" : "false"));
+
+    if (parentExists)
+        return true;
+
+    auto result = parent.createDirectory();
+    if (!result.wasOk())
+    {
+        DBG("ERROR (" + context + "): cannot create parent dir "
+            + parent.getFullPathName() + " : " + result.getErrorMessage());
+        return false;
+    }
+
+    DBG(context + " created parent: " + parent.getFullPathName());
+    return true;
+}
+
+static void pruneOldDraggedAudioFiles(const juce::File& draggedAudioDir, std::int64_t maxAgeMs = static_cast<std::int64_t>(24) * 60 * 60 * 1000)
+{
+    if (!draggedAudioDir.isDirectory())
+        return;
+
+    juce::Array<juce::File> files;
+    draggedAudioDir.findChildFiles(files, juce::File::findFiles, false, "*.wav");
+
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    for (auto& file : files)
+    {
+        if (!file.existsAsFile())
+            continue;
+
+        const auto ageMs = nowMs - file.getLastModificationTime().toMilliseconds();
+        if (ageMs > maxAgeMs)
+        {
+            DBG("Pruning stale drag file: " + file.getFullPathName()
+                + " ageMs=" + juce::String(ageMs));
+            file.deleteFile();
+        }
+    }
 }
 
 // Generation: which file to upload to /generate
@@ -5284,8 +5386,24 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
 
 void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
 {
-    if (!outputAudioFile.exists())
+    if (!outputAudioFile.existsAsFile())
     {
+        DBG("loadOutputAudioFile: missing target " + outputAudioFile.getFullPathName());
+        hasOutputAudio = false;
+        playOutputButton.setEnabled(false);
+        stopOutputButton.setEnabled(false);
+        clearOutputButton.setEnabled(false);
+        cropButton.setEnabled(false);
+        totalAudioDuration = 0.0;
+        currentAudioSampleRate = 44100.0;
+        updateGaryButtonStates(!isGenerating);
+        return;
+    }
+
+    const auto fileSize = outputAudioFile.getSize();
+    if (fileSize <= 0)
+    {
+        DBG("loadOutputAudioFile: target file is empty, skipping load: " + outputAudioFile.getFullPathName());
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
         stopOutputButton.setEnabled(false);
@@ -5324,7 +5442,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
             juce::String(totalAudioDuration, 2) + " seconds at " +
-            juce::String(reader->sampleRate) + " Hz");
+            juce::String(reader->sampleRate) + " Hz (" + juce::String(fileSize) + " bytes)");
 
         updateGaryButtonStates(!isGenerating);
     }
@@ -5585,7 +5703,7 @@ void Gary4juceAudioProcessorEditor::drawExistingOutput(juce::Graphics& g, const 
 
 void Gary4juceAudioProcessorEditor::playOutputAudio()
 {
-    if (!hasOutputAudio || !outputAudioFile.exists())
+    if (!hasOutputAudio || !outputAudioFile.existsAsFile())
     {
         showStatusMessage("no output audio to play");
         return;
@@ -5686,7 +5804,7 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
     totalAudioDuration = 0.0;
 
     // Optionally delete the file
-    if (outputAudioFile.exists())
+    if (outputAudioFile.existsAsFile())
     {
         outputAudioFile.deleteFile();
     }
@@ -5880,27 +5998,32 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         juce::ScopedLock lock(fileLock);
 
         // Create dragged_audio folder inside Documents/gary4juce
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto garyDir = getGaryDir();
         auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+        DBG("dragged_audio dir: " + draggedAudioDir.getFullPathName());
 
-        // Ensure the dragged_audio directory exists
-        if (!draggedAudioDir.exists())
+        pruneOldDraggedAudioFiles(draggedAudioDir);
+
+        auto dirResult = draggedAudioDir.createDirectory();
+        if (!draggedAudioDir.isDirectory() && !dirResult.wasOk())
         {
-            auto result = draggedAudioDir.createDirectory();
-            if (!result.wasOk())
-            {
-                DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
-                showStatusMessage("drag failed - folder creation error", 2000);
-                isDragInProgress.store(false);
-                return;
-            }
+            DBG("Failed to create dragged_audio directory: " + dirResult.getErrorMessage());
+            showStatusMessage("drag failed - folder creation error", 2000);
+            isDragInProgress.store(false);
+            return;
         }
 
         // Create a unique filename with timestamp for the drag
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
         auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
         uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+
+        if (!ensureParentDirExists(uniqueDragFile, "startAudioDrag"))
+        {
+            showStatusMessage("drag failed - folder creation error", 2000);
+            isDragInProgress.store(false);
+            return;
+        }
 
         // SAFETY: More robust file copy with validation
         if (!outputAudioFile.existsAsFile())
@@ -5927,6 +6050,11 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             isDragInProgress.store(false);
             return;
         }
+        else
+        {
+            DBG("Prepared drag copy: " + uniqueDragFile.getFullPathName()
+                + " (" + juce::String(uniqueDragFile.getSize()) + " bytes)");
+        }
 
     } // Release lock after file operations are complete
     catch (const std::exception& e)
@@ -5940,19 +6068,18 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
     // Small delay to ensure file is fully written
     juce::Thread::sleep(50); // Increased from 10ms
 
-    // Create array of files to drag
-    juce::StringArray filesToDrag;
-    filesToDrag.add(uniqueDragFile.getFullPathName());
+    // Create array of files to drag (must stay alive for the OS while drag is active)
+    currentExternalDragFiles.clear();
+    currentExternalDragFiles.add(uniqueDragFile.getFullPathName());
     DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
-
-    // SAFETY: Enhanced callback with multiple safety checks
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this, uniqueDragFile]()
+    auto dragCallback = [this, uniqueDragFile]()
         {
             // SAFETY CHECK 1: Component validity
             if (!isEditorValid.load())
             {
                 DBG("Drag callback ignored - editor no longer valid");
                 isDragInProgress.store(false);
+                currentExternalDragFiles.clear();
                 // Still try to clean up the file
                 if (uniqueDragFile.existsAsFile())
                 {
@@ -5969,6 +6096,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
                     {
                         DBG("Drag callback ignored on main thread - editor no longer valid");
                         isDragInProgress.store(false);
+                        currentExternalDragFiles.clear();
                         if (uniqueDragFile.existsAsFile())
                         {
                             uniqueDragFile.deleteFile();
@@ -5977,27 +6105,15 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
                     }
 
                     DBG("Drag operation completed successfully");
-                    showStatusMessage("audio dragged successfully!", 2000);
+                    showStatusMessage("audio drag ready (" + uniqueDragFile.getFileName() + ")", 2500);
                     isDragInProgress.store(false);
 
-                    // Clean up with delay and additional safety
-                    juce::Timer::callAfterDelay(3000, [uniqueDragFile]()
-                        {
-                            try
-                            {
-                                if (uniqueDragFile.existsAsFile())
-                                {
-                                    uniqueDragFile.deleteFile();
-                                    DBG("Cleaned up temporary drag file");
-                                }
-                            }
-                            catch (...)
-                            {
-                                DBG("Exception during drag file cleanup - ignoring");
-                            }
-                        });
+                    DBG("Drag file retained for host import: " + uniqueDragFile.getFullPathName());
+                    currentExternalDragFiles.clear();
                 });
-        });
+        };
+
+    auto success = performExternalDragDropOfFiles(currentExternalDragFiles, false, this, dragCallback);
 
     if (!success)
     {
@@ -6015,35 +6131,74 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             DBG("Exception during drag cleanup - ignoring");
         }
         isDragInProgress.store(false);
+        currentExternalDragFiles.clear();
     }
 }
+
+#if JUCE_LINUX
+void Gary4juceAudioProcessorEditor::copyDraggedAudioFileToClipboard()
+{
+    if (!outputAudioFile.existsAsFile())
+    {
+        showStatusMessage("no output audio to copy", 2500);
+        return;
+    }
+
+    if (outputAudioFile.getSize() < 1000)
+    {
+        showStatusMessage("output audio too small to copy", 2500);
+        return;
+    }
+
+    auto prepared = prepareFileForDrag();
+    if (!prepared.first || !prepared.second.existsAsFile())
+    {
+        showStatusMessage("copy failed - unable to create file", 2500);
+        return;
+    }
+
+    lastCopiedDragFile = prepared.second.getFullPathName();
+    DBG("Saved Linux copy to dragged_audio: " + lastCopiedDragFile);
+
+    prepared.second.revealToUser();
+    showStatusMessage("saved to dragged_audio: " + prepared.second.getFileName()
+                      + " (drag from Bitwig browser / file manager)", 4500);
+}
+#endif
 
 std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 {
     try
     {
         // Create dragged_audio folder
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto garyDir = getGaryDir();
         auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+        DBG("prepareFileForDrag dir: " + draggedAudioDir.getFullPathName());
 
-        if (!draggedAudioDir.exists())
+        pruneOldDraggedAudioFiles(draggedAudioDir);
+
+        auto mk = draggedAudioDir.createDirectory();
+        if (!draggedAudioDir.isDirectory() && !mk.wasOk())
         {
-            auto result = draggedAudioDir.createDirectory();
-            if (!result.wasOk())
-            {
-                DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
-                juce::MessageManager::callAsync([this]() {
-                    showStatusMessage("drag failed - folder creation error", 2000);
-                    });
-                return { false, juce::File{} };
-            }
+            DBG("Failed to create dragged_audio directory: " + mk.getErrorMessage());
+            juce::MessageManager::callAsync([this]() {
+                showStatusMessage("drag failed - folder creation error", 2000);
+                });
+            return { false, juce::File{} };
         }
 
         // Create unique filename with timestamp
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
         auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
         auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+
+        if (!ensureParentDirExists(uniqueDragFile, "prepareFileForDrag"))
+        {
+            juce::MessageManager::callAsync([this]() {
+                showStatusMessage("drag failed - folder creation error", 2000);
+                });
+            return { false, juce::File{} };
+        }
 
         // THREAD SAFETY: Use a more robust file copy approach
         juce::FileInputStream sourceStream(outputAudioFile);
@@ -6092,7 +6247,8 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
             return { false, juce::File{} };
         }
 
-        DBG("File prepared for drag: " + uniqueDragFile.getFullPathName());
+        DBG("File prepared for drag: " + uniqueDragFile.getFullPathName()
+            + " (" + juce::String(uniqueDragFile.getSize()) + " bytes)");
         return { true, uniqueDragFile };
     }
     catch (const std::exception& e)
@@ -6107,48 +6263,42 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 
 bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragFile)
 {
-    juce::StringArray filesToDrag;
-    filesToDrag.add(dragFile.getFullPathName());
+    currentExternalDragFiles.clear();
+    currentExternalDragFiles.add(dragFile.getFullPathName());
 
     DBG("Starting thread-safe drag for: " + dragFile.getFullPathName());
 
     // THREAD SAFETY: Use WeakReference to avoid accessing deleted component
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
-
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this,
-        [safeThis, dragFile]() {
-            // THREAD SAFETY: Always check if component still exists
-            if (safeThis.getComponent() == nullptr)
+    auto dragCallback = [safeThis, dragFile]()
+        {
+            if (auto* editor = safeThis.getComponent())
+            {
+                juce::MessageManager::callAsync([safeThis, dragFile]()
+                    {
+                        if (auto* editor2 = safeThis.getComponent())
+                        {
+                            editor2->showStatusMessage("audio drag ready (" + dragFile.getFileName() + ")", 2500);
+                            DBG("Drag operation completed successfully; file retained: " + dragFile.getFullPathName());
+                        editor2->currentExternalDragFiles.clear();
+                    }
+                });
+            }
+            else
             {
                 DBG("Component deleted during drag - cleaning up file");
                 dragFile.deleteFile();
-                return;
             }
+        };
 
-            // THREAD SAFETY: Call UI updates on message thread
-            juce::MessageManager::callAsync([safeThis, dragFile]() {
-                if (auto* editor = safeThis.getComponent())
-                {
-                    editor->showStatusMessage("audio dragged successfully!", 2000);
-                    DBG("Drag operation completed successfully");
-                }
-
-                // Clean up the temporary file after a delay
-                juce::Timer::callAfterDelay(5000, [dragFile]() {
-                    if (dragFile.existsAsFile())
-                    {
-                        dragFile.deleteFile();
-                        DBG("Cleaned up temporary drag file");
-                    }
-                    });
-                });
-        });
+    auto success = performExternalDragDropOfFiles(currentExternalDragFiles, false, this, dragCallback);
 
     if (!success)
     {
         DBG("Failed to start drag operation");
         showStatusMessage("drag failed - try again", 2000);
         dragFile.deleteFile();
+        currentExternalDragFiles.clear();
         return false;
     }
 
@@ -6303,6 +6453,13 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     auto tempFile = sourceFile.getSiblingFile("temp_crop_" + juce::String(juce::Time::getCurrentTime().toMilliseconds()) + ".wav");
 
     DBG("Writing to temporary file: " + tempFile.getFullPathName());
+
+    if (!ensureParentDirExists(tempFile, "cropAudioAtCurrentPosition"))
+    {
+        showStatusMessage("failed to access temp folder", 3000);
+        DBG("ERROR: Cannot create parent for " + tempFile.getFullPathName());
+        return;
+    }
 
     // Write to temporary file
     auto wavFormat = formatManager.findFormatForFileExtension("wav");
@@ -6851,6 +7008,17 @@ void Gary4juceAudioProcessorEditor::resized()
 
     // Extract the calculated bounds
     auto labelBounds = outputFlexBox.items[0].currentBounds.toNearestInt();
+#if JUCE_LINUX
+    if (labelBounds.getWidth() > 90)
+    {
+        auto copyButtonBounds = labelBounds.removeFromRight(80).reduced(2, 2);
+        copyDraggedAudioButton.setBounds(copyButtonBounds);
+    }
+    else
+    {
+        copyDraggedAudioButton.setBounds(labelBounds);
+    }
+#endif
     auto waveformBounds = outputFlexBox.items[1].currentBounds.toNearestInt();
     auto outputInfoBounds = outputFlexBox.items[2].currentBounds.toNearestInt();
     auto buttonContainerBounds = outputFlexBox.items[3].currentBounds.toNearestInt();

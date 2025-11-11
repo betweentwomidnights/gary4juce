@@ -39,10 +39,8 @@
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
       </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
-        <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0"
-              file="Source/Components/Jerry/BeatPrompts.cpp"/>
-        <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0"
-              file="Source/Components/Jerry/BeatPrompts.h"/>
+        <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0" file="Source/Components/Jerry/BeatPrompts.cpp"/>
+        <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0" file="Source/Components/Jerry/BeatPrompts.h"/>
         <FILE id="InPr0m" name="InstrumentPrompts.cpp" compile="1" resource="0"
               file="Source/Components/Jerry/InstrumentPrompts.cpp"/>
         <FILE id="InPr0h" name="InstrumentPrompts.h" compile="0" resource="0"
@@ -133,5 +131,27 @@
         <MODULEPATH id="juce_gui_extra" path="../JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
+    <LINUX_MAKE targetFolder="Builds/LinuxMakefile">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" extraLinkerFlags="-lcurl -lssl -lcrypto"
+                       libraryPath="/usr/lib/x86_64-linux-gnu"/>
+        <CONFIGURATION isDebug="0" name="Release" extraLinkerFlags="-lcurl -lssl -lcrypto"
+                       libraryPath="/usr/lib/x86_64-linux-gnu"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../JUCE/modules"/>
+      </MODULEPATHS>
+    </LINUX_MAKE>
   </EXPORTFORMATS>
 </JUCERPROJECT>
