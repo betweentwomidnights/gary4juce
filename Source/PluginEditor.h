@@ -280,7 +280,7 @@ private:
     std::int64_t lastPromptsFetchMs = 0;
     static constexpr std::int64_t kPromptsTTLms = 5 * 60 * 1000; // 5 minutes
 
-    juce::URL Gary4juceAudioProcessorEditor::buildPromptsUrl(const juce::String& repo,
+    juce::URL buildPromptsUrl(const juce::String& repo,
         const juce::String& checkpoint) const;
     
     
