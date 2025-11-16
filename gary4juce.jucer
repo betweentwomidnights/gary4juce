@@ -2,7 +2,8 @@
 
 <JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="the collabage patch"
-              companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE">
+              companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE"
+              pluginCharacteristicsValue="pluginEditorRequiresKeys">
   <MAINGROUP id="DH6yqq" name="gary4juce">
     <GROUP id="{28B6528D-59DF-0DCA-1E43-B839575ABC1A}" name="New Group"/>
     <GROUP id="{CDB2FDFC-AC96-7A2F-13CC-D983E5D40D90}" name="Components">
