@@ -2,9 +2,9 @@
   ==============================================================================
     AudioSelectionDialog.h
 
-    Modal dialog for selecting a 30-second segment from long audio files.
-    Stage 2A: Basic waveform display and playback controls
-    Stage 2B: Will add 30-second selection window overlay
+    Modal dialog for selecting a segment from long audio files.
+    Selection window is 30s by default, auto-shrinks to 10s minimum when
+    dragged near the end of the audio file.
   ==============================================================================
 */
 
@@ -36,7 +36,7 @@ public:
 
     // Callbacks (set from parent)
     std::function<void()> onCancel;
-    std::function<void(const juce::AudioBuffer<float>&)> onConfirm;  // Called with selected 30s segment
+    std::function<void(const juce::AudioBuffer<float>&, double)> onConfirm;  // Called with selected segment (10-30s) and sample rate
 
 private:
     // Audio data
@@ -74,8 +74,8 @@ private:
     juce::Rectangle<int> waveformArea;
 
     // Selection window state (Stage 2B)
-    double selectionStartTime = 0.0;  // Start time of 30s window (in seconds)
-    const double selectionDuration = 30.0;  // Always 30 seconds
+    double selectionStartTime = 0.0;  // Start time of selection window (in seconds)
+    double selectionDuration = 30.0;  // Selection duration (30s max, 10s min)
     bool isDraggingSelection = false;
     int dragStartX = 0;
     double dragStartSelectionTime = 0.0;

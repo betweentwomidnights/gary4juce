@@ -6009,9 +6009,11 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         auto dialogWindow = options.launchAsync();
 
         // Set up the confirm callback to process the selected segment and close the dialog
-        dialog->onConfirm = [this, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer) mutable
+        dialog->onConfirm = [this, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
+                                                              double sourceSampleRate) mutable
         {
             DBG("Processing selected 30s segment from " + filename);
+            DBG("Source sample rate: " + juce::String(sourceSampleRate) + " Hz");
 
             // Make a copy of the selected buffer
             juce::AudioBuffer<float> tempBuffer(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
@@ -6021,11 +6023,55 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
 
             // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
-            // Note: selectedBuffer is already at the source file's sample rate
-            // For now, we'll skip resampling since the dialog already has the audio at source rate
-            // The processor's loadAudioIntoRecordingBuffer will handle any needed conversion
+            double hostSampleRate = audioProcessor.getCurrentSampleRate();
+            DBG("Host sample rate: " + juce::String(hostSampleRate) + " Hz");
 
-            // Load into processor's recording buffer
+            if (std::abs(sourceSampleRate - hostSampleRate) > 1.0)  // Different sample rates
+            {
+                DBG("Resampling from " + juce::String(sourceSampleRate) +
+                    " Hz to " + juce::String(hostSampleRate) + " Hz");
+
+                // Calculate resampled size
+                double sizeRatio = hostSampleRate / sourceSampleRate;
+                int resampledNumSamples = (int)((double)tempBuffer.getNumSamples() * sizeRatio);
+                double speedRatio = sourceSampleRate / hostSampleRate;
+
+                DBG("Size ratio: " + juce::String(sizeRatio) +
+                    ", Speed ratio: " + juce::String(speedRatio));
+                DBG("Original samples: " + juce::String(tempBuffer.getNumSamples()) +
+                    ", Resampled samples: " + juce::String(resampledNumSamples));
+
+                // Create resampled buffer
+                juce::AudioBuffer<float> resampledBuffer(tempBuffer.getNumChannels(), resampledNumSamples);
+
+                // Resample each channel using JUCE's Lagrange interpolator
+                for (int channel = 0; channel < tempBuffer.getNumChannels(); ++channel)
+                {
+                    juce::LagrangeInterpolator interpolator;
+                    interpolator.reset();
+
+                    const float* readPtr = tempBuffer.getReadPointer(channel);
+                    float* writePtr = resampledBuffer.getWritePointer(channel);
+
+                    interpolator.process(
+                        speedRatio,             // Speed ratio for reading input
+                        readPtr,                // Source data
+                        writePtr,               // Destination data
+                        resampledNumSamples,    // Number of output samples
+                        tempBuffer.getNumSamples(), // Number of input samples available
+                        0                       // Wrap (0 = no wrap)
+                    );
+                }
+
+                DBG("Resampling complete");
+                tempBuffer = std::move(resampledBuffer);
+            }
+            else
+            {
+                DBG("Sample rates match - no resampling needed");
+            }
+
+            // Load into processor's recording buffer (now at correct host rate)
             audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
             // Save to myBuffer.wav (reuse existing save pattern)
@@ -6039,7 +6085,9 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             // Update savedSamples and UI state
             savedSamples = audioProcessor.getSavedSamples();
 
-            showStatusMessage("loaded 30.0s from " + filename, 3000);
+            // Calculate actual duration from the final buffer
+            double finalDuration = (double)tempBuffer.getNumSamples() / hostSampleRate;
+            showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
 
             updateAllGenerationButtonStates();
             repaint();

@@ -37,7 +37,7 @@ AudioSelectionDialog::AudioSelectionDialog()
     addAndMakeVisible(durationLabel);
 
     // Instruction label
-    instructionLabel.setText("Drag the white selection window to choose 30 seconds, then click Confirm",
+    instructionLabel.setText("Drag the selection window to choose your starting point (10-30s), then click Confirm",
                             juce::dontSendNotification);
     instructionLabel.setFont(juce::FontOptions(12.0f));
     instructionLabel.setJustificationType(juce::Justification::centred);
@@ -69,7 +69,7 @@ AudioSelectionDialog::AudioSelectionDialog()
     // Confirm button
     confirmButton.setButtonText("Confirm");
     confirmButton.setButtonStyle(CustomButton::ButtonStyle::Gary);  // Use Gary style for primary action
-    confirmButton.setTooltip("use selected 30 seconds");
+    confirmButton.setTooltip("use selected segment");
     confirmButton.onClick = [this]() { confirmSelection(); };
     confirmButton.setEnabled(false); // Initially disabled until audio is loaded
     addAndMakeVisible(confirmButton);
@@ -485,8 +485,10 @@ void AudioSelectionDialog::drawSelectionWindow(juce::Graphics& g, const juce::Re
     int endMin = (int)(endTime / 60.0);
     int endSec = (int)endTime % 60;
 
+    // Include duration in the label to show the window size
     juce::String timeLabel = juce::String(startMin) + ":" + juce::String(startSec).paddedLeft('0', 2) +
-                             " - " + juce::String(endMin) + ":" + juce::String(endSec).paddedLeft('0', 2);
+                             " - " + juce::String(endMin) + ":" + juce::String(endSec).paddedLeft('0', 2) +
+                             " (" + juce::String(selectionDuration, 1) + "s)";
 
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
     g.setColour(juce::Colours::white);
@@ -572,9 +574,32 @@ void AudioSelectionDialog::updateSelectionFromMouseDrag(int mouseX)
     double deltaTime = (deltaX / (double)waveWidth) * totalAudioDuration;
     double newSelectionStart = dragStartSelectionTime + deltaTime;
 
-    // Clamp to valid range (selection window must stay fully within audio)
-    double maxStartTime = totalAudioDuration - selectionDuration;
-    selectionStartTime = juce::jlimit(0.0, maxStartTime, newSelectionStart);
+    // Calculate available duration from the new start position
+    double availableDuration = totalAudioDuration - newSelectionStart;
+
+    // Determine actual selection duration (30s max, 10s min)
+    const double minDuration = 10.0;
+    const double maxDuration = 30.0;
+
+    if (availableDuration >= maxDuration)
+    {
+        // Enough audio for full 30s window
+        selectionDuration = maxDuration;
+        selectionStartTime = juce::jmax(0.0, newSelectionStart);
+    }
+    else if (availableDuration >= minDuration)
+    {
+        // Less than 30s available, but more than 10s - shrink window
+        selectionDuration = availableDuration;
+        selectionStartTime = juce::jmax(0.0, newSelectionStart);
+    }
+    else
+    {
+        // Less than 10s available - clamp to maintain 10s minimum
+        selectionDuration = minDuration;
+        double maxStartTime = totalAudioDuration - minDuration;
+        selectionStartTime = juce::jlimit(0.0, maxStartTime, newSelectionStart);
+    }
 }
 
 void AudioSelectionDialog::confirmSelection()
@@ -600,13 +625,13 @@ void AudioSelectionDialog::confirmSelection()
 
     DBG("Extracted selection: " + juce::String(selectionStartTime, 1) + "s to " +
         juce::String(selectionStartTime + selectionDuration, 1) + "s (" +
-        juce::String(numSamples) + " samples)");
+        juce::String(numSamples) + " samples at " + juce::String(audioSampleRate) + " Hz)");
 
     // Stop playback before closing
     if (isPlaying)
         stopAudio();
 
-    // Call the confirm callback with the extracted segment
+    // Call the confirm callback with the extracted segment and sample rate
     if (onConfirm)
-        onConfirm(selectedSegment);
+        onConfirm(selectedSegment, audioSampleRate);
 }
