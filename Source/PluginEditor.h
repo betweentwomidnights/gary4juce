@@ -11,6 +11,7 @@
 #include "Components/Darius/DariusUI.h"
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
+#include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 

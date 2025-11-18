@@ -6,6 +6,10 @@
   <MAINGROUP id="DH6yqq" name="gary4juce">
     <GROUP id="{28B6528D-59DF-0DCA-1E43-B839575ABC1A}" name="New Group"/>
     <GROUP id="{CDB2FDFC-AC96-7A2F-13CC-D983E5D40D90}" name="Components">
+      <FILE id="ASDlg0" name="AudioSelectionDialog.cpp" compile="1" resource="0"
+            file="Source/Components/AudioSelectionDialog.cpp"/>
+      <FILE id="ASDlg1" name="AudioSelectionDialog.h" compile="0" resource="0"
+            file="Source/Components/AudioSelectionDialog.h"/>
       <GROUP id="{A022E90B-1D83-85D7-E010-3266D3B87D96}" name="Terry">
         <FILE id="T2PJUJ" name="TerryUI.cpp" compile="1" resource="0" file="Source/Components/Terry/TerryUI.cpp"/>
         <FILE id="QwPDAZ" name="TerryUI.h" compile="0" resource="0" file="Source/Components/Terry/TerryUI.h"/>

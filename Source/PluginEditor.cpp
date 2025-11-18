@@ -5978,19 +5978,89 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
     }
     else
     {
-        // File is >30s - show selection dialog (placeholder for now)
+        // File is >30s - show selection dialog
         DBG("File >30s (" + juce::String(fileDuration, 1) + "s) - showing selection dialog");
 
-        // TODO: Stage 2 will implement the actual selection UI
-        // For now, just show a simple alert to confirm the flow works
-        juce::AlertWindow::showMessageBoxAsync(
-            juce::MessageBoxIconType::InfoIcon,
-            "Audio Selection",
-            "File is " + juce::String(fileDuration, 1) +
-            "s long.\n\nSelection UI coming in Stage 2!",
-            "OK",
-            this
-        );
+        // Create the AudioSelectionDialog
+        auto* dialog = new AudioSelectionDialog();
+
+        // Load the audio file into the dialog
+        if (!dialog->loadAudioFile(audioFile))
+        {
+            delete dialog;
+            showStatusMessage("failed to load audio file", 3000);
+            return;
+        }
+
+        // Store filename for the confirm callback
+        juce::String filename = audioFile.getFileNameWithoutExtension();
+
+        // Create a DialogWindow to hold the dialog
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned(dialog);
+        options.dialogTitle = "Select Audio Segment - " + filename;
+        options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        options.useBottomRightCornerResizer = false;
+
+        // Launch the dialog and capture the window reference
+        auto dialogWindow = options.launchAsync();
+
+        // Set up the confirm callback to process the selected segment and close the dialog
+        dialog->onConfirm = [this, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer) mutable
+        {
+            DBG("Processing selected 30s segment from " + filename);
+
+            // Make a copy of the selected buffer
+            juce::AudioBuffer<float> tempBuffer(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
+            for (int ch = 0; ch < selectedBuffer.getNumChannels(); ++ch)
+            {
+                tempBuffer.copyFrom(ch, 0, selectedBuffer, ch, 0, selectedBuffer.getNumSamples());
+            }
+
+            // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
+            // Note: selectedBuffer is already at the source file's sample rate
+            // For now, we'll skip resampling since the dialog already has the audio at source rate
+            // The processor's loadAudioIntoRecordingBuffer will handle any needed conversion
+
+            // Load into processor's recording buffer
+            audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
+
+            // Save to myBuffer.wav (reuse existing save pattern)
+            auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+            auto garyDir = documentsDir.getChildFile("gary4juce");
+            auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+
+            // Use the processor's existing saveRecordingToFile method
+            audioProcessor.saveRecordingToFile(bufferFile);
+
+            // Update savedSamples and UI state
+            savedSamples = audioProcessor.getSavedSamples();
+
+            showStatusMessage("loaded 30.0s from " + filename, 3000);
+
+            updateAllGenerationButtonStates();
+            repaint();
+
+            // Close the dialog
+            if (dialogWindow != nullptr)
+            {
+                dialogWindow->exitModalState(0);
+                dialogWindow->setVisible(false);
+            }
+        };
+
+        // Set up the cancel callback to close the dialog window
+        dialog->onCancel = [dialogWindow]() mutable
+        {
+            if (dialogWindow != nullptr)
+            {
+                dialogWindow->exitModalState(0);
+                dialogWindow->setVisible(false);
+            }
+        };
     }
 }
 
