@@ -375,6 +375,37 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     }
 }
 
+void Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer)
+{
+    juce::ScopedLock lock(bufferLock);
+
+    // Clear existing recording state
+    recordingBuffer.clear();
+    bufferWritePosition = 0;
+    recording = false;
+    atomicRecording = false;
+
+    // Calculate how many samples to copy (max 30 seconds)
+    int maxSamples = (int)(30.0 * currentSampleRate);
+    int samplesToCopy = juce::jmin(sourceBuffer.getNumSamples(),
+                                    maxSamples,
+                                    recordingBuffer.getNumSamples());
+
+    // Copy audio data channel by channel
+    for (int ch = 0; ch < juce::jmin(sourceBuffer.getNumChannels(),
+                                      recordingBuffer.getNumChannels()); ++ch)
+    {
+        recordingBuffer.copyFrom(ch, 0, sourceBuffer, ch, 0, samplesToCopy);
+    }
+
+    // Update tracking variables
+    recordedSamples = samplesToCopy;
+    atomicRecordedSamples = samplesToCopy;
+    savedSamples = samplesToCopy;  // Mark as "saved"
+
+    DBG("Loaded " + juce::String(samplesToCopy) + " samples into recording buffer from dropped file");
+}
+
 // Thread-safe getters
 bool Gary4juceAudioProcessor::isRecording() const
 {

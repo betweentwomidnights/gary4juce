@@ -473,7 +473,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     addAndMakeVisible(checkConnectionButton);
     addAndMakeVisible(backendToggleButton);
-    addAndMakeVisible(saveBufferButton);
+
+    // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    if (!isStandalone)
+    {
+        addAndMakeVisible(saveBufferButton);
+    }
+
     addAndMakeVisible(clearBufferButton);
 
     // Start timer to update recording status (refresh every 50ms for smooth waveform)
@@ -958,8 +965,12 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     recordingProgress = audioProcessor.getRecordingProgress();
     recordedSamples = audioProcessor.getRecordedSamples();
 
-    // Update save button state
-    saveBufferButton.setEnabled(recordedSamples > 0);
+    // Update save button state (only in plugin mode)
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    if (!isStandalone)
+    {
+        saveBufferButton.setEnabled(recordedSamples > 0);
+    }
 
     // ONLY update generation button states when something relevant has changed
     bool needsButtonUpdate = (wasRecording != isRecording) ||
@@ -1011,10 +1022,16 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
 
     if (recordedSamples <= 0)
     {
-        // Show "waiting" state
+        // Show "waiting" state with different message based on plugin mode
         g.setFont(juce::FontOptions(14.0f));
         g.setColour(juce::Colours::darkgrey);
-        g.drawText("press PLAY in DAW to start recording", area, juce::Justification::centred);
+
+        bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+        juce::String emptyMessage = isStandalone
+            ? "drag an audio file here to use with gary, terry, or darius"
+            : "press PLAY in DAW to start recording";
+
+        g.drawText(emptyMessage, area, juce::Justification::centred);
         return;
     }
 
@@ -5810,6 +5827,173 @@ void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
     juce::Component::mouseUp(event);
 }
 
+// ============================================================================
+// FileDragAndDropTarget Interface (for dragging audio INTO recording buffer)
+// ============================================================================
+
+bool Gary4juceAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
+{
+    // Only accept single audio files
+    if (files.size() != 1)
+        return false;
+
+    juce::File file(files[0]);
+
+    // Accept common audio formats
+    juce::String extension = file.getFileExtension().toLowerCase();
+    return extension == ".wav" || extension == ".mp3" ||
+           extension == ".aiff" || extension == ".flac" ||
+           extension == ".ogg" || extension == ".m4a";
+}
+
+void Gary4juceAudioProcessorEditor::fileDragEnter(const juce::StringArray& files, int x, int y)
+{
+    // Only show hover if dragging over the recording waveform area
+    if (waveformArea.contains(x, y))
+    {
+        isDragHoveringInput = true;
+        repaint();
+    }
+}
+
+void Gary4juceAudioProcessorEditor::fileDragExit(const juce::StringArray& files)
+{
+    isDragHoveringInput = false;
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::filesDropped(const juce::StringArray& files, int x, int y)
+{
+    isDragHoveringInput = false;
+    repaint();
+
+    // Only accept drops on the recording waveform area
+    if (!waveformArea.contains(x, y))
+    {
+        showStatusMessage("drop audio files on the recording buffer", 3000);
+        return;
+    }
+
+    if (files.isEmpty())
+        return;
+
+    // Take the first file only
+    loadAudioFileIntoBuffer(juce::File(files[0]));
+}
+
+void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& audioFile)
+{
+    if (!audioFile.existsAsFile())
+    {
+        showStatusMessage("file not found", 2000);
+        return;
+    }
+
+    // Use existing format manager pattern from loadOutputAudioFile()
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+
+    if (!reader)
+    {
+        showStatusMessage("couldn't read audio file", 3000);
+        return;
+    }
+
+    // Calculate duration
+    double fileDuration = (double)reader->lengthInSamples / reader->sampleRate;
+
+    DBG("Dropped file: " + audioFile.getFileName() +
+        " - Duration: " + juce::String(fileDuration, 2) + "s");
+
+    if (fileDuration <= 30.0)
+    {
+        // File is short enough - load directly
+        DBG("File ≤30s - loading directly into buffer");
+
+        // Read entire file into temp buffer
+        juce::AudioBuffer<float> tempBuffer((int)reader->numChannels, (int)reader->lengthInSamples);
+        reader->read(&tempBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
+
+        // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
+        double fileSampleRate = reader->sampleRate;
+        double hostSampleRate = audioProcessor.getCurrentSampleRate();
+
+        if (std::abs(fileSampleRate - hostSampleRate) > 1.0)  // Different sample rates
+        {
+            DBG("Resampling from " + juce::String(fileSampleRate) +
+                "Hz to " + juce::String(hostSampleRate) + "Hz");
+
+            // Calculate resampled size
+            double sizeRatio = hostSampleRate / fileSampleRate;
+            int resampledNumSamples = (int)((double)tempBuffer.getNumSamples() * sizeRatio);
+            double speedRatio = fileSampleRate / hostSampleRate;
+
+            // Create resampled buffer
+            juce::AudioBuffer<float> resampledBuffer((int)reader->numChannels, resampledNumSamples);
+
+            // Resample each channel
+            for (int channel = 0; channel < (int)reader->numChannels; ++channel)
+            {
+                juce::LagrangeInterpolator interpolator;
+                interpolator.reset();
+
+                const float* readPtr = tempBuffer.getReadPointer(channel);
+                float* writePtr = resampledBuffer.getWritePointer(channel);
+
+                interpolator.process(
+                    speedRatio,
+                    readPtr,
+                    writePtr,
+                    resampledNumSamples,
+                    tempBuffer.getNumSamples(),
+                    0
+                );
+            }
+
+            // Use resampled buffer
+            tempBuffer = std::move(resampledBuffer);
+        }
+
+        // Load into processor's recording buffer
+        audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
+
+        // Save to myBuffer.wav (reuse existing save pattern)
+        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+
+        // Use the processor's existing saveRecordingToFile method to maintain consistency
+        audioProcessor.saveRecordingToFile(bufferFile);
+
+        // Update savedSamples and UI state
+        savedSamples = audioProcessor.getSavedSamples();
+
+        showStatusMessage("loaded " + juce::String(fileDuration, 1) + "s from " +
+                         audioFile.getFileNameWithoutExtension(), 3000);
+
+        updateAllGenerationButtonStates();
+        repaint();
+    }
+    else
+    {
+        // File is >30s - show selection dialog (placeholder for now)
+        DBG("File >30s (" + juce::String(fileDuration, 1) + "s) - showing selection dialog");
+
+        // TODO: Stage 2 will implement the actual selection UI
+        // For now, just show a simple alert to confirm the flow works
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "Audio Selection",
+            "File is " + juce::String(fileDuration, 1) +
+            "s long.\n\nSelection UI coming in Stage 2!",
+            "OK",
+            this
+        );
+    }
+}
+
 void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
 {
     // Clamp time to valid range
@@ -6488,6 +6672,20 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     // Draw the INPUT waveform
     drawWaveform(g, waveformArea);
 
+    // Add drag hover feedback for input waveform
+    if (isDragHoveringInput)
+    {
+        g.setColour(juce::Colours::yellow.withAlpha(0.3f));
+        g.fillRoundedRectangle(waveformArea.toFloat(), 4.0f);
+
+        g.setColour(juce::Colours::yellow);
+        g.drawRoundedRectangle(waveformArea.toFloat(), 4.0f, 2.0f);
+
+        g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        g.setColour(juce::Colours::white);
+        g.drawText("drop audio file here", waveformArea, juce::Justification::centred);
+    }
+
     // Status text below input waveform (using reserved area)
     g.setFont(juce::FontOptions(12.0f));
 
@@ -6511,7 +6709,10 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         }
         else
         {
-            statusText = "press PLAY in DAW to start recording";
+            bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+            statusText = isStandalone
+                ? "drag an audio file here to use with gary, terry, or darius"
+                : "press PLAY in DAW to start recording";
             g.setColour(juce::Colours::grey);
         }
         g.drawText(statusText, inputStatusArea, juce::Justification::centred);
@@ -6709,11 +6910,17 @@ void Gary4juceAudioProcessorEditor::resized()
     bufferButtonsFlexBox.justifyContent = juce::FlexBox::JustifyContent::center;
     bufferButtonsFlexBox.alignItems = juce::FlexBox::AlignItems::center;
 
-    // Save buffer button (left side)
-    juce::FlexItem saveItem(saveBufferButton);
-    saveItem.width = 150;  // Fixed width
-    saveItem.height = 35;
-    saveItem.margin = juce::FlexItem::Margin(0, 10, 0, 0);
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+
+    // Save buffer button (only in plugin mode - not needed in standalone with drag & drop)
+    if (!isStandalone)
+    {
+        juce::FlexItem saveItem(saveBufferButton);
+        saveItem.width = 150;  // Fixed width
+        saveItem.height = 35;
+        saveItem.margin = juce::FlexItem::Margin(0, 10, 0, 0);
+        bufferButtonsFlexBox.items.add(saveItem);
+    }
 
     // Clear buffer button (right side) - more square proportions
     juce::FlexItem clearBufferItem(clearBufferButton);
@@ -6721,7 +6928,6 @@ void Gary4juceAudioProcessorEditor::resized()
     clearBufferItem.height = 35;  // Same height
     clearBufferItem.margin = juce::FlexItem::Margin(0, 0, 0, 10);
 
-    bufferButtonsFlexBox.items.add(saveItem);
     bufferButtonsFlexBox.items.add(clearBufferItem);
     bufferButtonsFlexBox.performLayout(bufferControlsBounds);
 

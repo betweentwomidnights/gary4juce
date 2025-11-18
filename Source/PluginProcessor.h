@@ -50,6 +50,7 @@ public:
     bool isRecording() const;  // Declaration only - implementation in .cpp
     float getRecordingProgress() const;  // Declaration only - implementation in .cpp
     void saveRecordingToFile(const juce::File& file);
+    void loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer);
     void clearRecordingBuffer();
     const juce::AudioBuffer<float>& getRecordingBuffer() const { return recordingBuffer; }
     int getRecordedSamples() const;  // Declaration only - implementation in .cpp

@@ -25,7 +25,8 @@
 */
 class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::Timer,
-    public juce::DragAndDropContainer
+    public juce::DragAndDropContainer,
+    public juce::FileDragAndDropTarget
 {
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
@@ -57,6 +58,12 @@ public:
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
+
+    // FileDragAndDropTarget interface
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
+    void fileDragEnter(const juce::StringArray& files, int x, int y) override;
+    void fileDragExit(const juce::StringArray& files) override;
 
     void updateAllGenerationButtonStates();
     void updateGaryButtonStates(bool resetTexts = false);
@@ -396,12 +403,16 @@ private:
     void updateRetryButtonState();
     void updateContinueButtonState();
 
-    // Drag and drop functionality
+    // Drag and drop functionality (output)
     bool isDragging = false;
     bool dragStarted = false;
     juce::Point<int> dragStartPosition;
     void startAudioDrag();
     bool isMouseOverOutputWaveform(const juce::Point<int>& position) const;
+
+    // Drag and drop functionality (input)
+    bool isDragHoveringInput = false;
+    void loadAudioFileIntoBuffer(const juce::File& audioFile);
 
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;
