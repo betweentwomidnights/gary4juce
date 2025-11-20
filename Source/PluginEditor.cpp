@@ -162,6 +162,16 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryUI = std::make_unique<JerryUI>();
     addAndMakeVisible(*jerryUI);
 
+    // Configure for standalone or plugin mode
+    jerryUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
+
+    // Handle manual BPM changes in standalone mode
+    jerryUI->onManualBpmChanged = [this](int newBpm)
+    {
+        DBG("Manual BPM changed to: " + juce::String(newBpm));
+        // The BPM will be retrieved via jerryUI->getManualBpm() when generating
+    };
+
     jerryUI->onPromptChanged = [this](const juce::String& text)
     {
         currentJerryPrompt = text;
@@ -857,9 +867,9 @@ void Gary4juceAudioProcessorEditor::timerCallback()
 {
     updateRecordingStatus();
 
-    // Update Jerry BPM display with current DAW BPM
+    // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
     double currentBPM = audioProcessor.getCurrentBPM();
-    if (jerryUI)
+    if (jerryUI && !juce::JUCEApplicationBase::isStandaloneApp())
         jerryUI->setBpm(juce::roundToInt(currentBPM));
 
     if (terryUI)
@@ -3306,8 +3316,19 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         return;
     }
 
-    // 1. Get DAW BPM from processor
-    double bpm = audioProcessor.getCurrentBPM();
+    // 1. Get BPM (from DAW in plugin mode, from UI in standalone mode)
+    double bpm = audioProcessor.getCurrentBPM();  // Default from processor
+
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    if (isStandalone && jerryUI)
+    {
+        bpm = jerryUI->getManualBpm();
+        DBG("Using manual BPM in standalone: " + juce::String(bpm));
+    }
+    else
+    {
+        DBG("Using DAW BPM in plugin: " + juce::String(bpm));
+    }
 
     // 2. Append BPM to prompt (same pattern as Max for Live)
     juce::String fullPrompt = currentJerryPrompt + " " + juce::String((int)bpm) + "bpm";
@@ -5962,6 +5983,20 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         // Save to myBuffer.wav (reuse existing save pattern)
         auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
         auto garyDir = documentsDir.getChildFile("gary4juce");
+
+        // CRITICAL FIX: Ensure directory exists before saving
+        if (!garyDir.exists())
+        {
+            auto result = garyDir.createDirectory();
+            if (!result.wasOk())
+            {
+                showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
+                DBG("ERROR: Could not create gary4juce directory: " + result.getErrorMessage());
+                return;
+            }
+            DBG("Created gary4juce directory for first-time drag-and-drop");
+        }
+
         auto bufferFile = garyDir.getChildFile("myBuffer.wav");
 
         // Use the processor's existing saveRecordingToFile method to maintain consistency
@@ -6077,6 +6112,20 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             // Save to myBuffer.wav (reuse existing save pattern)
             auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
             auto garyDir = documentsDir.getChildFile("gary4juce");
+
+            // CRITICAL FIX: Ensure directory exists before saving
+            if (!garyDir.exists())
+            {
+                auto result = garyDir.createDirectory();
+                if (!result.wasOk())
+                {
+                    showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
+                    DBG("ERROR: Could not create gary4juce directory: " + result.getErrorMessage());
+                    return;
+                }
+                DBG("Created gary4juce directory for first-time drag-and-drop");
+            }
+
             auto bufferFile = garyDir.getChildFile("myBuffer.wav");
 
             // Use the processor's existing saveRecordingToFile method

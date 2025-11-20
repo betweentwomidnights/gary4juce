@@ -36,6 +36,11 @@ public:
     bool getSmartLoop() const;
     int getLoopType() const;
 
+    // Standalone BPM control
+    void setIsStandalone(bool standalone);
+    void setManualBpm(int bpm);
+    int getManualBpm() const;
+
     juce::Rectangle<int> getTitleBounds() const;
 
     std::function<void(const juce::String&)> onPromptChanged;
@@ -44,6 +49,7 @@ public:
     std::function<void(bool)> onSmartLoopToggled;
     std::function<void(int)> onLoopTypeChanged;
     std::function<void()> onGenerate;
+    std::function<void(int)> onManualBpmChanged;
 
     // Model selection
     void setAvailableModels(const juce::StringArray& models,
@@ -111,6 +117,7 @@ private:
     CustomSlider jerryStepsSlider;
     juce::Label jerryStepsLabel;
     juce::Label jerryBpmLabel;
+    CustomSlider jerryBpmSlider;        // Manual BPM control (standalone only)
     CustomButton generateWithJerryButton;
     CustomButton generateAsLoopButton;
     CustomButton loopTypeAutoButton;
@@ -123,6 +130,7 @@ private:
     bool smartLoop { false };
     int loopTypeIndex { 0 };
     int bpmValue { 120 };
+    bool isStandaloneMode { false };      // Track plugin vs standalone
 
     bool lastCanGenerate { false };
     bool lastCanSmartLoop { false };

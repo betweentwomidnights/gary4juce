@@ -235,6 +235,20 @@ JerryUI::JerryUI()
     jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
     addAndMakeVisible(jerryBpmLabel);
 
+    // Manual BPM slider (hidden by default, shown in standalone)
+    jerryBpmSlider.setRange(40.0, 200.0, 1.0);  // 40-200 BPM, 1 BPM increments
+    jerryBpmSlider.setValue(120.0);              // Default 120 BPM
+    jerryBpmSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    jerryBpmSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 50, 20);
+    jerryBpmSlider.setVisible(false);  // Hidden by default (plugin mode)
+    jerryBpmSlider.onValueChange = [this]()
+        {
+            int newBpm = (int)jerryBpmSlider.getValue();
+            if (onManualBpmChanged)
+                onManualBpmChanged(newBpm);
+        };
+    addAndMakeVisible(jerryBpmSlider);
+
     generateWithJerryButton.setButtonText("generate with jerry");
     generateWithJerryButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
     generateWithJerryButton.setTooltip("generate audio from text prompt with current daw bpm");
@@ -418,9 +432,29 @@ void JerryUI::resized()
     }
     area.removeFromTop(kInterRowGap);
 
-    // BPM label
-    auto bpmBounds = area.removeFromTop(kBpmHeight);
-    jerryBpmLabel.setBounds(bpmBounds);
+    // BPM display (conditional: label in plugin mode, label+slider in standalone mode)
+    auto bpmBounds = area.removeFromTop(isStandaloneMode ? kRowHeight : kBpmHeight);
+    if (isStandaloneMode)
+    {
+        // Standalone mode: "bpm:" label + slider
+        const int bpmLabelWidth = 35;  // Just enough for "bpm:"
+        auto labelPart = bpmBounds.removeFromLeft(bpmLabelWidth);
+
+        // Label shows just "bpm:" aligned right
+        jerryBpmLabel.setText("bpm:", juce::dontSendNotification);
+        jerryBpmLabel.setJustificationType(juce::Justification::centredRight);
+        jerryBpmLabel.setBounds(labelPart);
+
+        // Slider takes the remaining space
+        jerryBpmSlider.setBounds(bpmBounds);
+    }
+    else
+    {
+        // Plugin mode: full-width label showing DAW BPM
+        jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+        jerryBpmLabel.setJustificationType(juce::Justification::centred);
+        jerryBpmLabel.setBounds(bpmBounds);
+    }
     area.removeFromTop(kInterRowGap);
 
     // Generate button
@@ -964,7 +998,18 @@ void JerryUI::updateSliderRangesForModel(bool isFinetune)
 void JerryUI::setBpm(int bpm)
 {
     bpmValue = bpm;
-    jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+
+    if (isStandaloneMode)
+    {
+        // In standalone, this updates the manual slider
+        // (though typically the slider drives the value, not vice versa)
+        jerryBpmSlider.setValue(bpm, juce::dontSendNotification);
+    }
+    else
+    {
+        // In plugin mode, this updates the label with DAW BPM
+        jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+    }
 }
 
 void JerryUI::setPromptText(const juce::String& text)
@@ -1216,4 +1261,50 @@ void JerryUI::selectModelByRepo(const juce::String& repo)
             break;
         }
     }
+}
+
+void JerryUI::setIsStandalone(bool standalone)
+{
+    isStandaloneMode = standalone;
+
+    // Update component visibility based on mode
+    if (isStandaloneMode)
+    {
+        // Standalone: show slider, update label
+        jerryBpmLabel.setText("bpm:", juce::dontSendNotification);
+        jerryBpmLabel.setJustificationType(juce::Justification::centredRight);
+        jerryBpmSlider.setVisible(true);
+
+        DBG("JerryUI: Switched to standalone mode (manual BPM control)");
+    }
+    else
+    {
+        // Plugin: hide slider, show full label
+        jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+        jerryBpmLabel.setJustificationType(juce::Justification::centred);
+        jerryBpmSlider.setVisible(false);
+
+        DBG("JerryUI: Switched to plugin mode (DAW BPM)");
+    }
+
+    resized();  // Re-layout to show/hide components
+}
+
+void JerryUI::setManualBpm(int bpm)
+{
+    bpmValue = bpm;
+    jerryBpmSlider.setValue(bpm, juce::dontSendNotification);
+
+    DBG("JerryUI: Manual BPM set to " + juce::String(bpm));
+}
+
+int JerryUI::getManualBpm() const
+{
+    // In standalone, return slider value; in plugin, return DAW BPM
+    int result = isStandaloneMode ? (int)jerryBpmSlider.getValue() : bpmValue;
+
+    DBG("JerryUI: getManualBpm() returning " + juce::String(result) +
+        " (mode: " + juce::String(isStandaloneMode ? "standalone" : "plugin") + ")");
+
+    return result;
 }
