@@ -154,6 +154,14 @@ private:
     std::unique_ptr<GaryUI> garyUI;
     juce::StringArray garyModelItems;
 
+    // Gary model info structure for dynamic loading
+    struct GaryModelInfo {
+        juce::String displayName;  // "keygen-gary-small-6"
+        juce::String fullPath;     // "thepatch/keygen-gary-small-6"
+        int dropdownId;            // Unique ID for ComboBox
+    };
+    std::vector<GaryModelInfo> garyModelList;  // Maps dropdown ID -> model path
+
     // Current Gary settings
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
@@ -259,6 +267,11 @@ private:
     juce::String currentJerryFinetuneCheckpoint = "";     // NEW: e.g., 'jerry_encoded_epoch=33-step=100.ckpt'
     bool currentJerryIsFinetune = false;
     juce::String currentJerrySamplerType = "pingpong";
+
+    // Gary model API methods
+    void fetchGaryAvailableModels();
+    void handleGaryModelsResponse(const juce::String& responseText);
+    juce::String getSelectedGaryModelPath() const;
 
     void fetchJerryAvailableModels();
     void handleJerryModelsResponse(const juce::String& responseText);
@@ -450,9 +463,6 @@ private:
     // Discord and X icons
     std::unique_ptr<juce::Drawable> discordIcon;
     std::unique_ptr<juce::Drawable> xIcon;
-
-    void debugModelSelection(const juce::String& functionName);
-    void updateModelAvailability();
 
     void stopAllBackgroundOperations();
 

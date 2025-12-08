@@ -6,6 +6,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "./Utils/BarTrim.h"
+#include "./Components/Base/CustomComboBox.h"
 
 namespace
 {
@@ -147,16 +148,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         retryLastContinuation();
     };
 
-    garyModelItems.clear();
-    garyModelItems.add("vanya_ai_dnb_0.1");
-    garyModelItems.add("bleeps-medium");
-    garyModelItems.add("gary_orchestra_2");
-    garyModelItems.add("hoenn_lofi");
-
     garyUI->setPromptDuration(currentPromptDuration);
-    garyUI->setModelItems(garyModelItems, currentModelIndex);
 
-    updateModelAvailability();
+    // Fetch available models from backend (will populate dropdown when response arrives)
+    if (isConnected)
+        fetchGaryAvailableModels();
 
     // ========== JERRY CONTROLS SETUP ==========
     jerryUI = std::make_unique<JerryUI>();
@@ -1939,15 +1935,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     audioProcessor.clearCurrentSessionId();
     updateRetryButtonState();
 
-    // Get the model names
-    const juce::StringArray modelNames = {
-        "thepatch/vanya_ai_dnb_0.1",
-        "thepatch/bleeps-medium",
-        "thepatch/gary_orchestra_2",
-        "thepatch/hoenn_lofi"
-    };
-
-    auto selectedModel = modelNames[currentModelIndex];
+    // Get the selected model from dynamic list
+    auto selectedModel = getSelectedGaryModelPath();
 
     // Debug current values
     DBG("Current prompt duration value: " + juce::String(currentPromptDuration) + " (will be cast to: " + juce::String((int)currentPromptDuration) + ")");
@@ -2216,40 +2205,9 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     sendContinueRequest(base64Audio);
 }
 
-void Gary4juceAudioProcessorEditor::debugModelSelection(const juce::String& functionName)
-{
-    const juce::StringArray modelNames = {
-        "thepatch/vanya_ai_dnb_0.1",
-        "thepatch/bleeps-medium",
-        "thepatch/gary_orchestra_2",
-        "thepatch/hoenn_lofi"
-    };
-
-    DBG("=== MODEL SELECTION DEBUG (" + functionName + ") ===");
-    const int uiIndex = garyUI ? garyUI->getSelectedModelIndex() : currentModelIndex;
-    const juce::String uiText = (uiIndex >= 0 && uiIndex < garyModelItems.size()) ? garyModelItems[uiIndex]
-                                                                                : juce::String();
-    DBG("GaryUI selected index: " + juce::String(uiIndex));
-    DBG("GaryUI selected text: " + uiText);
-    DBG("currentModelIndex: " + juce::String(currentModelIndex));
-
-    if (currentModelIndex >= 0 && currentModelIndex < modelNames.size())
-    {
-        DBG("Selected model: " + modelNames[currentModelIndex]);
-    }
-    else
-    {
-        DBG("ERROR: currentModelIndex out of bounds!");
-    }
-    DBG("=== END DEBUG ===");
-}
-
 // UPDATED: sendContinueRequest with proper debugging
 void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audioData)
 {
-    // Debug model selection BEFORE starting request
-    debugModelSelection("sendContinueRequest");
-
     DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
     showStatusMessage("requesting continuation...", 3000);
 
@@ -2275,12 +2233,12 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     if (garyUI)
         garyUI->setContinueButtonText("continuing...");
 
-    // Capture current model index NOW (before thread launch)
-    int capturedModelIndex = currentModelIndex;
-    DBG("Captured model index for continue: " + juce::String(capturedModelIndex));
+    // Capture current model path NOW (before thread launch)
+    juce::String capturedModelPath = getSelectedGaryModelPath();
+    DBG("Captured model path for continue: " + capturedModelPath);
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, audioData, capturedModelIndex, cancelContinueOperation]() {
+    juce::Thread::launch([this, audioData, capturedModelPath, cancelContinueOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Continue request aborted - generation stopped");
@@ -2289,33 +2247,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
         auto startTime = juce::Time::getCurrentTime();
 
-        // Get the model names array
-        const juce::StringArray modelNames = {
-            "thepatch/vanya_ai_dnb_0.1",
-            "thepatch/bleeps-medium",
-            "thepatch/gary_orchestra_2",
-            "thepatch/hoenn_lofi"
-        };
-
-        // Safely get selected model with bounds checking
-        juce::String selectedModel;
-        if (capturedModelIndex >= 0 && capturedModelIndex < modelNames.size())
-        {
-            selectedModel = modelNames[capturedModelIndex];
-        }
-        else
-        {
-            DBG("ERROR: Invalid model index " + juce::String(capturedModelIndex) + ", defaulting to first model");
-            selectedModel = modelNames[0];
-        }
-
-        DBG("Continue using model: " + selectedModel + " (index: " + juce::String(capturedModelIndex) + ")");
+        DBG("Continue using model: " + capturedModelPath);
 
         // Create JSON payload - same structure as sendToGary
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("audio_data", audioData);
         jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
-        jsonRequest->setProperty("model_name", selectedModel); // Use captured selected model
+        jsonRequest->setProperty("model_name", capturedModelPath); // Use captured model path
         jsonRequest->setProperty("top_k", 250);
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
@@ -2535,15 +2473,9 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("session_id", sessionId);
         jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
-        
-        // Get current model selection
-        const juce::StringArray modelNames = {
-            "thepatch/vanya_ai_dnb_0.1",
-            "thepatch/bleeps-medium", 
-            "thepatch/gary_orchestra_2",
-            "thepatch/hoenn_lofi"
-        };
-        jsonRequest->setProperty("model_name", modelNames[currentModelIndex]);
+
+        // Get current model selection from dynamic list
+        jsonRequest->setProperty("model_name", getSelectedGaryModelPath());
         jsonRequest->setProperty("top_k", 250);
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
@@ -2689,6 +2621,323 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
 
 
+
+// GARY MODEL API CALLS
+
+void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
+{
+    if (!isConnected)
+    {
+        DBG("Not connected - skipping Gary model fetch");
+        return;
+    }
+
+    juce::Thread::launch([this]()
+        {
+            // Both localhost and remote use the same endpoint for Gary models
+            juce::String endpoint = "/api/models";
+
+            juce::URL url(getServiceUrl(ServiceType::Gary, endpoint));
+
+            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000)
+            ));
+
+            juce::String responseText;
+            if (stream != nullptr)
+                responseText = stream->readEntireStreamAsString();
+
+            juce::MessageManager::callAsync([this, responseText]()
+                {
+                    handleGaryModelsResponse(responseText);
+                });
+        });
+}
+
+void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String& responseText)
+{
+    if (responseText.isEmpty())
+    {
+        DBG("Empty Gary models response - using fallback");
+        showStatusMessage("failed to load gary models", 3000);
+
+        // Fallback to safe defaults
+        garyModelList.clear();
+        garyModelList.push_back({"vanya ai dnb 0.1", "thepatch/vanya_ai_dnb_0.1", 1});
+
+        garyModelItems.clear();
+        garyModelItems.add("vanya ai dnb 0.1");
+
+        if (garyUI)
+            garyUI->setModelItems(garyModelItems, 0);
+
+        return;
+    }
+
+    try
+    {
+        auto parsed = juce::JSON::parse(responseText);
+
+        if (!parsed.isObject())
+        {
+            DBG("Invalid Gary models response format - not an object");
+            return;
+        }
+
+        auto* obj = parsed.getDynamicObject();
+        if (!obj || !obj->hasProperty("models"))
+        {
+            DBG("Response missing 'models' property");
+            return;
+        }
+
+        auto modelsVar = obj->getProperty("models");
+        if (!modelsVar.isObject())
+        {
+            DBG("models property is not an object");
+            return;
+        }
+
+        auto* modelsObj = modelsVar.getDynamicObject();
+        if (!modelsObj)
+            return;
+
+        // Clear existing model data
+        garyModelList.clear();
+        garyModelItems.clear();
+
+        int nextId = 1;  // ComboBox IDs start at 1
+        int firstSelectableId = 0;  // Track first selectable item ID
+
+        // Build hierarchical menu structure
+        std::vector<CustomComboBox::MenuItem> menuItems;
+
+        // Process each size category (small, medium, large)
+        const juce::StringArray sizeCategories = {"small", "medium", "large"};
+
+        for (const auto& size : sizeCategories)
+        {
+            if (!modelsObj->hasProperty(size))
+                continue;
+
+            auto sizeArray = modelsObj->getProperty(size);
+            if (!sizeArray.isArray())
+                continue;
+
+            auto* array = sizeArray.getArray();
+            if (!array || array->size() == 0)
+                continue;
+
+            // Add section header
+            juce::String headerText = size.substring(0, 1).toUpperCase() + size.substring(1) + " Models";
+            CustomComboBox::MenuItem sectionHeader;
+            sectionHeader.name = headerText.toUpperCase();
+            sectionHeader.itemId = 0;
+            sectionHeader.isSectionHeader = true;
+            sectionHeader.isSubMenu = false;
+            menuItems.push_back(sectionHeader);
+
+            // Process models in this size category
+            for (int i = 0; i < array->size(); ++i)
+            {
+                auto modelVar = array->getUnchecked(i);
+                if (!modelVar.isObject())
+                    continue;
+
+                auto* modelObj = modelVar.getDynamicObject();
+                if (!modelObj)
+                    continue;
+
+                auto typeStr = modelObj->getProperty("type").toString();
+
+                if (typeStr == "single")
+                {
+                    // Single model - add as regular menu item
+                    auto name = modelObj->getProperty("name").toString();
+                    auto path = modelObj->getProperty("path").toString();
+
+                    CustomComboBox::MenuItem item;
+                    item.name = name;
+                    item.itemId = nextId;
+                    item.isSectionHeader = false;
+                    item.isSubMenu = false;
+                    menuItems.push_back(item);
+
+                    garyModelList.push_back({name, path, nextId});
+                    if (firstSelectableId == 0)
+                        firstSelectableId = nextId;
+
+                    nextId++;
+                }
+                else if (typeStr == "group")
+                {
+                    // Group of checkpoints
+                    auto groupName = modelObj->getProperty("name").toString();
+
+                    if (!modelObj->hasProperty("checkpoints"))
+                        continue;
+
+                    auto checkpointsVar = modelObj->getProperty("checkpoints");
+                    if (!checkpointsVar.isArray())
+                        continue;
+
+                    auto* checkpointsArray = checkpointsVar.getArray();
+                    if (!checkpointsArray || checkpointsArray->size() == 0)
+                        continue;
+
+                    // If only ONE checkpoint, add it as a regular item (no submenu)
+                    if (checkpointsArray->size() == 1)
+                    {
+                        auto checkpointVar = checkpointsArray->getUnchecked(0);
+                        if (checkpointVar.isObject())
+                        {
+                            auto* checkpointObj = checkpointVar.getDynamicObject();
+                            if (checkpointObj)
+                            {
+                                auto checkpointName = checkpointObj->getProperty("name").toString();
+                                auto checkpointPath = checkpointObj->getProperty("path").toString();
+                                auto epoch = checkpointObj->getProperty("epoch");
+
+                                juce::String displayName = checkpointName;
+                                if (!epoch.isVoid())
+                                    displayName += " (epoch " + epoch.toString() + ")";
+
+                                CustomComboBox::MenuItem item;
+                                item.name = displayName;
+                                item.itemId = nextId;
+                                item.isSectionHeader = false;
+                                item.isSubMenu = false;
+                                menuItems.push_back(item);
+
+                                garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                                if (firstSelectableId == 0)
+                                    firstSelectableId = nextId;
+
+                                nextId++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Multiple checkpoints - create submenu
+                        CustomComboBox::MenuItem groupItem;
+                        groupItem.name = groupName;
+                        groupItem.itemId = 0;
+                        groupItem.isSectionHeader = false;
+                        groupItem.isSubMenu = true;
+
+                        // Add checkpoints as sub-items
+                        for (int j = 0; j < checkpointsArray->size(); ++j)
+                        {
+                            auto checkpointVar = checkpointsArray->getUnchecked(j);
+                            if (!checkpointVar.isObject())
+                                continue;
+
+                            auto* checkpointObj = checkpointVar.getDynamicObject();
+                            if (!checkpointObj)
+                                continue;
+
+                            auto checkpointName = checkpointObj->getProperty("name").toString();
+                            auto checkpointPath = checkpointObj->getProperty("path").toString();
+                            auto epoch = checkpointObj->getProperty("epoch");
+
+                            juce::String displayName = checkpointName;
+                            if (!epoch.isVoid())
+                                displayName += " (epoch " + epoch.toString() + ")";
+
+                            CustomComboBox::MenuItem subItem;
+                            subItem.name = displayName;
+                            subItem.itemId = nextId;
+                            subItem.isSectionHeader = false;
+                            subItem.isSubMenu = false;
+                            groupItem.subItems.push_back(subItem);
+
+                            garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                            if (firstSelectableId == 0)
+                                firstSelectableId = nextId;
+
+                            nextId++;
+                        }
+
+                        menuItems.push_back(groupItem);
+                    }
+                }
+            }
+        }
+
+        // Update UI with hierarchical menu
+        if (garyUI)
+        {
+            auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox());
+            if (modelComboBox)
+            {
+                modelComboBox->setHierarchicalItems(menuItems);
+
+                // Set default selection to first selectable item
+                if (firstSelectableId > 0)
+                {
+                    modelComboBox->setSelectedId(firstSelectableId, juce::dontSendNotification);
+
+                    // Find the index in garyModelList that corresponds to this ID
+                    for (size_t i = 0; i < garyModelList.size(); ++i)
+                    {
+                        if (garyModelList[i].dropdownId == firstSelectableId)
+                        {
+                            currentModelIndex = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        DBG("Loaded " + juce::String(garyModelList.size()) + " Gary models with hierarchical menu");
+    }
+    catch (...)
+    {
+        DBG("Exception parsing Gary models response");
+        showStatusMessage("failed to parse gary models", 3000);
+    }
+}
+
+juce::String Gary4juceAudioProcessorEditor::getSelectedGaryModelPath() const
+{
+    // Get the selected ID from the ComboBox
+    if (!garyUI)
+    {
+        DBG("GaryUI not available, using fallback");
+        return "thepatch/vanya_ai_dnb_0.1";
+    }
+
+    auto* modelComboBox = dynamic_cast<const CustomComboBox*>(&garyUI->getModelComboBox());
+    if (!modelComboBox)
+    {
+        DBG("Model ComboBox not available, using fallback");
+        return "thepatch/vanya_ai_dnb_0.1";
+    }
+
+    int selectedId = modelComboBox->getSelectedId();
+    if (selectedId == 0)
+    {
+        DBG("No model selected, using fallback");
+        return "thepatch/vanya_ai_dnb_0.1";
+    }
+
+    // Find the model with this ID in our list
+    for (const auto& model : garyModelList)
+    {
+        if (model.dropdownId == selectedId)
+        {
+            DBG("Selected Gary model: " + model.fullPath + " (ID: " + juce::String(selectedId) + ")");
+            return model.fullPath;
+        }
+    }
+
+    // Fallback to safe default
+    DBG("Invalid Gary model ID: " + juce::String(selectedId) + ", using fallback");
+    return "thepatch/vanya_ai_dnb_0.1";
+}
 
 // JERRY API CALLS
 
@@ -5249,6 +5498,12 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         // Update ALL button states when connection changes
         updateAllGenerationButtonStates();
 
+        // Fetch Gary models when connection is established
+        if (connected)
+        {
+            fetchGaryAvailableModels();
+        }
+
         repaint(); // Trigger a redraw to update tab section border
 
         // Re-enable check button if it was disabled
@@ -5288,9 +5543,6 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     // Update button text and styling
     updateBackendToggleButton();
 
-    // NEW: Update model availability based on new backend
-    updateModelAvailability();
-
     // Update connection status display
     updateConnectionStatus(false);
 
@@ -5302,6 +5554,9 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     }
 
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
+
+    // Re-fetch Gary models for the new backend
+    // (Will be fetched when connection is re-established)
 }
 
 void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
@@ -7569,25 +7824,3 @@ void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
             }));
 }
 
-void Gary4juceAudioProcessorEditor::updateModelAvailability()
-{
-    // hoenn_lofi (ID 4) is only available on localhost
-    bool hoennLofiAvailable = isUsingLocalhost;
-
-    if (garyUI)
-    {
-        garyUI->setModelItemEnabled(3, hoennLofiAvailable);
-
-        // If hoenn_lofi is currently selected but no longer available, switch to default model
-        if (!hoennLofiAvailable && garyUI->getSelectedModelIndex() == 3)
-        {
-            currentModelIndex = 0;
-            garyUI->setSelectedModelIndex(currentModelIndex, juce::dontSendNotification);
-
-            DBG("Switched from hoenn_lofi to vanya_ai_dnb_0.1 due to backend change");
-            showStatusMessage("switched to vanya_ai_dnb_0.1 (hoenn_lofi not available on remote)", 4000);
-        }
-    }
-
-    DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
-}

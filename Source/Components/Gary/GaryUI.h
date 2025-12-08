@@ -36,6 +36,10 @@ public:
 
     juce::Rectangle<int> getTitleBounds() const;
 
+    // Access to model ComboBox for hierarchical menu setup
+    CustomComboBox& getModelComboBox() { return modelComboBox; }
+    const CustomComboBox& getModelComboBox() const { return modelComboBox; }
+
     std::function<void(float)> onPromptDurationChanged;
     std::function<void(int)> onModelChanged;
     std::function<void()> onSendToGary;
