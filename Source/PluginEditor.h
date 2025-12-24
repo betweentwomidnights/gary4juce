@@ -59,6 +59,7 @@ public:
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
 
     // FileDragAndDropTarget interface
     bool isInterestedInFileDrag(const juce::StringArray& files) override;
@@ -427,6 +428,8 @@ private:
     // Drag and drop functionality (input)
     bool isDragHoveringInput = false;
     void loadAudioFileIntoBuffer(const juce::File& audioFile);
+    juce::File lastDraggedAudioFile;  // Stores path for double-click reselection
+    double lastSelectionStartTime = 0.0;  // Stores last selection position for reopening dialog
 
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;

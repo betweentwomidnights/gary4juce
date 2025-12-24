@@ -631,7 +631,33 @@ void AudioSelectionDialog::confirmSelection()
     if (isPlaying)
         stopAudio();
 
-    // Call the confirm callback with the extracted segment and sample rate
+    // Call the confirm callback with the extracted segment, sample rate, and selection start time
     if (onConfirm)
-        onConfirm(selectedSegment, audioSampleRate);
+        onConfirm(selectedSegment, audioSampleRate, selectionStartTime);
+}
+
+void AudioSelectionDialog::setInitialSelectionStartTime(double startTime)
+{
+    // Set the selection start time, ensuring it's within valid bounds
+    if (totalAudioDuration > 0.0)
+    {
+        const double minDuration = 10.0;
+        const double maxDuration = 30.0;
+
+        // Ensure there's enough audio left for at least the minimum duration
+        double maxAllowedStart = juce::jmax(0.0, totalAudioDuration - minDuration);
+        selectionStartTime = juce::jlimit(0.0, maxAllowedStart, startTime);
+
+        // Adjust selection duration based on available audio
+        double availableDuration = totalAudioDuration - selectionStartTime;
+        if (availableDuration >= maxDuration)
+            selectionDuration = maxDuration;
+        else if (availableDuration >= minDuration)
+            selectionDuration = availableDuration;
+        else
+            selectionDuration = minDuration;
+
+        DBG("Set initial selection start time: " + juce::String(selectionStartTime, 2) + "s");
+        repaint();
+    }
 }

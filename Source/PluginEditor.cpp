@@ -1217,6 +1217,18 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
             g.fillRect(recordingX, area.getY(), 2, area.getHeight());
         }
     }
+
+    // Show reselection hint for standalone mode when file is available
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    if (isStandalone && savedSamples > 0 && lastDraggedAudioFile.existsAsFile())
+    {
+        // Draw subtle hint text at bottom-right of waveform
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(juce::Colours::grey.withAlpha(0.6f));
+        // Create hint area from bottom-right of waveform without modifying original area
+        auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 12, area.getWidth() - 4, 12);
+        g.drawText("double-click to reselect", hintArea, juce::Justification::centredRight);
+    }
 }
 
 void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
@@ -6103,6 +6115,29 @@ void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
     juce::Component::mouseUp(event);
 }
 
+void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& event)
+{
+    // Check if double-click is on the recorded audio waveform area
+    if (waveformArea.contains(event.getPosition()))
+    {
+        // Only proceed if we have a previously dragged file that still exists
+        if (lastDraggedAudioFile.existsAsFile())
+        {
+            DBG("Double-click on waveform - reopening selection dialog for: " +
+                lastDraggedAudioFile.getFileName());
+            loadAudioFileIntoBuffer(lastDraggedAudioFile);
+        }
+        else
+        {
+            showStatusMessage("drag an audio file here first", 2000);
+        }
+        return;
+    }
+
+    // Call parent implementation for other areas
+    juce::Component::mouseDoubleClick(event);
+}
+
 // ============================================================================
 // FileDragAndDropTarget Interface (for dragging audio INTO recording buffer)
 // ============================================================================
@@ -6159,6 +6194,16 @@ void Gary4juceAudioProcessorEditor::filesDropped(const juce::StringArray& files,
 
 void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& audioFile)
 {
+    // If this is a different file than the last one, reset the selection position
+    if (audioFile != lastDraggedAudioFile)
+    {
+        lastSelectionStartTime = 0.0;
+        DBG("New file detected - resetting selection position to start");
+    }
+
+    // Store for double-click reselection (do this after checking, before any early returns)
+    lastDraggedAudioFile = audioFile;
+
     if (!audioFile.existsAsFile())
     {
         showStatusMessage("file not found", 2000);
@@ -6282,6 +6327,13 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             return;
         }
 
+        // If we're reopening the same file, restore the previous selection position
+        if (lastSelectionStartTime > 0.0)
+        {
+            dialog->setInitialSelectionStartTime(lastSelectionStartTime);
+            DBG("Restoring previous selection position: " + juce::String(lastSelectionStartTime, 2) + "s");
+        }
+
         // Store filename for the confirm callback
         juce::String filename = audioFile.getFileNameWithoutExtension();
 
@@ -6300,10 +6352,14 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
 
         // Set up the confirm callback to process the selected segment and close the dialog
         dialog->onConfirm = [this, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
-                                                              double sourceSampleRate) mutable
+                                                              double sourceSampleRate,
+                                                              double selectionStartTime) mutable
         {
-            DBG("Processing selected 30s segment from " + filename);
+            DBG("Processing selected segment from " + filename + " starting at " + juce::String(selectionStartTime, 2) + "s");
             DBG("Source sample rate: " + juce::String(sourceSampleRate) + " Hz");
+
+            // Store the selection start time for future reopening
+            lastSelectionStartTime = selectionStartTime;
 
             // Make a copy of the selected buffer
             juce::AudioBuffer<float> tempBuffer(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());

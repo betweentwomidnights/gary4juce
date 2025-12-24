@@ -34,9 +34,12 @@ public:
     // Timer callback for playback cursor updates
     void timerCallback() override;
 
+    // Set initial selection start time (for reopening dialog at previous position)
+    void setInitialSelectionStartTime(double startTime);
+
     // Callbacks (set from parent)
     std::function<void()> onCancel;
-    std::function<void(const juce::AudioBuffer<float>&, double)> onConfirm;  // Called with selected segment (10-30s) and sample rate
+    std::function<void(const juce::AudioBuffer<float>&, double, double)> onConfirm;  // Called with selected segment (10-30s), sample rate, and selection start time
 
 private:
     // Audio data
