@@ -1222,11 +1222,11 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
     if (isStandalone && savedSamples > 0 && lastDraggedAudioFile.existsAsFile())
     {
-        // Draw subtle hint text at bottom-right of waveform
-        g.setFont(juce::FontOptions(10.0f));
-        g.setColour(juce::Colours::grey.withAlpha(0.6f));
+        // Draw hint text at bottom-right of waveform
+        g.setFont(juce::FontOptions(13.0f));
+        g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
         // Create hint area from bottom-right of waveform without modifying original area
-        auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 12, area.getWidth() - 4, 12);
+        auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
         g.drawText("double-click to reselect", hintArea, juce::Justification::centredRight);
     }
 }
@@ -1858,6 +1858,17 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         // Save to gary4juce directory as myOutput.wav (overwrite each time)
         auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
         auto garyDir = documentsDir.getChildFile("gary4juce");
+
+        if (!garyDir.exists())
+        {
+            auto result = garyDir.createDirectory();
+            if (!result.wasOk())
+            {
+                showStatusMessage("failed to create Documents/gary4juce folder", 6000);
+                DBG("Failed to create gary4juce directory: " + result.getErrorMessage());
+                return;
+            }
+        }
 
         // FIXED: Always save as myOutput.wav
         outputAudioFile = garyDir.getChildFile("myOutput.wav");
