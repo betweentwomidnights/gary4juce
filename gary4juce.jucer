@@ -4,6 +4,7 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="the collabage patch"
               companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE">
   <MAINGROUP id="DH6yqq" name="gary4juce">
+    <FILE id="ywx3kS" name="icon.icns" compile="0" resource="1" file="icon.icns"/>
     <GROUP id="{28B6528D-59DF-0DCA-1E43-B839575ABC1A}" name="New Group"/>
     <GROUP id="{CDB2FDFC-AC96-7A2F-13CC-D983E5D40D90}" name="Components">
       <FILE id="ASDlg0" name="AudioSelectionDialog.cpp" compile="1" resource="0"
@@ -43,10 +44,8 @@
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
       </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
-        <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0"
-              file="Source/Components/Jerry/BeatPrompts.cpp"/>
-        <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0"
-              file="Source/Components/Jerry/BeatPrompts.h"/>
+        <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0" file="Source/Components/Jerry/BeatPrompts.cpp"/>
+        <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0" file="Source/Components/Jerry/BeatPrompts.h"/>
         <FILE id="InPr0m" name="InstrumentPrompts.cpp" compile="1" resource="0"
               file="Source/Components/Jerry/InstrumentPrompts.cpp"/>
         <FILE id="InPr0h" name="InstrumentPrompts.h" compile="0" resource="0"
@@ -119,22 +118,22 @@
     </VS2022>
     <XCODE_MAC targetFolder="Builds/MacOSX">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug"/>
-        <CONFIGURATION isDebug="0" name="Release"/>
+        <CONFIGURATION isDebug="1" name="Debug" plistPreprocessorDefinitions="&lt;key&gt;CFBundleIconFile&lt;/key&gt;&#10;&lt;string&gt;icon&lt;/string&gt;"/>
+        <CONFIGURATION isDebug="0" name="Release" plistPreprocessorDefinitions="&lt;key&gt;CFBundleIconFile&lt;/key&gt;&#10;&lt;string&gt;icon&lt;/string&gt;"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
-        <MODULEPATH id="juce_audio_basics" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_audio_devices" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_audio_formats" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_audio_plugin_client" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_audio_processors" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_audio_utils" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_core" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_data_structures" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_events" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_graphics" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_gui_basics" path="../JUCE/modules"/>
-        <MODULEPATH id="juce_gui_extra" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_basics" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
   </EXPORTFORMATS>

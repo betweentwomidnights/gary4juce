@@ -460,7 +460,10 @@ bool Gary4juceAudioProcessor::isMidiEffect() const
 
 double Gary4juceAudioProcessor::getTailLengthSeconds() const
 {
-    return 0.0;
+//    return 0.0;
+    // Return infinite tail to keep processBlock running continuously
+    // This ensures playback works on master track without needing transport
+    return std::numeric_limits<double>::infinity();
 }
 
 int Gary4juceAudioProcessor::getNumPrograms()
