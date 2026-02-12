@@ -8,8 +8,11 @@ namespace
     constexpr int kRowHeight = 34;
     constexpr int kButtonHeight = 38;
     constexpr int kLabelWidth = 140;
+    constexpr int kQuantizationLabelWidth = 96;
     constexpr int kInterRowGap = 6;
     constexpr int kButtonGap = 10;
+    constexpr int kQuantizationButtonGap = 6;
+    constexpr int kQuantizationRadioGroup = 4204;
 }
 
 GaryUI::GaryUI()
@@ -57,6 +60,51 @@ GaryUI::GaryUI()
     };
     addAndMakeVisible(modelComboBox);
 
+    quantizationLabel.setText("quantization", juce::dontSendNotification);
+    quantizationLabel.setFont(juce::FontOptions(12.0f));
+    quantizationLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    quantizationLabel.setJustificationType(juce::Justification::centredLeft);
+    quantizationLabel.setVisible(false);
+    addAndMakeVisible(quantizationLabel);
+
+    auto setupQuantizationButton = [this](CustomButton& button,
+                                          const juce::String& text,
+                                          const juce::String& mode,
+                                          const juce::String& tooltip)
+    {
+        button.setButtonText(text);
+        button.setButtonStyle(CustomButton::ButtonStyle::Standard);
+        button.setClickingTogglesState(true);
+        button.setRadioGroupId(kQuantizationRadioGroup);
+        button.setTooltip(tooltip);
+        button.setVisible(false);
+        button.onClick = [this, &button, mode]()
+        {
+            if (!button.getToggleState())
+                button.setToggleState(true, juce::dontSendNotification);
+
+            setQuantizationMode(mode, juce::sendNotification);
+        };
+        addAndMakeVisible(button);
+    };
+
+    setupQuantizationButton(quantizationNoneButton,
+                            "none",
+                            "none",
+                            "full precision: best audio adherence, slowest generation");
+    setupQuantizationButton(quantizationQ8Button,
+                            "8-bit",
+                            "q8_decoder_linears",
+                            "8-bit decoder linears: faster generation with moderate quality tradeoff");
+    setupQuantizationButton(quantizationQ4Button,
+                            "4-bit",
+                            "q4_decoder_linears",
+                            "4-bit decoder linears: major speedup with reduced prompt adherence");
+    setupQuantizationButton(quantizationQ4EmbButton,
+                            "4bit+emb",
+                            "q4_decoder_linears_emb",
+                            "4-bit decoder + embeddings: highest speed, strongest quality tradeoff");
+
     sendToGaryButton.setButtonText("send to gary");
     sendToGaryButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
     sendToGaryButton.onClick = [this]()
@@ -85,6 +133,7 @@ GaryUI::GaryUI()
     addAndMakeVisible(retryButton);
 
     promptDurationSlider.setValue(promptDuration, juce::dontSendNotification);
+    setQuantizationMode(quantizationMode, juce::dontSendNotification);
     refreshTooltips();
 }
 
@@ -111,6 +160,46 @@ void GaryUI::resized()
     modelLabel.setBounds(modelLabelArea);
     modelComboBox.setBounds(modelRow);
     area.removeFromTop(kInterRowGap);
+
+    if (isUsingLocalhostMode)
+    {
+        auto quantizationRow = area.removeFromTop(kRowHeight);
+        auto quantizationLabelArea = quantizationRow.removeFromLeft(kQuantizationLabelWidth);
+        quantizationLabel.setBounds(quantizationLabelArea);
+
+        const int totalGap = kQuantizationButtonGap * 3;
+        const int totalButtonSpace = juce::jmax(0, quantizationRow.getWidth() - totalGap);
+        int longButtonWidth = juce::jlimit(80, 104, totalButtonSpace / 3);
+        int shortButtonWidth = juce::jmax(36, (totalButtonSpace - longButtonWidth) / 3);
+
+        // Keep exact fit after integer rounding by assigning any remainder to the long button.
+        int usedButtonSpace = shortButtonWidth * 3 + longButtonWidth;
+        if (usedButtonSpace < totalButtonSpace)
+            longButtonWidth += totalButtonSpace - usedButtonSpace;
+        else if (usedButtonSpace > totalButtonSpace)
+            longButtonWidth = juce::jmax(68, totalButtonSpace - (shortButtonWidth * 3));
+
+        auto buttonRow = quantizationRow.withWidth(shortButtonWidth * 3 + longButtonWidth + totalGap)
+                                        .withCentre(quantizationRow.getCentre());
+
+        quantizationNoneButton.setBounds(buttonRow.removeFromLeft(shortButtonWidth));
+        buttonRow.removeFromLeft(kQuantizationButtonGap);
+        quantizationQ8Button.setBounds(buttonRow.removeFromLeft(shortButtonWidth));
+        buttonRow.removeFromLeft(kQuantizationButtonGap);
+        quantizationQ4Button.setBounds(buttonRow.removeFromLeft(shortButtonWidth));
+        buttonRow.removeFromLeft(kQuantizationButtonGap);
+        quantizationQ4EmbButton.setBounds(buttonRow);
+
+        area.removeFromTop(kInterRowGap);
+    }
+    else
+    {
+        quantizationLabel.setBounds({});
+        quantizationNoneButton.setBounds({});
+        quantizationQ8Button.setBounds({});
+        quantizationQ4Button.setBounds({});
+        quantizationQ4EmbButton.setBounds({});
+    }
 
     auto sendRow = area.removeFromTop(kButtonHeight);
     auto sendWidth = juce::jmin(sendRow.getWidth(), 240);
@@ -171,6 +260,52 @@ void GaryUI::setSelectedModelIndex(int index, juce::NotificationType notificatio
     modelComboBox.setSelectedId(modelIndex + 1, notification);
 }
 
+void GaryUI::setUsingLocalhost(bool useLocalhost)
+{
+    if (isUsingLocalhostMode == useLocalhost)
+        return;
+
+    isUsingLocalhostMode = useLocalhost;
+
+    quantizationLabel.setVisible(useLocalhost);
+    quantizationNoneButton.setVisible(useLocalhost);
+    quantizationQ8Button.setVisible(useLocalhost);
+    quantizationQ4Button.setVisible(useLocalhost);
+    quantizationQ4EmbButton.setVisible(useLocalhost);
+
+    resized();
+}
+
+void GaryUI::setQuantizationMode(const juce::String& mode, juce::NotificationType notification)
+{
+    juce::String normalized = mode.trim().toLowerCase();
+
+    if (normalized == "q8")
+        normalized = "q8_decoder_linears";
+    else if (normalized == "q4")
+        normalized = "q4_decoder_linears";
+    else if (normalized == "q4_emb" || normalized == "q4_decoder_linears_embedding")
+        normalized = "q4_decoder_linears_emb";
+
+    if (normalized != "none"
+        && normalized != "q8_decoder_linears"
+        && normalized != "q4_decoder_linears"
+        && normalized != "q4_decoder_linears_emb")
+    {
+        normalized = "q4_decoder_linears";
+    }
+
+    quantizationMode = normalized;
+
+    quantizationNoneButton.setToggleState(quantizationMode == "none", juce::dontSendNotification);
+    quantizationQ8Button.setToggleState(quantizationMode == "q8_decoder_linears", juce::dontSendNotification);
+    quantizationQ4Button.setToggleState(quantizationMode == "q4_decoder_linears", juce::dontSendNotification);
+    quantizationQ4EmbButton.setToggleState(quantizationMode == "q4_decoder_linears_emb", juce::dontSendNotification);
+
+    if (notification != juce::dontSendNotification && onQuantizationModeChanged)
+        onQuantizationModeChanged(quantizationMode);
+}
+
 void GaryUI::setButtonsEnabled(bool hasAudio,
                                bool isConnected,
                                bool isGenerating,
@@ -205,6 +340,11 @@ int GaryUI::getSelectedModelIndex() const
     return modelIndex;
 }
 
+juce::String GaryUI::getQuantizationMode() const
+{
+    return quantizationMode;
+}
+
 juce::Rectangle<int> GaryUI::getTitleBounds() const
 {
     return titleBounds;
@@ -233,4 +373,10 @@ void GaryUI::applyEnablement(bool hasAudio,
     sendToGaryButton.setEnabled(canSend);
     continueButton.setEnabled(canContinue);
     retryButton.setEnabled(canRetry);
+
+    const bool canChangeQuantization = isUsingLocalhostMode && !isGenerating;
+    quantizationNoneButton.setEnabled(canChangeQuantization);
+    quantizationQ8Button.setEnabled(canChangeQuantization);
+    quantizationQ4Button.setEnabled(canChangeQuantization);
+    quantizationQ4EmbButton.setEnabled(canChangeQuantization);
 }

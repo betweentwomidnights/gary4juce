@@ -159,6 +159,7 @@ private:
     struct GaryModelInfo {
         juce::String displayName;  // "keygen-gary-small-6"
         juce::String fullPath;     // "thepatch/keygen-gary-small-6"
+        juce::String sizeCategory; // "small" | "medium" | "large"
         int dropdownId;            // Unique ID for ComboBox
     };
     std::vector<GaryModelInfo> garyModelList;  // Maps dropdown ID -> model path
@@ -166,6 +167,7 @@ private:
     // Current Gary settings
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
+    juce::String currentGaryQuantizationMode = "q4_decoder_linears";
 
     std::unique_ptr<JerryUI> jerryUI;
 
@@ -273,6 +275,9 @@ private:
     void fetchGaryAvailableModels();
     void handleGaryModelsResponse(const juce::String& responseText);
     juce::String getSelectedGaryModelPath() const;
+    juce::String getSelectedGaryModelSizeCategory() const;
+    juce::String getDefaultGaryQuantizationForSize(const juce::String& sizeCategory) const;
+    void applyGaryQuantizationDefaultForCurrentModel();
 
     void fetchJerryAvailableModels();
     void handleJerryModelsResponse(const juce::String& responseText);

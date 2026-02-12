@@ -131,6 +131,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     garyUI->onModelChanged = [this](int index)
     {
         currentModelIndex = index;
+
+        if (audioProcessor.getIsUsingLocalhost())
+            applyGaryQuantizationDefaultForCurrentModel();
+    };
+
+    garyUI->onQuantizationModeChanged = [this](const juce::String& mode)
+    {
+        currentGaryQuantizationMode = mode;
     };
 
     garyUI->onSendToGary = [this]()
@@ -149,6 +157,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
 
     garyUI->setPromptDuration(currentPromptDuration);
+    garyUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
+    garyUI->setQuantizationMode(currentGaryQuantizationMode, juce::dontSendNotification);
 
     // Fetch available models from backend (will populate dropdown when response arrives)
     if (isConnected)
@@ -1960,6 +1970,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
     // Get the selected model from dynamic list
     auto selectedModel = getSelectedGaryModelPath();
+    const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
+    const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
 
     // Debug current values
     DBG("Current prompt duration value: " + juce::String(currentPromptDuration) + " (will be cast to: " + juce::String((int)currentPromptDuration) + ")");
@@ -2008,7 +2020,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     repaint(); // Force immediate UI update
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, selectedModel, base64Audio, cancelGaryOperation]() {
+    juce::Thread::launch([this, selectedModel, base64Audio, isLocalhostRequest, capturedQuantizationMode, cancelGaryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Gary request aborted - generation stopped");
@@ -2026,6 +2038,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
         jsonRequest->setProperty("description", "");
+        if (isLocalhostRequest)
+            jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -2261,10 +2275,12 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
     // Capture current model path NOW (before thread launch)
     juce::String capturedModelPath = getSelectedGaryModelPath();
+    const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
+    const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
     DBG("Captured model path for continue: " + capturedModelPath);
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, audioData, capturedModelPath, cancelContinueOperation]() {
+    juce::Thread::launch([this, audioData, capturedModelPath, isLocalhostRequest, capturedQuantizationMode, cancelContinueOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Continue request aborted - generation stopped");
@@ -2284,6 +2300,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
         jsonRequest->setProperty("description", "");
+        if (isLocalhostRequest)
+            jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -2488,8 +2506,11 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     
     showStatusMessage("retrying last continuation...", 2000);
 
+    const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
+    const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
+
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([this, sessionId, cancelRetryOperation]() {
+    juce::Thread::launch([this, sessionId, isLocalhostRequest, capturedQuantizationMode, cancelRetryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Retry request aborted - generation stopped");
@@ -2509,6 +2530,8 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
         jsonRequest->setProperty("description", "");
+        if (isLocalhostRequest)
+            jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -2696,13 +2719,17 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
 
         // Fallback to safe defaults
         garyModelList.clear();
-        garyModelList.push_back({"vanya ai dnb 0.1", "thepatch/vanya_ai_dnb_0.1", 1});
+        garyModelList.push_back({"vanya ai dnb 0.1", "thepatch/vanya_ai_dnb_0.1", "small", 1});
 
         garyModelItems.clear();
         garyModelItems.add("vanya ai dnb 0.1");
 
         if (garyUI)
             garyUI->setModelItems(garyModelItems, 0);
+
+        currentModelIndex = 0;
+        if (audioProcessor.getIsUsingLocalhost())
+            applyGaryQuantizationDefaultForCurrentModel();
 
         return;
     }
@@ -2796,7 +2823,7 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                     item.isSubMenu = false;
                     menuItems.push_back(item);
 
-                    garyModelList.push_back({name, path, nextId});
+                    garyModelList.push_back({name, path, size, nextId});
                     if (firstSelectableId == 0)
                         firstSelectableId = nextId;
 
@@ -2842,7 +2869,7 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                                 item.isSubMenu = false;
                                 menuItems.push_back(item);
 
-                                garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                                garyModelList.push_back({checkpointName, checkpointPath, size, nextId});
                                 if (firstSelectableId == 0)
                                     firstSelectableId = nextId;
 
@@ -2885,7 +2912,7 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                             subItem.isSubMenu = false;
                             groupItem.subItems.push_back(subItem);
 
-                            garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                            garyModelList.push_back({checkpointName, checkpointPath, size, nextId});
                             if (firstSelectableId == 0)
                                 firstSelectableId = nextId;
 
@@ -2923,6 +2950,9 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                 }
             }
         }
+
+        if (audioProcessor.getIsUsingLocalhost())
+            applyGaryQuantizationDefaultForCurrentModel();
 
         DBG("Loaded " + juce::String(garyModelList.size()) + " Gary models with hierarchical menu");
     }
@@ -2969,6 +2999,55 @@ juce::String Gary4juceAudioProcessorEditor::getSelectedGaryModelPath() const
     // Fallback to safe default
     DBG("Invalid Gary model ID: " + juce::String(selectedId) + ", using fallback");
     return "thepatch/vanya_ai_dnb_0.1";
+}
+
+juce::String Gary4juceAudioProcessorEditor::getSelectedGaryModelSizeCategory() const
+{
+    if (!garyUI)
+        return {};
+
+    auto* modelComboBox = dynamic_cast<const CustomComboBox*>(&garyUI->getModelComboBox());
+    if (!modelComboBox)
+        return {};
+
+    const int selectedId = modelComboBox->getSelectedId();
+    for (const auto& model : garyModelList)
+    {
+        if (model.dropdownId == selectedId)
+            return model.sizeCategory;
+    }
+
+    if (currentModelIndex >= 0 && currentModelIndex < static_cast<int>(garyModelList.size()))
+        return garyModelList[static_cast<size_t>(currentModelIndex)].sizeCategory;
+
+    return {};
+}
+
+juce::String Gary4juceAudioProcessorEditor::getDefaultGaryQuantizationForSize(const juce::String& sizeCategory) const
+{
+    const juce::String normalized = sizeCategory.trim().toLowerCase();
+
+    if (normalized == "small")
+        return "q8_decoder_linears";
+    if (normalized == "medium" || normalized == "large")
+        return "q4_decoder_linears";
+
+    return "q4_decoder_linears";
+}
+
+void Gary4juceAudioProcessorEditor::applyGaryQuantizationDefaultForCurrentModel()
+{
+    if (!garyUI)
+        return;
+
+    const juce::String sizeCategory = getSelectedGaryModelSizeCategory();
+    const juce::String defaultMode = getDefaultGaryQuantizationForSize(sizeCategory);
+    currentGaryQuantizationMode = defaultMode;
+    garyUI->setQuantizationMode(defaultMode, juce::dontSendNotification);
+
+    DBG("Gary quantization default -> size: "
+        + (sizeCategory.isNotEmpty() ? sizeCategory : "unknown")
+        + ", mode: " + defaultMode);
 }
 
 // JERRY API CALLS
@@ -5592,6 +5671,13 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     {
         jerryUI->setLoadingModel(false);
         jerryUI->setUsingLocalhost(isUsingLocalhost);
+    }
+
+    if (garyUI)
+    {
+        garyUI->setUsingLocalhost(isUsingLocalhost);
+        if (isUsingLocalhost)
+            applyGaryQuantizationDefaultForCurrentModel();
     }
 
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
