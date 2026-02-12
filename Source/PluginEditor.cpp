@@ -3126,7 +3126,31 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         juce::StringArray modelTypes;
         juce::StringArray modelRepos;
         juce::StringArray modelCheckpoints;
+        juce::StringArray modelSamplerProfiles;
         juce::Array<bool> isFinetune;
+
+        const auto determineSamplerProfile = [](const juce::String& modelType,
+                                                const juce::String& modelSource,
+                                                juce::int64 sampleSize)
+        {
+            const auto source = modelSource.toLowerCase();
+
+            if (sampleSize > 524288)
+                return juce::String("sao10");
+
+            if (source.contains("stable-audio-open-1.0")
+                || source.contains("stable_audio_open_1_0")
+                || source.contains("stableaudioopen1.0")
+                || source.contains("sao1"))
+            {
+                return juce::String("sao10");
+            }
+
+            if (modelType == "finetune")
+                return juce::String("saos_finetune");
+
+            return juce::String("standard");
+        };
 
         auto* detailsObj = modelDetails.getDynamicObject();
         if (!detailsObj)
@@ -3146,6 +3170,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
             {
                 juce::String source = modelData->getProperty("source").toString();
                 juce::String type = modelData->getProperty("type").toString();
+                const juce::int64 sampleSize = modelData->getProperty("sample_size").toString().getLargeIntValue();
+                const juce::String samplerProfile = determineSamplerProfile(type, source, sampleSize);
 
                 DBG("Processing model - Key: " + modelKey + ", Source: " + source + ", Type: " + type);
 
@@ -3218,17 +3244,19 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
                 modelTypes.add(type);
                 modelRepos.add(repo);
                 modelCheckpoints.add(checkpoint);
+                modelSamplerProfiles.add(samplerProfile);
                 isFinetune.add(type == "finetune");
 
                 DBG("Added model: " + displayName);
                 DBG("  Type: " + type + ", Repo: " + repo + ", Checkpoint: " + checkpoint);
+                DBG("  Sample size: " + juce::String(sampleSize) + ", Sampler profile: " + samplerProfile);
             }
         }
 
         if (jerryUI && modelNames.size() > 0)
         {
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
-                modelTypes, modelRepos, modelCheckpoints);
+                modelTypes, modelRepos, modelCheckpoints, modelSamplerProfiles);
             DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
         }
     }

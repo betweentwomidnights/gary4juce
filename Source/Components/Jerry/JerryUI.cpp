@@ -65,13 +65,12 @@ JerryUI::JerryUI()
     addAndMakeVisible(jerrySamplerLabel);
 
     samplerEulerButton.setButtonText("euler");
+    samplerEulerButton.getProperties().set("samplerType", "euler");
     samplerEulerButton.setRadioGroupId(2001);  // Different from Terry's 1001
     samplerEulerButton.setToggleState(false, juce::dontSendNotification);
     samplerEulerButton.onClick = [this]()
         {
-            // Radio group handles mutual exclusivity automatically
-            // Just update our internal state
-            currentSamplerType = "euler";
+            currentSamplerType = getSamplerTypeForButton(samplerEulerButton);
             if (onSamplerTypeChanged)
                 onSamplerTypeChanged(currentSamplerType);
         };
@@ -79,18 +78,30 @@ JerryUI::JerryUI()
     addAndMakeVisible(samplerEulerButton);
 
     samplerDpmppButton.setButtonText("dpmpp");
+    samplerDpmppButton.getProperties().set("samplerType", "dpmpp");
     samplerDpmppButton.setRadioGroupId(2001);
     samplerDpmppButton.setToggleState(true, juce::dontSendNotification);  // Default for finetunes
     samplerDpmppButton.onClick = [this]()
         {
-            // Radio group handles mutual exclusivity automatically
-            // Just update our internal state
-            currentSamplerType = "dpmpp";
+            currentSamplerType = getSamplerTypeForButton(samplerDpmppButton);
             if (onSamplerTypeChanged)
                 onSamplerTypeChanged(currentSamplerType);
         };
     samplerDpmppButton.setVisible(false);
     addAndMakeVisible(samplerDpmppButton);
+
+    samplerThirdButton.setButtonText("k-heun");
+    samplerThirdButton.getProperties().set("samplerType", "k-heun");
+    samplerThirdButton.setRadioGroupId(2001);
+    samplerThirdButton.setToggleState(false, juce::dontSendNotification);
+    samplerThirdButton.onClick = [this]()
+        {
+            currentSamplerType = getSamplerTypeForButton(samplerThirdButton);
+            if (onSamplerTypeChanged)
+                onSamplerTypeChanged(currentSamplerType);
+        };
+    samplerThirdButton.setVisible(false);
+    addAndMakeVisible(samplerThirdButton);
 
     // Custom finetune section (localhost only)
     toggleCustomSectionButton.setButtonText("+");
@@ -363,17 +374,29 @@ void JerryUI::resized()
         auto samplerLabelBounds = samplerRow.removeFromLeft(kLabelWidth);
         jerrySamplerLabel.setBounds(samplerLabelBounds);
 
-        // Layout the two radio buttons side by side - MADE MORE COMPACT
-        const int buttonWidth = 60;     // Reduced from 70
-        const int buttonGap = 4;        // Reduced from 5
+        juce::Array<juce::ToggleButton*> visibleSamplerButtons;
+        if (samplerEulerButton.isVisible())
+            visibleSamplerButtons.add(&samplerEulerButton);
+        if (samplerDpmppButton.isVisible())
+            visibleSamplerButtons.add(&samplerDpmppButton);
+        if (samplerThirdButton.isVisible())
+            visibleSamplerButtons.add(&samplerThirdButton);
 
-        auto eulerBounds = samplerRow.removeFromLeft(buttonWidth);
-        samplerEulerButton.setBounds(eulerBounds);
+        const int buttonGap = 4;
+        const int visibleCount = visibleSamplerButtons.size();
+        const int totalGap = juce::jmax(0, visibleCount - 1) * buttonGap;
+        const int availableWidth = juce::jmax(0, samplerRow.getWidth() - totalGap);
+        const int buttonWidth = visibleCount > 0
+            ? juce::jmax(1, availableWidth / visibleCount)
+            : 0;
 
-        samplerRow.removeFromLeft(buttonGap);
-
-        auto dpmppBounds = samplerRow.removeFromLeft(buttonWidth);
-        samplerDpmppButton.setBounds(dpmppBounds);
+        for (int i = 0; i < visibleCount; ++i)
+        {
+            auto* button = visibleSamplerButtons.getUnchecked(i);
+            button->setBounds(samplerRow.removeFromLeft(buttonWidth));
+            if (i < visibleCount - 1)
+                samplerRow.removeFromLeft(buttonGap);
+        }
 
         area.removeFromTop(kInterRowGap);
     }
@@ -858,7 +881,8 @@ void JerryUI::setAvailableModels(const juce::StringArray& models,
     const juce::StringArray& keys,
     const juce::StringArray& types,
     const juce::StringArray& repos,
-    const juce::StringArray& checkpoints)
+    const juce::StringArray& checkpoints,
+    const juce::StringArray& samplerProfiles)
 {
     modelNames = models;
     modelIsFinetune = isFinetune;
@@ -866,6 +890,14 @@ void JerryUI::setAvailableModels(const juce::StringArray& models,
     modelTypes = types;           // NEW
     modelRepos = repos;           // NEW
     modelCheckpoints = checkpoints; // NEW
+    modelSamplerProfiles = samplerProfiles;
+
+    if (modelSamplerProfiles.size() != models.size())
+    {
+        modelSamplerProfiles.clear();
+        for (int i = 0; i < models.size(); ++i)
+            modelSamplerProfiles.add(i < isFinetune.size() && isFinetune[i] ? "saos_finetune" : "standard");
+    }
 
     jerryModelComboBox.clear(juce::dontSendNotification);
     for (int i = 0; i < models.size(); ++i)
@@ -947,25 +979,57 @@ juce::String JerryUI::getSelectedSamplerType() const
 
 void JerryUI::updateSamplerVisibility()
 {
-    bool isFinetune = getSelectedModelIsFinetune();
-    showingSamplerSelector = isFinetune;
+    const auto profile = getSelectedSamplerProfile();
+    const auto previousSamplerType = currentSamplerType;
 
-    jerrySamplerLabel.setVisible(isFinetune);
-    samplerEulerButton.setVisible(isFinetune);
-    samplerDpmppButton.setVisible(isFinetune);
-
-    // Reset sampler to default when switching
-    if (isFinetune)
+    if (profile == "sao10")
     {
-        // Default to dpmpp for finetunes
-        currentSamplerType = "dpmpp";
-        samplerDpmppButton.setToggleState(true, juce::dontSendNotification);
-        samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+        showingSamplerSelector = true;
+        jerrySamplerLabel.setVisible(true);
+
+        samplerEulerButton.setVisible(true);
+        samplerDpmppButton.setVisible(true);
+        samplerThirdButton.setVisible(true);
+
+        configureSamplerButton(samplerEulerButton, "dpmpp-3m-sde", "dpmpp-3m-sde", false);
+        configureSamplerButton(samplerDpmppButton, "dpmpp-2m-sde", "dpmpp-2m-sde", false);
+        configureSamplerButton(samplerThirdButton, "k-heun", "k-heun", false);
+
+        const bool keepPrevious =
+            previousSamplerType == "dpmpp-3m-sde" ||
+            previousSamplerType == "dpmpp-2m-sde" ||
+            previousSamplerType == "k-heun";
+        applySamplerSelection(keepPrevious ? previousSamplerType : "dpmpp-3m-sde");
+    }
+    else if (profile == "saos_finetune")
+    {
+        showingSamplerSelector = true;
+        jerrySamplerLabel.setVisible(true);
+
+        samplerEulerButton.setVisible(true);
+        samplerDpmppButton.setVisible(true);
+        samplerThirdButton.setVisible(false);
+
+        configureSamplerButton(samplerEulerButton, "euler", "euler", false);
+        configureSamplerButton(samplerDpmppButton, "dpmpp", "dpmpp", false);
+        configureSamplerButton(samplerThirdButton, "k-heun", "k-heun", false);
+
+        const bool keepPrevious =
+            previousSamplerType == "euler" ||
+            previousSamplerType == "dpmpp";
+        applySamplerSelection(keepPrevious ? previousSamplerType : "dpmpp");
     }
     else
     {
-        // Standard model always uses pingpong
+        showingSamplerSelector = false;
+        jerrySamplerLabel.setVisible(false);
+        samplerEulerButton.setVisible(false);
+        samplerDpmppButton.setVisible(false);
+        samplerThirdButton.setVisible(false);
         currentSamplerType = "pingpong";
+        samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+        samplerDpmppButton.setToggleState(false, juce::dontSendNotification);
+        samplerThirdButton.setToggleState(false, juce::dontSendNotification);
     }
 
     resized();  // Re-layout to show/hide sampler row
@@ -1125,22 +1189,70 @@ void JerryUI::updateSmartLoopStyle()
 void JerryUI::applySamplerSelection(const juce::String& samplerType)
 {
     currentSamplerType = samplerType;
+    const bool eulerSelected =
+        samplerEulerButton.isVisible() && getSamplerTypeForButton(samplerEulerButton) == samplerType;
+    const bool dpmppSelected =
+        samplerDpmppButton.isVisible() && getSamplerTypeForButton(samplerDpmppButton) == samplerType;
+    const bool thirdSelected =
+        samplerThirdButton.isVisible() && getSamplerTypeForButton(samplerThirdButton) == samplerType;
 
-    // For programmatic changes, we need to explicitly set both button states
-    // Use dontSendNotification to avoid triggering callbacks
-    if (samplerType == "euler")
+    if (!eulerSelected && !dpmppSelected && !thirdSelected)
     {
-        samplerEulerButton.setToggleState(true, juce::dontSendNotification);
-        samplerDpmppButton.setToggleState(false, juce::dontSendNotification);
-    }
-    else if (samplerType == "dpmpp")
-    {
-        samplerDpmppButton.setToggleState(true, juce::dontSendNotification);
-        samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+        if (samplerEulerButton.isVisible())
+        {
+            currentSamplerType = getSamplerTypeForButton(samplerEulerButton);
+            samplerEulerButton.setToggleState(true, juce::dontSendNotification);
+            samplerDpmppButton.setToggleState(false, juce::dontSendNotification);
+            samplerThirdButton.setToggleState(false, juce::dontSendNotification);
+        }
+        else if (samplerDpmppButton.isVisible())
+        {
+            currentSamplerType = getSamplerTypeForButton(samplerDpmppButton);
+            samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+            samplerDpmppButton.setToggleState(true, juce::dontSendNotification);
+            samplerThirdButton.setToggleState(false, juce::dontSendNotification);
+        }
+        else if (samplerThirdButton.isVisible())
+        {
+            currentSamplerType = getSamplerTypeForButton(samplerThirdButton);
+            samplerEulerButton.setToggleState(false, juce::dontSendNotification);
+            samplerDpmppButton.setToggleState(false, juce::dontSendNotification);
+            samplerThirdButton.setToggleState(true, juce::dontSendNotification);
+        }
+        return;
     }
 
-    // Don't trigger callback here - this is for programmatic restoration
-    // If you want to trigger callback, call it manually after this function
+    samplerEulerButton.setToggleState(eulerSelected, juce::dontSendNotification);
+    samplerDpmppButton.setToggleState(dpmppSelected, juce::dontSendNotification);
+    samplerThirdButton.setToggleState(thirdSelected, juce::dontSendNotification);
+}
+
+juce::String JerryUI::getSelectedSamplerProfile() const
+{
+    if (selectedModelIndex >= 0
+        && selectedModelIndex < modelSamplerProfiles.size()
+        && modelSamplerProfiles[selectedModelIndex].isNotEmpty())
+    {
+        return modelSamplerProfiles[selectedModelIndex];
+    }
+
+    return getSelectedModelIsFinetune() ? "saos_finetune" : "standard";
+}
+
+juce::String JerryUI::getSamplerTypeForButton(const juce::ToggleButton& button) const
+{
+    const auto samplerType = button.getProperties().getWithDefault("samplerType", {}).toString();
+    return samplerType.isNotEmpty() ? samplerType : button.getButtonText();
+}
+
+void JerryUI::configureSamplerButton(juce::ToggleButton& button,
+                                     const juce::String& buttonText,
+                                     const juce::String& samplerType,
+                                     bool isSelected)
+{
+    button.setButtonText(buttonText);
+    button.getProperties().set("samplerType", samplerType);
+    button.setToggleState(isSelected, juce::dontSendNotification);
 }
 
 void JerryUI::applyEnablement(bool canGenerate, bool canSmartLoop, bool isGenerating)

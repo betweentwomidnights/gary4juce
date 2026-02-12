@@ -57,7 +57,8 @@ public:
         const juce::StringArray& keys,
         const juce::StringArray& types,
         const juce::StringArray& repos,
-        const juce::StringArray& checkpoints);
+        const juce::StringArray& checkpoints,
+        const juce::StringArray& samplerProfiles);
     void setSelectedModel(int index);
     int getSelectedModelIndex() const;
     juce::String getSelectedModelKey() const;
@@ -144,6 +145,7 @@ private:
     juce::Label jerrySamplerLabel;
     juce::ToggleButton samplerEulerButton;
     juce::ToggleButton samplerDpmppButton;
+    juce::ToggleButton samplerThirdButton;
 
     // Model state
     juce::StringArray modelNames;
@@ -151,6 +153,7 @@ private:
     juce::StringArray modelTypes;           // NEW: 'standard' or 'finetune'
     juce::StringArray modelRepos;           // NEW: repo names
     juce::StringArray modelCheckpoints;     // NEW: checkpoint filenames
+    juce::StringArray modelSamplerProfiles; // "standard" | "saos_finetune" | "sao10"
     juce::Array<bool> modelIsFinetune;
     int selectedModelIndex = 0;
     bool showingSamplerSelector = false;
@@ -160,6 +163,12 @@ private:
     void updateSamplerVisibility();
     void updateSliderRangesForModel(bool isFinetune);
     void applySamplerSelection(const juce::String& samplerType);
+    juce::String getSelectedSamplerProfile() const;
+    juce::String getSamplerTypeForButton(const juce::ToggleButton& button) const;
+    void configureSamplerButton(juce::ToggleButton& button,
+                                const juce::String& buttonText,
+                                const juce::String& samplerType,
+                                bool isSelected);
 
     // Custom finetune UI (only shown on localhost)
     juce::Label customFinetuneLabel;
