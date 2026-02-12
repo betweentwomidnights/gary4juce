@@ -2144,7 +2144,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 bool shouldCheckHealth = false;
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    markBackendDisconnectedFromRequestFailure("gary request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
@@ -2385,7 +2388,10 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 bool shouldCheckHealth = false;
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    markBackendDisconnectedFromRequestFailure("continue request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
@@ -2592,7 +2598,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 bool shouldCheckHealth = false;
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    markBackendDisconnectedFromRequestFailure("retry request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
@@ -3815,7 +3824,10 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 bool shouldCheckHealth = false;
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "cannot connect to jerry on localhost - ensure docker compose is running";
+                    markBackendDisconnectedFromRequestFailure("jerry request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "failed to connect to jerry on remote backend";
@@ -4177,7 +4189,10 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 bool shouldCheckHealth = false;
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
+                    markBackendDisconnectedFromRequestFailure("terry request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "failed to connect to Terry on remote backend";
@@ -4381,7 +4396,10 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
             {
                 juce::String errorMsg;
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "cannot connect for undo on localhost - ensure docker compose is running";
+                    markBackendDisconnectedFromRequestFailure("terry undo request");
+                }
                 else if (statusCode == 0)
                     errorMsg = "failed to connect for undo on remote backend";
                 else if (statusCode >= 400)
@@ -7625,6 +7643,17 @@ void Gary4juceAudioProcessorEditor::updateContinueButtonState()
 // Backend Disconnection and Stall Handling Methods
 //==============================================================================
 
+void Gary4juceAudioProcessorEditor::markBackendDisconnectedFromRequestFailure(const juce::String& context)
+{
+    DBG("Marking backend disconnected after request failure: " + context);
+
+    audioProcessor.setBackendConnectionStatus(false);
+
+    // If processor was already false but editor state is stale, force UI sync.
+    if (isConnected)
+        updateConnectionStatus(false);
+}
+
 bool Gary4juceAudioProcessorEditor::checkForGenerationStall()
 {
     if (!isGenerating) return false;
@@ -7890,4 +7919,3 @@ void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
             delete alertWindow; // This is all you need!
             }));
 }
-
