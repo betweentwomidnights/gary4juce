@@ -398,6 +398,7 @@ private:
 
 
     // Backend disconnection and stall handling methods
+    void markBackendDisconnectedFromRequestFailure(const juce::String& context);
     bool checkForGenerationStall();
     void handleGenerationStall();
     void handleBackendDisconnection();
