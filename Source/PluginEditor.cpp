@@ -1347,7 +1347,9 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 return;
             }
 
-            juce::URL pollUrl(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+            const bool pollJerry = (getActiveOp() == ActiveOp::JerryGenerate);
+            const ServiceType pollService = pollJerry ? ServiceType::Jerry : ServiceType::Gary;
+            juce::URL pollUrl(getServiceUrl(pollService, "/api/juce/poll_status/" + sessionId));
 
             try
             {
@@ -1470,6 +1472,12 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
 void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& responseText)
 {
+    auto resetJerryButtonIfNeeded = [this]()
+    {
+        if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
+            jerryUI->setGenerateButtonText("generate with jerry");
+    };
+
     if (responseText.isEmpty())
     {
         DBG("Empty polling response - backend likely down");
@@ -1489,6 +1497,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 showStatusMessage("backend reachable but no response; retry", 3000);
             }
             });
+        resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
         return;
     }
@@ -1535,6 +1544,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 stopPolling();
                 showStatusMessage("processing failed", 3000);
+                resetJerryButtonIfNeeded();
                 setActiveOp(ActiveOp::None);
                 return;
             }
@@ -1750,6 +1760,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     updateContinueButtonState();
                 }
 
+                resetJerryButtonIfNeeded();
                 setActiveOp(ActiveOp::None);
             }
             else
@@ -1779,6 +1790,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     updateAllGenerationButtonStates();
                     repaint();
 
+                    resetJerryButtonIfNeeded();
                     setActiveOp(ActiveOp::None);
                 }
                 else if (status == "completed")
@@ -1799,6 +1811,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     updateAllGenerationButtonStates();
                     repaint();
 
+                    resetJerryButtonIfNeeded();
                     setActiveOp(ActiveOp::None);
                 }
             }
@@ -1819,9 +1832,10 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else
                 {
-                    showStatusMessage("bad response; retry", 3000);
-                }
-                });
+                showStatusMessage("bad response; retry", 3000);
+            }
+            });
+            resetJerryButtonIfNeeded();
             setActiveOp(ActiveOp::None);
         }
     }
@@ -1844,6 +1858,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 showStatusMessage("parse error; retry", 3000);
             }
             });
+        resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
     }
 }
@@ -3692,6 +3707,8 @@ juce::String Gary4juceAudioProcessorEditor::extractCheckpointInfo(const juce::St
 
 void Gary4juceAudioProcessorEditor::sendToJerry()
 {
+    const bool useLocalAsyncPolling = audioProcessor.getIsUsingLocalhost();
+
     if (!isConnected)
     {
         showStatusMessage("backend not connected - check connection first");
@@ -3727,7 +3744,10 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     if (audioProcessor.getIsUsingLocalhost())
     {
         // Localhost endpoints do NOT have the /audio prefix
-        endpoint = generateAsLoop ? "/generate/loop" : "/generate";
+        if (useLocalAsyncPolling)
+            endpoint = generateAsLoop ? "/generate/loop/async" : "/generate/async";
+        else
+            endpoint = generateAsLoop ? "/generate/loop" : "/generate";
     }
     else
     {
@@ -3737,6 +3757,25 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
     juce::String statusText = generateAsLoop ?
         "cooking a smart loop with jerry..." : "baking with jerry...";
+
+    if (useLocalAsyncPolling)
+    {
+        setActiveOp(ActiveOp::JerryGenerate);
+        isGenerating = true;
+        generationProgress = 0;
+        lastKnownProgress = 0;
+        targetProgress = 0;
+        smoothProgressAnimation = false;
+        isCurrentlyQueued = false;
+        resetStallDetection();
+
+        audioProcessor.clearCurrentSessionId();
+        audioProcessor.setRetryAvailable(false);
+        updateRetryButtonState();
+        updateContinueButtonState();
+        updateAllGenerationButtonStates();
+        repaint();
+    }
 
     DBG("=== JERRY GENERATION REQUEST ===");
     DBG("Jerry generating with prompt: " + fullPrompt);
@@ -3750,13 +3789,31 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         DBG("Loop Type: " + currentLoopType);
     }
 
+    auto cancelJerryOperation = [this]()
+    {
+        stopPolling();
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        if (jerryUI)
+            jerryUI->setGenerateButtonText("generate with jerry");
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
     // Button text feedback and status during processing
     if (jerryUI)
         jerryUI->setGenerateButtonText("generating");
     showStatusMessage(statusText, 2000);
 
+    juce::String requestId;
+    if (useLocalAsyncPolling)
+        requestId = juce::Uuid().toString();
+
     // Create HTTP request in background thread
-    juce::Thread::launch([this, fullPrompt, endpoint]() {
+    juce::Thread::launch([this, fullPrompt, endpoint, useLocalAsyncPolling, requestId, cancelJerryOperation]() {
         auto startTime = juce::Time::getCurrentTime();
 
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
@@ -3780,6 +3837,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             jsonRequest->setProperty("loop_type", currentLoopType);
         }
 
+        if (useLocalAsyncPolling)
+            jsonRequest->setProperty("request_id", requestId);
+
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Jerry JSON payload: " + jsonString);
@@ -3796,7 +3856,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             juce::URL postUrl = url.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(30000)
+                .withConnectionTimeoutMs(useLocalAsyncPolling ? 15000 : 30000)
                 .withExtraHeaders("Content-Type: application/json");
 
             auto stream = postUrl.createInputStream(options);
@@ -3835,7 +3895,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, useLocalAsyncPolling, requestId, cancelJerryOperation]() {
            
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
@@ -3852,6 +3912,24 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                     bool success = responseObj->getProperty("success");
                     if (success)
                     {
+                        if (useLocalAsyncPolling)
+                        {
+                            juce::String sessionId = responseObj->getProperty("session_id").toString();
+                            if (sessionId.isEmpty())
+                                sessionId = requestId;
+
+                            if (sessionId.isEmpty())
+                            {
+                                showStatusMessage("jerry async request missing session id", 5000);
+                                cancelJerryOperation();
+                                return;
+                            }
+
+                            showStatusMessage("sent to jerry. processing...", 2000);
+                            startPollingForResults(sessionId);
+                            return;
+                        }
+
                         // Get the base64 audio data
                         auto audioBase64 = responseObj->getProperty("audio_base64").toString();
 
@@ -3906,6 +3984,8 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                         auto error = responseObj->getProperty("error").toString();
                         showStatusMessage("jerry error: " + error, 5000);
                         DBG("Jerry server error: " + error);
+                        if (useLocalAsyncPolling)
+                            cancelJerryOperation();
                     }
                 }
                 else
@@ -3923,6 +4003,8 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                             handleBackendDisconnection();
                         }
                     });
+                    if (useLocalAsyncPolling)
+                        cancelJerryOperation();
                 }
             }
             else
@@ -3950,6 +4032,8 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Jerry request failed: " + errorMsg);
+                if (useLocalAsyncPolling)
+                    cancelJerryOperation();
                 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
@@ -3968,7 +4052,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 }
             }
 
-            if (jerryUI)
+            if (!useLocalAsyncPolling && jerryUI)
                 jerryUI->setGenerateButtonText("generate with jerry");
             });
         });
@@ -5887,16 +5971,25 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             switch (getActiveOp())
             {
                 case ActiveOp::TerryTransform:
-                    displayText = "transforming: " + juce::String(generationProgress) + "%";
+                    if (generationProgress <= 0)
+                        displayText = "transforming...";
+                    else
+                        displayText = "transforming: " + juce::String(generationProgress) + "%";
                     break;
                 case ActiveOp::GaryGenerate:
                 case ActiveOp::GaryContinue:
                 case ActiveOp::GaryRetry:
                 case ActiveOp::JerryGenerate:
-                    displayText = "cooking: " + juce::String(generationProgress) + "%";
+                    if (generationProgress <= 0)
+                        displayText = "cooking...";
+                    else
+                        displayText = "cooking: " + juce::String(generationProgress) + "%";
                     break;
                 default:
-                    displayText = "processing: " + juce::String(generationProgress) + "%";
+                    if (generationProgress <= 0)
+                        displayText = "processing...";
+                    else
+                        displayText = "processing: " + juce::String(generationProgress) + "%";
                     break;
             }
         }
@@ -7867,6 +7960,9 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
 
     repaint();
 
+    if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
+        jerryUI->setGenerateButtonText("generate with jerry");
+
     setActiveOp(ActiveOp::None);
 }
 
@@ -7889,6 +7985,9 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
     showStatusMessage(reason, 5000);
 
     repaint();
+
+    if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
+        jerryUI->setGenerateButtonText("generate with jerry");
 
     setActiveOp(ActiveOp::None);
 }

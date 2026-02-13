@@ -1037,7 +1037,19 @@ void JerryUI::updateSamplerVisibility()
 
 void JerryUI::updateSliderRangesForModel(bool isFinetune)
 {
-    if (isFinetune)
+    const auto profile = getSelectedSamplerProfile();
+
+    if (profile == "sao10")
+    {
+        // SAO 1.0 models benefit from higher diffusion step counts.
+        jerryStepsSlider.setRange(1.0, 200.0, 1.0);
+        jerryStepsSlider.setValue(50, juce::sendNotification);
+
+        // Keep finetune-style CFG range for now.
+        jerryCfgSlider.setRange(1.0, 7.0, 0.1);
+        jerryCfgSlider.setValue(4.0, juce::sendNotification);
+    }
+    else if (isFinetune)
     {
         // Finetune ranges: steps 4-50 (default 30), cfg 1.0-7.0 (default 4.0)
         jerryStepsSlider.setRange(4.0, 50.0, 1.0);
@@ -1056,7 +1068,8 @@ void JerryUI::updateSliderRangesForModel(bool isFinetune)
         jerryCfgSlider.setValue(1.0, juce::sendNotification);
     }
 
-    DBG("Updated slider ranges for " + juce::String(isFinetune ? "finetune" : "standard") + " model");
+    DBG("Updated slider ranges for profile: " + profile
+        + ", model type: " + juce::String(isFinetune ? "finetune" : "standard"));
 }
 
 void JerryUI::setBpm(int bpm)
