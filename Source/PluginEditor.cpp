@@ -71,6 +71,27 @@ namespace
 
         return names;
     }
+
+    bool localhostHealthResponseLooksOnline(const juce::String& responseText)
+    {
+        if (responseText.trim().isEmpty())
+            return false;
+
+        auto parsed = juce::JSON::parse(responseText);
+        if (auto* obj = parsed.getDynamicObject())
+        {
+            auto status = obj->getProperty("status").toString().trim().toLowerCase();
+            if (status.isNotEmpty())
+            {
+                if (status == "unhealthy" || status == "failed" || status == "down" || status == "error")
+                    return false;
+                return true;
+            }
+        }
+
+        // If health payload is non-empty but non-standard, treat as online.
+        return true;
+    }
 }
 
 //==============================================================================
@@ -439,6 +460,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     checkConnectionButton.onClick = [this]() {
         DBG("Manual backend health check requested");
         audioProcessor.checkBackendHealth();
+        if (audioProcessor.getIsUsingLocalhost())
+            triggerLocalServiceHealthPoll(true);
         checkConnectionButton.setEnabled(false);
         
         juce::Timer::callAfterDelay(6000, [this]() {
@@ -504,6 +527,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Initial status update
     updateRecordingStatus();
+    if (audioProcessor.getIsUsingLocalhost())
+        triggerLocalServiceHealthPoll(true);
 
     // Set up output audio controls
     outputLabel.setText("output", juce::dontSendNotification);
@@ -773,6 +798,8 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         // NEW: Fetch available models when switching to Jerry tab
         if (showJerry)
         {
+            if (audioProcessor.getIsUsingLocalhost())
+                triggerLocalServiceHealthPoll(true);
             fetchJerryAvailableModels();
 
             // NEW: Only for remote backend, fetch prompts once (TTL’d) for the active finetune
@@ -836,8 +863,11 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
 
     if (jerryUI)
     {
-        const bool canGenerate = isConnected && !currentJerryPrompt.trim().isEmpty();
-        const bool canSmartLoop = isConnected;
+        const bool jerryConnected = audioProcessor.getIsUsingLocalhost()
+            ? isLocalServiceOnline(ServiceType::Jerry)
+            : isConnected;
+        const bool canGenerate = jerryConnected && !currentJerryPrompt.trim().isEmpty();
+        const bool canSmartLoop = jerryConnected;
         jerryUI->setButtonsEnabled(canGenerate, canSmartLoop, isGenerating);
     }
 
@@ -911,7 +941,10 @@ void Gary4juceAudioProcessorEditor::timerCallback()
 
     // Connection status flash animation (every 20 ticks = ~1 second)
     static int flashCounter = 0;
-    if (isConnected)
+    const bool flashConnected = audioProcessor.getIsUsingLocalhost()
+        ? (localOnlineCount > 0)
+        : isConnected;
+    if (flashConnected)
     {
         flashCounter++;
         if (flashCounter >= 20) // 20 * 50ms = 1 second flash interval
@@ -932,6 +965,20 @@ void Gary4juceAudioProcessorEditor::timerCallback()
             pollCounter = 0;
             pollForResults();
         }
+    }
+
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        localHealthPollCounter++;
+        if (localHealthPollCounter >= 60) // 60 * 50ms = 3 seconds
+        {
+            localHealthPollCounter = 0;
+            triggerLocalServiceHealthPoll(false);
+        }
+    }
+    else
+    {
+        localHealthPollCounter = 0;
     }
 }
 
@@ -1347,8 +1394,12 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 return;
             }
 
-            const bool pollJerry = (getActiveOp() == ActiveOp::JerryGenerate);
-            const ServiceType pollService = pollJerry ? ServiceType::Jerry : ServiceType::Gary;
+            const auto activeOp = getActiveOp();
+            const bool pollJerry = (activeOp == ActiveOp::JerryGenerate);
+            const bool pollTerry = (activeOp == ActiveOp::TerryTransform);
+            const ServiceType pollService = pollTerry
+                ? ServiceType::Terry
+                : (pollJerry ? ServiceType::Jerry : ServiceType::Gary);
             juce::URL pollUrl(getServiceUrl(pollService, "/api/juce/poll_status/" + sessionId));
 
             try
@@ -1409,6 +1460,17 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                             lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return; // simply wait for next timer tick to poll again
+                }
+
+                const bool terryLocalPoll = audioProcessor.getIsUsingLocalhost()
+                    && getActiveOp() == ActiveOp::TerryTransform;
+                if (terryLocalPoll)
+                {
+                    juce::MessageManager::callAsync([this]()
+                        {
+                            handleGenerationFailure("cannot connect to terry on localhost - ensure terry is running in gary4local");
+                        });
+                    return;
                 }
 
                 // Not warming/queued and no stream: do your existing health check path
@@ -1477,11 +1539,19 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
         if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
             jerryUI->setGenerateButtonText("generate with jerry");
     };
+    const bool isLocalTerryOp = audioProcessor.getIsUsingLocalhost()
+        && getActiveOp() == ActiveOp::TerryTransform;
 
     if (responseText.isEmpty())
     {
         DBG("Empty polling response - backend likely down");
         stopPolling();
+
+        if (isLocalTerryOp)
+        {
+            handleGenerationFailure("cannot connect to terry on localhost - ensure terry is running in gary4local");
+            return;
+        }
 
         // Empty response indicates backend failure - check health immediately
         audioProcessor.checkBackendHealth();
@@ -1821,6 +1891,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             DBG("Failed to parse polling response as JSON - backend likely down");
             stopPolling();
 
+            if (isLocalTerryOp)
+            {
+                handleGenerationFailure("terry returned an invalid response");
+                return;
+            }
+
             // JSON parsing failure indicates backend issues - check health
             audioProcessor.checkBackendHealth();
 
@@ -1843,6 +1919,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
     {
         DBG("Exception parsing polling response - backend likely down");
         stopPolling();
+
+        if (isLocalTerryOp)
+        {
+            handleGenerationFailure("failed to parse terry response");
+            return;
+        }
 
         // Exception indicates backend issues - check health
         audioProcessor.checkBackendHealth();
@@ -3069,9 +3151,17 @@ void Gary4juceAudioProcessorEditor::applyGaryQuantizationDefaultForCurrentModel(
 
 void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
 {
-    if (!isConnected)
+    const bool isLocalhost = audioProcessor.getIsUsingLocalhost();
+    if (!isLocalhost && !isConnected)
     {
         DBG("Not connected - skipping model fetch");
+        return;
+    }
+    if (isLocalhost && !isLocalServiceOnline(ServiceType::Jerry))
+    {
+        DBG("Jerry service offline on localhost - skipping model fetch");
+        if (jerryUI)
+            jerryUI->setLoadingModel(false);
         return;
     }
 
@@ -3105,6 +3195,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
     if (responseText.isEmpty())
     {
         DBG("Empty models response");
+        if (jerryUI)
+            jerryUI->setLoadingModel(false);
         return;
     }
 
@@ -3118,6 +3210,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         if (!parsed.isObject())
         {
             DBG("Invalid models response format - not an object");
+            if (jerryUI)
+                jerryUI->setLoadingModel(false);
             return;
         }
 
@@ -3125,6 +3219,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         if (!obj || !obj->hasProperty("model_details"))
         {
             DBG("Response missing 'model_details' property");
+            if (jerryUI)
+                jerryUI->setLoadingModel(false);
             return;
         }
 
@@ -3132,6 +3228,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         if (!modelDetails.isObject())
         {
             DBG("model_details is not an object");
+            if (jerryUI)
+                jerryUI->setLoadingModel(false);
             return;
         }
 
@@ -3272,12 +3370,19 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         {
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
                 modelTypes, modelRepos, modelCheckpoints, modelSamplerProfiles);
+            jerryUI->setLoadingModel(false);
             DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
+        }
+        else if (jerryUI)
+        {
+            jerryUI->setLoadingModel(false);
         }
     }
     catch (...)
     {
         DBG("Exception parsing models response");
+        if (jerryUI)
+            jerryUI->setLoadingModel(false);
     }
 }
 
@@ -3708,10 +3813,16 @@ juce::String Gary4juceAudioProcessorEditor::extractCheckpointInfo(const juce::St
 void Gary4juceAudioProcessorEditor::sendToJerry()
 {
     const bool useLocalAsyncPolling = audioProcessor.getIsUsingLocalhost();
+    const bool jerryConnected = useLocalAsyncPolling
+        ? isLocalServiceOnline(ServiceType::Jerry)
+        : isConnected;
 
-    if (!isConnected)
+    if (!jerryConnected)
     {
-        showStatusMessage("backend not connected - check connection first");
+        if (useLocalAsyncPolling)
+            showStatusMessage("jerry service not connected on localhost - start jerry in gary4local");
+        else
+            showStatusMessage("backend not connected - check connection first");
         return;
     }
 
@@ -4014,8 +4125,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect to jerry on localhost - ensure docker compose is running";
-                    markBackendDisconnectedFromRequestFailure("jerry request");
+                    errorMsg = "cannot connect to jerry on localhost - ensure jerry is running in gary4local";
                 }
                 else if (statusCode == 0)
                 {
@@ -4090,7 +4200,9 @@ void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()
     else
         canTransform = outputAvailable;
 
-    canTransform = canTransform && isConnected && (hasVariation || hasCustomPrompt);
+    canTransform = canTransform && (hasVariation || hasCustomPrompt);
+    if (!audioProcessor.getIsUsingLocalhost())
+        canTransform = canTransform && isConnected;
 
     const bool undoAvailable = audioProcessor.getUndoTransformAvailable() &&
         !audioProcessor.getCurrentSessionId().isEmpty();
@@ -4132,7 +4244,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     repaint(); // Force immediate UI update
 
     // Basic validation checks (like Gary and Jerry)
-    if (!isConnected)
+    if (!audioProcessor.getIsUsingLocalhost() && !isConnected)
     {
         showStatusMessage("backend not connected - check connection first");
         cancelTerryOperation();
@@ -4381,8 +4493,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
-                    markBackendDisconnectedFromRequestFailure("terry request");
+                    errorMsg = "cannot connect to terry on localhost - ensure terry is running in gary4local";
                 }
                 else if (statusCode == 0)
                 {
@@ -4588,8 +4699,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 juce::String errorMsg;
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect for undo on localhost - ensure docker compose is running";
-                    markBackendDisconnectedFromRequestFailure("terry undo request");
+                    errorMsg = "cannot connect for undo on localhost - ensure terry is running in gary4local";
                 }
                 else if (statusCode == 0)
                     errorMsg = "failed to connect for undo on remote backend";
@@ -5719,6 +5829,130 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     updateRecordingStatus();
 }
 
+void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
+{
+    localGaryOnline = false;
+    localTerryOnline = false;
+    localJerryOnline = false;
+    localOnlineCount = 0;
+    localHealthLastPollMs = 0;
+    localHealthPollCounter = 0;
+    localHealthPollInFlight.store(false);
+}
+
+bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) const
+{
+    switch (service)
+    {
+    case ServiceType::Gary: return localGaryOnline;
+    case ServiceType::Terry: return localTerryOnline;
+    case ServiceType::Jerry: return localJerryOnline;
+    }
+    return false;
+}
+
+Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getActiveLocalService() const
+{
+    switch (currentTab)
+    {
+    case ModelTab::Jerry: return ServiceType::Jerry;
+    case ModelTab::Terry: return ServiceType::Terry;
+    case ModelTab::Gary:
+    case ModelTab::Darius:
+    default:
+        return ServiceType::Gary;
+    }
+}
+
+bool Gary4juceAudioProcessorEditor::isActiveLocalServiceOnline() const
+{
+    if (currentTab == ModelTab::Darius)
+        return localOnlineCount > 0;
+    return isLocalServiceOnline(getActiveLocalService());
+}
+
+juce::String Gary4juceAudioProcessorEditor::getLocalConnectionLineOne() const
+{
+    if (localOnlineCount <= 0)
+        return "disconnected (local)";
+    if (isActiveLocalServiceOnline())
+        return "connected (local)";
+    return "partial (local)";
+}
+
+void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
+{
+    if (!audioProcessor.getIsUsingLocalhost())
+        return;
+
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    if (!force && nowMs - localHealthLastPollMs < 2000)
+        return;
+    if (localHealthPollInFlight.exchange(true))
+        return;
+    localHealthLastPollMs = nowMs;
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis]() {
+        auto probeHealth = [](const juce::String& urlText) -> bool
+        {
+            try
+            {
+                juce::URL healthUrl(urlText);
+                int statusCode = 0;
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(1500)
+                    .withStatusCode(&statusCode)
+                    .withExtraHeaders("Accept: application/json");
+                auto stream = healthUrl.createInputStream(options);
+                if (stream == nullptr || statusCode >= 400)
+                    return false;
+                auto responseText = stream->readEntireStreamAsString();
+                return localhostHealthResponseLooksOnline(responseText);
+            }
+            catch (...)
+            {
+                return false;
+            }
+        };
+
+        const bool garyOnline = probeHealth("http://127.0.0.1:8000/health");
+        const bool terryOnline = probeHealth("http://127.0.0.1:8002/health");
+        const bool jerryOnline = probeHealth("http://127.0.0.1:8005/health");
+
+        juce::MessageManager::callAsync([safeThis, garyOnline, terryOnline, jerryOnline]() {
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->localHealthPollInFlight.store(false);
+
+            const bool previousJerryOnline = safeThis->localJerryOnline;
+
+            const bool changed =
+                safeThis->localGaryOnline != garyOnline ||
+                safeThis->localTerryOnline != terryOnline ||
+                safeThis->localJerryOnline != jerryOnline;
+
+            safeThis->localGaryOnline = garyOnline;
+            safeThis->localTerryOnline = terryOnline;
+            safeThis->localJerryOnline = jerryOnline;
+            safeThis->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0) + (jerryOnline ? 1 : 0);
+
+            safeThis->updateAllGenerationButtonStates();
+
+            if (!jerryOnline && safeThis->jerryUI)
+                safeThis->jerryUI->setLoadingModel(false);
+
+            const bool jerryCameOnline = (!previousJerryOnline && jerryOnline);
+            if (jerryCameOnline && safeThis->currentTab == ModelTab::Jerry)
+                safeThis->fetchJerryAvailableModels();
+
+            if (changed)
+                safeThis->repaint();
+        });
+    });
+}
+
 // ========== UPDATED CONNECTION STATUS METHOD ==========
 void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
 {
@@ -5734,6 +5968,8 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         if (connected)
         {
             fetchGaryAvailableModels();
+            if (currentTab == ModelTab::Jerry)
+                fetchJerryAvailableModels();
         }
 
         repaint(); // Trigger a redraw to update tab section border
@@ -5777,6 +6013,9 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
 
     // Update connection status display
     updateConnectionStatus(false);
+    resetLocalServiceHealthSnapshot();
+    if (isUsingLocalhost)
+        triggerLocalServiceHealthPoll(true);
 
     // Clear any loading state when switching backends
     if (jerryUI)
@@ -5804,7 +6043,7 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (ports 8000/8005) - click to switch to remote");
+        backendToggleButton.setTooltip("using localhost backend (ports 8000/8002/8005) - click to switch to remote");
     }
     else
     {
@@ -7358,24 +7597,41 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     }
 
     // Connection status display (left side of connection area)
-    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    
-    // Calculate the text area (left side, leaving space for button stack on right)
-    auto connectionTextArea = connectionStatusArea.withTrimmedRight(120); // Reduced space for buttons, more for text
-    
-    if (isConnected)
+    const auto connectionTextArea = connectionStatusArea;
+    if (audioProcessor.getIsUsingLocalhost())
     {
-        // White flashing for connected state
-        g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffcccccc));
-        juce::String statusText = "connected (" + audioProcessor.getCurrentBackendType() + ")";
-        g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
+        g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
+        const auto lineOne = getLocalConnectionLineOne();
+        const auto lineTwo = juce::String(localOnlineCount) + "/3 online";
+        const bool anyOnline = localOnlineCount > 0;
+        const bool activeOnline = isActiveLocalServiceOnline();
+
+        if (!anyOnline)
+            g.setColour(juce::Colour(0xff666666));
+        else if (activeOnline)
+            g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffb7ffd1));
+        else
+            g.setColour(juce::Colour(0xffe1c46d));
+
+        g.drawFittedText(lineOne + "\n" + lineTwo, connectionTextArea, juce::Justification::centredLeft, 2);
     }
     else
     {
-        // Static grey for disconnected state
-        g.setColour(juce::Colour(0xff666666));
-        juce::String statusText = "disconnected (" + audioProcessor.getCurrentBackendType() + ")";
-        g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
+        g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+        if (isConnected)
+        {
+            // White flashing for connected state
+            g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffcccccc));
+            juce::String statusText = "connected (" + audioProcessor.getCurrentBackendType() + ")";
+            g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
+        }
+        else
+        {
+            // Static grey for disconnected state
+            g.setColour(juce::Colour(0xff666666));
+            juce::String statusText = "disconnected (" + audioProcessor.getCurrentBackendType() + ")";
+            g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
+        }
     }
 
     // Recording status section header (using reserved area)
@@ -7542,7 +7798,7 @@ void Gary4juceAudioProcessorEditor::resized()
     // 2. Connection status area (fixed height) - now includes check button
     juce::Component connectionComponent;
     juce::FlexItem connectionItem(connectionComponent);
-    connectionItem.height = 35;  // Taller to accommodate button
+    connectionItem.height = 42;  // Supports two-line localhost status + button stack
     connectionItem.margin = juce::FlexItem::Margin(5, 20, 5, 20);
 
     // 3. Recording label area (fixed height)
@@ -7597,14 +7853,15 @@ void Gary4juceAudioProcessorEditor::resized()
 
     // Extract the calculated bounds for each area
     titleArea = topSectionFlexBox.items[0].currentBounds.toNearestInt();
-    connectionStatusArea = topSectionFlexBox.items[1].currentBounds.toNearestInt();
+    auto connectionRowArea = topSectionFlexBox.items[1].currentBounds.toNearestInt();
     recordingLabelArea = topSectionFlexBox.items[2].currentBounds.toNearestInt();
     waveformArea = topSectionFlexBox.items[3].currentBounds.toNearestInt();
     inputStatusArea = topSectionFlexBox.items[4].currentBounds.toNearestInt();
     inputInfoArea = topSectionFlexBox.items[5].currentBounds.toNearestInt();
 
     // Manual layout for connection status area: stacked buttons on the right
-    auto buttonStackArea = connectionStatusArea.removeFromRight(120); // Reserve space for buttons
+    auto buttonStackArea = connectionRowArea.removeFromRight(120); // Reserve space for buttons
+    connectionStatusArea = connectionRowArea;
     
     // Stack the buttons vertically in the button area
     auto toggleButtonBounds = buttonStackArea.removeFromTop(25).withSizeKeepingCentre(80, 25);

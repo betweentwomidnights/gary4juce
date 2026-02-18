@@ -32,7 +32,7 @@ JerryUI::JerryUI()
     jerryModelLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(jerryModelLabel);
 
-    jerryModelComboBox.setTextWhenNothingSelected("loading models...");
+    jerryModelComboBox.setTextWhenNothingSelected("no models loaded");
     jerryModelComboBox.onChange = [this]()
         {
             const int selectedId = jerryModelComboBox.getSelectedId();

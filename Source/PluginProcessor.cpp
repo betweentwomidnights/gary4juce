@@ -143,8 +143,9 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
         switch (service) 
         {
             case ServiceType::Gary:
-            case ServiceType::Terry:
                 return "http://localhost:8000" + endpoint;
+            case ServiceType::Terry:
+                return "http://localhost:8002" + endpoint;
             case ServiceType::Jerry:
                 return "http://localhost:8005" + endpoint;
         }
