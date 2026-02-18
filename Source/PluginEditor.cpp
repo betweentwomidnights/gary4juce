@@ -6,6 +6,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "./Utils/BarTrim.h"
+#include "./Utils/MacDockIcon.h"
 #include "./Components/Base/CustomComboBox.h"
 
 namespace
@@ -105,6 +106,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
+
+#if JUCE_MAC
+    applyStandaloneDockIconIfAvailable();
+#endif
 
     // Check initial backend connection status
     isConnected = audioProcessor.isBackendConnected();

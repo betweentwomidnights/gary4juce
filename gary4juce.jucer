@@ -74,6 +74,8 @@
             file="Source/Utils/CustomLookAndFeel.cpp"/>
       <FILE id="wethBI" name="CustomLookAndFeel.h" compile="0" resource="0"
             file="Source/Utils/CustomLookAndFeel.h"/>
+      <FILE id="J4Up1n" name="MacDockIcon.mm" compile="1" resource="0" file="Source/Utils/MacDockIcon.mm"/>
+      <FILE id="W3bQo2" name="MacDockIcon.h" compile="0" resource="0" file="Source/Utils/MacDockIcon.h"/>
       <FILE id="kqT1iT" name="Theme.h" compile="0" resource="0" file="Source/Utils/Theme.h"/>
     </GROUP>
     <FILE id="EdSVM4" name="IconFactory.cpp" compile="1" resource="0" file="Source/Utils/IconFactory.cpp"/>
@@ -119,7 +121,7 @@
         <MODULEPATH id="juce_audio_processors_headless" path="../../JUCE/modules"/>
       </MODULEPATHS>
     </VS2022>
-    <XCODE_MAC targetFolder="Builds/MacOSX">
+    <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="icon.icns" bigIcon="icon.icns">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" plistPreprocessorDefinitions="&lt;key&gt;CFBundleIconFile&lt;/key&gt;&#10;&lt;string&gt;icon&lt;/string&gt;"/>
         <CONFIGURATION isDebug="0" name="Release" plistPreprocessorDefinitions="&lt;key&gt;CFBundleIconFile&lt;/key&gt;&#10;&lt;string&gt;icon&lt;/string&gt;"/>
