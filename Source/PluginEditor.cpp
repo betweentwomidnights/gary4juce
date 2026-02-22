@@ -276,6 +276,18 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                     maybeFetchRemoteJerryPrompts(); // will no-op if TTL/in-flight/cache says so
                 }
             }
+            else
+            {
+                // Localhost mode: resolve prompts for the selected finetune directly.
+                if (isFinetune
+                    && currentJerryFinetuneRepo.isNotEmpty()
+                    && currentJerryFinetuneCheckpoint.isNotEmpty())
+                {
+                    DBG("[prompts] onModelChanged -> localhost -> fetching by repo+ckpt: "
+                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
+                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
+                }
+            }
         };
 
     jerryUI->onSamplerTypeChanged = [this](const juce::String& samplerType)
@@ -3156,10 +3168,17 @@ void Gary4juceAudioProcessorEditor::applyGaryQuantizationDefaultForCurrentModel(
 
 void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
 {
+    if (jerryModelsFetchInFlight.exchange(true))
+    {
+        DBG("Jerry models fetch already in flight - skipping");
+        return;
+    }
+
     const bool isLocalhost = audioProcessor.getIsUsingLocalhost();
     if (!isLocalhost && !isConnected)
     {
         DBG("Not connected - skipping model fetch");
+        jerryModelsFetchInFlight.store(false);
         return;
     }
     if (isLocalhost && !isLocalServiceOnline(ServiceType::Jerry))
@@ -3167,31 +3186,52 @@ void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
         DBG("Jerry service offline on localhost - skipping model fetch");
         if (jerryUI)
             jerryUI->setLoadingModel(false);
+        jerryModelsFetchInFlight.store(false);
         return;
     }
 
-    juce::Thread::launch([this]()
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis]()
         {
-            // Determine endpoint based on connection type (same pattern as sendToJerry)
-            juce::String endpoint = audioProcessor.getIsUsingLocalhost()
-                ? "/models/status"           // Localhost: no /audio prefix
-                : "/audio/models/status";    // Remote: requires /audio prefix
+            if (safeThis == nullptr)
+                return;
 
-            juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+            try
+            {
+                // Determine endpoint based on connection type (same pattern as sendToJerry)
+                juce::String endpoint = safeThis->audioProcessor.getIsUsingLocalhost()
+                    ? "/models/status"           // Localhost: no /audio prefix
+                    : "/audio/models/status";    // Remote: requires /audio prefix
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
-                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(10000)
-            ));
+                juce::URL url(safeThis->getServiceUrl(ServiceType::Jerry, endpoint));
 
-            juce::String responseText;
-            if (stream != nullptr)
-                responseText = stream->readEntireStreamAsString();
+                std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+                    juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(10000)
+                ));
 
-            juce::MessageManager::callAsync([this, responseText]()
-                {
-                    handleJerryModelsResponse(responseText);
-                });
+                juce::String responseText;
+                if (stream != nullptr)
+                    responseText = stream->readEntireStreamAsString();
+
+                juce::MessageManager::callAsync([safeThis, responseText]()
+                    {
+                        if (safeThis == nullptr)
+                            return;
+                        safeThis->jerryModelsFetchInFlight.store(false);
+                        safeThis->handleJerryModelsResponse(responseText);
+                    });
+            }
+            catch (...)
+            {
+                juce::MessageManager::callAsync([safeThis]()
+                    {
+                        if (safeThis == nullptr)
+                            return;
+                        safeThis->jerryModelsFetchInFlight.store(false);
+                        safeThis->handleJerryModelsResponse({});
+                    });
+            }
         });
 }
 
@@ -3376,6 +3416,17 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
                 modelTypes, modelRepos, modelCheckpoints, modelSamplerProfiles);
             jerryUI->setLoadingModel(false);
+
+            // When running localhost, ensure the dice bank is hydrated for
+            // the currently selected finetune even if selection did not change.
+            if (audioProcessor.getIsUsingLocalhost() && jerryUI->getSelectedModelIsFinetune())
+            {
+                const auto selectedRepo = jerryUI->getSelectedFinetuneRepo();
+                const auto selectedCheckpoint = jerryUI->getSelectedFinetuneCheckpoint();
+                if (selectedRepo.isNotEmpty() && selectedCheckpoint.isNotEmpty())
+                    fetchJerryPrompts(selectedRepo, selectedCheckpoint);
+            }
+
             DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
         }
         else if (jerryUI)
@@ -5931,8 +5982,6 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
 
             safeThis->localHealthPollInFlight.store(false);
 
-            const bool previousJerryOnline = safeThis->localJerryOnline;
-
             const bool changed =
                 safeThis->localGaryOnline != garyOnline ||
                 safeThis->localTerryOnline != terryOnline ||
@@ -5948,8 +5997,9 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             if (!jerryOnline && safeThis->jerryUI)
                 safeThis->jerryUI->setLoadingModel(false);
 
-            const bool jerryCameOnline = (!previousJerryOnline && jerryOnline);
-            if (jerryCameOnline && safeThis->currentTab == ModelTab::Jerry)
+            // Keep Jerry model dropdown fresh while Jerry tab is active on localhost,
+            // so external model changes (e.g. gary4local "use model") appear immediately.
+            if (jerryOnline && safeThis->currentTab == ModelTab::Jerry)
                 safeThis->fetchJerryAvailableModels();
 
             if (changed)

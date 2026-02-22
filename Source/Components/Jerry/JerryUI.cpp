@@ -884,12 +884,17 @@ void JerryUI::setAvailableModels(const juce::StringArray& models,
     const juce::StringArray& checkpoints,
     const juce::StringArray& samplerProfiles)
 {
+    const int previousSelectedIndex = selectedModelIndex;
+    const juce::String previousSelectedKey = getSelectedModelKey();
+    const bool hadPreviousSelection = previousSelectedIndex >= 0
+        && previousSelectedIndex < modelKeys.size();
+
     modelNames = models;
     modelIsFinetune = isFinetune;
     modelKeys = keys;
-    modelTypes = types;           // NEW
-    modelRepos = repos;           // NEW
-    modelCheckpoints = checkpoints; // NEW
+    modelTypes = types;
+    modelRepos = repos;
+    modelCheckpoints = checkpoints;
     modelSamplerProfiles = samplerProfiles;
 
     if (modelSamplerProfiles.size() != models.size())
@@ -903,20 +908,46 @@ void JerryUI::setAvailableModels(const juce::StringArray& models,
     for (int i = 0; i < models.size(); ++i)
         jerryModelComboBox.addItem(models[i], i + 1);
 
-    if (models.size() > 0)
+    if (models.isEmpty())
     {
-        selectedModelIndex = 0;
-        jerryModelComboBox.setSelectedId(1, juce::dontSendNotification);
-
-        // Set initial state based on first model
-        bool firstIsFinetune = isFinetune.size() > 0 ? isFinetune[0] : false;
-        updateSliderRangesForModel(firstIsFinetune);
+        selectedModelIndex = -1;
         updateSamplerVisibility();
-
-        // IMPORTANT: Trigger the callback so PluginEditor knows about the initial selection
-        if (onModelChanged)
-            onModelChanged(0, firstIsFinetune);
+        return;
     }
+
+    int targetIndex = 0;
+    if (hadPreviousSelection && previousSelectedKey.isNotEmpty())
+    {
+        for (int i = 0; i < modelKeys.size(); ++i)
+        {
+            if (modelKeys[i] == previousSelectedKey)
+            {
+                targetIndex = i;
+                break;
+            }
+        }
+    }
+    else if (previousSelectedIndex >= 0 && previousSelectedIndex < models.size())
+    {
+        targetIndex = previousSelectedIndex;
+    }
+
+    targetIndex = juce::jlimit(0, models.size() - 1, targetIndex);
+    selectedModelIndex = targetIndex;
+    jerryModelComboBox.setSelectedId(targetIndex + 1, juce::dontSendNotification);
+
+    const bool selectedIsFinetune =
+        (targetIndex >= 0 && targetIndex < isFinetune.size()) ? isFinetune[targetIndex] : false;
+    updateSliderRangesForModel(selectedIsFinetune);
+    updateSamplerVisibility();
+
+    const juce::String currentSelectedKey = getSelectedModelKey();
+    const bool selectionChanged = !hadPreviousSelection
+        || previousSelectedIndex != targetIndex
+        || previousSelectedKey != currentSelectedKey;
+
+    if (selectionChanged && onModelChanged)
+        onModelChanged(targetIndex, selectedIsFinetune);
 }
 
 juce::String JerryUI::getSelectedModelType() const

@@ -308,6 +308,7 @@ private:
 
     // Optional local cache to avoid re-fetching
     juce::HashMap<juce::String, juce::String> promptsCache; // key: repo + "|" + checkpoint
+    std::atomic<bool> jerryModelsFetchInFlight{ false };
 
     // Debounce/TTL state
     std::atomic<bool> promptsFetchInFlight{ false };
