@@ -11,6 +11,7 @@
 #include "Components/Darius/DariusUI.h"
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
+#include "Components/Carey/CareyUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
@@ -86,7 +87,7 @@ private:
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry };
+    enum class ServiceType { Gary, Jerry, Terry, Carey };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -122,9 +123,9 @@ private:
     {
         Gary = 0,
         Jerry,
+        Carey,
         Terry,
         Darius // magenta
-
     };
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
@@ -136,13 +137,16 @@ private:
         GaryRetry,
         TerryTransform,
         JerryGenerate,
+        CareyGenerate,
         DariusGenerate
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
     CustomButton garyTabButton;
     CustomButton jerryTabButton;
-    CustomButton terryTabButton;  // For future
+    CustomButton careyTabButton;
+    CustomButton terryTabButton;
+
 
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
@@ -252,6 +256,28 @@ private:
 
 
 
+
+    // ========== CAREY ==========
+    std::unique_ptr<CareyUI> careyUI;
+    juce::String currentCareyCaption = "";
+    juce::String currentCareyTrackName = "vocals";
+    int currentCareySteps = 50;
+    double currentCareyBpm = 120.0;
+    bool currentCareyLoopAssistEnabled = true;
+    bool currentCareyTrimToInputEnabled = false;
+    juce::String currentCareyLyrics = "";
+    juce::String currentCareyCompleteCaption = "";
+    juce::String currentCareyCompleteLyrics = "";
+    int currentCareyCompleteBpm = 120;
+    int currentCareyCompleteSteps = 50;
+    int currentCareyCompleteDurationSeconds = 120;
+
+    void sendToCarey();
+    void sendToCareyComplete();
+    void updateCareyEnablementSnapshot();
+    double getCareyBpmForRequest() const;
+    bool isCareyTabAvailable() const;
+    void updateCareyTabAvailability();
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
@@ -428,7 +454,7 @@ private:
 
     // Drag and drop functionality (input)
     bool isDragHoveringInput = false;
-    void loadAudioFileIntoBuffer(const juce::File& audioFile);
+    void loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog = false);
     juce::File lastDraggedAudioFile;  // Stores path for double-click reselection
     double lastSelectionStartTime = 0.0;  // Stores last selection position for reopening dialog
 

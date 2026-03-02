@@ -42,6 +42,9 @@
         <FILE id="G7c6QK" name="GaryUI.cpp" compile="1" resource="0" file="Source/Components/Gary/GaryUI.cpp"/>
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
       </GROUP>
+      <GROUP id="{9725C3F3-D755-8341-1DD9-AA047C147FCD}" name="Carey">
+        <FILE id="u2yVAk" name="CareyUI.h" compile="0" resource="0" file="Source/Components/Carey/CareyUI.h"/>
+      </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
         <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0"
               file="Source/Components/Jerry/BeatPrompts.cpp"/>
