@@ -138,9 +138,9 @@ void Gary4juceAudioProcessor::setBackendConnectionStatus(bool connected)
 
 juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const juce::String& endpoint) const
 {
-    if (isUsingLocalhost) 
+    if (isUsingLocalhost)
     {
-        switch (service) 
+        switch (service)
         {
             case ServiceType::Gary:
                 return "http://localhost:8000" + endpoint;
@@ -148,11 +148,19 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
                 return "http://localhost:8002" + endpoint;
             case ServiceType::Jerry:
                 return "http://localhost:8005" + endpoint;
+            case ServiceType::Carey:
+                return "http://localhost:8001" + endpoint;
         }
     }
-    
-    // Remote backend - same domain for all services
-    return "https://g4l.thecollabagepatch.com" + endpoint;
+
+    // Remote backend
+    switch (service)
+    {
+        case ServiceType::Carey:
+            return "https://g4l.thecollabagepatch.com/carey" + endpoint;
+        default:
+            return "https://g4l.thecollabagepatch.com" + endpoint;
+    }
 }
 
 void Gary4juceAudioProcessor::setUsingLocalhost(bool useLocalhost)

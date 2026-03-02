@@ -24,7 +24,7 @@ public:
     void stopHealthChecks();
 
     // Service type enum for different ports
-    enum class ServiceType { Gary, Jerry, Terry };
+    enum class ServiceType { Gary, Jerry, Terry, Carey };
     
     // Backend URL management methods
     void setUsingLocalhost(bool useLocalhost);
@@ -135,7 +135,7 @@ private:
     double currentSampleRate = 44100.0;  // Default fallback, updated in prepareToPlay()
 
     // Recording settings
-    static constexpr double recordingLengthSeconds = 30.0;
+    static constexpr double recordingLengthSeconds = 180.0;  // Extended for full-song Carey conditioning
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
 
     std::atomic<double> currentBPM{ 120.0 };  // Thread-safe BPM storage

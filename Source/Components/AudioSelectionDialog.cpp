@@ -6,6 +6,7 @@
 
 #include "AudioSelectionDialog.h"
 #include "../Utils/Theme.h"
+#include <cmath>
 
 AudioSelectionDialog::AudioSelectionDialog()
 {
@@ -37,12 +38,11 @@ AudioSelectionDialog::AudioSelectionDialog()
     addAndMakeVisible(durationLabel);
 
     // Instruction label
-    instructionLabel.setText("Drag the selection window to choose your starting point (10-30s), then click Confirm",
-                            juce::dontSendNotification);
     instructionLabel.setFont(juce::FontOptions(12.0f));
     instructionLabel.setJustificationType(juce::Justification::centred);
     instructionLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     addAndMakeVisible(instructionLabel);
+    updateInstructionText();
 
     // Load icons
     playIcon = IconFactory::createPlayIcon();
@@ -108,6 +108,36 @@ AudioSelectionDialog::~AudioSelectionDialog()
     readerSource.reset();
 }
 
+void AudioSelectionDialog::setSelectionWindowConstraints(double minDurationSeconds,
+                                                         double maxDurationSeconds,
+                                                         double preferredDurationSeconds)
+{
+    const double normalizedMin = juce::jmax(1.0, juce::jmin(minDurationSeconds, maxDurationSeconds));
+    const double normalizedMax = juce::jmax(normalizedMin, juce::jmax(minDurationSeconds, maxDurationSeconds));
+    const double normalizedPreferred = juce::jlimit(normalizedMin, normalizedMax, preferredDurationSeconds);
+
+    selectionMinDuration = normalizedMin;
+    selectionMaxDuration = normalizedMax;
+    selectionPreferredDuration = normalizedPreferred;
+    updateInstructionText();
+
+    if (totalAudioDuration > 0.0)
+        setInitialSelectionStartTime(selectionStartTime);
+}
+
+void AudioSelectionDialog::updateInstructionText()
+{
+    juce::String rangeText;
+    if (std::abs(selectionMinDuration - selectionMaxDuration) < 0.001)
+        rangeText = juce::String(selectionMaxDuration, 0) + "s";
+    else
+        rangeText = juce::String(selectionMinDuration, 0) + "-" + juce::String(selectionMaxDuration, 0) + "s";
+
+    instructionLabel.setText(
+        "Drag the selection window to choose your starting point (" + rangeText + "), then click Confirm",
+        juce::dontSendNotification);
+}
+
 bool AudioSelectionDialog::loadAudioFile(const juce::File& audioFile)
 {
     if (!audioFile.existsAsFile())
@@ -156,8 +186,8 @@ bool AudioSelectionDialog::loadAudioFile(const juce::File& audioFile)
     stopButton.setEnabled(true);
     confirmButton.setEnabled(true);
 
-    // Initialize selection window to first 30 seconds
-    selectionStartTime = 0.0;
+    // Initialize selection window at start of file with current constraints.
+    setInitialSelectionStartTime(0.0);
 
     repaint();
     return true;
@@ -478,6 +508,16 @@ void AudioSelectionDialog::drawSelectionWindow(juce::Graphics& g, const juce::Re
     g.setColour(juce::Colours::white);
     g.drawRect(selectionRect.toFloat(), 2.0f);
 
+    if (canResizeSelection())
+    {
+        // Edge handles for resize affordance.
+        g.setColour(juce::Colours::white.withAlpha(0.8f));
+        const int handleHeight = juce::jmin(26, selectionRect.getHeight() - 8);
+        const int handleY = selectionRect.getCentreY() - handleHeight / 2;
+        g.fillRect(selectionRect.getX() - 1, handleY, 3, handleHeight);
+        g.fillRect(selectionRect.getRight() - 2, handleY, 3, handleHeight);
+    }
+
     // Draw selection time label
     int startMin = (int)(selectionStartTime / 60.0);
     int startSec = (int)selectionStartTime % 60;
@@ -517,22 +557,113 @@ juce::Rectangle<int> AudioSelectionDialog::getSelectionRectangle() const
                                 endX - startX, waveformArea.getHeight() - 2);
 }
 
+std::pair<double, double> AudioSelectionDialog::getEffectiveDurationRange() const
+{
+    if (totalAudioDuration <= 0.0)
+        return { 0.0, 0.0 };
+
+    const double effectiveMin = juce::jmin(selectionMinDuration, totalAudioDuration);
+    const double effectiveMax = juce::jmin(selectionMaxDuration, totalAudioDuration);
+    return { effectiveMin, effectiveMax };
+}
+
+bool AudioSelectionDialog::canResizeSelection() const
+{
+    const auto [effectiveMin, effectiveMax] = getEffectiveDurationRange();
+    return (effectiveMax - effectiveMin) > 0.001;
+}
+
+double AudioSelectionDialog::mouseXToTime(int mouseX) const
+{
+    if (waveformArea.isEmpty() || totalAudioDuration <= 0.0)
+        return 0.0;
+
+    const int waveWidth = waveformArea.getWidth() - 2;
+    if (waveWidth <= 0)
+        return 0.0;
+
+    const int clampedX = juce::jlimit(waveformArea.getX() + 1, waveformArea.getRight() - 1, mouseX);
+    const double percent = (double)(clampedX - (waveformArea.getX() + 1)) / (double)waveWidth;
+    return juce::jlimit(0.0, totalAudioDuration, percent * totalAudioDuration);
+}
+
+bool AudioSelectionDialog::isMouseNearLeftHandle(int mouseX) const
+{
+    if (!canResizeSelection())
+        return false;
+
+    const auto selectionRect = getSelectionRectangle();
+    if (selectionRect.isEmpty())
+        return false;
+
+    constexpr int handleHitRadius = 8;
+    return std::abs(mouseX - selectionRect.getX()) <= handleHitRadius;
+}
+
+bool AudioSelectionDialog::isMouseNearRightHandle(int mouseX) const
+{
+    if (!canResizeSelection())
+        return false;
+
+    const auto selectionRect = getSelectionRectangle();
+    if (selectionRect.isEmpty())
+        return false;
+
+    constexpr int handleHitRadius = 8;
+    return std::abs(mouseX - selectionRect.getRight()) <= handleHitRadius;
+}
+
 bool AudioSelectionDialog::isMouseOverSelection(const juce::Point<int>& pos) const
 {
     auto selectionRect = getSelectionRectangle();
     return selectionRect.contains(pos);
 }
 
-void AudioSelectionDialog::mouseDown(const juce::MouseEvent& event)
+void AudioSelectionDialog::mouseMove(const juce::MouseEvent& event)
 {
-    if (!waveformArea.contains(event.getPosition()))
+    const auto hitArea = waveformArea.expanded(2, 0);
+    if (!hitArea.contains(event.getPosition()))
+    {
+        setMouseCursor(juce::MouseCursor::NormalCursor);
         return;
+    }
+
+    if (isMouseNearLeftHandle(event.getPosition().x) || isMouseNearRightHandle(event.getPosition().x))
+    {
+        setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        return;
+    }
 
     if (isMouseOverSelection(event.getPosition()))
+    {
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        return;
+    }
+
+    setMouseCursor(juce::MouseCursor::NormalCursor);
+}
+
+void AudioSelectionDialog::mouseDown(const juce::MouseEvent& event)
+{
+    const auto hitArea = waveformArea.expanded(2, 0);
+    if (!hitArea.contains(event.getPosition()))
+        return;
+
+    if (isMouseNearLeftHandle(event.getPosition().x))
+        selectionDragMode = SelectionDragMode::ResizeLeft;
+    else if (isMouseNearRightHandle(event.getPosition().x))
+        selectionDragMode = SelectionDragMode::ResizeRight;
+    else if (isMouseOverSelection(event.getPosition()))
+        selectionDragMode = SelectionDragMode::Move;
+    else
+        selectionDragMode = SelectionDragMode::None;
+
+    if (selectionDragMode != SelectionDragMode::None)
     {
         isDraggingSelection = true;
         dragStartX = event.getPosition().x;
         dragStartSelectionTime = selectionStartTime;
+        dragStartSelectionDuration = selectionDuration;
 
         // Stop playback when starting to drag (Option A - safest UX)
         if (isPlaying)
@@ -540,7 +671,11 @@ void AudioSelectionDialog::mouseDown(const juce::MouseEvent& event)
             stopAudio();
         }
 
-        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        if (selectionDragMode == SelectionDragMode::ResizeLeft ||
+            selectionDragMode == SelectionDragMode::ResizeRight)
+            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        else
+            setMouseCursor(juce::MouseCursor::DraggingHandCursor);
     }
 }
 
@@ -549,7 +684,12 @@ void AudioSelectionDialog::mouseDrag(const juce::MouseEvent& event)
     if (!isDraggingSelection)
         return;
 
-    updateSelectionFromMouseDrag(event.getPosition().x);
+    if (selectionDragMode == SelectionDragMode::ResizeLeft ||
+        selectionDragMode == SelectionDragMode::ResizeRight)
+        updateSelectionFromResizeDrag(event.getPosition().x);
+    else
+        updateSelectionFromMouseDrag(event.getPosition().x);
+
     repaint();
 }
 
@@ -558,7 +698,8 @@ void AudioSelectionDialog::mouseUp(const juce::MouseEvent& event)
     if (isDraggingSelection)
     {
         isDraggingSelection = false;
-        setMouseCursor(juce::MouseCursor::NormalCursor);
+        selectionDragMode = SelectionDragMode::None;
+        mouseMove(event);
     }
 }
 
@@ -574,31 +715,82 @@ void AudioSelectionDialog::updateSelectionFromMouseDrag(int mouseX)
     double deltaTime = (deltaX / (double)waveWidth) * totalAudioDuration;
     double newSelectionStart = dragStartSelectionTime + deltaTime;
 
-    // Calculate available duration from the new start position
-    double availableDuration = totalAudioDuration - newSelectionStart;
+    const auto [effectiveMinDuration, effectiveMaxDuration] = getEffectiveDurationRange();
+    const double preferredDuration = juce::jlimit(effectiveMinDuration, effectiveMaxDuration, selectionPreferredDuration);
 
-    // Determine actual selection duration (30s max, 10s min)
-    const double minDuration = 10.0;
-    const double maxDuration = 30.0;
+    if (effectiveMaxDuration <= 0.0)
+        return;
 
-    if (availableDuration >= maxDuration)
+    if (std::abs(effectiveMaxDuration - effectiveMinDuration) < 0.001)
     {
-        // Enough audio for full 30s window
-        selectionDuration = maxDuration;
+        // Fixed-length selection window (for example, 30s or 180s exactly).
+        selectionDuration = effectiveMaxDuration;
+        const double maxStartTime = juce::jmax(0.0, totalAudioDuration - selectionDuration);
+        selectionStartTime = juce::jlimit(0.0, maxStartTime, newSelectionStart);
+        return;
+    }
+
+    if (userResizedSelection)
+    {
+        // Preserve manually resized duration when moving the window.
+        selectionDuration = juce::jlimit(effectiveMinDuration, effectiveMaxDuration, dragStartSelectionDuration);
+        const double maxStartTime = juce::jmax(0.0, totalAudioDuration - selectionDuration);
+        selectionStartTime = juce::jlimit(0.0, maxStartTime, newSelectionStart);
+        return;
+    }
+
+    const double availableDuration = totalAudioDuration - newSelectionStart;
+    if (availableDuration >= preferredDuration)
+    {
+        selectionDuration = preferredDuration;
         selectionStartTime = juce::jmax(0.0, newSelectionStart);
     }
-    else if (availableDuration >= minDuration)
+    else if (availableDuration >= effectiveMinDuration)
     {
-        // Less than 30s available, but more than 10s - shrink window
-        selectionDuration = availableDuration;
+        selectionDuration = juce::jmin(effectiveMaxDuration, availableDuration);
         selectionStartTime = juce::jmax(0.0, newSelectionStart);
     }
     else
     {
-        // Less than 10s available - clamp to maintain 10s minimum
-        selectionDuration = minDuration;
-        double maxStartTime = totalAudioDuration - minDuration;
+        selectionDuration = effectiveMinDuration;
+        const double maxStartTime = juce::jmax(0.0, totalAudioDuration - selectionDuration);
         selectionStartTime = juce::jlimit(0.0, maxStartTime, newSelectionStart);
+    }
+}
+
+void AudioSelectionDialog::updateSelectionFromResizeDrag(int mouseX)
+{
+    if (waveformArea.isEmpty() || totalAudioDuration <= 0.0)
+        return;
+
+    const auto [effectiveMinDuration, effectiveMaxDuration] = getEffectiveDurationRange();
+    if ((effectiveMaxDuration - effectiveMinDuration) < 0.001)
+        return;
+
+    const double draggedTime = mouseXToTime(mouseX);
+
+    if (selectionDragMode == SelectionDragMode::ResizeRight)
+    {
+        const double fixedLeft = dragStartSelectionTime;
+        const double minRight = juce::jmin(totalAudioDuration, fixedLeft + effectiveMinDuration);
+        const double maxRight = juce::jmin(totalAudioDuration, fixedLeft + effectiveMaxDuration);
+        const double newRight = juce::jlimit(minRight, maxRight, draggedTime);
+
+        selectionStartTime = fixedLeft;
+        selectionDuration = juce::jmax(effectiveMinDuration, newRight - fixedLeft);
+        userResizedSelection = true;
+    }
+    else if (selectionDragMode == SelectionDragMode::ResizeLeft)
+    {
+        const double fixedRight = juce::jlimit(0.0, totalAudioDuration,
+            dragStartSelectionTime + dragStartSelectionDuration);
+        const double minLeft = juce::jmax(0.0, fixedRight - effectiveMaxDuration);
+        const double maxLeft = juce::jmax(0.0, fixedRight - effectiveMinDuration);
+        const double newLeft = juce::jlimit(minLeft, maxLeft, draggedTime);
+
+        selectionStartTime = newLeft;
+        selectionDuration = juce::jmax(effectiveMinDuration, fixedRight - newLeft);
+        userResizedSelection = true;
     }
 }
 
@@ -607,7 +799,7 @@ void AudioSelectionDialog::confirmSelection()
     if (audioBuffer.getNumSamples() == 0 || totalAudioDuration <= 0.0)
         return;
 
-    // Calculate sample range for the selected 30 seconds
+    // Calculate sample range for the selected segment.
     int startSample = (int)(selectionStartTime * audioSampleRate);
     int numSamples = (int)(selectionDuration * audioSampleRate);
 
@@ -641,23 +833,34 @@ void AudioSelectionDialog::setInitialSelectionStartTime(double startTime)
     // Set the selection start time, ensuring it's within valid bounds
     if (totalAudioDuration > 0.0)
     {
-        const double minDuration = 10.0;
-        const double maxDuration = 30.0;
+        const auto [effectiveMinDuration, effectiveMaxDuration] = getEffectiveDurationRange();
+        const double preferredDuration = juce::jlimit(effectiveMinDuration, effectiveMaxDuration, selectionPreferredDuration);
 
-        // Ensure there's enough audio left for at least the minimum duration
-        double maxAllowedStart = juce::jmax(0.0, totalAudioDuration - minDuration);
-        selectionStartTime = juce::jlimit(0.0, maxAllowedStart, startTime);
+        if (effectiveMaxDuration <= 0.0)
+            return;
 
-        // Adjust selection duration based on available audio
-        double availableDuration = totalAudioDuration - selectionStartTime;
-        if (availableDuration >= maxDuration)
-            selectionDuration = maxDuration;
-        else if (availableDuration >= minDuration)
-            selectionDuration = availableDuration;
+        if (std::abs(effectiveMaxDuration - effectiveMinDuration) < 0.001)
+        {
+            selectionDuration = effectiveMaxDuration;
+            const double maxAllowedStart = juce::jmax(0.0, totalAudioDuration - selectionDuration);
+            selectionStartTime = juce::jlimit(0.0, maxAllowedStart, startTime);
+        }
         else
-            selectionDuration = minDuration;
+        {
+            const double maxAllowedStart = juce::jmax(0.0, totalAudioDuration - effectiveMinDuration);
+            selectionStartTime = juce::jlimit(0.0, maxAllowedStart, startTime);
+
+            const double availableDuration = totalAudioDuration - selectionStartTime;
+            if (availableDuration >= preferredDuration)
+                selectionDuration = preferredDuration;
+            else if (availableDuration >= effectiveMinDuration)
+                selectionDuration = juce::jmin(effectiveMaxDuration, availableDuration);
+            else
+                selectionDuration = effectiveMinDuration;
+        }
 
         DBG("Set initial selection start time: " + juce::String(selectionStartTime, 2) + "s");
+        userResizedSelection = false;
         repaint();
     }
 }
