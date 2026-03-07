@@ -262,18 +262,32 @@ private:
     juce::String currentCareyCaption = "";
     juce::String currentCareyTrackName = "vocals";
     int currentCareySteps = 50;
+    double currentLegoCfg = 7.0;
     double currentCareyBpm = 120.0;
     bool currentCareyLoopAssistEnabled = true;
     bool currentCareyTrimToInputEnabled = false;
-    juce::String currentCareyLyrics = "";
+    juce::String currentCareyLyrics = "";     // Shared across all 3 tabs
+    juce::String currentCareyLanguage = "en"; // Language code for lyrics vocalization
     juce::String currentCareyCompleteCaption = "";
-    juce::String currentCareyCompleteLyrics = "";
     int currentCareyCompleteBpm = 120;
     int currentCareyCompleteSteps = 50;
+    double currentCompleteCfg = 7.0;
     int currentCareyCompleteDurationSeconds = 120;
+    bool currentCompleteUseSrcAsRef = false;
+    juce::String currentCoverCaption = "";
+    double currentCoverNoiseStrength = 0.2;
+    double currentCoverAudioStrength = 0.3;
+    int currentCoverSteps = 50;
+    double currentCoverCfg = 7.0;
+    bool currentCoverUseSrcAsRef = false;
+    bool currentCoverLoopAssistEnabled = true;
+    bool currentCoverTrimToInputEnabled = false;
+
+    juce::String currentCareyKeyScale = "";
 
     void sendToCarey();
     void sendToCareyComplete();
+    void sendToCareyCover();
     void updateCareyEnablementSnapshot();
     double getCareyBpmForRequest() const;
     bool isCareyTabAvailable() const;
@@ -361,6 +375,7 @@ private:
     void clearRecordingBuffer();
     void drawWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
+    juce::String cleanCareyQueueMessage(const juce::String& raw);
     void sendToGary();
     void sendToJerry();  // New method for Jerry
 
@@ -483,7 +498,7 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton;
 
     // Allow an extended grace period when we're at 0% but still receiving polls
     const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes

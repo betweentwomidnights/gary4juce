@@ -1,23 +1,22 @@
 # gary4juce
 
-a VST3/AU plugin for AI-assisted music production. four models, one interface.
+a VST3/AU plugin for AI-assisted music production. five models, one interface.
 
-https://thepatch.gumroad.com/l/gary4juce (v1 until I update it this week)
+https://thepatch.gumroad.com/l/gary4juce
 
 built with JUCE 8.0.8 by kev @ [thecollabagepatch.com](https://thecollabagepatch.com)
 
-videos about it here when i can:
-
-https://youtube.com/@thepatch_dev
+videos about it here when i can: https://youtube.com/@thepatch_dev
 
 ---
 
 ## what is this?
 
-gary4juce gives you four AI music models directly in your DAW:
+gary4juce gives you five AI music models directly in your DAW:
 
 - **gary** (musicgen) - continuation/anti-looper. extends your audio in creative directions
 - **jerry** (stable-audio-open-small) - BPM-aware 12-second loop generation in under a second
+- **carey** (ace-step) - stem generation, audio continuation, and remix/cover with lyrics + multilingual support
 - **terry** (melodyflow) - audio transformation. turn your guitar into an orchestra
 - **darius** (magenta-realtime) - high-quality 48kHz continuations with style control
 
@@ -25,16 +24,33 @@ put it on your master, press play, record some audio, and start iterating.
 
 ---
 
-## what's new in V2
+## TODO (v3 release)
 
-### no more ASIO hell
-switched from system audio to host audio for playback. no more driver conflicts, no more crashes when your audio interface is unplugged, no more FlexASIO warnings. just works.
+- [ ] add carey local backend to [gary-localhost-installer](https://github.com/betweentwomidnights/gary-localhost-installer)
+- [ ] finish assimilating the mac branch of gary4juce
+- [ ] potentially add 'extract' mode if we can get it to be more reliable
+- [ ] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
+- [ ] produce better captions for the dice buttons
+- [ ] introduce time signature option to the UI
+- [ ] create finetuning guide for stable-audio-open-small (youtube + written)
 
-### jerry got smart
-jerry can now load finetunes from hugging face repos when you're running localhost. on remote backend, you get whatever finetune i have loaded (for now, until we get a bigger GPU).
+---
 
-### darius joined the party
-magenta-realtime is here. 48kHz continuations with style/centroid steering when using finetunes. massive model (needs 24GB+ VRAM ideally), but worth it. run it on a separate backend or duplicate the hugging face space.
+## what's new in v3
+
+### carey (ace-step) joined the party
+
+the biggest addition to gary4juce yet. three modes powered by the [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) diffusion transformer:
+
+- **lego** - generate vocals or backing vocals over your existing audio. loop assist handles short clips automatically.
+- **complete** - extend any audio into a full continuation. experimental, wildly creative when it converges.
+- **cover** - remix/restyle your audio with a text caption. chain with lego for a gibberish-to-lyrics workflow.
+
+plus: shared lyrics editor with 50-language support, key/scale selection, per-tab cfg control, and inference step tuning.
+
+**[detailed carey guide](CAREY.md)** - tips, parameter explanations, and workflow tricks.
+
+backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
 ---
 
@@ -59,8 +75,8 @@ xcopy "path\to\extracted\gary4juce.vst3" "C:\Program Files\Common Files\VST3\gar
 1. quit your DAW
 2. open the DMG
 3. drag to matching folder:
-   - `Gary4Juce.component` → Components (Audio Unit)
-   - `Gary4Juce.vst3` → VST3
+   - `Gary4Juce.component` -> Components (Audio Unit)
+   - `Gary4Juce.vst3` -> VST3
 4. reopen DAW and rescan
 
 **notes:**
@@ -93,23 +109,27 @@ requires:
 
 download from: https://thepatch.gumroad.com/l/gary4juce
 
-
-
 **heads up:** not codesigned (i'm just one underfunded guy lol), so windows defender will be mean. repo is public so you can verify/build yourself.
 
 build from source: https://github.com/betweentwomidnights/gary-localhost-installer
 
-installs python environments for all three architectures (musicgen, melodyflow, stable-audio-open-small). lives in system tray, easy start/stop.
+installs python environments for all architectures (musicgen, melodyflow, stable-audio-open-small). lives in system tray, easy start/stop.
 
 **manual docker compose:**
 
-clone: https://github.com/betweentwomidnights/gary-backend-combined and follow the instructions there to build the containers and run with docker compose. 
+clone: https://github.com/betweentwomidnights/gary-backend-combined and follow the instructions there to build the containers and run with docker compose.
 
 then switch the plugin to 'local' mode.
 
-designed for concurrent usage so might be overkill. the localhost-control-center is ideal for single usage.
+### carey backend (ace-step)
 
-### darius backend
+carey runs on a separate backend from the other models.
+
+**remote:** already set up on the remote backend. just use it.
+
+**localhost:** clone [ace-lego](https://github.com/betweentwomidnights/ace-lego) and follow setup instructions there.
+
+### darius backend (magenta-realtime)
 
 darius is too chonky to run alongside the other models. separate backend required.
 
@@ -118,9 +138,8 @@ darius is too chonky to run alongside the other models. separate backend require
 duplicate this space: https://huggingface.co/spaces/thecollabagepatch/magenta-retry
 
 requirements:
-- L40s or A100-class GPU runtime (smaller is ok here because we're not expecting realtime generation)
+- L40s or A100-class GPU runtime
 - 24GB+ VRAM (48GB recommended)
-- space uses ~87GB on my DGX spark
 
 once duplicated, enter the space URL in darius tab.
 
@@ -179,6 +198,20 @@ learn more: https://github.com/facebookresearch/audiocraft
 
 learn more: https://huggingface.co/stabilityai/stable-audio-open-small
 
+### carey tab (ace-step)
+
+three modes for stem generation, continuation, and remix:
+
+- **lego** - generate vocals/backing vocals over your audio
+- **complete** - extend audio into a full continuation
+- **cover** - remix/restyle with caption guidance
+
+shared lyrics editor, 50-language support, key/scale selection, and per-tab cfg control.
+
+**[full guide with tips and workflows](CAREY.md)**
+
+learn more: https://github.com/ace-step/ACE-Step-1.5
+
 ### terry tab (melodyflow)
 
 - transforms audio with style presets or custom prompts
@@ -214,15 +247,11 @@ training locally:
 - 80-100 tracks minimum, 30-second chunks
 - consistency in style matters more than quantity
 
-the good news: once trained, finetuned models work seamlessly in the plugin (localhost mode).
-
 ### stable-audio-open-small (jerry)
 
 training is multi-step (more involved than musicgen):
 - requires stable-audio-tools: https://github.com/Stability-AI/stable-audio-tools
-- encode → train → checkpoint selection
-
-**coming soon:** simpler training guide on yt (hopefully)
+- encode -> train -> checkpoint selection
 
 once trained:
 - upload to hugging face
@@ -242,7 +271,6 @@ google colab notebook: https://github.com/magenta/magenta-realtime
 once trained:
 - upload to hugging face following space setup guide
 - point darius tab to your space URL
-- profit
 
 ---
 
@@ -256,12 +284,14 @@ gary4juce/
 │   ├── Components/
 │   │   ├── Gary/GaryUI.cpp/h     # musicgen interface
 │   │   ├── Jerry/JerryUI.cpp/h   # stable-audio interface
+│   │   ├── Carey/CareyUI.h       # ace-step interface (lego/complete/cover)
 │   │   ├── Terry/TerryUI.cpp/h   # melodyflow interface
 │   │   └── Darius/DariusUI.cpp/h # magenta interface
 │   └── Utils/
 │       ├── Theme.h               # color scheme
 │       ├── IconFactory.cpp/h     # SVG icons
-│       └── BarTrim.cpp/h         # audio quantization utilities for darius
+│       └── BarTrim.cpp/h         # audio quantization utilities
+├── CAREY.md                      # detailed ace-step guide
 └── gary4juce.jucer               # projucer project file
 ```
 
@@ -281,27 +311,13 @@ steps:
 
 ---
 
-## TODO
+## known issues
 
-### high priority
-- [x] dice button for darius styles & weights (import from hf space magenta-prompts.js)
-- [x] dice button for jerry prompts (import from untitled jamming app for standard SAOS)
-- [x] system to load prompts from finetune metadata (jerry custom models)
-
-### documentation
-- [ ] create finetuning guide for stable-audio-open-small (youtube + written)
-- [ ] update gumroad page for v2: https://thepatch.gumroad.com/l/gary4juce
-
----
-
-## technical notes
-
-### host audio vs system audio
-V2 switched to host audio (processBlock mixing) instead of system audio (AudioDeviceManager). benefits:
-- no ASIO driver conflicts
-- no crashes when audio interface unplugged
-- simpler architecture
-- better reliability across DAWs
+- **windows defender flags control center:** not codesigned (building yourself recommended if paranoid)
+- **darius needs beefy hardware:** 24GB+ VRAM or use hugging face space
+- **terry occasionally weird:** melodyflow is still experimental, results vary
+- **carey cover mode:** progress display uses time-based estimation (ace-step doesn't report step counts for cover tasks)
+- **carey complete mode:** experimental - prefers fuller/denser input audio for best results
 
 ---
 
@@ -321,6 +337,7 @@ V2 switched to host audio (processBlock mixing) instead of system audio (AudioDe
 
 - **musicgen:** meta AI / audiocraft team
 - **stable-audio-open-small:** stability AI
+- **ace-step:** ACE-Step team ([repo](https://github.com/ace-step/ACE-Step-1.5))
 - **melodyflow:** meta AI / audiocraft team
 - **magenta-realtime:** google magenta team
 - **JUCE:** JUCE framework (juce.com)
@@ -333,19 +350,9 @@ V2 switched to host audio (processBlock mixing) instead of system audio (AudioDe
 this plugin is free to use. model licenses vary:
 - musicgen: MIT-ish (check audiocraft repo)
 - stable-audio-open-small: stability AI license
+- ace-step: apache 2.0
 - melodyflow: meta research license
 - magenta-realtime: apache 2.0
-
-
-
----
-
-## known issues
-
-- **windows defender flags control center:** not codesigned (building yourself recommended if paranoid)
-- **darius needs beefy hardware:** 24GB+ VRAM or use hugging face space
-- **terry occasionally weird:** melodyflow is still experimental, results vary
-- **jerry finetunes:** remote backend limited to whatever i have loaded (GPU constraints)
 
 ---
 

@@ -343,7 +343,7 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     writer.reset(wavFormat.createWriterFor(fileStream.release(), // Transfer ownership
         snapshotSampleRate,
         snapshotChannels,
-        16, // CHANGED: 16-bit depth instead of 24-bit (smaller files)
+        24, // 24-bit depth for carey quality (model generates at 48k, needs clean input)
         {},
         0));
 
@@ -366,7 +366,7 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
         if (file.exists())
         {
             auto fileSize = file.getSize();
-            auto expectedSize = snapshotSamples * snapshotChannels * 2 + 44; // 16-bit + WAV header
+            auto expectedSize = snapshotSamples * snapshotChannels * 3 + 44; // 24-bit + WAV header
             DBG("Final file size: " + juce::String(fileSize) + " bytes (expected ~" + juce::String(expectedSize) + " bytes)");
 
             if (fileSize > expectedSize * 2) // If more than 2x expected size
@@ -393,10 +393,8 @@ void Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuff
     recording = false;
     atomicRecording = false;
 
-    // Calculate how many samples to copy (max 30 seconds)
-    int maxSamples = (int)(30.0 * currentSampleRate);
+    // Calculate how many samples to copy (up to the full recording buffer capacity)
     int samplesToCopy = juce::jmin(sourceBuffer.getNumSamples(),
-                                    maxSamples,
                                     recordingBuffer.getNumSamples());
 
     // Copy audio data channel by channel
@@ -751,6 +749,8 @@ void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     xmlState.setAttribute("isUsingLocalhost", isUsingLocalhost);
     xmlState.setAttribute("undoTransformAvailable", undoTransformAvailable.load());
     xmlState.setAttribute("retryAvailable", retryAvailable.load());
+    xmlState.setAttribute("careyLyrics", careyLyrics);
+    xmlState.setAttribute("careyLanguage", careyLanguage);
 
     // DEBUG: Log what we're saving with age calculation
     DBG("=== SAVING STATE ===");
@@ -764,6 +764,7 @@ void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     }
     DBG("undoTransformAvailable: " + juce::String(undoTransformAvailable.load() ? "true" : "false"));
     DBG("retryAvailable: " + juce::String(retryAvailable.load() ? "true" : "false"));
+    DBG("careyLyrics: '" + careyLyrics.substring(0, 40) + "'");
 
     copyXmlToBinary(xmlState, destData);
 }
@@ -780,6 +781,11 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
         isUsingLocalhost = xml->getBoolAttribute("isUsingLocalhost");
         undoTransformAvailable = xml->getBoolAttribute("undoTransformAvailable");
         retryAvailable = xml->getBoolAttribute("retryAvailable");
+        // Shared lyrics - try new key first, fall back to old legoLyrics key for backward compat
+        careyLyrics = xml->getStringAttribute("careyLyrics");
+        if (careyLyrics.isEmpty())
+            careyLyrics = xml->getStringAttribute("careyLegoLyrics");
+        careyLanguage = xml->getStringAttribute("careyLanguage", "en");
         backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
 
         // DEBUG: Log what we're loading
@@ -789,6 +795,7 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
         DBG("sessionTimestamp: " + juce::String(sessionTimestamp));
         DBG("undoTransformAvailable: " + juce::String(undoTransformAvailable.load() ? "true" : "false"));
         DBG("retryAvailable: " + juce::String(retryAvailable.load() ? "true" : "false"));
+        DBG("careyLyrics: '" + careyLyrics.substring(0, 40) + "'");
 
         // CRITICAL: Check if loaded session is stale and clean up if needed
         if (!currentSessionId.isEmpty() && sessionTimestamp > 0)

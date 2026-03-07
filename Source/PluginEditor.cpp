@@ -80,7 +80,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
-    dariusHelpButton("darius help", juce::DrawableButton::ImageFitted)
+    dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
+    careyHelpButton("carey help", juce::DrawableButton::ImageFitted)
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
@@ -438,24 +439,54 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCaptionChanged = [this](const juce::String& text) { currentCareyCaption = text; };
     careyUI->onTrackChanged = [this](const juce::String& track) { currentCareyTrackName = track.trim().toLowerCase(); };
     careyUI->onStepsChanged = [this](int steps) { currentCareySteps = juce::jlimit(32, 100, steps); };
+    careyUI->onLegoCfgChanged = [this](double val) { currentLegoCfg = juce::jlimit(3.0, 10.0, val); };
     careyUI->onLoopAssistChanged = [this](bool enabled) { currentCareyLoopAssistEnabled = enabled; };
     careyUI->onTrimToInputChanged = [this](bool enabled) { currentCareyTrimToInputEnabled = enabled; };
-    careyUI->onLyricsChanged = [this](const juce::String& text) { currentCareyLyrics = text; };
+    careyUI->onLyricsChanged = [this](const juce::String& text) { currentCareyLyrics = text; audioProcessor.setCareyLyrics(text); };
+    careyUI->onLyricsLanguageChanged = [this](const juce::String& lang) { currentCareyLanguage = lang; audioProcessor.setCareyLanguage(lang); };
     careyUI->onGenerate = [this]() { sendToCarey(); };
 
     careyUI->onCompleteCaptionChanged = [this](const juce::String& text) { currentCareyCompleteCaption = text; };
     careyUI->onCompleteBpmChanged = [this](int bpm) { currentCareyCompleteBpm = juce::jlimit(40, 240, bpm); };
     careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(32, 100, steps); };
+    careyUI->onCompleteCfgChanged = [this](double val) { currentCompleteCfg = juce::jlimit(3.0, 10.0, val); };
     careyUI->onCompleteDurationChanged = [this](int seconds) { currentCareyCompleteDurationSeconds = juce::jlimit(30, 180, seconds); };
     careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
-    careyUI->onCompleteLyricsChanged = [this](const juce::String& text) { currentCareyCompleteLyrics = text; };
+    // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
+    careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
+
+    careyUI->onCoverCaptionChanged = [this](const juce::String& text) { currentCoverCaption = text; };
+    // onCoverLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
+    careyUI->onCoverNoiseStrengthChanged = [this](double val) { currentCoverNoiseStrength = juce::jlimit(0.0, 1.0, val); };
+    careyUI->onCoverAudioStrengthChanged = [this](double val) { currentCoverAudioStrength = juce::jlimit(0.0, 1.0, val); };
+    careyUI->onCoverStepsChanged = [this](int steps) { currentCoverSteps = juce::jlimit(8, 100, steps); };
+    careyUI->onCoverCfgChanged = [this](double val) { currentCoverCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onCoverUseSrcAsRefChanged = [this](bool enabled) { currentCoverUseSrcAsRef = enabled; };
+    careyUI->onCoverLoopAssistChanged = [this](bool enabled) { currentCoverLoopAssistEnabled = enabled; };
+    careyUI->onCoverTrimToInputChanged = [this](bool enabled) { currentCoverTrimToInputEnabled = enabled; };
+    careyUI->onCoverGenerate = [this]() { sendToCareyCover(); };
+
+    careyUI->onKeyScaleChanged = [this](const juce::String& ks) { currentCareyKeyScale = ks; };
 
     careyUI->setCaptionText(currentCareyCaption);
     careyUI->setTrackName(currentCareyTrackName);
     careyUI->setSteps(currentCareySteps);
     careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
     careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+    careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
+    careyUI->setCoverAudioStrength(currentCoverAudioStrength);
+    careyUI->setCoverSteps(currentCoverSteps);
+    careyUI->setCoverCfg(currentCoverCfg);
+    careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
     careyUI->setGenerateButtonEnabled(false, false);
+
+    // Restore persisted lyrics + language from processor (shared across all tabs)
+    currentCareyLyrics = audioProcessor.getCareyLyrics();
+    currentCareyLanguage = audioProcessor.getCareyLanguage();
+    DBG("[carey] *** RESTORING SHARED LYRICS: '" + currentCareyLyrics.substring(0, 50) + "' lang=" + currentCareyLanguage + " ***");
+    careyUI->setLyricsText(currentCareyLyrics);  // This updates all 3 tab buttons
+    careyUI->setLyricsLanguage(currentCareyLanguage);
+
     updateCareyTabAvailability();
 
     // ========== REMAINING SETUP (unchanged) ==========
@@ -646,6 +677,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://huggingface.co/spaces/thecollabagepatch/magenta-retry").launchInDefaultBrowser();
         };
         addAndMakeVisible(dariusHelpButton);
+
+        // carey help button
+        careyHelpButton.setImages(helpIcon.get());
+        careyHelpButton.setTooltip("learn more about ace-step");
+        careyHelpButton.onClick = [this]() {
+            juce::URL("https://github.com/betweentwomidnights/ace-lego").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(careyHelpButton);
     }
     
     // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
@@ -843,6 +882,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         jerryHelpButton.setVisible(showJerry);
         terryHelpButton.setVisible(showTerry);
         dariusHelpButton.setVisible(showDarius);
+        careyHelpButton.setVisible(showCarey);
     }
 
     DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showTerry ? "Terry" : "Darius")))));
@@ -1067,9 +1107,96 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     }
 }
 
+juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::String& raw)
+{
+    const juce::String trimmed = raw.trim();
+    if (trimmed.isEmpty())
+        return {};
+
+    // Already a clean status string from our backend wrapper — pass through
+    if (trimmed == "generating..." || trimmed == "downloading result..."
+        || trimmed == "preparing audio..." || trimmed == "submitting..."
+        || trimmed == "loading model..." || trimmed == "queued"
+        || trimmed == "submitting to ace-step..." || trimmed == "downloading audio..."
+        || trimmed == "complete")
+        return trimmed;
+
+    // tqdm progress bar: "72%|#######2  | 36/50 [00:02<00:00, 14.11steps/s]"
+    // Extract "M/T steps" from the "M/T" portion
+    if (trimmed.contains("|") && trimmed.contains("/"))
+    {
+        // Find the step fraction like "36/50"
+        int bestCurrent = -1, bestTotal = -1;
+        int searchFrom = 0;
+        while (searchFrom < trimmed.length())
+        {
+            const int slash = trimmed.indexOfChar(searchFrom, '/');
+            if (slash < 0) break;
+            int leftStart = slash - 1;
+            while (leftStart >= 0 && juce::CharacterFunctions::isDigit(trimmed[leftStart])) --leftStart;
+            int rightEnd = slash + 1;
+            while (rightEnd < trimmed.length() && juce::CharacterFunctions::isDigit(trimmed[rightEnd])) ++rightEnd;
+            if ((leftStart + 1) < slash && (slash + 1) < rightEnd)
+            {
+                bestCurrent = trimmed.substring(leftStart + 1, slash).getIntValue();
+                bestTotal = trimmed.substring(slash + 1, rightEnd).getIntValue();
+            }
+            searchFrom = slash + 1;
+        }
+        if (bestTotal > 0 && bestCurrent >= 0)
+            return juce::String(bestCurrent) + "/" + juce::String(bestTotal) + " steps";
+    }
+
+    // Timestamped log line: "09:43:16 | INFO | CUDA GPU detected: ..."
+    if (trimmed.length() > 12 && trimmed[2] == ':' && trimmed[5] == ':' && trimmed.contains("| INFO |"))
+    {
+        const int infoIdx = trimmed.indexOf("| INFO |");
+        if (infoIdx >= 0)
+        {
+            juce::String payload = trimmed.substring(infoIdx + 8).trim();
+            if (payload.startsWithIgnoreCase("CUDA") || payload.startsWithIgnoreCase("Loading"))
+                return "loading model...";
+            if (payload.startsWithIgnoreCase("[tiled_decode]") || payload.startsWithIgnoreCase("decode"))
+                return "decoding audio...";
+            // Generic log — show a shortened version
+            if (payload.length() > 50)
+                payload = payload.substring(0, 50) + "...";
+            return payload;
+        }
+    }
+
+    // Fallback: return trimmed raw text (sanitization in showStatusMessage handles the rest)
+    if (trimmed.length() > 60)
+        return trimmed.substring(0, 60) + "...";
+    return trimmed;
+}
+
 void Gary4juceAudioProcessorEditor::showStatusMessage(const juce::String& message, int durationMs)
 {
-    statusMessage = message;
+    // Strip ANSI escape sequences and control characters that trigger glyph assertion
+    juce::String sanitized;
+    for (int i = 0; i < message.length(); ++i)
+    {
+        const auto ch = message[i];
+
+        // Skip full ANSI escape sequences: ESC [ <params> <letter>
+        if (ch == 0x1b && (i + 1) < message.length() && message[i + 1] == '[')
+        {
+            i += 2; // skip ESC and [
+            while (i < message.length() && ((message[i] >= '0' && message[i] <= '9') || message[i] == ';'))
+                ++i; // skip numeric params and semicolons
+            // i now points at the final letter — the for-loop ++i will skip past it
+            continue;
+        }
+
+        // Drop remaining control characters (< 32) entirely
+        if (ch < 32)
+            continue;
+
+        sanitized += ch;
+    }
+
+    statusMessage = sanitized.trim();
     statusMessageTime = juce::Time::getCurrentTime().toMilliseconds();
     statusMessageDuration = durationMs;  // Store custom duration
     hasStatusMessage = true;
@@ -1114,11 +1241,13 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     // FIXED: Use actual sample rate from processor instead of hardcoded 44100
     const double currentSampleRate = audioProcessor.getCurrentSampleRate();
 
-    // Time calculations
-    const double totalDuration = juce::jmax(1.0,
+    // Time calculations — zoom to fit: show 30s window until content exceeds it, then full buffer
+    const double fullBufferDuration = juce::jmax(1.0,
         (double)audioProcessor.getMaxRecordingSamples() / juce::jmax(1.0, currentSampleRate));
     const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
     const double savedDuration = juce::jmax(0.0, (double)savedSamples / currentSampleRate);
+    const double contentDuration = juce::jmax(recordedDuration, savedDuration);
+    const double totalDuration = (contentDuration > 30.0) ? fullBufferDuration : juce::jmin(30.0, fullBufferDuration);
 
     // Pixel calculations with safety checks
     const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
@@ -4064,13 +4193,19 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         trackName = "vocals";
 
     const int bpm = juce::jmax(1, juce::roundToInt(getCareyBpmForRequest()));
+    const int inferenceSteps = juce::jmax(1, currentCareySteps);
+    const double guidanceScale = juce::jlimit(3.0, 10.0, currentLegoCfg);
     const juce::String caption = currentCareyCaption.trim();
     const juce::String lyrics = currentCareyLyrics;
+    const juce::String keyScale = currentCareyKeyScale;
+    const juce::String language = currentCareyLanguage;
     const bool loopAssistEnabled = currentCareyLoopAssistEnabled;
     const bool trimToInputEnabled = currentCareyTrimToInputEnabled;
 
     DBG("[carey] remote request metas - bpm=" + juce::String(bpm)
+        + ", steps=" + juce::String(inferenceSteps)
         + ", track=" + trackName
+        + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false")
         + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
@@ -4103,7 +4238,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
     showStatusMessage("submitting carey request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, trackName, bpm, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String downloadedBase64;
@@ -4145,17 +4280,42 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     constexpr int kLoopAssistBars = 32;
                     const double bpmSafe = juce::jmax(1.0, (double)bpm);
                     const double secondsPerBar = 240.0 / bpmSafe;
-                    const int targetSamples = juce::jmax(1, juce::roundToInt(secondsPerBar * (double)kLoopAssistBars * sourceSampleRate));
+                    const double contextWindowSeconds = secondsPerBar * (double)kLoopAssistBars;
+                    const int targetSamples = juce::jmax(1, juce::roundToInt(contextWindowSeconds * sourceSampleRate));
 
-                    if (targetSamples != sourceSamples)
+                    // Skip loop assist if input already fills the context window
+                    if (originalInputDurationSeconds >= contextWindowSeconds)
                     {
+                        DBG("[carey] loop assist skipped: input (" + juce::String(originalInputDurationSeconds, 1)
+                            + "s) already fills " + juce::String(kLoopAssistBars) + "-bar context ("
+                            + juce::String(contextWindowSeconds, 1) + "s)");
+                    }
+                    else if (targetSamples != sourceSamples)
+                    {
+                        // Snap source to nearest whole bar count for seamless looping
+                        const double barsInInput = originalInputDurationSeconds / secondsPerBar;
+                        int snappedBars = juce::jmax(1, juce::roundToInt(barsInInput));
+                        int snappedSamples = juce::jmax(1, juce::roundToInt((double)snappedBars * secondsPerBar * sourceSampleRate));
+
+                        // If rounding up exceeds actual audio, floor instead
+                        if (snappedSamples > sourceSamples)
+                        {
+                            snappedBars = juce::jmax(1, (int)std::floor(barsInInput));
+                            snappedSamples = juce::jmin(sourceSamples,
+                                juce::jmax(1, juce::roundToInt((double)snappedBars * secondsPerBar * sourceSampleRate)));
+                        }
+
+                        DBG("[carey] loop assist bar-snap: " + juce::String(barsInInput, 2) + " bars -> "
+                            + juce::String(snappedBars) + " bars (" + juce::String(snappedSamples)
+                            + " of " + juce::String(sourceSamples) + " samples)");
+
                         loopAssistBuffer.setSize(sourceChannels, targetSamples, false, true, true);
                         for (int channel = 0; channel < sourceChannels; ++channel)
                         {
                             const float* src = sourceBuffer.getReadPointer(channel);
                             float* dst = loopAssistBuffer.getWritePointer(channel);
                             for (int i = 0; i < targetSamples; ++i)
-                                dst[i] = src[i % sourceSamples];
+                                dst[i] = src[i % snappedSamples];
                         }
 
                         conditioningBuffer = &loopAssistBuffer;
@@ -4192,7 +4352,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                             stream.release(),
                             sourceSampleRate,
                             (unsigned int)conditioningBuffer->getNumChannels(),
-                            16, {}, 0));
+                            24, {}, 0));
 
                         if (writer == nullptr)
                         {
@@ -4236,8 +4396,14 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
                 submitPayload->setProperty("track_name", trackName);
                 submitPayload->setProperty("bpm", bpm);
+                submitPayload->setProperty("inference_steps", inferenceSteps);
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);
+                if (keyScale.isNotEmpty())
+                    submitPayload->setProperty("key_scale", keyScale);
+                if (language.isNotEmpty() && language != "en")
+                    submitPayload->setProperty("language", language);
+                submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("time_signature", "4");
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
@@ -4400,7 +4566,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
 
-                    juce::String statusText = queueMessage;
+                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
                     if (statusText.isEmpty())
                     {
                         if (queued) statusText = "queued - starting soon...";
@@ -4500,7 +4666,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         juce::WavAudioFormat trimWavFormat;
                         std::unique_ptr<juce::AudioFormatWriter> trimWriter(trimWavFormat.createWriterFor(
                             trimStream.release(), trimReader->sampleRate,
-                            (unsigned int)trimChannels, 16, {}, 0));
+                            (unsigned int)trimChannels, 24, {}, 0));
 
                         if (trimWriter == nullptr)
                         {
@@ -4595,13 +4761,19 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
             bpm = standaloneBpm;
     }
     const int inferenceSteps = juce::jlimit(32, 100, currentCareyCompleteSteps);
+    const double guidanceScale = juce::jlimit(3.0, 10.0, currentCompleteCfg);
     const juce::String caption = currentCareyCompleteCaption.trim();
-    const juce::String lyrics = currentCareyCompleteLyrics;
+    const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
+    const juce::String keyScale = currentCareyKeyScale;
+    const juce::String language = currentCareyLanguage;
     const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
+    const bool useSrcAsRef = currentCompleteUseSrcAsRef;
 
     DBG("[carey-complete] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
+        + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", target_duration=" + juce::String(targetDurationSeconds)
+        + ", use_src_ref=" + juce::String(useSrcAsRef ? "on" : "off")
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false"));
 
@@ -4632,7 +4804,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     showStatusMessage("submitting carey complete request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, bpm, inferenceSteps, targetDurationSeconds, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String downloadedBase64;
@@ -4665,6 +4837,12 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 submitPayload->setProperty("audio_duration", (double)targetDurationSeconds);
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);
+                if (keyScale.isNotEmpty())
+                    submitPayload->setProperty("key_scale", keyScale);
+                if (language.isNotEmpty() && language != "en")
+                    submitPayload->setProperty("language", language);
+                submitPayload->setProperty("guidance_scale", guidanceScale);
+                submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
                 submitPayload->setProperty("time_signature", "4");
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
@@ -4827,7 +5005,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
 
-                    juce::String statusText = queueMessage;
+                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
                     if (statusText.isEmpty())
                     {
                         if (queued) statusText = "queued - starting soon...";
@@ -4877,6 +5055,613 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey complete request failed";
+        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        {
+            showStatusMessage(finalError, 4500);
+            cancelCareyOperation();
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::sendToCareyCover()
+{
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("carey localhost backend is disabled for now. switch to remote.", 3500);
+        return;
+    }
+
+    if (!isConnected)
+    {
+        showStatusMessage("remote backend not connected - check connection first");
+        return;
+    }
+
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    const juce::File bufferFile = garyDir.getChildFile("myBuffer.wav");
+
+    if (!bufferFile.existsAsFile())
+    {
+        showStatusMessage("missing myBuffer.wav - save your recording first");
+        return;
+    }
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(bufferFile));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+    {
+        showStatusMessage("failed to read myBuffer.wav for carey cover");
+        return;
+    }
+
+    const int bpm = juce::jmax(1, juce::roundToInt(getCareyBpmForRequest()));
+    const juce::String caption = currentCoverCaption.trim();
+    const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
+    const juce::String keyScale = currentCareyKeyScale;
+    const juce::String language = currentCareyLanguage;
+    const double coverNoiseStrength = juce::jlimit(0.0, 1.0, currentCoverNoiseStrength);
+    const double audioCoverStrength = juce::jlimit(0.0, 1.0, currentCoverAudioStrength);
+    const double guidanceScale = juce::jlimit(3.0, 10.0, currentCoverCfg);
+    const int inferenceSteps = juce::jlimit(8, 100, currentCoverSteps);
+    const bool useSrcAsRef = currentCoverUseSrcAsRef;
+    const bool loopAssistEnabled = currentCoverLoopAssistEnabled;
+    const bool trimToInputEnabled = currentCoverTrimToInputEnabled;
+
+    DBG("[carey-cover] remote request metas - bpm=" + juce::String(bpm)
+        + ", steps=" + juce::String(inferenceSteps)
+        + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", noise_str=" + juce::String(coverNoiseStrength, 3)
+        + ", audio_str=" + juce::String(audioCoverStrength, 2)
+        + ", cfg=" + juce::String(guidanceScale, 1)
+        + ", use_src_ref=" + juce::String(useSrcAsRef ? "on" : "off")
+        + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
+        + ", trim_to_input=" + juce::String(trimToInputEnabled ? "on" : "off")
+        + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
+        + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false"));
+
+    const auto cancelCareyOperation = [this]()
+    {
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
+    setActiveOp(ActiveOp::CareyGenerate);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    repaint();
+
+    showStatusMessage("submitting carey cover request...", 2500);
+
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, bpm, coverNoiseStrength,
+                          audioCoverStrength, guidanceScale, inferenceSteps, useSrcAsRef,
+                          loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
+    {
+        juce::String failureReason;
+        juce::String downloadedBase64;
+        bool success = false;
+        double originalInputDurationSeconds = 0.0;
+
+        do
+        {
+            try
+            {
+                // Read source buffer for loop assist processing
+                juce::AudioFormatManager threadFormatManager;
+                threadFormatManager.registerBasicFormats();
+                std::unique_ptr<juce::AudioFormatReader> threadReader(threadFormatManager.createReaderFor(bufferFile));
+                if (threadReader == nullptr || threadReader->sampleRate <= 0.0 || threadReader->lengthInSamples <= 0)
+                {
+                    failureReason = "failed to read myBuffer.wav for carey cover request";
+                    break;
+                }
+
+                const int sourceChannels = juce::jmax(1, (int)threadReader->numChannels);
+                const int sourceSamples = juce::jmax(1, (int)threadReader->lengthInSamples);
+                const double sourceSampleRate = threadReader->sampleRate;
+                originalInputDurationSeconds = (double)sourceSamples / sourceSampleRate;
+
+                juce::AudioBuffer<float> sourceBuffer(sourceChannels, sourceSamples);
+                const bool readOk = threadReader->read(&sourceBuffer, 0, sourceSamples, 0, true, true);
+                if (!readOk)
+                {
+                    failureReason = "failed to decode myBuffer.wav for carey cover request";
+                    break;
+                }
+
+                juce::AudioBuffer<float>* conditioningBuffer = &sourceBuffer;
+                juce::AudioBuffer<float> loopAssistBuffer;
+
+                if (loopAssistEnabled)
+                {
+                    constexpr int kLoopAssistBars = 32;
+                    const double bpmSafe = juce::jmax(1.0, (double)bpm);
+                    const double secondsPerBar = 240.0 / bpmSafe;
+                    const double contextWindowSeconds = secondsPerBar * (double)kLoopAssistBars;
+                    const int targetSamples = juce::jmax(1, juce::roundToInt(contextWindowSeconds * sourceSampleRate));
+
+                    // Skip loop assist if input already fills the context window
+                    if (originalInputDurationSeconds >= contextWindowSeconds)
+                    {
+                        DBG("[carey-cover] loop assist skipped: input (" + juce::String(originalInputDurationSeconds, 1)
+                            + "s) already fills " + juce::String(kLoopAssistBars) + "-bar context ("
+                            + juce::String(contextWindowSeconds, 1) + "s)");
+                    }
+                    else if (targetSamples != sourceSamples)
+                    {
+                        // Snap source to nearest whole bar count for seamless looping
+                        const double barsInInput = originalInputDurationSeconds / secondsPerBar;
+                        int snappedBars = juce::jmax(1, juce::roundToInt(barsInInput));
+                        int snappedSamples = juce::jmax(1, juce::roundToInt((double)snappedBars * secondsPerBar * sourceSampleRate));
+
+                        // If rounding up exceeds actual audio, floor instead
+                        if (snappedSamples > sourceSamples)
+                        {
+                            snappedBars = juce::jmax(1, (int)std::floor(barsInInput));
+                            snappedSamples = juce::jmin(sourceSamples,
+                                juce::jmax(1, juce::roundToInt((double)snappedBars * secondsPerBar * sourceSampleRate)));
+                        }
+
+                        DBG("[carey-cover] loop assist bar-snap: " + juce::String(barsInInput, 2) + " bars -> "
+                            + juce::String(snappedBars) + " bars (" + juce::String(snappedSamples)
+                            + " of " + juce::String(sourceSamples) + " samples)");
+
+                        loopAssistBuffer.setSize(sourceChannels, targetSamples, false, true, true);
+                        for (int channel = 0; channel < sourceChannels; ++channel)
+                        {
+                            const float* src = sourceBuffer.getReadPointer(channel);
+                            float* dst = loopAssistBuffer.getWritePointer(channel);
+                            for (int i = 0; i < targetSamples; ++i)
+                                dst[i] = src[i % snappedSamples];
+                        }
+
+                        conditioningBuffer = &loopAssistBuffer;
+                        const double targetDuration = (double)targetSamples / sourceSampleRate;
+                        DBG("[carey-cover] loop assist normalized context to " + juce::String(kLoopAssistBars)
+                            + " bars (" + juce::String(targetDuration, 2) + "s)");
+                    }
+                }
+
+                juce::MemoryBlock sourceAudioData;
+                if (conditioningBuffer == &sourceBuffer)
+                {
+                    if (!bufferFile.loadFileAsData(sourceAudioData) || sourceAudioData.getSize() <= 0)
+                    {
+                        failureReason = "failed to load myBuffer.wav bytes for carey cover request";
+                        break;
+                    }
+                }
+                else
+                {
+                    const juce::File tempWav = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                        .getNonexistentChildFile("carey-cover-loop-assist-", ".wav", false);
+
+                    {
+                        std::unique_ptr<juce::FileOutputStream> stream(tempWav.createOutputStream());
+                        if (stream == nullptr)
+                        {
+                            failureReason = "failed to create cover loop-assist temp file";
+                            break;
+                        }
+
+                        juce::WavAudioFormat wavFormat;
+                        std::unique_ptr<juce::AudioFormatWriter> writer(wavFormat.createWriterFor(
+                            stream.release(),
+                            sourceSampleRate,
+                            (unsigned int)conditioningBuffer->getNumChannels(),
+                            24, {}, 0));
+
+                        if (writer == nullptr)
+                        {
+                            tempWav.deleteFile();
+                            failureReason = "failed to encode cover loop-assist conditioning wav";
+                            break;
+                        }
+
+                        const bool writeOk = writer->writeFromAudioSampleBuffer(
+                            *conditioningBuffer, 0, conditioningBuffer->getNumSamples());
+                        writer.reset();
+
+                        if (!writeOk)
+                        {
+                            tempWav.deleteFile();
+                            failureReason = "failed to write cover loop-assist conditioning wav";
+                            break;
+                        }
+                    }
+
+                    if (!tempWav.loadFileAsData(sourceAudioData) || sourceAudioData.getSize() <= 0)
+                    {
+                        tempWav.deleteFile();
+                        failureReason = "failed to read cover loop-assist conditioning bytes";
+                        break;
+                    }
+
+                    tempWav.deleteFile();
+                }
+
+                const juce::String sourceAudioBase64 = juce::Base64::toBase64(sourceAudioData.getData(), sourceAudioData.getSize());
+                if (sourceAudioBase64.isEmpty())
+                {
+                    failureReason = "failed to base64 encode carey cover conditioning audio";
+                    break;
+                }
+
+                juce::URL submitUrl(getServiceUrl(ServiceType::Carey, "/cover"));
+
+                juce::DynamicObject::Ptr submitPayload = new juce::DynamicObject();
+                submitPayload->setProperty("audio_data", sourceAudioBase64);
+                submitPayload->setProperty("bpm", bpm);
+                submitPayload->setProperty("caption", caption);
+                submitPayload->setProperty("lyrics", lyrics);
+                if (keyScale.isNotEmpty())
+                    submitPayload->setProperty("key_scale", keyScale);
+                if (language.isNotEmpty() && language != "en")
+                    submitPayload->setProperty("language", language);
+                submitPayload->setProperty("cover_noise_strength", coverNoiseStrength);
+                submitPayload->setProperty("audio_cover_strength", audioCoverStrength);
+                submitPayload->setProperty("guidance_scale", guidanceScale);
+                submitPayload->setProperty("inference_steps", inferenceSteps);
+                submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
+                submitPayload->setProperty("time_signature", "4");
+                submitPayload->setProperty("batch_size", 1);
+                submitPayload->setProperty("audio_format", "wav");
+
+                const juce::String submitJson = juce::JSON::toString(juce::var(submitPayload.get()));
+                juce::URL submitPost = submitUrl.withPOSTData(submitJson);
+
+                int submitStatusCode = 0;
+                auto submitOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withHttpRequestCmd("POST")
+                    .withConnectionTimeoutMs(120000)
+                    .withStatusCode(&submitStatusCode)
+                    .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json");
+
+                auto submitStream = submitPost.createInputStream(submitOptions);
+                if (submitStream == nullptr || submitStatusCode >= 400)
+                {
+                    failureReason = "carey /cover submit failed";
+                    break;
+                }
+
+                const juce::String submitResponse = submitStream->readEntireStreamAsString();
+                const juce::var submitVar = juce::JSON::parse(submitResponse);
+                auto* submitObj = submitVar.getDynamicObject();
+                if (submitObj == nullptr)
+                {
+                    failureReason = "invalid carey cover submit response";
+                    break;
+                }
+
+                juce::String taskId = submitObj->getProperty("task_id").toString();
+                if (taskId.isEmpty())
+                {
+                    if (auto* dataObj = submitObj->getProperty("data").getDynamicObject())
+                        taskId = dataObj->getProperty("task_id").toString();
+                }
+
+                const bool submitSuccess = (bool)submitObj->getProperty("success");
+                if (taskId.isEmpty() || !submitSuccess)
+                {
+                    const juce::String errorText = submitObj->getProperty("error").toString().trim();
+                    failureReason = errorText.isNotEmpty() ? errorText : "missing task_id from carey cover submit response";
+                    break;
+                }
+
+                DBG("[carey-cover] task_id: " + taskId);
+                juce::URL queryUrl(getServiceUrl(ServiceType::Carey, "/cover/status/" + taskId));
+                constexpr int kPollIntervalMs = 1500;
+                constexpr int kMaxPollCount = 600;
+
+                const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
+                {
+                    double rawProgress = 0.0;
+                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
+                        rawProgress = (double)rawProgressVar;
+                    else
+                    {
+                        const juce::String rawText = rawProgressVar.toString().trim();
+                        if (rawText.isEmpty()) return -1;
+                        rawProgress = rawText.getDoubleValue();
+                    }
+                    if (rawProgress <= 0.0) return 0;
+                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
+                };
+
+                const auto parseStepProgressFromText = [](const juce::String& text) -> int
+                {
+                    int bestPercent = -1;
+                    int searchFrom = 0;
+                    while (searchFrom < text.length())
+                    {
+                        const int slash = text.indexOfChar(searchFrom, '/');
+                        if (slash < 0) break;
+                        int leftStart = slash - 1;
+                        while (leftStart >= 0 && juce::CharacterFunctions::isDigit(text[leftStart])) --leftStart;
+                        int rightEnd = slash + 1;
+                        while (rightEnd < text.length() && juce::CharacterFunctions::isDigit(text[rightEnd])) ++rightEnd;
+                        if ((leftStart + 1) < slash && (slash + 1) < rightEnd)
+                        {
+                            const int currentStep = text.substring(leftStart + 1, slash).getIntValue();
+                            const int totalSteps = text.substring(slash + 1, rightEnd).getIntValue();
+                            if (totalSteps > 0 && currentStep >= 0 && currentStep <= totalSteps)
+                                bestPercent = juce::jmax(bestPercent, juce::jlimit(0, 99, juce::roundToInt((double)currentStep * 100.0 / (double)totalSteps)));
+                        }
+                        searchFrom = slash + 1;
+                    }
+                    return bestPercent;
+                };
+
+                for (int pollCount = 0; pollCount < kMaxPollCount; ++pollCount)
+                {
+                    int queryStatusCode = 0;
+                    auto queryOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withHttpRequestCmd("GET")
+                        .withConnectionTimeoutMs(15000)
+                        .withStatusCode(&queryStatusCode)
+                        .withExtraHeaders("Accept: application/json");
+
+                    auto queryStream = queryUrl.createInputStream(queryOptions);
+                    if (queryStream == nullptr || queryStatusCode >= 400)
+                    {
+                        failureReason = "carey cover status polling failed";
+                        break;
+                    }
+
+                    const juce::String queryResponse = queryStream->readEntireStreamAsString();
+                    DBG("[carey-cover] RAW RESPONSE: " + queryResponse.substring(0, 500));
+                    const juce::var queryVar = juce::JSON::parse(queryResponse);
+                    auto* queryObj = queryVar.getDynamicObject();
+                    if (queryObj == nullptr)
+                    {
+                        failureReason = "invalid carey cover status response";
+                        break;
+                    }
+
+                    const juce::String status = queryObj->getProperty("status").toString().trim().toLowerCase();
+                    const bool querySuccess = (bool)queryObj->getProperty("success");
+                    const bool generationInProgress = (bool)queryObj->getProperty("generation_in_progress");
+                    const bool transformInProgress = (bool)queryObj->getProperty("transform_in_progress");
+
+                    if (status == "failed")
+                    {
+                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
+                        failureReason = errorText.isNotEmpty() ? errorText : "carey cover generation failed";
+                        break;
+                    }
+
+                    if (!querySuccess && !(generationInProgress || transformInProgress))
+                    {
+                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
+                        failureReason = errorText.isNotEmpty() ? errorText : "carey cover request failed";
+                        break;
+                    }
+
+                    if (status == "completed")
+                    {
+                        downloadedBase64 = queryObj->getProperty("audio_data").toString();
+                        if (downloadedBase64.isEmpty())
+                        {
+                            failureReason = "carey cover finished without audio_data";
+                            break;
+                        }
+                        success = true;
+                        break;
+                    }
+
+                    int progressPercent = juce::jlimit(0, 99, generationProgress);
+                    const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
+                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+
+                    juce::String queueStatus, queueMessage;
+                    if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
+                    {
+                        queueStatus = queueObj->getProperty("status").toString().trim().toLowerCase();
+                        queueMessage = queueObj->getProperty("message").toString().trim();
+                    }
+
+                    // Cover backend may put message at top level or in status_message
+                    if (queueMessage.isEmpty())
+                    {
+                        queueMessage = queryObj->getProperty("message").toString().trim();
+                        if (queueMessage.isEmpty())
+                            queueMessage = queryObj->getProperty("status_message").toString().trim();
+                    }
+
+                    // Strip ANSI escape codes from queueMessage before parsing
+                    // (cover backend may send raw tqdm output with ANSI control sequences)
+                    {
+                        juce::String stripped;
+                        for (int ci = 0; ci < queueMessage.length(); ++ci)
+                        {
+                            const auto ch = queueMessage[ci];
+                            if (ch == 0x1b && (ci + 1) < queueMessage.length() && queueMessage[ci + 1] == '[')
+                            {
+                                ci += 2;
+                                while (ci < queueMessage.length() && ((queueMessage[ci] >= '0' && queueMessage[ci] <= '9') || queueMessage[ci] == ';'))
+                                    ++ci;
+                                continue;
+                            }
+                            if (ch >= 32)
+                                stripped += ch;
+                        }
+                        queueMessage = stripped.trim();
+                    }
+
+                    DBG("[carey-cover] poll: status=" + status
+                        + " progress=" + queryObj->getProperty("progress").toString()
+                        + " queueStatus=" + queueStatus
+                        + " queueMessage=[" + queueMessage + "]"
+                        + " parsedProgress=" + juce::String(parsedProgress));
+
+                    const int textStepProgress = parseStepProgressFromText(queueMessage);
+                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+
+                    bool queued = (queueStatus == "queued");
+                    if (progressPercent > 0 || queueStatus == "ready") queued = false;
+
+                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
+                    if (statusText.isEmpty())
+                    {
+                        if (queued) statusText = "queued - starting soon...";
+                        else if (progressPercent > 0) statusText = "processing";
+                        else statusText = status.isNotEmpty() ? status : "processing";
+                    }
+
+                    juce::MessageManager::callAsync([this, progressPercent, queued, statusText]()
+                    {
+                        smoothProgressAnimation = false;
+                        generationProgress = progressPercent;
+                        isCurrentlyQueued = queued;
+                        if (statusText.isNotEmpty())
+                            showStatusMessage("carey cover: " + statusText, 2500);
+                        repaint();
+                    });
+
+                    juce::Thread::sleep(kPollIntervalMs);
+                }
+
+                if (!success && failureReason.isEmpty())
+                    failureReason = "carey cover request timed out";
+            }
+            catch (const std::exception& e)
+            {
+                failureReason = "carey cover request failed: " + juce::String(e.what());
+            }
+            catch (...)
+            {
+                failureReason = "carey cover request failed with unknown error";
+            }
+        } while (false);
+
+        if (success && downloadedBase64.isNotEmpty())
+        {
+            juce::String finalBase64 = downloadedBase64;
+
+            if (trimToInputEnabled && originalInputDurationSeconds > 0.0)
+            {
+                juce::MemoryOutputStream decodedOutputBytes;
+                if (!juce::Base64::convertFromBase64(decodedOutputBytes, downloadedBase64))
+                {
+                    DBG("[carey-cover] trim-to-input skipped: failed to decode generated audio");
+                }
+                else
+                {
+                    const juce::MemoryBlock& decodedData = decodedOutputBytes.getMemoryBlock();
+                    const juce::File tempInput = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                        .getNonexistentChildFile("carey-cover-trim-input-", ".wav", false);
+                    const juce::File tempOutput = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                        .getNonexistentChildFile("carey-cover-trim-output-", ".wav", false);
+
+                    const auto cleanupTemps = [&tempInput, &tempOutput]()
+                    {
+                        tempInput.deleteFile();
+                        tempOutput.deleteFile();
+                    };
+
+                    do
+                    {
+                        if (!tempInput.replaceWithData(decodedData.getData(), decodedData.getSize()))
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to stage generated wav");
+                            break;
+                        }
+
+                        juce::AudioFormatManager trimFormatManager;
+                        trimFormatManager.registerBasicFormats();
+                        std::unique_ptr<juce::AudioFormatReader> trimReader(trimFormatManager.createReaderFor(tempInput));
+                        if (trimReader == nullptr || trimReader->sampleRate <= 0.0 || trimReader->lengthInSamples <= 0)
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to read generated wav");
+                            break;
+                        }
+
+                        const int generatedSamples = juce::jmax(1, (int)trimReader->lengthInSamples);
+                        const int targetSamples = juce::jlimit(1, generatedSamples,
+                            juce::roundToInt(originalInputDurationSeconds * trimReader->sampleRate));
+
+                        if (targetSamples >= generatedSamples) break;
+
+                        const int trimChannels = juce::jmax(1, (int)trimReader->numChannels);
+                        juce::AudioBuffer<float> trimmedBuffer(trimChannels, targetSamples);
+                        if (!trimReader->read(&trimmedBuffer, 0, targetSamples, 0, true, true))
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to decode generated samples for trimming");
+                            break;
+                        }
+
+                        std::unique_ptr<juce::FileOutputStream> trimStream(tempOutput.createOutputStream());
+                        if (trimStream == nullptr)
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to create output wav");
+                            break;
+                        }
+
+                        juce::WavAudioFormat trimWavFormat;
+                        std::unique_ptr<juce::AudioFormatWriter> trimWriter(trimWavFormat.createWriterFor(
+                            trimStream.release(), trimReader->sampleRate,
+                            (unsigned int)trimChannels, 24, {}, 0));
+
+                        if (trimWriter == nullptr)
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to initialize output wav writer");
+                            break;
+                        }
+
+                        const bool trimWriteOk = trimWriter->writeFromAudioSampleBuffer(trimmedBuffer, 0, targetSamples);
+                        trimWriter.reset();
+                        if (!trimWriteOk)
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to write trimmed wav");
+                            break;
+                        }
+
+                        juce::MemoryBlock trimmedData;
+                        if (!tempOutput.loadFileAsData(trimmedData) || trimmedData.getSize() == 0)
+                        {
+                            DBG("[carey-cover] trim-to-input skipped: failed to read trimmed wav");
+                            break;
+                        }
+
+                        finalBase64 = juce::Base64::toBase64(trimmedData.getData(), trimmedData.getSize());
+                        DBG("[carey-cover] trim-to-input applied: " + juce::String((double)generatedSamples / trimReader->sampleRate, 2)
+                            + "s -> " + juce::String((double)targetSamples / trimReader->sampleRate, 2) + "s");
+                    } while (false);
+
+                    cleanupTemps();
+                }
+            }
+
+            juce::MessageManager::callAsync([this, finalBase64]()
+            {
+                isCurrentlyQueued = false;
+                generationProgress = 100;
+                smoothProgressAnimation = false;
+                setActiveOp(ActiveOp::None);
+                saveGeneratedAudio(finalBase64);
+                showStatusMessage("carey cover remix complete", 2500);
+                updateAllGenerationButtonStates();
+            });
+            return;
+        }
+
+        const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey cover request failed";
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
@@ -8496,6 +9281,19 @@ void Gary4juceAudioProcessorEditor::resized()
 
     if (careyUI)
         careyUI->setBounds(modelControlsArea);
+
+    if (helpIcon && currentTab == ModelTab::Carey && careyUI)
+    {
+        auto titleBounds = careyUI->getTitleBounds().translated(careyUI->getX(), careyUI->getY());
+        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("carey (ace-step lego)"));
+        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
+        auto helpBounds = juce::Rectangle<int>(
+            textStartX + textWidth + 5,
+            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
+            20, 20);
+        careyHelpButton.setBounds(helpBounds);
+    }
 
     if (terryUI)
         terryUI->setBounds(modelControlsArea);
