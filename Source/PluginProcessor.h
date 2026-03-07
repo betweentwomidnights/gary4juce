@@ -98,6 +98,13 @@ public:
 
     double getCurrentBPM() const { return currentBPM.load(); }
 
+    // Carey lyrics persistence - one shared lyrics text across all tabs (message thread only)
+    void setCareyLyrics(const juce::String& text) { careyLyrics = text; DBG("[carey-processor] lyrics saved: '" + text.substring(0, 40) + "'"); }
+    juce::String getCareyLyrics() const { return careyLyrics; }
+
+    void setCareyLanguage(const juce::String& lang) { careyLanguage = lang; }
+    juce::String getCareyLanguage() const { return careyLanguage; }
+
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
     void startOutputPlayback(double fromPosition = 0.0);
@@ -150,6 +157,10 @@ private:
     std::atomic<bool> transformRecording{ false };  // Default to output (to match UI default)
     std::atomic<bool> undoTransformAvailable{ false };
     std::atomic<bool> retryAvailable{ false };
+
+    // Carey lyrics/language persistence - shared across all tabs (survives editor destruction + plugin restart)
+    juce::String careyLyrics;
+    juce::String careyLanguage = "en";
 
     // Output audio playback state (for host audio mixing)
     juce::AudioBuffer<float> outputPlaybackBuffer;
