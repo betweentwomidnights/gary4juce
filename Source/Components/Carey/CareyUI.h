@@ -25,7 +25,7 @@ public:
         titleLabel.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(titleLabel);
 
-        hintLabel.setText("use one line per phrase — write lyrics in the selected language", juce::dontSendNotification);
+        hintLabel.setText("use one line per phrase - write lyrics in the selected language", juce::dontSendNotification);
         hintLabel.setFont(juce::FontOptions(11.0f));
         hintLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
         hintLabel.setJustificationType(juce::Justification::centredLeft);
@@ -351,7 +351,7 @@ public:
 
         loopAssistToggle.setButtonText("");
         loopAssistToggle.setToggleState(true, juce::dontSendNotification);
-        loopAssistToggle.setTooltip("extends short input audio to 32 bars for better output quality. leave on unless your input is already long enough");
+        loopAssistToggle.setTooltip("loops short input to at least 2 minutes for better output quality. leave on unless your input is already long enough");
         loopAssistToggle.onClick = [this]()
         {
             if (onLoopAssistChanged)

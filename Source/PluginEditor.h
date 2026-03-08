@@ -274,7 +274,7 @@ private:
     double currentLegoCfg = 7.0;
     double currentCareyBpm = 120.0;
     bool currentCareyLoopAssistEnabled = true;
-    bool currentCareyTrimToInputEnabled = false;
+    bool currentCareyTrimToInputEnabled = true;
     juce::String currentCareyLyrics = "";     // Shared across all 3 tabs
     juce::String currentCareyLanguage = "en"; // Language code for lyrics vocalization
     juce::String currentCareyCompleteCaption = "";
@@ -290,7 +290,7 @@ private:
     double currentCoverCfg = 7.0;
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
-    bool currentCoverTrimToInputEnabled = false;
+    bool currentCoverTrimToInputEnabled = true;
 
     juce::String currentCareyKeyScale = "";
 
