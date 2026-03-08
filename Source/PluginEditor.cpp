@@ -4277,9 +4277,11 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                 if (loopAssistEnabled)
                 {
-                    constexpr int kLoopAssistBars = 32;
+                    constexpr double kMinContextSeconds = 120.0;  // guarantee at least 2 minutes of context
                     const double bpmSafe = juce::jmax(1.0, (double)bpm);
                     const double secondsPerBar = 240.0 / bpmSafe;
+                    const int barsForMinContext = (int)std::ceil(kMinContextSeconds / secondsPerBar);
+                    const int kLoopAssistBars = juce::jmax(32, barsForMinContext);
                     const double contextWindowSeconds = secondsPerBar * (double)kLoopAssistBars;
                     const int targetSamples = juce::jmax(1, juce::roundToInt(contextWindowSeconds * sourceSampleRate));
 
@@ -5189,9 +5191,11 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                 if (loopAssistEnabled)
                 {
-                    constexpr int kLoopAssistBars = 32;
+                    constexpr double kMinContextSeconds = 120.0;  // guarantee at least 2 minutes of context
                     const double bpmSafe = juce::jmax(1.0, (double)bpm);
                     const double secondsPerBar = 240.0 / bpmSafe;
+                    const int barsForMinContext = (int)std::ceil(kMinContextSeconds / secondsPerBar);
+                    const int kLoopAssistBars = juce::jmax(32, barsForMinContext);
                     const double contextWindowSeconds = secondsPerBar * (double)kLoopAssistBars;
                     const int targetSamples = juce::jmax(1, juce::roundToInt(contextWindowSeconds * sourceSampleRate));
 
