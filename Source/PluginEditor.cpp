@@ -143,15 +143,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     careyTabButton.setButtonText("carey");
     careyTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
-    careyTabButton.onClick = [this]()
-        {
-            if (!isCareyTabAvailable())
-            {
-                showStatusMessage("carey is remote-only for now. switch backend to remote.", 3000);
-                return;
-            }
-            switchToTab(ModelTab::Carey);
-        };
+    careyTabButton.onClick = [this]() { switchToTab(ModelTab::Carey); };
     addAndMakeVisible(careyTabButton);
 
     dariusTabButton.setButtonText("darius");
@@ -993,6 +985,10 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
     if (!garyUI)
         return;
 
+    const bool garyConnected = audioProcessor.getIsUsingLocalhost()
+        ? isLocalServiceOnline(ServiceType::Gary)
+        : isConnected;
+
     const bool hasAudio = savedSamples > 0;
     const bool continueAvailable = hasOutputAudio;
     const juce::String sessionId = audioProcessor.getCurrentSessionId();
@@ -1000,7 +996,7 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
     const bool retryAvailableFlag = audioProcessor.getRetryAvailable();
     const bool retryAvailable = hasValidSession && retryAvailableFlag;
 
-    garyUI->setButtonsEnabled(hasAudio, isConnected, isGenerating, retryAvailable, continueAvailable);
+    garyUI->setButtonsEnabled(hasAudio, garyConnected, isGenerating, retryAvailable, continueAvailable);
 
     if (resetTexts || !isGenerating)
     {
@@ -1741,13 +1737,14 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
 void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& responseText)
 {
+    const auto activeOpNow = getActiveOp();
     auto resetJerryButtonIfNeeded = [this]()
     {
         if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
             jerryUI->setGenerateButtonText("generate with jerry");
     };
     const bool isLocalTerryOp = audioProcessor.getIsUsingLocalhost()
-        && getActiveOp() == ActiveOp::TerryTransform;
+        && activeOpNow == ActiveOp::TerryTransform;
 
     if (responseText.isEmpty())
     {
@@ -1859,21 +1856,99 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 int serverProgress = responseObj->getProperty("progress");
                 serverProgress = juce::jlimit(0, 100, serverProgress);
 
-                // NEW: Check for queue status information (from enhanced /task_notification)
+                const auto parseQueuePercent = [](const juce::var& value) -> int
+                {
+                    if (value.isVoid() || value.isUndefined() || value.isBool())
+                        return -1;
+
+                    if (value.isInt() || value.isInt64())
+                        return juce::jlimit(0, 99, (int)value);
+
+                    if (value.isDouble())
+                        return juce::jlimit(0, 99, juce::roundToInt((double)value));
+
+                    const juce::String text = value.toString().trim();
+                    if (text.isEmpty())
+                        return -1;
+                    return juce::jlimit(0, 99, juce::roundToInt(text.getDoubleValue()));
+                };
+
+                const auto cleanQueueMessage = [](juce::String message) -> juce::String
+                {
+                    message = message.trim();
+                    if (message.isEmpty())
+                        return {};
+
+                    const juce::String lower = message.toLowerCase();
+                    if (lower == "validating") return "validating request...";
+                    if (lower == "starting") return "starting generation...";
+                    if (lower == "loading_model") return "loading model...";
+                    if (lower == "preparing_conditioning") return "preparing conditioning...";
+                    if (lower == "configuring_sampler") return "configuring sampler...";
+                    if (lower == "sampling") return "sampling...";
+                    if (lower == "postprocessing") return "post-processing...";
+                    if (lower == "encoding_audio") return "encoding audio...";
+                    if (lower == "completed") return "finalizing...";
+
+                    message = message.replaceCharacter('_', ' ');
+                    if (message.length() > 100)
+                        message = message.substring(0, 100) + "...";
+                    return message;
+                };
+
+                // Check for queue/warmup status information from localhost/remote backends
                 bool hasValidQueueStatus = false;
                 bool isQueuedForProcessing = false;
                 juce::String queueMessage;
                 juce::String queueStatus;
+                int queueDerivedProgress = -1;
 
                 if (auto* queueStatusObj = responseObj->getProperty("queue_status").getDynamicObject())
                 {
-                    queueStatus = queueStatusObj->getProperty("status").toString();
+                    queueStatus = queueStatusObj->getProperty("status").toString().trim().toLowerCase();
                     queueMessage = queueStatusObj->getProperty("message").toString();
                     hasValidQueueStatus = !queueStatus.isEmpty();
                     isQueuedForProcessing = (queueStatus == "queued");
 
+                    queueDerivedProgress = parseQueuePercent(queueStatusObj->getProperty("progress"));
+                    if (queueDerivedProgress < 0)
+                        queueDerivedProgress = parseQueuePercent(queueStatusObj->getProperty("download_percent"));
+
+                    if (queueDerivedProgress < 0)
+                    {
+                        const int stageTotal = juce::jmax(0, (int)queueStatusObj->getProperty("stage_total"));
+                        const int stageIndex = juce::jmax(0, (int)queueStatusObj->getProperty("stage_index"));
+                        const int stagePercent = parseQueuePercent(queueStatusObj->getProperty("download_percent"));
+                        if (stageTotal > 0 && stageIndex > 0 && stagePercent >= 0)
+                        {
+                            queueDerivedProgress = juce::jlimit(
+                                0, 99,
+                                juce::roundToInt((((stageIndex - 1) + (stagePercent / 100.0)) / stageTotal) * 100.0));
+                        }
+                    }
+
                     DBG("Queue status found - Status: " + queueStatus + ", Message: " + queueMessage);
                 }
+
+                const bool isGaryOrJerryOp =
+                    activeOpNow == ActiveOp::GaryGenerate
+                    || activeOpNow == ActiveOp::GaryContinue
+                    || activeOpNow == ActiveOp::GaryRetry
+                    || activeOpNow == ActiveOp::JerryGenerate;
+                const juce::String queueMessageLower = queueMessage.toLowerCase();
+                const bool queueIndicatesWarmup =
+                    queueStatus == "warming"
+                    || queueMessageLower.contains("download")
+                    || queueMessageLower.contains("loading model")
+                    || queueMessageLower.contains("first run")
+                    || queueMessageLower.contains("hub");
+                if (isGaryOrJerryOp && queueIndicatesWarmup && serverProgress <= 0)
+                {
+                    withinWarmup = true;
+                }
+
+                if (serverProgress <= 0 && queueDerivedProgress > 0)
+                    serverProgress = queueDerivedProgress;
 
                 // Update stall detection tracking
                 auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
@@ -1944,6 +2019,16 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else if (serverProgress > 0 || queueStatus == "ready")
                 {
+                    juce::String queueText = cleanQueueMessage(queueMessage);
+                    if (queueText.isNotEmpty())
+                    {
+                        if (serverProgress > 0 && !queueText.containsChar('%') && !queueText.containsIgnoreCase("step"))
+                            queueText << " (" << juce::String(serverProgress) << "%)";
+                        showStatusMessage(queueText, 5000);
+                        DBG("Progress message from queue status: " + queueText);
+                        return;
+                    }
+
                     juce::String verb = currentOperationVerb();
                     if (verb == "processing")
                         verb = transformInProgress ? "transforming" : "cooking";
@@ -1954,6 +2039,14 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else
                 {
+                    juce::String queueText = cleanQueueMessage(queueMessage);
+                    if (queueText.isNotEmpty())
+                    {
+                        showStatusMessage(queueText, 5000);
+                        DBG("Warmup message from queue status: " + queueText);
+                        return;
+                    }
+
                     // Fallback message when we have no specific queue info but task is in progress
                     if (getActiveOp() == ActiveOp::TerryTransform || transformInProgress)
                         showStatusMessage("processing transform...", 5000);
@@ -3332,8 +3425,10 @@ juce::String Gary4juceAudioProcessorEditor::getDefaultGaryQuantizationForSize(co
     const juce::String normalized = sizeCategory.trim().toLowerCase();
 
     if (normalized == "small")
+        return "none";
+    if (normalized == "medium")
         return "q8_decoder_linears";
-    if (normalized == "medium" || normalized == "large")
+    if (normalized == "large")
         return "q4_decoder_linears";
 
     return "q4_decoder_linears";
@@ -4471,10 +4566,12 @@ void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
 
     const auto garyDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("gary4juce");
     const bool hasInputAudio = savedSamples > 0 && garyDir.getChildFile("myBuffer.wav").existsAsFile();
-    const bool remoteMode = !audioProcessor.getIsUsingLocalhost();
-    const bool backendLooksOnline = remoteMode && isConnected;
+    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
+    const bool backendLooksOnline = usingLocalhost
+        ? isLocalServiceOnline(ServiceType::Carey)
+        : isConnected;
 
-    const bool canGenerate = remoteMode && backendLooksOnline && hasInputAudio;
+    const bool canGenerate = backendLooksOnline && hasInputAudio;
     careyUI->setGenerateButtonEnabled(canGenerate, isGenerating);
 }
 
@@ -4490,7 +4587,7 @@ double Gary4juceAudioProcessorEditor::getCareyBpmForRequest() const
 
 bool Gary4juceAudioProcessorEditor::isCareyTabAvailable() const
 {
-    return !audioProcessor.getIsUsingLocalhost();
+    return true;
 }
 
 void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
@@ -4498,10 +4595,10 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
     const bool available = isCareyTabAvailable();
     careyTabButton.setEnabled(available);
 
-    if (available)
-        careyTabButton.setTooltip("carey (ace-step lego) - remote backend");
+    if (audioProcessor.getIsUsingLocalhost())
+        careyTabButton.setTooltip("carey (ace-step lego) - localhost backend");
     else
-        careyTabButton.setTooltip("carey on localhost coming soon");
+        careyTabButton.setTooltip("carey (ace-step lego) - remote backend");
 
     if (!available && currentTab == ModelTab::Carey)
         switchToTab(ModelTab::Gary);
@@ -4512,13 +4609,16 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
 
 void Gary4juceAudioProcessorEditor::sendToCarey()
 {
-    if (audioProcessor.getIsUsingLocalhost())
+    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
+    if (usingLocalhost)
     {
-        showStatusMessage("carey localhost backend is disabled for now. switch to remote.", 3500);
-        return;
+        if (!isLocalServiceOnline(ServiceType::Carey))
+        {
+            showStatusMessage("carey service not connected on localhost - start carey in gary4local");
+            return;
+        }
     }
-
-    if (!isConnected)
+    else if (!isConnected)
     {
         showStatusMessage("remote backend not connected - check connection first");
         return;
@@ -4816,8 +4916,10 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                 const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
                 {
-                    double rawProgress = 0.0;
-                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
+                    double rawProgress = -1.0;
+                    if (rawProgressVar.isBool())
+                        return -1;
+                    if (rawProgressVar.isInt() || rawProgressVar.isDouble())
                         rawProgress = (double)rawProgressVar;
                     else
                     {
@@ -4825,9 +4927,16 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         if (rawText.isEmpty()) return -1;
                         rawProgress = rawText.getDoubleValue();
                     }
-                    if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
-                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
+
+                    if (rawProgress < 0.0) return -1;
+                    if (rawProgress == 0.0) return 0;
+
+                    // Treat (0,1) as fractional progress; treat >=1 as percentage points.
+                    // This avoids mapping server value `1` (1%) to 100%.
+                    if (rawProgress < 1.0)
+                        return juce::jlimit(0, 99, juce::roundToInt(rawProgress * 100.0));
+
+                    return juce::jlimit(0, 99, juce::roundToInt(rawProgress));
                 };
 
                 const auto parseStepProgressFromText = [](const juce::String& text) -> int
@@ -5083,13 +5192,16 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
 void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 {
-    if (audioProcessor.getIsUsingLocalhost())
+    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
+    if (usingLocalhost)
     {
-        showStatusMessage("carey localhost backend is disabled for now. switch to remote.", 3500);
-        return;
+        if (!isLocalServiceOnline(ServiceType::Carey))
+        {
+            showStatusMessage("carey service not connected on localhost - start carey in gary4local");
+            return;
+        }
     }
-
-    if (!isConnected)
+    else if (!isConnected)
     {
         showStatusMessage("remote backend not connected - check connection first");
         return;
@@ -5255,8 +5367,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                 const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
                 {
-                    double rawProgress = 0.0;
-                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
+                    double rawProgress = -1.0;
+                    if (rawProgressVar.isBool())
+                        return -1;
+                    if (rawProgressVar.isInt() || rawProgressVar.isDouble())
                         rawProgress = (double)rawProgressVar;
                     else
                     {
@@ -5264,9 +5378,16 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                         if (rawText.isEmpty()) return -1;
                         rawProgress = rawText.getDoubleValue();
                     }
-                    if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
-                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
+
+                    if (rawProgress < 0.0) return -1;
+                    if (rawProgress == 0.0) return 0;
+
+                    // Treat (0,1) as fractional progress; treat >=1 as percentage points.
+                    // This avoids mapping server value `1` (1%) to 100%.
+                    if (rawProgress < 1.0)
+                        return juce::jlimit(0, 99, juce::roundToInt(rawProgress * 100.0));
+
+                    return juce::jlimit(0, 99, juce::roundToInt(rawProgress));
                 };
 
                 const auto parseStepProgressFromText = [](const juce::String& text) -> int
@@ -5426,13 +5547,16 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
 void Gary4juceAudioProcessorEditor::sendToCareyCover()
 {
-    if (audioProcessor.getIsUsingLocalhost())
+    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
+    if (usingLocalhost)
     {
-        showStatusMessage("carey localhost backend is disabled for now. switch to remote.", 3500);
-        return;
+        if (!isLocalServiceOnline(ServiceType::Carey))
+        {
+            showStatusMessage("carey service not connected on localhost - start carey in gary4local");
+            return;
+        }
     }
-
-    if (!isConnected)
+    else if (!isConnected)
     {
         showStatusMessage("remote backend not connected - check connection first");
         return;
@@ -5733,8 +5857,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                 const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
                 {
-                    double rawProgress = 0.0;
-                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
+                    double rawProgress = -1.0;
+                    if (rawProgressVar.isBool())
+                        return -1;
+                    if (rawProgressVar.isInt() || rawProgressVar.isDouble())
                         rawProgress = (double)rawProgressVar;
                     else
                     {
@@ -5742,9 +5868,16 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         if (rawText.isEmpty()) return -1;
                         rawProgress = rawText.getDoubleValue();
                     }
-                    if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
-                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
+
+                    if (rawProgress < 0.0) return -1;
+                    if (rawProgress == 0.0) return 0;
+
+                    // Treat (0,1) as fractional progress; treat >=1 as percentage points.
+                    // This avoids mapping server value `1` (1%) to 100%.
+                    if (rawProgress < 1.0)
+                        return juce::jlimit(0, 99, juce::roundToInt(rawProgress * 100.0));
+
+                    return juce::jlimit(0, 99, juce::roundToInt(rawProgress));
                 };
 
                 const auto parseStepProgressFromText = [](const juce::String& text) -> int
@@ -7651,6 +7784,7 @@ void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
     localGaryOnline = false;
     localTerryOnline = false;
     localJerryOnline = false;
+    localCareyOnline = false;
     localOnlineCount = 0;
     localHealthLastPollMs = 0;
     localHealthPollCounter = 0;
@@ -7664,6 +7798,7 @@ bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) co
     case ServiceType::Gary: return localGaryOnline;
     case ServiceType::Terry: return localTerryOnline;
     case ServiceType::Jerry: return localJerryOnline;
+    case ServiceType::Carey: return localCareyOnline;
     }
     return false;
 }
@@ -7674,6 +7809,7 @@ Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getAct
     {
     case ModelTab::Jerry: return ServiceType::Jerry;
     case ModelTab::Terry: return ServiceType::Terry;
+    case ModelTab::Carey: return ServiceType::Carey;
     case ModelTab::Gary:
     case ModelTab::Darius:
     default:
@@ -7736,8 +7872,9 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         const bool garyOnline = probeHealth("http://127.0.0.1:8000/health");
         const bool terryOnline = probeHealth("http://127.0.0.1:8002/health");
         const bool jerryOnline = probeHealth("http://127.0.0.1:8005/health");
+        const bool careyOnline = probeHealth("http://127.0.0.1:8001/health");
 
-        juce::MessageManager::callAsync([safeThis, garyOnline, terryOnline, jerryOnline]() {
+        juce::MessageManager::callAsync([safeThis, garyOnline, terryOnline, jerryOnline, careyOnline]() {
             if (safeThis == nullptr)
                 return;
 
@@ -7746,12 +7883,15 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             const bool changed =
                 safeThis->localGaryOnline != garyOnline ||
                 safeThis->localTerryOnline != terryOnline ||
-                safeThis->localJerryOnline != jerryOnline;
+                safeThis->localJerryOnline != jerryOnline ||
+                safeThis->localCareyOnline != careyOnline;
 
             safeThis->localGaryOnline = garyOnline;
             safeThis->localTerryOnline = terryOnline;
             safeThis->localJerryOnline = jerryOnline;
-            safeThis->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0) + (jerryOnline ? 1 : 0);
+            safeThis->localCareyOnline = careyOnline;
+            safeThis->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
+                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0);
 
             safeThis->updateAllGenerationButtonStates();
 
@@ -7848,7 +7988,7 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
             applyGaryQuantizationDefaultForCurrentModel();
     }
 
-    // Update carey tab availability (remote-only for now)
+    // Update carey tab availability and state
     updateCareyTabAvailability();
 
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
@@ -7863,7 +8003,7 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (ports 8000/8002/8005) - click to switch to remote");
+        backendToggleButton.setTooltip("using localhost backend (ports 8000/8001/8002/8005) - click to switch to remote");
     }
     else
     {
@@ -8041,10 +8181,21 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
                 case ActiveOp::GaryContinue:
                 case ActiveOp::GaryRetry:
                 case ActiveOp::JerryGenerate:
-                    if (generationProgress <= 0)
+                    if (withinWarmup)
+                    {
+                        if (generationProgress <= 0)
+                            displayText = "downloading...";
+                        else
+                            displayText = "downloading: " + juce::String(generationProgress) + "%";
+                    }
+                    else if (generationProgress <= 0)
+                    {
                         displayText = "cooking...";
+                    }
                     else
+                    {
                         displayText = "cooking: " + juce::String(generationProgress) + "%";
+                    }
                     break;
                 default:
                     if (generationProgress <= 0)
@@ -9444,7 +9595,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     {
         g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
         const auto lineOne = getLocalConnectionLineOne();
-        const auto lineTwo = juce::String(localOnlineCount) + "/3 online";
+        const auto lineTwo = juce::String(localOnlineCount) + "/4 online";
         const bool anyOnline = localOnlineCount > 0;
         const bool activeOnline = isActiveLocalServiceOnline();
 
