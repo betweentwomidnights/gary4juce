@@ -212,7 +212,8 @@ public:
 
         prepareSubTabButton(legoSubTabButton, "lego", SubTab::Lego);
         prepareSubTabButton(completeSubTabButton, "complete", SubTab::Complete);
-        prepareSubTabButton(coverSubTabButton, "cover", SubTab::Cover);
+        prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
+        coverSubTabButton.setTooltip("experimental - results may vary. use at your own risk");
 
         // Key/scale dropdowns (persistent across subtabs)
         keyScaleLabel.setText("key", juce::dontSendNotification);
@@ -237,6 +238,27 @@ public:
         keyModeComboBox.onChange = [this]() { onKeyScaleSelectionChanged(); };
         addAndMakeVisible(keyModeComboBox);
         keyModeComboBox.setVisible(false); // hidden until a key is selected
+
+        // Time signature dropdown (persistent across subtabs)
+        timeSigLabel.setText("time", juce::dontSendNotification);
+        timeSigLabel.setFont(juce::FontOptions(11.0f));
+        timeSigLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+        timeSigLabel.setJustificationType(juce::Justification::centredRight);
+        addAndMakeVisible(timeSigLabel);
+
+        timeSigComboBox.addItem("auto", 1);
+        timeSigComboBox.addItem("2/4", 2);
+        timeSigComboBox.addItem("3/4", 3);
+        timeSigComboBox.addItem("4/4", 4);
+        timeSigComboBox.addItem("6/8", 5);
+        timeSigComboBox.setSelectedId(1, juce::dontSendNotification); // default: auto
+        timeSigComboBox.setTooltip("time signature (auto-detected if not set)");
+        timeSigComboBox.onChange = [this]()
+        {
+            if (onTimeSigChanged)
+                onTimeSigChanged(getTimeSig());
+        };
+        addAndMakeVisible(timeSigComboBox);
 
         contentComponent = std::make_unique<juce::Component>();
         contentViewport = std::make_unique<juce::Viewport>();
@@ -749,6 +771,10 @@ public:
             keyRow.removeFromLeft(4);
             keyModeComboBox.setBounds(keyRow.removeFromLeft(68));
         }
+        keyRow.removeFromLeft(8);
+        timeSigLabel.setBounds(keyRow.removeFromLeft(30));
+        keyRow.removeFromLeft(4);
+        timeSigComboBox.setBounds(keyRow.removeFromLeft(68));
 
         area.removeFromTop(4);
         if (contentViewport != nullptr)
@@ -998,6 +1024,26 @@ public:
         resized();
     }
 
+    // Time signature (global across subtabs)
+    juce::String getTimeSig() const
+    {
+        const int id = timeSigComboBox.getSelectedId();
+        if (id == 2) return "2";
+        if (id == 3) return "3";
+        if (id == 4) return "4";
+        if (id == 5) return "6";
+        return {};  // auto
+    }
+
+    void setTimeSig(const juce::String& timeSig)
+    {
+        if (timeSig == "2") timeSigComboBox.setSelectedId(2, juce::dontSendNotification);
+        else if (timeSig == "3") timeSigComboBox.setSelectedId(3, juce::dontSendNotification);
+        else if (timeSig == "4") timeSigComboBox.setSelectedId(4, juce::dontSendNotification);
+        else if (timeSig == "6") timeSigComboBox.setSelectedId(5, juce::dontSendNotification);
+        else timeSigComboBox.setSelectedId(1, juce::dontSendNotification);  // auto
+    }
+
     void setGenerateButtonEnabled(bool enabled, bool isGenerating)
     {
         legoGenerateButton.setEnabled(enabled && !isGenerating);
@@ -1044,6 +1090,7 @@ public:
     std::function<void()> onCoverGenerate;
 
     std::function<void(const juce::String&)> onKeyScaleChanged;
+    std::function<void(const juce::String&)> onTimeSigChanged;
 
 private:
     void addToContent(juce::Component& component)
@@ -1634,6 +1681,8 @@ private:
 
     CustomButton coverSubTabButton;
     juce::Label keyScaleLabel;
+    juce::Label timeSigLabel;
+    CustomComboBox timeSigComboBox;
     CustomComboBox keyRootComboBox;
     CustomComboBox keyModeComboBox;
 

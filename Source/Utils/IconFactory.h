@@ -15,6 +15,7 @@ public:
     static std::unique_ptr<juce::Drawable> createHelpIcon();
     static std::unique_ptr<juce::Drawable> createDiscordIcon();
     static std::unique_ptr<juce::Drawable> createXIcon();
+    static std::unique_ptr<juce::Drawable> createUploadIcon();
     
     // Binary resource loading
     static juce::Image loadLogoImage();

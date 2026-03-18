@@ -284,6 +284,7 @@ private:
     bool currentCoverTrimToInputEnabled = true;
 
     juce::String currentCareyKeyScale = "";
+    juce::String currentCareyTimeSig = "";  // empty = auto-detect
 
     void sendToCarey();
     void sendToCareyComplete();
@@ -404,6 +405,7 @@ private:
     juce::Label outputLabel;
     CustomButton stopOutputButton;
     juce::DrawableButton cropButton;
+    juce::DrawableButton uploadButton;
 
     bool isPlayingOutput = false;
 
@@ -475,6 +477,9 @@ private:
 
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;
+
+    // Upload icon (load file into recording buffer)
+    std::unique_ptr<juce::Drawable> uploadIcon;
 
     // Check connection icon
     std::unique_ptr<juce::Drawable> checkConnectionIcon;

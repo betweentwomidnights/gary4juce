@@ -81,7 +81,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
     dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
-    careyHelpButton("carey help", juce::DrawableButton::ImageFitted)
+    careyHelpButton("carey help", juce::DrawableButton::ImageFitted),
+    uploadButton("Upload", juce::DrawableButton::ImageFitted)
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
@@ -467,6 +468,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCoverGenerate = [this]() { sendToCareyCover(); };
 
     careyUI->onKeyScaleChanged = [this](const juce::String& ks) { currentCareyKeyScale = ks; };
+    careyUI->onTimeSigChanged = [this](const juce::String& ts) { currentCareyTimeSig = ts; };
 
     careyUI->setCaptionText(currentCareyCaption);
     careyUI->setTrackName(currentCareyTrackName);
@@ -613,6 +615,28 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(cropButton);
+
+    // Upload button - load audio file into recording buffer
+    uploadIcon = IconFactory::createUploadIcon();
+    uploadButton.setTooltip("load an audio file into the recording buffer");
+    uploadButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "load audio into recording buffer",
+            juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [this, chooser](const juce::FileChooser& fc)
+            {
+                auto result = fc.getResult();
+                if (result.existsAsFile())
+                    loadAudioFileIntoBuffer(result);
+            });
+    };
+    uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    uploadButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(uploadButton);
 
     // Initialize output file path
     auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
@@ -1220,11 +1244,20 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         g.setColour(juce::Colours::darkgrey);
 
         bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
-        juce::String emptyMessage = isStandalone
-            ? "drag an audio file here to use with gary, carey, terry, or darius"
-            : "press PLAY in DAW to start recording";
-
-        g.drawText(emptyMessage, area, juce::Justification::centred);
+        if (isStandalone)
+        {
+            g.drawText("drag an audio file here to use with gary, carey, terry, or darius",
+                        area, juce::Justification::centred);
+        }
+        else
+        {
+            auto splitArea = area;
+            auto topLine = splitArea.removeFromTop(splitArea.getHeight() / 2 - 4);
+            g.drawText("press PLAY in DAW to start recording", topLine, juce::Justification::centredBottom);
+            splitArea.removeFromTop(8);
+            g.setFont(juce::FontOptions(11.0f));
+            g.drawText("(or drag an audio file in)", splitArea, juce::Justification::centredTop);
+        }
         return;
     }
 
@@ -4198,6 +4231,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     const juce::String caption = currentCareyCaption.trim();
     const juce::String lyrics = currentCareyLyrics;
     const juce::String keyScale = currentCareyKeyScale;
+    const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const bool loopAssistEnabled = currentCareyLoopAssistEnabled;
     const bool trimToInputEnabled = currentCareyTrimToInputEnabled;
@@ -4206,6 +4240,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         + ", steps=" + juce::String(inferenceSteps)
         + ", track=" + trackName
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false")
         + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
@@ -4238,7 +4273,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
     showStatusMessage("submitting carey request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String downloadedBase64;
@@ -4406,7 +4441,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 if (language.isNotEmpty() && language != "en")
                     submitPayload->setProperty("language", language);
                 submitPayload->setProperty("guidance_scale", guidanceScale);
-                submitPayload->setProperty("time_signature", "4");
+                if (timeSig.isNotEmpty())
+                    submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
 
@@ -4767,6 +4803,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const juce::String caption = currentCareyCompleteCaption.trim();
     const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
     const juce::String keyScale = currentCareyKeyScale;
+    const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
     const bool useSrcAsRef = currentCompleteUseSrcAsRef;
@@ -4774,6 +4811,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     DBG("[carey-complete] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
         + ", use_src_ref=" + juce::String(useSrcAsRef ? "on" : "off")
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
@@ -4806,7 +4844,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     showStatusMessage("submitting carey complete request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String downloadedBase64;
@@ -4845,7 +4883,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     submitPayload->setProperty("language", language);
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
-                submitPayload->setProperty("time_signature", "4");
+                if (timeSig.isNotEmpty())
+                    submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
 
@@ -5102,6 +5141,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const juce::String caption = currentCoverCaption.trim();
     const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
     const juce::String keyScale = currentCareyKeyScale;
+    const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const double coverNoiseStrength = juce::jlimit(0.0, 1.0, currentCoverNoiseStrength);
     const double audioCoverStrength = juce::jlimit(0.0, 1.0, currentCoverAudioStrength);
@@ -5114,6 +5154,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     DBG("[carey-cover] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", noise_str=" + juce::String(coverNoiseStrength, 3)
         + ", audio_str=" + juce::String(audioCoverStrength, 2)
         + ", cfg=" + juce::String(guidanceScale, 1)
@@ -5150,7 +5191,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
     showStatusMessage("submitting carey cover request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, bpm, coverNoiseStrength,
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
                           audioCoverStrength, guidanceScale, inferenceSteps, useSrcAsRef,
                           loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
@@ -5322,7 +5363,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("inference_steps", inferenceSteps);
                 submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
-                submitPayload->setProperty("time_signature", "4");
+                if (timeSig.isNotEmpty())
+                    submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
 
@@ -8980,6 +9022,25 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawText("drop audio file here", waveformArea, juce::Justification::centred);
     }
 
+    // Draw upload icon overlay on recording waveform
+    if (uploadIcon && !isRecording)
+    {
+        auto uploadBounds = uploadButton.getBounds();
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(uploadBounds.toFloat(), 3.0f);
+
+        if (uploadButton.isOver() || uploadButton.isDown())
+        {
+            g.setColour(juce::Colours::orange.withAlpha(0.8f));
+            g.drawRoundedRectangle(uploadBounds.toFloat(), 3.0f, 1.5f);
+        }
+
+        auto iconArea = uploadBounds.reduced(6);
+        uploadIcon->drawWithin(g, iconArea.toFloat(),
+            juce::RectanglePlacement::centred, 1.0f);
+    }
+
     // Status text below input waveform (using reserved area)
     g.setFont(juce::FontOptions(12.0f));
 
@@ -9186,6 +9247,15 @@ void Gary4juceAudioProcessorEditor::resized()
     connectionStatusArea = topSectionFlexBox.items[1].currentBounds.toNearestInt();
     recordingLabelArea = topSectionFlexBox.items[2].currentBounds.toNearestInt();
     waveformArea = topSectionFlexBox.items[3].currentBounds.toNearestInt();
+
+    // Upload button overlay on recording waveform (top-right corner, matching crop button style)
+    auto uploadOverlayArea = juce::Rectangle<int>(
+        waveformArea.getRight() - 50,
+        waveformArea.getY() + 5,
+        45, 25
+    );
+    uploadButton.setBounds(uploadOverlayArea);
+
     inputStatusArea = topSectionFlexBox.items[4].currentBounds.toNearestInt();
     inputInfoArea = topSectionFlexBox.items[5].currentBounds.toNearestInt();
 
