@@ -82,6 +82,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
     dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
     careyHelpButton("carey help", juce::DrawableButton::ImageFitted),
+    foundationHelpButton("foundation help", juce::DrawableButton::ImageFitted),
     uploadButton("Upload", juce::DrawableButton::ImageFitted)
 
 {
@@ -133,6 +134,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusTabButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusTabButton.onClick = [this]() { switchToTab(ModelTab::Darius); };
     addAndMakeVisible(dariusTabButton);
+
+    foundationTabButton.setButtonText("foundation");
+    foundationTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    foundationTabButton.onClick = [this]() { switchToTab(ModelTab::Foundation); };
+    addAndMakeVisible(foundationTabButton);
 
     garyUI = std::make_unique<GaryUI>();
     addAndMakeVisible(*garyUI);
@@ -491,6 +497,28 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     updateCareyTabAvailability();
 
+    // ========== FOUNDATION CONTROLS SETUP ==========
+    foundationUI = std::make_unique<FoundationUI>();
+    addAndMakeVisible(*foundationUI);
+
+    foundationUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
+    foundationUI->setBpm(audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : 120.0);
+
+    foundationUI->onGenerate = [this]() { sendToFoundation(); };
+    foundationUI->onRandomize = [this]() { randomizeFoundation(); };
+
+    foundationUI->setGenerateButtonEnabled(false, false);
+
+    // Restore persisted Foundation state from processor
+    {
+        juce::String savedFoundation = audioProcessor.getFoundationState();
+        if (savedFoundation.isNotEmpty())
+        {
+            DBG("[foundation] Restoring saved state (" + juce::String(savedFoundation.length()) + " chars)");
+            foundationUI->restoreState(savedFoundation);
+        }
+    }
+
     // ========== REMAINING SETUP (unchanged) ==========
 
     // Set up the "Check Connection" button
@@ -709,6 +737,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://github.com/betweentwomidnights/ace-lego").launchInDefaultBrowser();
         };
         addAndMakeVisible(careyHelpButton);
+
+        // foundation help button
+        foundationHelpButton.setImages(helpIcon.get());
+        foundationHelpButton.setTooltip("learn more about foundation-1");
+        foundationHelpButton.onClick = [this]() {
+            juce::URL("https://huggingface.co/RoyalCities/Foundation-1").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(foundationHelpButton);
     }
     
     // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
@@ -899,6 +935,15 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
             fetchDariusAssetsStatus();
     }
 
+    // Foundation controls visibility
+    const bool showFoundation = (tab == ModelTab::Foundation);
+    if (foundationUI)
+    {
+        foundationUI->setVisibleForTab(showFoundation);
+        if (showFoundation)
+            updateFoundationEnablementSnapshot();
+    }
+
     // Help button visibility
     if (helpIcon)
     {
@@ -907,9 +952,10 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         terryHelpButton.setVisible(showTerry);
         dariusHelpButton.setVisible(showDarius);
         careyHelpButton.setVisible(showCarey);
+        foundationHelpButton.setVisible(showFoundation);
     }
 
-    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showTerry ? "Terry" : "Darius")))));
+    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showTerry ? "Terry" : (showDarius ? "Darius" : "Foundation"))))));
 
     // Force a complete relayout to position help icons correctly
     resized();
@@ -937,6 +983,10 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
 
     dariusTabButton.setButtonStyle(currentTab == ModelTab::Darius ?
         CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
+
+    // Foundation uses Jerry (orange) styling when active
+    foundationTabButton.setButtonStyle(currentTab == ModelTab::Foundation ?
+        CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
 }
 
 void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
@@ -953,6 +1003,7 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
 
     updateTerryEnablementSnapshot();
     updateCareyEnablementSnapshot();
+    updateFoundationEnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
@@ -999,6 +1050,10 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         dariusUI->setOutputAudioAvailable(hasOutputAudio);
         dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     }
+
+    // Foundation BPM sync (plugin mode only)
+    if (foundationUI && !juce::JUCEApplicationBase::isStandaloneApp() && currentBPM > 0.0)
+        foundationUI->setBpm(currentBPM);
 
     // Track BPM for carey requests
     currentCareyBpm = currentBPM;
@@ -1560,7 +1615,14 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 return;
             }
 
-            juce::URL pollUrl(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+            // Select poll URL based on active operation
+            juce::URL pollUrl = [&]() {
+                if (activeOp == ActiveOp::FoundationGenerate)
+                    return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
+                if (activeOp == ActiveOp::CareyGenerate)
+                    return juce::URL(getServiceUrl(ServiceType::Carey, "/poll_status/" + sessionId));
+                return juce::URL(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+            }();
 
             try
             {
@@ -4182,6 +4244,295 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
 
     updateTabButtonStates();
     updateCareyEnablementSnapshot();
+}
+
+// ========== FOUNDATION ==========
+
+void Gary4juceAudioProcessorEditor::updateFoundationEnablementSnapshot()
+{
+    if (!foundationUI)
+        return;
+
+    const bool canGenerate = isConnected;
+    foundationUI->setGenerateButtonEnabled(canGenerate, isGenerating);
+
+    // Clear the "generating at X BPM..." info text once generation finishes
+    if (!isGenerating)
+        foundationUI->refreshDurationInfo();
+
+    // Sync BPM from DAW
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        double bpm = audioProcessor.getCurrentBPM();
+        if (bpm > 0.0)
+            foundationUI->setBpm(bpm);
+    }
+
+    // Persist Foundation UI state to processor (for DAW save/load)
+    // Only serialize when the built prompt has changed (cheap string comparison)
+    {
+        juce::String currentPrompt = foundationUI->getBuiltPrompt();
+        if (currentPrompt != lastFoundationPromptSnapshot)
+        {
+            lastFoundationPromptSnapshot = currentPrompt;
+            audioProcessor.setFoundationState(foundationUI->serializeState());
+        }
+    }
+}
+
+void Gary4juceAudioProcessorEditor::sendToFoundation()
+{
+    if (!isConnected)
+    {
+        showStatusMessage("backend not connected - check connection first");
+        return;
+    }
+
+    if (!foundationUI)
+        return;
+
+    const auto cancelOp = [this]()
+    {
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
+    setActiveOp(ActiveOp::FoundationGenerate);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    repaint();
+
+    showStatusMessage("submitting foundation-1 request...", 2500);
+
+    // Build JSON payload
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("seed", foundationUI->getSeed());
+    jsonRequest->setProperty("bars", foundationUI->getSelectedBars());
+
+    // Get host BPM
+    double bpm = foundationUI->getHostBpm();
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        double dawBpm = audioProcessor.getCurrentBPM();
+        if (dawBpm > 0.0) bpm = dawBpm;
+    }
+    jsonRequest->setProperty("host_bpm", bpm);
+
+    jsonRequest->setProperty("key_root", foundationUI->getKeyRoot());
+    jsonRequest->setProperty("key_mode", foundationUI->getKeyMode());
+    jsonRequest->setProperty("family", foundationUI->getFamily());
+    jsonRequest->setProperty("subfamily", foundationUI->getSubfamily());
+    jsonRequest->setProperty("descriptor_knob_a", foundationUI->getDescriptorA());
+    jsonRequest->setProperty("descriptor_knob_b", foundationUI->getDescriptorB());
+    jsonRequest->setProperty("descriptor_knob_c", foundationUI->getDescriptorC());
+
+    // Descriptors extra
+    {
+        auto extras = foundationUI->getDescriptorsExtraValues();
+        if (extras.size() > 0)
+        {
+            juce::Array<juce::var> extArr;
+            for (auto& e : extras)
+                extArr.add(e);
+            jsonRequest->setProperty("descriptors_extra", extArr);
+        }
+    }
+
+    jsonRequest->setProperty("reverb_enabled", foundationUI->getReverbEnabled());
+    jsonRequest->setProperty("reverb_amount", foundationUI->getReverbEnabled() ? foundationUI->getReverbAmount() : juce::String());
+    jsonRequest->setProperty("delay_enabled", foundationUI->getDelayEnabled());
+    jsonRequest->setProperty("delay_type", foundationUI->getDelayEnabled() ? foundationUI->getDelayType() : juce::String());
+    jsonRequest->setProperty("distortion_enabled", foundationUI->getDistortionEnabled());
+    jsonRequest->setProperty("distortion_amount", foundationUI->getDistortionEnabled() ? foundationUI->getDistortionAmount() : juce::String());
+    jsonRequest->setProperty("phaser_enabled", foundationUI->getPhaserEnabled());
+    jsonRequest->setProperty("phaser_amount", foundationUI->getPhaserEnabled() ? foundationUI->getPhaserAmount() : juce::String());
+    jsonRequest->setProperty("bitcrush_enabled", foundationUI->getBitcrushEnabled());
+    jsonRequest->setProperty("bitcrush_amount", foundationUI->getBitcrushEnabled() ? foundationUI->getBitcrushAmount() : juce::String());
+
+    // Behavior tags as array
+    auto behaviorTags = foundationUI->getSelectedBehaviorTags();
+    juce::var tagsArray;
+    for (auto& tag : behaviorTags)
+        tagsArray.append(tag);
+    jsonRequest->setProperty("behavior_tags", tagsArray);
+
+    jsonRequest->setProperty("custom_prompt_override", foundationUI->getCustomPromptOverride());
+    jsonRequest->setProperty("guidance_scale", foundationUI->getGuidance());
+    jsonRequest->setProperty("steps", foundationUI->getSteps());
+
+    auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+    DBG("[foundation] JSON payload: " + jsonString.substring(0, 300));
+
+    juce::Thread::launch([this, jsonString, cancelOp]()
+    {
+        if (!isGenerating) return;
+
+        juce::URL url(getServiceUrl(ServiceType::Foundation, "/generate"));
+        juce::URL postUrl = url.withPOSTData(jsonString);
+
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(15000)
+            .withExtraHeaders("Content-Type: application/json");
+
+        juce::String responseText;
+        bool ok = false;
+
+        try
+        {
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = true;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([this, responseText, ok, cancelOp]()
+        {
+            if (!isGenerating) return;
+
+            if (!ok || responseText.isEmpty())
+            {
+                showStatusMessage("foundation-1 backend not responding", 4000);
+                cancelOp();
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (!responseObj)
+            {
+                showStatusMessage("invalid response from foundation-1", 4000);
+                cancelOp();
+                return;
+            }
+
+            bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                showStatusMessage("foundation-1 error: " + error, 5000);
+                cancelOp();
+                return;
+            }
+
+            juce::String sessionId = responseObj->getProperty("session_id").toString();
+            int foundationBpm = (int)responseObj->getProperty("foundation_bpm");
+            juce::String prompt = responseObj->getProperty("prompt").toString();
+
+            DBG("[foundation] session=" + sessionId + " foundation_bpm=" + juce::String(foundationBpm));
+            DBG("[foundation] prompt=" + prompt);
+
+            if (foundationUI)
+                foundationUI->setInfoText("generating at " + juce::String(foundationBpm) + " BPM...");
+
+            showStatusMessage("foundation-1 generating...", 2000);
+            startPollingForResults(sessionId);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::randomizeFoundation()
+{
+    if (!isConnected)
+    {
+        showStatusMessage("connect first", 2000);
+        return;
+    }
+
+    if (foundationUI)
+    {
+        foundationUI->setRandomizeEnabled(false);
+        foundationUI->setInfoText("randomizing...");
+    }
+
+    // Build optional request body
+    auto jsonObj = std::make_unique<juce::DynamicObject>();
+    jsonObj->setProperty("seed", -1);
+    jsonObj->setProperty("mode", "standard");
+
+    juce::String jsonString = juce::JSON::toString(juce::var(jsonObj.release()));
+    DBG("[foundation] randomize request: " + jsonString);
+
+    juce::URL url(getServiceUrl(ServiceType::Foundation, "/randomize"));
+    juce::URL postUrl = url.withPOSTData(jsonString);
+
+    juce::Thread::launch([this, postUrl]()
+    {
+        juce::String responseText;
+        bool ok = false;
+
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = true;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([this, responseText, ok]()
+        {
+            if (foundationUI)
+                foundationUI->setRandomizeEnabled(true);
+
+            if (!ok || responseText.isEmpty())
+            {
+                showStatusMessage("randomize failed — check connection", 3000);
+                if (foundationUI) foundationUI->setInfoText("");
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (responseObj == nullptr)
+            {
+                showStatusMessage("randomize: invalid response", 3000);
+                if (foundationUI) foundationUI->setInfoText("");
+                return;
+            }
+
+            bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                showStatusMessage("randomize: " + (error.isEmpty() ? "unknown error" : error), 3000);
+                if (foundationUI) foundationUI->setInfoText("");
+                return;
+            }
+
+            DBG("[foundation] randomize response: " + responseText);
+
+            if (foundationUI)
+            {
+                foundationUI->applyRandomizeResponse(responseVar);
+                foundationUI->setInfoText("");
+                showStatusMessage("prompt randomized!", 1500);
+            }
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::sendToCarey()
@@ -7366,12 +7717,14 @@ juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, c
     Gary4juceAudioProcessor::ServiceType processorService;
     switch (service)
     {
-        case ServiceType::Gary:  processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
-        case ServiceType::Jerry: processorService = Gary4juceAudioProcessor::ServiceType::Jerry; break;
-        case ServiceType::Terry: processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
-        case ServiceType::Carey: processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
+        case ServiceType::Gary:       processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
+        case ServiceType::Jerry:      processorService = Gary4juceAudioProcessor::ServiceType::Jerry; break;
+        case ServiceType::Terry:      processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
+        case ServiceType::Carey:      processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
+        case ServiceType::Foundation: processorService = Gary4juceAudioProcessor::ServiceType::Foundation; break;
+        default: processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
     }
-    
+
     return audioProcessor.getServiceUrl(processorService, endpoint);
 }
 
@@ -7494,6 +7847,7 @@ juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
         case ActiveOp::JerryGenerate:
             return "cooking";
         case ActiveOp::CareyGenerate:
+        case ActiveOp::FoundationGenerate:
             return "generating";
         default:
             return "processing";
@@ -9307,13 +9661,14 @@ void Gary4juceAudioProcessorEditor::resized()
 
     // Tab buttons area
     tabArea = tabSectionBounds.removeFromTop(35);
-    auto tabButtonWidth = tabArea.getWidth() / 5;
+    auto tabButtonWidth = tabArea.getWidth() / 6;
 
     garyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     jerryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     careyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     terryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
-    dariusTabButton.setBounds(tabArea.reduced(2, 2));
+    dariusTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
+    foundationTabButton.setBounds(tabArea.reduced(2, 2));
 
     // Model controls area (below tabs)
     modelControlsArea = tabSectionBounds.reduced(0, 5);
@@ -9401,6 +9756,21 @@ void Gary4juceAudioProcessorEditor::resized()
         dariusHelpButton.setBounds(helpBounds);
     }
 
+    if (foundationUI)
+        foundationUI->setBounds(modelControlsArea);
+
+    if (helpIcon && currentTab == ModelTab::Foundation && foundationUI)
+    {
+        auto titleBounds = foundationUI->getTitleBounds().translated(foundationUI->getX(), foundationUI->getY());
+        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("foundation-1"));
+        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
+        auto helpBounds = juce::Rectangle<int>(
+            textStartX + textWidth + 5,
+            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
+            20, 20);
+        foundationHelpButton.setBounds(helpBounds);
+    }
 
 // ========== OUTPUT SECTION (FlexBox Implementation) ==========
     auto outputSection = bounds.removeFromTop(200).reduced(20, 10);

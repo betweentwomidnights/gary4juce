@@ -12,6 +12,7 @@
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
 #include "Components/Carey/CareyUI.h"
+#include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
@@ -87,7 +88,7 @@ private:
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry, Carey };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -125,7 +126,8 @@ private:
         Jerry,
         Carey,
         Terry,
-        Darius // magenta
+        Darius, // magenta
+        Foundation // foundation-1
     };
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
@@ -138,7 +140,8 @@ private:
         TerryTransform,
         JerryGenerate,
         CareyGenerate,
-        DariusGenerate
+        DariusGenerate,
+        FoundationGenerate
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -146,6 +149,7 @@ private:
     CustomButton jerryTabButton;
     CustomButton careyTabButton;
     CustomButton terryTabButton;
+    CustomButton foundationTabButton;
 
 
     void switchToTab(ModelTab tab);
@@ -293,6 +297,13 @@ private:
     double getCareyBpmForRequest() const;
     bool isCareyTabAvailable() const;
     void updateCareyTabAvailability();
+
+    // ========== FOUNDATION ==========
+    std::unique_ptr<FoundationUI> foundationUI;
+    juce::String lastFoundationPromptSnapshot;
+    void sendToFoundation();
+    void randomizeFoundation();
+    void updateFoundationEnablementSnapshot();
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
@@ -503,7 +514,7 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton;
 
     // Allow an extended grace period when we're at 0% but still receiving polls
     const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes
