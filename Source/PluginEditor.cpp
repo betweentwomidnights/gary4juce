@@ -135,10 +135,18 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusTabButton.onClick = [this]() { switchToTab(ModelTab::Darius); };
     addAndMakeVisible(dariusTabButton);
 
-    foundationTabButton.setButtonText("foundation");
-    foundationTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
-    foundationTabButton.onClick = [this]() { switchToTab(ModelTab::Foundation); };
-    addAndMakeVisible(foundationTabButton);
+    // Jerry sub-tab buttons (shown when Jerry main tab is active)
+    jerrySubTabSAOS.setButtonText("jerry (SAOS)");
+    jerrySubTabSAOS.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    jerrySubTabSAOS.onClick = [this]() { switchJerrySubTab(JerrySubTab::SAOS); };
+    addAndMakeVisible(jerrySubTabSAOS);
+    jerrySubTabSAOS.setVisible(false);
+
+    jerrySubTabFoundation.setButtonText("foundation-1");
+    jerrySubTabFoundation.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    jerrySubTabFoundation.onClick = [this]() { switchJerrySubTab(JerrySubTab::Foundation); };
+    addAndMakeVisible(jerrySubTabFoundation);
+    jerrySubTabFoundation.setVisible(false);
 
     garyUI = std::make_unique<GaryUI>();
     addAndMakeVisible(*garyUI);
@@ -935,27 +943,41 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
             fetchDariusAssetsStatus();
     }
 
-    // Foundation controls visibility
-    const bool showFoundation = (tab == ModelTab::Foundation);
-    if (foundationUI)
+    // Jerry sub-tab buttons visibility (only when Jerry main tab is active)
+    jerrySubTabSAOS.setVisible(showJerry);
+    jerrySubTabFoundation.setVisible(showJerry);
+
+    // Jerry sub-tab components: show the right one
+    if (showJerry)
     {
-        foundationUI->setVisibleForTab(showFoundation);
-        if (showFoundation)
-            updateFoundationEnablementSnapshot();
+        bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
+        if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+        if (foundationUI)
+        {
+            foundationUI->setVisibleForTab(!showSAOS);
+            if (!showSAOS) updateFoundationEnablementSnapshot();
+        }
+    }
+    else
+    {
+        // Jerry tab not active — hide both sub-components
+        if (foundationUI) foundationUI->setVisibleForTab(false);
     }
 
     // Help button visibility
     if (helpIcon)
     {
         garyHelpButton.setVisible(showGary);
-        jerryHelpButton.setVisible(showJerry);
+        // Jerry help: show SAOS help when Jerry tab + SAOS sub-tab
+        jerryHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::SAOS);
+        // Foundation help: show when Jerry tab + Foundation sub-tab
+        foundationHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::Foundation);
         terryHelpButton.setVisible(showTerry);
         dariusHelpButton.setVisible(showDarius);
         careyHelpButton.setVisible(showCarey);
-        foundationHelpButton.setVisible(showFoundation);
     }
 
-    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showTerry ? "Terry" : (showDarius ? "Darius" : "Foundation"))))));
+    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showTerry ? "Terry" : "Darius")))));
 
     // Force a complete relayout to position help icons correctly
     resized();
@@ -984,9 +1006,66 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
     dariusTabButton.setButtonStyle(currentTab == ModelTab::Darius ?
         CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
 
-    // Foundation uses Jerry (orange) styling when active
-    foundationTabButton.setButtonStyle(currentTab == ModelTab::Foundation ?
-        CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+    // Update Jerry sub-tab button states when Jerry is the active tab
+    if (currentTab == ModelTab::Jerry)
+        updateJerrySubTabStates();
+}
+
+void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
+{
+    // Foundation sub-tab unavailable on localhost (backend not yet implemented)
+    if (sub == JerrySubTab::Foundation && isUsingLocalhost) return;
+    if (jerrySubTab == sub && currentTab == ModelTab::Jerry) return;
+
+    jerrySubTab = sub;
+
+    // If we're not on the Jerry tab, switch to it first
+    if (currentTab != ModelTab::Jerry)
+    {
+        switchToTab(ModelTab::Jerry);
+        return; // switchToTab will call resized() which handles everything
+    }
+
+    updateJerrySubTabStates();
+
+    bool showSAOS = (sub == JerrySubTab::SAOS);
+    if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+    if (foundationUI)
+    {
+        foundationUI->setVisibleForTab(!showSAOS);
+        if (!showSAOS) updateFoundationEnablementSnapshot();
+    }
+
+    // Update help button visibility
+    if (helpIcon)
+    {
+        jerryHelpButton.setVisible(showSAOS);
+        foundationHelpButton.setVisible(!showSAOS);
+    }
+
+    resized();
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
+{
+    jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
+        ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+
+    // Foundation sub-tab disabled on localhost (backend not yet implemented)
+    bool foundationAvailable = !isUsingLocalhost;
+    jerrySubTabFoundation.setEnabled(foundationAvailable);
+    if (!foundationAvailable)
+    {
+        jerrySubTabFoundation.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+        jerrySubTabFoundation.setTooltip("foundation-1 is only available on remote (DGX Spark)");
+    }
+    else
+    {
+        jerrySubTabFoundation.setButtonStyle(jerrySubTab == JerrySubTab::Foundation
+            ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+        jerrySubTabFoundation.setTooltip("");
+    }
 }
 
 void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
@@ -7754,6 +7833,11 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     // Update carey tab availability (remote-only for now)
     updateCareyTabAvailability();
 
+    // Foundation sub-tab: disable on localhost, force back to SAOS if currently active
+    if (isUsingLocalhost && jerrySubTab == JerrySubTab::Foundation)
+        switchJerrySubTab(JerrySubTab::SAOS);
+    updateJerrySubTabStates();
+
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
 
     // Re-fetch Gary models for the new backend
@@ -9659,18 +9743,54 @@ void Gary4juceAudioProcessorEditor::resized()
     auto tabSectionBounds = bounds.removeFromTop(320).reduced(20, 10);
     fullTabAreaRect = tabSectionBounds.expanded(20, 10); // Expand back to account for the reduced margins
 
-    // Tab buttons area
+    // Tab buttons area (5 main tabs)
     tabArea = tabSectionBounds.removeFromTop(35);
-    auto tabButtonWidth = tabArea.getWidth() / 6;
+    auto tabButtonWidth = tabArea.getWidth() / 5;
 
     garyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     jerryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     careyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     terryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
-    dariusTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
-    foundationTabButton.setBounds(tabArea.reduced(2, 2));
+    dariusTabButton.setBounds(tabArea.reduced(2, 2));
 
-    // Model controls area (below tabs)
+    // Jerry sub-tab row (between main tabs and model controls — only when Jerry is active)
+    if (currentTab == ModelTab::Jerry)
+    {
+        auto subTabRow = tabSectionBounds.removeFromTop(24);
+        int subPad = subTabRow.getWidth() / 6; // indent to roughly align under jerry tab
+        auto subArea = subTabRow.reduced(subPad / 2, 1);
+        constexpr int helpSize = 20;
+        constexpr int helpInset = 2;
+
+        int btnW = (subArea.getWidth() - 4) / 2;
+        auto leftBtn = subArea.withWidth(btnW);
+        auto rightBtn = subArea.withLeft(subArea.getX() + btnW + 4).withWidth(btnW);
+
+        jerrySubTabSAOS.setBounds(leftBtn);
+        jerrySubTabFoundation.setBounds(rightBtn);
+        jerrySubTabSAOS.toFront(false);
+        jerrySubTabFoundation.toFront(false);
+
+        if (helpIcon)
+        {
+            if (jerrySubTab == JerrySubTab::SAOS)
+            {
+                jerryHelpButton.setBounds(leftBtn.getRight() - helpSize - helpInset,
+                                           leftBtn.getCentreY() - helpSize / 2,
+                                           helpSize, helpSize);
+                jerryHelpButton.toFront(false);
+            }
+            else
+            {
+                foundationHelpButton.setBounds(rightBtn.getRight() - helpSize - helpInset,
+                                                rightBtn.getCentreY() - helpSize / 2,
+                                                helpSize, helpSize);
+                foundationHelpButton.toFront(false);
+            }
+        }
+    }
+
+    // Model controls area (below tabs + optional sub-tab row)
     modelControlsArea = tabSectionBounds.reduced(0, 5);
 
     // ========== GARY CONTROLS LAYOUT ==========
@@ -9695,17 +9815,16 @@ void Gary4juceAudioProcessorEditor::resized()
     if (jerryUI)
         jerryUI->setBounds(modelControlsArea);
 
-    if (helpIcon && currentTab == ModelTab::Jerry && jerryUI)
+    // When on Jerry tab, hide the title labels since sub-tab buttons serve as headers
+    if (currentTab == ModelTab::Jerry)
     {
-        auto titleBounds = jerryUI->getTitleBounds().translated(jerryUI->getX(), jerryUI->getY());
-        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("jerry (stable audio open small)"));
-        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
-        auto helpBounds = juce::Rectangle<int>(
-            textStartX + textWidth + 5,
-            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
-            20, 20);
-        jerryHelpButton.setBounds(helpBounds);
+        if (jerryUI) jerryUI->setTitleVisible(false);
+        if (foundationUI) foundationUI->setTitleVisible(false);
+    }
+    else
+    {
+        if (jerryUI) jerryUI->setTitleVisible(true);
+        if (foundationUI) foundationUI->setTitleVisible(true);
     }
 
     if (careyUI)
@@ -9758,19 +9877,7 @@ void Gary4juceAudioProcessorEditor::resized()
 
     if (foundationUI)
         foundationUI->setBounds(modelControlsArea);
-
-    if (helpIcon && currentTab == ModelTab::Foundation && foundationUI)
-    {
-        auto titleBounds = foundationUI->getTitleBounds().translated(foundationUI->getX(), foundationUI->getY());
-        juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("foundation-1"));
-        auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
-        auto helpBounds = juce::Rectangle<int>(
-            textStartX + textWidth + 5,
-            titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
-            20, 20);
-        foundationHelpButton.setBounds(helpBounds);
-    }
+    // Foundation help button is positioned alongside Jerry sub-tab buttons (handled above)
 
 // ========== OUTPUT SECTION (FlexBox Implementation) ==========
     auto outputSection = bounds.removeFromTop(200).reduced(20, 10);

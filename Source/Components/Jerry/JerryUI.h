@@ -42,6 +42,7 @@ public:
     int getManualBpm() const;
 
     juce::Rectangle<int> getTitleBounds() const;
+    void setTitleVisible(bool visible);
 
     std::function<void(const juce::String&)> onPromptChanged;
     std::function<void(float)> onCfgChanged;
@@ -175,4 +176,5 @@ private:
     bool isLoadingModel = false;
 
     juce::Rectangle<int> titleBounds;
+    bool titleHidden = false;
 };

@@ -1,6 +1,6 @@
 # gary4juce
 
-a VST3/AU plugin for AI-assisted music production. five models, one interface.
+a VST3/AU plugin for AI-assisted music production. six models, one interface.
 
 https://thepatch.gumroad.com/l/gary4juce
 
@@ -12,10 +12,11 @@ videos about it here when i can: https://youtube.com/@thepatch_dev
 
 ## what is this?
 
-gary4juce gives you five AI music models directly in your DAW:
+gary4juce gives you six AI music models directly in your DAW:
 
 - **gary** (musicgen) - continuation/anti-looper. extends your audio in creative directions
 - **jerry** (stable-audio-open-small) - BPM-aware 12-second loop generation in under a second
+- **rc-jerry** ([foundation-1](https://huggingface.co/RoyalCities/Foundation-1)) - BPM and key-aware 4/8-bar loop generation with structured prompt assembly
 - **carey** (ace-step) - stem generation, audio continuation, and remix/cover with lyrics + multilingual support
 - **terry** (melodyflow) - audio transformation. turn your guitar into an orchestra
 - **darius** (magenta-realtime) - high-quality 48kHz continuations with style control
@@ -27,16 +28,37 @@ put it on your master, press play, record some audio, and start iterating.
 ## TODO (v3 release)
 
 - [ ] add carey local backend to [gary-localhost-installer](https://github.com/betweentwomidnights/gary-localhost-installer)
+- [ ] add foundation-1 local backend to [gary-localhost-installer](https://github.com/betweentwomidnights/gary-localhost-installer)
 - [ ] finish assimilating the mac branch of gary4juce
 - [ ] potentially add 'extract' mode if we can get it to be more reliable
 - [ ] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
 - [ ] produce better captions for the dice buttons
-- [ ] introduce time signature option to the UI
+- [x] introduce time signature option to the carey UI
 - [ ] create finetuning guide for stable-audio-open-small (youtube + written)
 
 ---
 
 ## what's new in v3
+
+### rc-jerry (foundation-1) - structured loop generation
+
+[Foundation-1](https://huggingface.co/RoyalCities/Foundation-1) by RoyalCities joins the jerry tab as a sub-tab. where jerry (SAOS) excels at quick drum loops, rc-jerry generates BPM and key-aware synth/instrument loops of 4 or 8 bars using a structured prompt engine.
+
+the UI is built around composable controls that assemble prompts from tagged categories:
+
+- **family/type** - instrument family (synth, bass, keys, mallet, brass, etc.) and subfamily
+- **character** - up to 3 timbre descriptor knobs from 50 tags (warm, gritty, crisp, metallic, etc.) with +/- to add/remove
+- **extra descriptors** - freeform text tags with +/- rows (like darius style embeddings)
+- **behavior** - speed, rhythm, contour, density as toggle+knob controls (some with optional 2nd knob via +/-)
+- **spatial, style, frequency band, synthesis** - toggle+knob for spatial character, style tags, freq bands, and wave/tech
+- **effects** - reverb, delay, distortion, phaser, bitcrush as toggle+knob pedals
+- **randomize** - backend `/randomize` endpoint uses RoyalCities' weighted prompt engine to populate the entire UI with musically coherent presets
+- **presets** - save/load `.f1preset` files to `~/Documents/gary4juce/foundation-presets/`
+- **state persistence** - all settings saved/restored with your DAW project
+
+BPM is synced from DAW and snapped to supported values (100-150), with automatic time-stretching when needed. key and scale are user-controlled.
+
+powered by [RC-stable-audio-tools](https://github.com/RoyalCities/RC-stable-audio-tools). currently **remote backend only** (running on DGX Spark) - localhost support coming soon.
 
 ### carey (ace-step) joined the party
 
@@ -46,7 +68,7 @@ the biggest addition to gary4juce yet. three modes powered by the [ACE-Step 1.5]
 - **complete** - extend any audio into a full continuation. experimental, wildly creative when it converges.
 - **cover** - remix/restyle your audio with a text caption. chain with lego for a gibberish-to-lyrics workflow.
 
-plus: shared lyrics editor with 50-language support, key/scale selection, per-tab cfg control, and inference step tuning.
+plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, and inference step tuning.
 
 **[detailed carey guide](CAREY.md)** - tips, parameter explanations, and workflow tricks.
 
@@ -121,6 +143,14 @@ clone: https://github.com/betweentwomidnights/gary-backend-combined and follow t
 
 then switch the plugin to 'local' mode.
 
+### foundation-1 backend (rc-jerry)
+
+rc-jerry uses the [RC-stable-audio-tools](https://github.com/RoyalCities/RC-stable-audio-tools) fork running in a docker container.
+
+**remote:** already set up on the remote backend (DGX Spark). just switch to the foundation-1 sub-tab inside jerry.
+
+**localhost:** not yet available. will be added to the [gary-localhost-installer](https://github.com/betweentwomidnights/gary-localhost-installer) in a future update. the foundation-1 sub-tab is disabled when on localhost.
+
 ### carey backend (ace-step)
 
 carey runs on a separate backend from the other models.
@@ -184,12 +214,17 @@ models available:
 
 learn more: https://github.com/facebookresearch/audiocraft
 
-### jerry tab (stable-audio-open-small)
+### jerry tab (two sub-tabs)
+
+the jerry tab contains two models that complement each other:
+
+#### jerry (SAOS) - stable-audio-open-small
 
 - generates 12-second loops aligned to your DAW's BPM
 - text prompt based generation
 - **smart loop mode** with type selection (auto/drums/instruments)
 - drag output directly to timeline
+- excels at drum loops and percussive patterns
 
 **finetune support (localhost only):**
 - click "+" button to add custom finetunes
@@ -197,6 +232,17 @@ learn more: https://github.com/facebookresearch/audiocraft
 - fetch checkpoints, select one, add to models
 
 learn more: https://huggingface.co/stabilityai/stable-audio-open-small
+
+#### rc-jerry (foundation-1)
+
+- generates 4 or 8 bar loops synced to DAW BPM and key
+- structured prompt assembly via knobs, toggles, and tag controls
+- randomize button generates musically coherent presets via backend weighted prompt engine
+- save/load presets as `.f1preset` files
+- excels at synth, bass, keys, mallet, and brass loops
+- **remote backend only** (localhost support coming soon)
+
+learn more: https://huggingface.co/RoyalCities/Foundation-1
 
 ### carey tab (ace-step)
 
@@ -282,11 +328,12 @@ gary4juce/
 │   ├── PluginProcessor.cpp/h     # audio processing, host audio playback
 │   ├── PluginEditor.cpp/h        # UI, tab management, network requests
 │   ├── Components/
-│   │   ├── Gary/GaryUI.cpp/h     # musicgen interface
-│   │   ├── Jerry/JerryUI.cpp/h   # stable-audio interface
-│   │   ├── Carey/CareyUI.h       # ace-step interface (lego/complete/cover)
-│   │   ├── Terry/TerryUI.cpp/h   # melodyflow interface
-│   │   └── Darius/DariusUI.cpp/h # magenta interface
+│   │   ├── Gary/GaryUI.cpp/h         # musicgen interface
+│   │   ├── Jerry/JerryUI.cpp/h       # stable-audio interface
+│   │   ├── Foundation/FoundationUI.h # foundation-1 interface (jerry sub-tab)
+│   │   ├── Carey/CareyUI.h           # ace-step interface (lego/complete/cover)
+│   │   ├── Terry/TerryUI.cpp/h       # melodyflow interface
+│   │   └── Darius/DariusUI.cpp/h     # magenta interface
 │   └── Utils/
 │       ├── Theme.h               # color scheme
 │       ├── IconFactory.cpp/h     # SVG icons
@@ -337,6 +384,7 @@ steps:
 
 - **musicgen:** meta AI / audiocraft team
 - **stable-audio-open-small:** stability AI
+- **foundation-1:** RoyalCities ([model](https://huggingface.co/RoyalCities/Foundation-1), [tools](https://github.com/RoyalCities/RC-stable-audio-tools))
 - **ace-step:** ACE-Step team ([repo](https://github.com/ace-step/ACE-Step-1.5))
 - **melodyflow:** meta AI / audiocraft team
 - **magenta-realtime:** google magenta team
@@ -350,6 +398,7 @@ steps:
 this plugin is free to use. model licenses vary:
 - musicgen: MIT-ish (check audiocraft repo)
 - stable-audio-open-small: stability AI license
+- foundation-1: check [RoyalCities/Foundation-1](https://huggingface.co/RoyalCities/Foundation-1)
 - ace-step: apache 2.0
 - melodyflow: meta research license
 - magenta-realtime: apache 2.0

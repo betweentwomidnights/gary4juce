@@ -123,12 +123,15 @@ private:
     enum class ModelTab
     {
         Gary = 0,
-        Jerry,
+        Jerry,    // encompasses both Jerry SAOS and Foundation sub-tabs
         Carey,
         Terry,
-        Darius, // magenta
-        Foundation // foundation-1
+        Darius    // magenta
     };
+
+    // Jerry has two sub-tabs: the original SAOS model and Foundation-1
+    enum class JerrySubTab { SAOS = 0, Foundation };
+    JerrySubTab jerrySubTab = JerrySubTab::SAOS;
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
     enum class ActiveOp
@@ -149,7 +152,12 @@ private:
     CustomButton jerryTabButton;
     CustomButton careyTabButton;
     CustomButton terryTabButton;
-    CustomButton foundationTabButton;
+
+    // Jerry sub-tab buttons (replace the title area when Jerry tab is active)
+    CustomButton jerrySubTabSAOS;      // "jerry (SAOS)"
+    CustomButton jerrySubTabFoundation; // "foundation-1"
+    void switchJerrySubTab(JerrySubTab sub);
+    void updateJerrySubTabStates();
 
 
     void switchToTab(ModelTab tab);
@@ -515,6 +523,7 @@ private:
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
     juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton;
+    // foundationHelpButton is reused — visible when Jerry sub-tab is Foundation
 
     // Allow an extended grace period when we're at 0% but still receiving polls
     const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes

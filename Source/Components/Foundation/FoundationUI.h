@@ -1069,10 +1069,10 @@ public:
         area.removeFromRight(marginH);
         area.removeFromTop(2);
 
-        titleBounds = area.removeFromTop(22);
+        titleBounds = area.removeFromTop(titleHidden ? 0 : 22);
         titleLabel.setBounds(titleBounds);
 
-        area.removeFromTop(2);
+        if (!titleHidden) area.removeFromTop(2);
 
         // ---- Persistent header row: bars | BPM | key (above viewport, like CareyUI) ----
         // No separate text labels — saves ~60px for the combo boxes themselves
@@ -1147,6 +1147,12 @@ public:
     }
 
     juce::Rectangle<int> getTitleBounds() const { return titleBounds; }
+
+    void setTitleVisible(bool visible)
+    {
+        titleLabel.setVisible(visible);
+        titleHidden = !visible;
+    }
 
     // ==================== GETTERS ====================
 
@@ -2968,6 +2974,7 @@ private:
     // State
     double hostBpm = 120.0;
     bool isStandaloneMode = false;
+    bool titleHidden = false;
     bool inLayout = false;
     juce::String lastBuiltPrompt;
 
