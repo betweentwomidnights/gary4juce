@@ -211,7 +211,8 @@ public:
         };
 
         prepareSubTabButton(legoSubTabButton, "lego", SubTab::Lego);
-        prepareSubTabButton(completeSubTabButton, "complete", SubTab::Complete);
+        prepareSubTabButton(completeSubTabButton, juce::String::fromUTF8("complete \xe2\x9a\xa0"), SubTab::Complete);
+        completeSubTabButton.setTooltip("this mode is pretty unhinged...expect to chop out the samples amongst the madness");
         prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
         coverSubTabButton.setTooltip("experimental - results may vary. use at your own risk");
 

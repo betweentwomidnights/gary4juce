@@ -42,7 +42,7 @@ put it on your master, press play, record some audio, and start iterating.
 
 ### rc-jerry (foundation-1) - structured loop generation
 
-[Foundation-1](https://huggingface.co/RoyalCities/Foundation-1) by RoyalCities joins the jerry tab as a sub-tab. where jerry (SAOS) excels at quick drum loops, rc-jerry generates BPM and key-aware synth/instrument loops of 4 or 8 bars using a structured prompt engine.
+[Foundation-1](https://huggingface.co/RoyalCities/Foundation-1) by RoyalCities joins the jerry tab as a sub-tab. where jerry (SAOS) excels at quick drum loops, rc-jerry generates BPM and key-aware synth/instrument loops of 4 or 8 bars using a structured prompt engine. it can also iterate on input audio — record or drag in up to 8 bars, toggle "use input audio" in advanced settings, and the model will re-voice your recording with the target timbre/FX while preserving rhythmic and melodic structure.
 
 the UI is built around composable controls that assemble prompts from tagged categories:
 
@@ -53,6 +53,7 @@ the UI is built around composable controls that assemble prompts from tagged cat
 - **spatial, style, frequency band, synthesis** - toggle+knob for spatial character, style tags, freq bands, and wave/tech
 - **effects** - reverb, delay, distortion, phaser, bitcrush as toggle+knob pedals
 - **randomize** - backend `/randomize` endpoint uses RoyalCities' weighted prompt engine to populate the entire UI with musically coherent presets
+- **audio2audio** - toggle "use input audio" to re-voice your recording buffer with the selected timbre/FX (transformation slider controls how much to change)
 - **presets** - save/load `.f1preset` files to `~/Documents/gary4juce/foundation-presets/`
 - **state persistence** - all settings saved/restored with your DAW project
 

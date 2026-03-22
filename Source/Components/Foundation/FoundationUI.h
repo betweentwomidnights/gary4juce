@@ -940,6 +940,30 @@ public:
         seedEditor.setAlpha(0.4f);
         addToContent(seedEditor);
 
+        // Audio2Audio — "use input audio" toggle + transformation slider
+        audio2audioToggle.setButtonText("use input audio");
+        audio2audioToggle.setToggleState(false, juce::dontSendNotification);
+        audio2audioToggle.setTooltip("when enabled, re-voices the recording buffer using the prompt as a timbre target");
+        audio2audioToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+        audio2audioToggle.setColour(juce::ToggleButton::tickColourId, juce::Colour(0xffff8c00));
+        audio2audioToggle.onClick = [this]()
+        {
+            bool on = audio2audioToggle.getToggleState();
+            transformationSlider.setVisible(on);
+            transformationLabel.setVisible(on);
+            updateContentLayout();
+        };
+        addToContent(audio2audioToggle);
+
+        sectionLabel(transformationLabel, "transformation");
+        transformationSlider.setRange(0.1, 0.95, 0.05);
+        transformationSlider.setValue(0.6, juce::dontSendNotification);
+        transformationSlider.setTooltip("how much to transform the input. low = subtle timbral shift, high = near-full regeneration");
+        transformationSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 35, 20);
+        addToContent(transformationSlider);
+        transformationSlider.setVisible(false);
+        transformationLabel.setVisible(false);
+
         // Text override
         sectionLabel(overrideLabel, "prompt override");
         overrideEditor.setMultiLine(false);
@@ -1222,6 +1246,8 @@ public:
         return text.isEmpty() ? -1 : text.getIntValue();
     }
     juce::String getCustomPromptOverride() const { return overrideEditor.getText().trim(); }
+    bool getAudio2AudioEnabled() const { return audio2audioToggle.getToggleState(); }
+    double getTransformation() const { return transformationSlider.getValue(); }
 
     juce::String getBuiltPrompt() const { return lastBuiltPrompt; }
 
@@ -1383,6 +1409,8 @@ public:
         state->setProperty("guidance", guidanceSlider.getValue());
         state->setProperty("seed", seedEditor.getText().trim());
         state->setProperty("seedEnabled", seedToggle.getToggleState());
+        state->setProperty("audio2audioEnabled", audio2audioToggle.getToggleState());
+        state->setProperty("transformation", transformationSlider.getValue());
         state->setProperty("promptOverride", overrideEditor.getText().trim());
 
         return juce::JSON::toString(juce::var(state.release()), true);
@@ -1506,6 +1534,15 @@ public:
         seedToggle.setToggleState(seedOn, juce::dontSendNotification);
         seedEditor.setEnabled(seedOn);
         seedEditor.setAlpha(seedOn ? 1.0f : 0.4f);
+        // Audio2Audio
+        bool a2aOn = (bool)obj->getProperty("audio2audioEnabled");
+        audio2audioToggle.setToggleState(a2aOn, juce::dontSendNotification);
+        transformationSlider.setVisible(a2aOn);
+        transformationLabel.setVisible(a2aOn);
+        double transVal = (double)obj->getProperty("transformation");
+        if (transVal >= 0.1 && transVal <= 0.95)
+            transformationSlider.setValue(transVal, juce::dontSendNotification);
+
         overrideEditor.setText(obj->getProperty("promptOverride").toString(), juce::dontSendNotification);
 
         rebuildPromptPreview();
@@ -2824,6 +2861,16 @@ private:
             }
             y += 26;
 
+            // Audio2Audio
+            audio2audioToggle.setBounds(fullRow(22)); y += 24;
+            if (audio2audioToggle.getToggleState())
+            {
+                auto transRow = fullRow(28);
+                transformationLabel.setBounds(transRow.removeFromLeft(90));
+                transformationSlider.setBounds(transRow);
+                y += 32;
+            }
+
             overrideLabel.setBounds(fullRow(16)); y += 18;
             overrideEditor.setBounds(fullRow(28)); y += 34;
         }
@@ -2835,6 +2882,9 @@ private:
         guidanceSlider.setVisible(advancedOpen);
         seedToggle.setVisible(advancedOpen);
         seedEditor.setVisible(advancedOpen);
+        audio2audioToggle.setVisible(advancedOpen);
+        transformationLabel.setVisible(advancedOpen && audio2audioToggle.getToggleState());
+        transformationSlider.setVisible(advancedOpen && audio2audioToggle.getToggleState());
         overrideLabel.setVisible(advancedOpen);
         overrideEditor.setVisible(advancedOpen);
 
@@ -2956,6 +3006,11 @@ private:
     CustomSlider guidanceSlider;
     juce::ToggleButton seedToggle;
     CustomTextEditor seedEditor;
+    // Audio2Audio
+    juce::ToggleButton audio2audioToggle;
+    juce::Label transformationLabel;
+    CustomSlider transformationSlider;
+
     juce::Label overrideLabel;
     CustomTextEditor overrideEditor;
 

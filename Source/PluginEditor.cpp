@@ -4395,7 +4395,8 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
     updateAllGenerationButtonStates();
     repaint();
 
-    showStatusMessage("submitting foundation-1 request...", 2500);
+    showStatusMessage(foundationUI->getAudio2AudioEnabled()
+        ? "submitting audio2audio request..." : "submitting foundation-1 request...", 2500);
 
     // Build JSON payload
     juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
@@ -4453,15 +4454,51 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
     jsonRequest->setProperty("guidance_scale", foundationUI->getGuidance());
     jsonRequest->setProperty("steps", foundationUI->getSteps());
 
+    // Audio2Audio mode — read myBuffer.wav, base64 encode, add init_noise_level
+    const bool isAudio2Audio = foundationUI->getAudio2AudioEnabled();
+    juce::String base64Audio;
+
+    if (isAudio2Audio)
+    {
+        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+
+        if (!bufferFile.existsAsFile())
+        {
+            showStatusMessage("no recording buffer found - save your recording first", 4000);
+            cancelOp();
+            return;
+        }
+
+        juce::MemoryBlock audioData;
+        if (!bufferFile.loadFileAsData(audioData) || audioData.getSize() == 0)
+        {
+            showStatusMessage("failed to read recording buffer", 4000);
+            cancelOp();
+            return;
+        }
+
+        base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+        jsonRequest->setProperty("audio_data", base64Audio);
+        jsonRequest->setProperty("init_noise_level", foundationUI->getTransformation());
+
+        DBG("[foundation] audio2audio mode - buffer: " + juce::String(audioData.getSize())
+            + " bytes, init_noise_level: " + juce::String(foundationUI->getTransformation()));
+    }
+
     auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
-    DBG("[foundation] JSON payload: " + jsonString.substring(0, 300));
+    DBG("[foundation] JSON payload (" + juce::String(isAudio2Audio ? "audio2audio" : "generate")
+        + "): " + jsonString.substring(0, 300));
 
-    juce::Thread::launch([this, jsonString, cancelOp]()
+    juce::String endpoint = isAudio2Audio ? "/audio2audio" : "/generate";
+
+    juce::Thread::launch([this, jsonString, cancelOp, endpoint]()
     {
         if (!isGenerating) return;
 
-        juce::URL url(getServiceUrl(ServiceType::Foundation, "/generate"));
+        juce::URL url(getServiceUrl(ServiceType::Foundation, endpoint));
         juce::URL postUrl = url.withPOSTData(jsonString);
 
         auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
