@@ -12,6 +12,7 @@
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
 #include "Components/Carey/CareyUI.h"
+#include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
@@ -95,7 +96,7 @@ private:
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry, Carey };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -130,11 +131,15 @@ private:
     enum class ModelTab
     {
         Gary = 0,
-        Jerry,
+        Jerry,    // encompasses both Jerry SAOS and Foundation sub-tabs
         Carey,
         Terry,
-        Darius // magenta
+        Darius    // magenta
     };
+
+    // Jerry has two sub-tabs: the original SAOS model and Foundation-1
+    enum class JerrySubTab { SAOS = 0, Foundation };
+    JerrySubTab jerrySubTab = JerrySubTab::SAOS;
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
     enum class ActiveOp
@@ -146,7 +151,8 @@ private:
         TerryTransform,
         JerryGenerate,
         CareyGenerate,
-        DariusGenerate
+        DariusGenerate,
+        FoundationGenerate
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -155,6 +161,11 @@ private:
     CustomButton careyTabButton;
     CustomButton terryTabButton;
 
+    // Jerry sub-tab buttons (replace the title area when Jerry tab is active)
+    CustomButton jerrySubTabSAOS;      // "jerry (SAOS)"
+    CustomButton jerrySubTabFoundation; // "foundation-1"
+    void switchJerrySubTab(JerrySubTab sub);
+    void updateJerrySubTabStates();
 
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
@@ -294,6 +305,7 @@ private:
     bool currentCoverTrimToInputEnabled = true;
 
     juce::String currentCareyKeyScale = "";
+    juce::String currentCareyTimeSig = "";  // empty = auto-detect
 
     void sendToCarey();
     void sendToCareyComplete();
@@ -302,6 +314,13 @@ private:
     double getCareyBpmForRequest() const;
     bool isCareyTabAvailable() const;
     void updateCareyTabAvailability();
+
+    // ========== FOUNDATION ==========
+    std::unique_ptr<FoundationUI> foundationUI;
+    juce::String lastFoundationPromptSnapshot;
+    void sendToFoundation();
+    void randomizeFoundation();
+    void updateFoundationEnablementSnapshot();
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
@@ -424,6 +443,7 @@ private:
     juce::Label outputLabel;
     CustomButton stopOutputButton;
     juce::DrawableButton cropButton;
+    juce::DrawableButton uploadButton;
 
     bool isPlayingOutput = false;
 
@@ -496,6 +516,9 @@ private:
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;
 
+    // Upload icon (load file into recording buffer)
+    std::unique_ptr<juce::Drawable> uploadIcon;
+
     // Check connection icon
     std::unique_ptr<juce::Drawable> checkConnectionIcon;
 
@@ -518,7 +541,8 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton;
+    // foundationHelpButton is reused — visible when Jerry sub-tab is Foundation
 
     // Allow an extended grace period when we're at 0% but still receiving polls
     const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes

@@ -24,7 +24,7 @@ public:
     void stopHealthChecks();
 
     // Service type enum for different ports
-    enum class ServiceType { Gary, Jerry, Terry, Carey };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation };
     
     // Backend URL management methods
     void setUsingLocalhost(bool useLocalhost);
@@ -105,6 +105,10 @@ public:
     void setCareyLanguage(const juce::String& lang) { careyLanguage = lang; }
     juce::String getCareyLanguage() const { return careyLanguage; }
 
+    // Foundation UI state persistence
+    void setFoundationState(const juce::String& json) { foundationState = json; }
+    juce::String getFoundationState() const { return foundationState; }
+
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
     void startOutputPlayback(double fromPosition = 0.0);
@@ -161,6 +165,9 @@ private:
     // Carey lyrics/language persistence - shared across all tabs (survives editor destruction + plugin restart)
     juce::String careyLyrics;
     juce::String careyLanguage = "en";
+
+    // Foundation UI state persistence
+    juce::String foundationState;
 
     // Output audio playback state (for host audio mixing)
     juce::AudioBuffer<float> outputPlaybackBuffer;

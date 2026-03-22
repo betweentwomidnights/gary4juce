@@ -150,6 +150,10 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
                 return "http://localhost:8005" + endpoint;
             case ServiceType::Carey:
                 return "http://localhost:8001" + endpoint;
+            case ServiceType::Foundation:
+                return "http://localhost:8015" + endpoint;
+            default:
+                return "http://localhost:8000" + endpoint;
         }
     }
 
@@ -158,6 +162,8 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
     {
         case ServiceType::Carey:
             return "https://g4l.thecollabagepatch.com/carey" + endpoint;
+        case ServiceType::Foundation:
+            return "https://g4l.thecollabagepatch.com/foundation" + endpoint;
         default:
             return "https://g4l.thecollabagepatch.com" + endpoint;
     }
@@ -755,6 +761,7 @@ void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     xmlState.setAttribute("retryAvailable", retryAvailable.load());
     xmlState.setAttribute("careyLyrics", careyLyrics);
     xmlState.setAttribute("careyLanguage", careyLanguage);
+    xmlState.setAttribute("foundationState", foundationState);
 
     // DEBUG: Log what we're saving with age calculation
     DBG("=== SAVING STATE ===");
@@ -790,6 +797,7 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
         if (careyLyrics.isEmpty())
             careyLyrics = xml->getStringAttribute("careyLegoLyrics");
         careyLanguage = xml->getStringAttribute("careyLanguage", "en");
+        foundationState = xml->getStringAttribute("foundationState");
         backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
 
         // DEBUG: Log what we're loading

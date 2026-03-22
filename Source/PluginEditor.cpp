@@ -103,7 +103,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
     dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
-    careyHelpButton("carey help", juce::DrawableButton::ImageFitted)
+    careyHelpButton("carey help", juce::DrawableButton::ImageFitted),
+    foundationHelpButton("foundation help", juce::DrawableButton::ImageFitted),
+    uploadButton("Upload", juce::DrawableButton::ImageFitted)
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
@@ -150,6 +152,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusTabButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusTabButton.onClick = [this]() { switchToTab(ModelTab::Darius); };
     addAndMakeVisible(dariusTabButton);
+
+    // Jerry sub-tab buttons (shown when Jerry main tab is active)
+    jerrySubTabSAOS.setButtonText("jerry (SAOS)");
+    jerrySubTabSAOS.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    jerrySubTabSAOS.onClick = [this]() { switchJerrySubTab(JerrySubTab::SAOS); };
+    addAndMakeVisible(jerrySubTabSAOS);
+    jerrySubTabSAOS.setVisible(false);
+
+    jerrySubTabFoundation.setButtonText("foundation-1");
+    jerrySubTabFoundation.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    jerrySubTabFoundation.onClick = [this]() { switchJerrySubTab(JerrySubTab::Foundation); };
+    addAndMakeVisible(jerrySubTabFoundation);
+    jerrySubTabFoundation.setVisible(false);
 
     garyUI = std::make_unique<GaryUI>();
     addAndMakeVisible(*garyUI);
@@ -507,6 +522,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCoverGenerate = [this]() { sendToCareyCover(); };
 
     careyUI->onKeyScaleChanged = [this](const juce::String& ks) { currentCareyKeyScale = ks; };
+    careyUI->onTimeSigChanged = [this](const juce::String& ts) { currentCareyTimeSig = ts; };
 
     careyUI->setCaptionText(currentCareyCaption);
     careyUI->setTrackName(currentCareyTrackName);
@@ -528,6 +544,28 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setLyricsLanguage(currentCareyLanguage);
 
     updateCareyTabAvailability();
+
+    // ========== FOUNDATION CONTROLS SETUP ==========
+    foundationUI = std::make_unique<FoundationUI>();
+    addAndMakeVisible(*foundationUI);
+
+    foundationUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
+    foundationUI->setBpm(audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : 120.0);
+
+    foundationUI->onGenerate = [this]() { sendToFoundation(); };
+    foundationUI->onRandomize = [this]() { randomizeFoundation(); };
+
+    foundationUI->setGenerateButtonEnabled(false, false);
+
+    // Restore persisted Foundation state from processor
+    {
+        juce::String savedFoundation = audioProcessor.getFoundationState();
+        if (savedFoundation.isNotEmpty())
+        {
+            DBG("[foundation] Restoring saved state (" + juce::String(savedFoundation.length()) + " chars)");
+            foundationUI->restoreState(savedFoundation);
+        }
+    }
 
     // ========== REMAINING SETUP (unchanged) ==========
 
@@ -658,6 +696,28 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(cropButton);
 
+    // Upload button - load audio file into recording buffer
+    uploadIcon = IconFactory::createUploadIcon();
+    uploadButton.setTooltip("load an audio file into the recording buffer");
+    uploadButton.onClick = [this]()
+    {
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "load audio into recording buffer",
+            juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [this, chooser](const juce::FileChooser& fc)
+            {
+                auto result = fc.getResult();
+                if (result.existsAsFile())
+                    loadAudioFileIntoBuffer(result);
+            });
+    };
+    uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    uploadButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(uploadButton);
+
     // Initialize output file path
     auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
     auto garyDir = documentsDir.getChildFile("gary4juce");
@@ -729,6 +789,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://github.com/betweentwomidnights/ace-lego").launchInDefaultBrowser();
         };
         addAndMakeVisible(careyHelpButton);
+
+        // foundation help button
+        foundationHelpButton.setImages(helpIcon.get());
+        foundationHelpButton.setTooltip("learn more about foundation-1");
+        foundationHelpButton.onClick = [this]() {
+            juce::URL("https://huggingface.co/RoyalCities/Foundation-1").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(foundationHelpButton);
     }
     
     // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
@@ -921,11 +989,35 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
             fetchDariusAssetsStatus();
     }
 
+    // Jerry sub-tab buttons visibility (only when Jerry main tab is active)
+    jerrySubTabSAOS.setVisible(showJerry);
+    jerrySubTabFoundation.setVisible(showJerry);
+
+    // Jerry sub-tab components: show the right one
+    if (showJerry)
+    {
+        bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
+        if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+        if (foundationUI)
+        {
+            foundationUI->setVisibleForTab(!showSAOS);
+            if (!showSAOS) updateFoundationEnablementSnapshot();
+        }
+    }
+    else
+    {
+        // Jerry tab not active — hide both sub-components
+        if (foundationUI) foundationUI->setVisibleForTab(false);
+    }
+
     // Help button visibility
     if (helpIcon)
     {
         garyHelpButton.setVisible(showGary);
-        jerryHelpButton.setVisible(showJerry);
+        // Jerry help: show SAOS help when Jerry tab + SAOS sub-tab
+        jerryHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::SAOS);
+        // Foundation help: show when Jerry tab + Foundation sub-tab
+        foundationHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::Foundation);
         terryHelpButton.setVisible(showTerry);
         dariusHelpButton.setVisible(showDarius);
         careyHelpButton.setVisible(showCarey);
@@ -959,6 +1051,67 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
 
     dariusTabButton.setButtonStyle(currentTab == ModelTab::Darius ?
         CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
+
+    // Update Jerry sub-tab button states when Jerry is the active tab
+    if (currentTab == ModelTab::Jerry)
+        updateJerrySubTabStates();
+}
+
+void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
+{
+    // Foundation sub-tab unavailable on localhost (backend not yet implemented)
+    if (sub == JerrySubTab::Foundation && isUsingLocalhost) return;
+    if (jerrySubTab == sub && currentTab == ModelTab::Jerry) return;
+
+    jerrySubTab = sub;
+
+    // If we're not on the Jerry tab, switch to it first
+    if (currentTab != ModelTab::Jerry)
+    {
+        switchToTab(ModelTab::Jerry);
+        return; // switchToTab will call resized() which handles everything
+    }
+
+    updateJerrySubTabStates();
+
+    bool showSAOS = (sub == JerrySubTab::SAOS);
+    if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+    if (foundationUI)
+    {
+        foundationUI->setVisibleForTab(!showSAOS);
+        if (!showSAOS) updateFoundationEnablementSnapshot();
+    }
+
+    // Update help button visibility
+    if (helpIcon)
+    {
+        jerryHelpButton.setVisible(showSAOS);
+        foundationHelpButton.setVisible(!showSAOS);
+    }
+
+    resized();
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
+{
+    jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
+        ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+
+    // Foundation sub-tab disabled on localhost (backend not yet implemented)
+    bool foundationAvailable = !isUsingLocalhost;
+    jerrySubTabFoundation.setEnabled(foundationAvailable);
+    if (!foundationAvailable)
+    {
+        jerrySubTabFoundation.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+        jerrySubTabFoundation.setTooltip("foundation-1 is only available on remote (DGX Spark)");
+    }
+    else
+    {
+        jerrySubTabFoundation.setButtonStyle(jerrySubTab == JerrySubTab::Foundation
+            ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+        jerrySubTabFoundation.setTooltip("");
+    }
 }
 
 void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
@@ -978,6 +1131,7 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
 
     updateTerryEnablementSnapshot();
     updateCareyEnablementSnapshot();
+    updateFoundationEnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
@@ -1028,6 +1182,10 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         dariusUI->setOutputAudioAvailable(hasOutputAudio);
         dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     }
+
+    // Foundation BPM sync (plugin mode only)
+    if (foundationUI && !juce::JUCEApplicationBase::isStandaloneApp() && currentBPM > 0.0)
+        foundationUI->setBpm(currentBPM);
 
     // Track BPM for carey requests
     currentCareyBpm = currentBPM;
@@ -1290,11 +1448,20 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         g.setColour(juce::Colours::darkgrey);
 
         bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
-        juce::String emptyMessage = isStandalone
-            ? "drag an audio file here to use with gary, carey, terry, or darius"
-            : "press PLAY in DAW to start recording";
-
-        g.drawText(emptyMessage, area, juce::Justification::centred);
+        if (isStandalone)
+        {
+            g.drawText("drag an audio file here to use with gary, carey, terry, or darius",
+                        area, juce::Justification::centred);
+        }
+        else
+        {
+            auto splitArea = area;
+            auto topLine = splitArea.removeFromTop(splitArea.getHeight() / 2 - 4);
+            g.drawText("press PLAY in DAW to start recording", topLine, juce::Justification::centredBottom);
+            splitArea.removeFromTop(8);
+            g.setFont(juce::FontOptions(11.0f));
+            g.drawText("(or drag an audio file in)", splitArea, juce::Justification::centredTop);
+        }
         return;
     }
 
@@ -1597,13 +1764,19 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 return;
             }
 
+            // Select poll URL based on active operation
             const auto activeOp = getActiveOp();
-            const bool pollJerry = (activeOp == ActiveOp::JerryGenerate);
-            const bool pollTerry = (activeOp == ActiveOp::TerryTransform);
-            const ServiceType pollService = pollTerry
-                ? ServiceType::Terry
-                : (pollJerry ? ServiceType::Jerry : ServiceType::Gary);
-            juce::URL pollUrl(getServiceUrl(pollService, "/api/juce/poll_status/" + sessionId));
+            juce::URL pollUrl = [&]() {
+                if (activeOp == ActiveOp::FoundationGenerate)
+                    return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
+                if (activeOp == ActiveOp::CareyGenerate)
+                    return juce::URL(getServiceUrl(ServiceType::Carey, "/poll_status/" + sessionId));
+                if (activeOp == ActiveOp::TerryTransform)
+                    return juce::URL(getServiceUrl(ServiceType::Terry, "/api/juce/poll_status/" + sessionId));
+                if (activeOp == ActiveOp::JerryGenerate)
+                    return juce::URL(getServiceUrl(ServiceType::Jerry, "/api/juce/poll_status/" + sessionId));
+                return juce::URL(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+            }();
 
             try
             {
@@ -4467,6 +4640,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "cannot connect to jerry on localhost - ensure jerry is running in gary4local";
+                    markBackendDisconnectedFromRequestFailure("jerry request");
                 }
                 else if (statusCode == 0)
                 {
@@ -4567,9 +4741,7 @@ void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
     const auto garyDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("gary4juce");
     const bool hasInputAudio = savedSamples > 0 && garyDir.getChildFile("myBuffer.wav").existsAsFile();
     const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
-    const bool backendLooksOnline = usingLocalhost
-        ? isLocalServiceOnline(ServiceType::Carey)
-        : isConnected;
+    const bool backendLooksOnline = usingLocalhost ? isLocalServiceOnline(ServiceType::Carey) : isConnected;
 
     const bool canGenerate = backendLooksOnline && hasInputAudio;
     careyUI->setGenerateButtonEnabled(canGenerate, isGenerating);
@@ -4605,6 +4777,332 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
 
     updateTabButtonStates();
     updateCareyEnablementSnapshot();
+}
+
+// ========== FOUNDATION ==========
+
+void Gary4juceAudioProcessorEditor::updateFoundationEnablementSnapshot()
+{
+    if (!foundationUI)
+        return;
+
+    const bool canGenerate = isConnected;
+    foundationUI->setGenerateButtonEnabled(canGenerate, isGenerating);
+
+    // Clear the "generating at X BPM..." info text once generation finishes
+    if (!isGenerating)
+        foundationUI->refreshDurationInfo();
+
+    // Sync BPM from DAW
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        double bpm = audioProcessor.getCurrentBPM();
+        if (bpm > 0.0)
+            foundationUI->setBpm(bpm);
+    }
+
+    // Persist Foundation UI state to processor (for DAW save/load)
+    // Only serialize when the built prompt has changed (cheap string comparison)
+    {
+        juce::String currentPrompt = foundationUI->getBuiltPrompt();
+        if (currentPrompt != lastFoundationPromptSnapshot)
+        {
+            lastFoundationPromptSnapshot = currentPrompt;
+            audioProcessor.setFoundationState(foundationUI->serializeState());
+        }
+    }
+}
+
+void Gary4juceAudioProcessorEditor::sendToFoundation()
+{
+    if (!isConnected)
+    {
+        showStatusMessage("backend not connected - check connection first");
+        return;
+    }
+
+    if (!foundationUI)
+        return;
+
+    const auto cancelOp = [this]()
+    {
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
+    setActiveOp(ActiveOp::FoundationGenerate);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    repaint();
+
+    showStatusMessage(foundationUI->getAudio2AudioEnabled()
+        ? "submitting audio2audio request..." : "submitting foundation-1 request...", 2500);
+
+    // Build JSON payload
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("seed", foundationUI->getSeed());
+    jsonRequest->setProperty("bars", foundationUI->getSelectedBars());
+
+    // Get host BPM
+    double bpm = foundationUI->getHostBpm();
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        double dawBpm = audioProcessor.getCurrentBPM();
+        if (dawBpm > 0.0) bpm = dawBpm;
+    }
+    jsonRequest->setProperty("host_bpm", bpm);
+
+    jsonRequest->setProperty("key_root", foundationUI->getKeyRoot());
+    jsonRequest->setProperty("key_mode", foundationUI->getKeyMode());
+    jsonRequest->setProperty("family", foundationUI->getFamily());
+    jsonRequest->setProperty("subfamily", foundationUI->getSubfamily());
+    jsonRequest->setProperty("descriptor_knob_a", foundationUI->getDescriptorA());
+    jsonRequest->setProperty("descriptor_knob_b", foundationUI->getDescriptorB());
+    jsonRequest->setProperty("descriptor_knob_c", foundationUI->getDescriptorC());
+
+    // Descriptors extra
+    {
+        auto extras = foundationUI->getDescriptorsExtraValues();
+        if (extras.size() > 0)
+        {
+            juce::Array<juce::var> extArr;
+            for (auto& e : extras)
+                extArr.add(e);
+            jsonRequest->setProperty("descriptors_extra", extArr);
+        }
+    }
+
+    jsonRequest->setProperty("reverb_enabled", foundationUI->getReverbEnabled());
+    jsonRequest->setProperty("reverb_amount", foundationUI->getReverbEnabled() ? foundationUI->getReverbAmount() : juce::String());
+    jsonRequest->setProperty("delay_enabled", foundationUI->getDelayEnabled());
+    jsonRequest->setProperty("delay_type", foundationUI->getDelayEnabled() ? foundationUI->getDelayType() : juce::String());
+    jsonRequest->setProperty("distortion_enabled", foundationUI->getDistortionEnabled());
+    jsonRequest->setProperty("distortion_amount", foundationUI->getDistortionEnabled() ? foundationUI->getDistortionAmount() : juce::String());
+    jsonRequest->setProperty("phaser_enabled", foundationUI->getPhaserEnabled());
+    jsonRequest->setProperty("phaser_amount", foundationUI->getPhaserEnabled() ? foundationUI->getPhaserAmount() : juce::String());
+    jsonRequest->setProperty("bitcrush_enabled", foundationUI->getBitcrushEnabled());
+    jsonRequest->setProperty("bitcrush_amount", foundationUI->getBitcrushEnabled() ? foundationUI->getBitcrushAmount() : juce::String());
+
+    // Behavior tags as array
+    auto behaviorTags = foundationUI->getSelectedBehaviorTags();
+    juce::var tagsArray;
+    for (auto& tag : behaviorTags)
+        tagsArray.append(tag);
+    jsonRequest->setProperty("behavior_tags", tagsArray);
+
+    jsonRequest->setProperty("custom_prompt_override", foundationUI->getCustomPromptOverride());
+    jsonRequest->setProperty("guidance_scale", foundationUI->getGuidance());
+    jsonRequest->setProperty("steps", foundationUI->getSteps());
+
+    // Audio2Audio mode — read myBuffer.wav, base64 encode, add init_noise_level
+    const bool isAudio2Audio = foundationUI->getAudio2AudioEnabled();
+    juce::String base64Audio;
+
+    if (isAudio2Audio)
+    {
+        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+        auto garyDir = documentsDir.getChildFile("gary4juce");
+        auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+
+        if (!bufferFile.existsAsFile())
+        {
+            showStatusMessage("no recording buffer found - save your recording first", 4000);
+            cancelOp();
+            return;
+        }
+
+        juce::MemoryBlock audioData;
+        if (!bufferFile.loadFileAsData(audioData) || audioData.getSize() == 0)
+        {
+            showStatusMessage("failed to read recording buffer", 4000);
+            cancelOp();
+            return;
+        }
+
+        base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+        jsonRequest->setProperty("audio_data", base64Audio);
+        jsonRequest->setProperty("init_noise_level", foundationUI->getTransformation());
+
+        DBG("[foundation] audio2audio mode - buffer: " + juce::String(audioData.getSize())
+            + " bytes, init_noise_level: " + juce::String(foundationUI->getTransformation()));
+    }
+
+    auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+    DBG("[foundation] JSON payload (" + juce::String(isAudio2Audio ? "audio2audio" : "generate")
+        + "): " + jsonString.substring(0, 300));
+
+    juce::String endpoint = isAudio2Audio ? "/audio2audio" : "/generate";
+
+    juce::Thread::launch([this, jsonString, cancelOp, endpoint]()
+    {
+        if (!isGenerating) return;
+
+        juce::URL url(getServiceUrl(ServiceType::Foundation, endpoint));
+        juce::URL postUrl = url.withPOSTData(jsonString);
+
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(15000)
+            .withExtraHeaders("Content-Type: application/json");
+
+        juce::String responseText;
+        bool ok = false;
+
+        try
+        {
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = true;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([this, responseText, ok, cancelOp]()
+        {
+            if (!isGenerating) return;
+
+            if (!ok || responseText.isEmpty())
+            {
+                showStatusMessage("foundation-1 backend not responding", 4000);
+                cancelOp();
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (!responseObj)
+            {
+                showStatusMessage("invalid response from foundation-1", 4000);
+                cancelOp();
+                return;
+            }
+
+            bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                showStatusMessage("foundation-1 error: " + error, 5000);
+                cancelOp();
+                return;
+            }
+
+            juce::String sessionId = responseObj->getProperty("session_id").toString();
+            int foundationBpm = (int)responseObj->getProperty("foundation_bpm");
+            juce::String prompt = responseObj->getProperty("prompt").toString();
+
+            DBG("[foundation] session=" + sessionId + " foundation_bpm=" + juce::String(foundationBpm));
+            DBG("[foundation] prompt=" + prompt);
+
+            if (foundationUI)
+                foundationUI->setInfoText("generating at " + juce::String(foundationBpm) + " BPM...");
+
+            showStatusMessage("foundation-1 generating...", 2000);
+            startPollingForResults(sessionId);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::randomizeFoundation()
+{
+    if (!isConnected)
+    {
+        showStatusMessage("connect first", 2000);
+        return;
+    }
+
+    if (foundationUI)
+    {
+        foundationUI->setRandomizeEnabled(false);
+        foundationUI->setInfoText("randomizing...");
+    }
+
+    // Build optional request body
+    auto jsonObj = std::make_unique<juce::DynamicObject>();
+    jsonObj->setProperty("seed", -1);
+    jsonObj->setProperty("mode", "standard");
+
+    juce::String jsonString = juce::JSON::toString(juce::var(jsonObj.release()));
+    DBG("[foundation] randomize request: " + jsonString);
+
+    juce::URL url(getServiceUrl(ServiceType::Foundation, "/randomize"));
+    juce::URL postUrl = url.withPOSTData(jsonString);
+
+    juce::Thread::launch([this, postUrl]()
+    {
+        juce::String responseText;
+        bool ok = false;
+
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = true;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([this, responseText, ok]()
+        {
+            if (foundationUI)
+                foundationUI->setRandomizeEnabled(true);
+
+            if (!ok || responseText.isEmpty())
+            {
+                showStatusMessage("randomize failed — check connection", 3000);
+                if (foundationUI) foundationUI->setInfoText("");
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (responseObj == nullptr)
+            {
+                showStatusMessage("randomize: invalid response", 3000);
+                if (foundationUI) foundationUI->setInfoText("");
+                return;
+            }
+
+            bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                showStatusMessage("randomize: " + (error.isEmpty() ? "unknown error" : error), 3000);
+                if (foundationUI) foundationUI->setInfoText("");
+                return;
+            }
+
+            DBG("[foundation] randomize response: " + responseText);
+
+            if (foundationUI)
+            {
+                foundationUI->applyRandomizeResponse(responseVar);
+                foundationUI->setInfoText("");
+                showStatusMessage("prompt randomized!", 1500);
+            }
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::sendToCarey()
@@ -4657,6 +5155,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     const juce::String caption = currentCareyCaption.trim();
     const juce::String lyrics = currentCareyLyrics;
     const juce::String keyScale = currentCareyKeyScale;
+    const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const bool loopAssistEnabled = currentCareyLoopAssistEnabled;
     const bool trimToInputEnabled = currentCareyTrimToInputEnabled;
@@ -4665,6 +5164,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         + ", steps=" + juce::String(inferenceSteps)
         + ", track=" + trackName
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false")
         + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
@@ -4697,7 +5197,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
     showStatusMessage("submitting carey request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String downloadedBase64;
@@ -4865,7 +5365,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 if (language.isNotEmpty() && language != "en")
                     submitPayload->setProperty("language", language);
                 submitPayload->setProperty("guidance_scale", guidanceScale);
-                submitPayload->setProperty("time_signature", "4");
+                if (timeSig.isNotEmpty())
+                    submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
 
@@ -5238,6 +5739,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const juce::String caption = currentCareyCompleteCaption.trim();
     const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
     const juce::String keyScale = currentCareyKeyScale;
+    const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
     const bool useSrcAsRef = currentCompleteUseSrcAsRef;
@@ -5245,6 +5747,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     DBG("[carey-complete] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
         + ", use_src_ref=" + juce::String(useSrcAsRef ? "on" : "off")
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
@@ -5277,7 +5780,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     showStatusMessage("submitting carey complete request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String downloadedBase64;
@@ -5316,7 +5819,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     submitPayload->setProperty("language", language);
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
-                submitPayload->setProperty("time_signature", "4");
+                if (timeSig.isNotEmpty())
+                    submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
 
@@ -5585,6 +6089,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const juce::String caption = currentCoverCaption.trim();
     const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
     const juce::String keyScale = currentCareyKeyScale;
+    const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const double coverNoiseStrength = juce::jlimit(0.0, 1.0, currentCoverNoiseStrength);
     const double audioCoverStrength = juce::jlimit(0.0, 1.0, currentCoverAudioStrength);
@@ -5597,6 +6102,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     DBG("[carey-cover] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
+        + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", noise_str=" + juce::String(coverNoiseStrength, 3)
         + ", audio_str=" + juce::String(audioCoverStrength, 2)
         + ", cfg=" + juce::String(guidanceScale, 1)
@@ -5633,7 +6139,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
     showStatusMessage("submitting carey cover request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, language, bpm, coverNoiseStrength,
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
                           audioCoverStrength, guidanceScale, inferenceSteps, useSrcAsRef,
                           loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
@@ -5805,7 +6311,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("inference_steps", inferenceSteps);
                 submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
-                submitPayload->setProperty("time_signature", "4");
+                if (timeSig.isNotEmpty())
+                    submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
                 submitPayload->setProperty("audio_format", "wav");
 
@@ -6444,6 +6951,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "cannot connect to terry on localhost - ensure terry is running in gary4local";
+                    markBackendDisconnectedFromRequestFailure("terry request");
                 }
                 else if (statusCode == 0)
                 {
@@ -6650,6 +7158,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "cannot connect for undo on localhost - ensure terry is running in gary4local";
+                    markBackendDisconnectedFromRequestFailure("terry undo request");
                 }
                 else if (statusCode == 0)
                     errorMsg = "failed to connect for undo on remote backend";
@@ -7946,12 +8455,14 @@ juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, c
     Gary4juceAudioProcessor::ServiceType processorService;
     switch (service)
     {
-        case ServiceType::Gary:  processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
-        case ServiceType::Jerry: processorService = Gary4juceAudioProcessor::ServiceType::Jerry; break;
-        case ServiceType::Terry: processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
-        case ServiceType::Carey: processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
+        case ServiceType::Gary:       processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
+        case ServiceType::Jerry:      processorService = Gary4juceAudioProcessor::ServiceType::Jerry; break;
+        case ServiceType::Terry:      processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
+        case ServiceType::Carey:      processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
+        case ServiceType::Foundation: processorService = Gary4juceAudioProcessor::ServiceType::Foundation; break;
+        default: processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
     }
-    
+
     return audioProcessor.getServiceUrl(processorService, endpoint);
 }
 
@@ -7990,6 +8501,11 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
 
     // Update carey tab availability and state
     updateCareyTabAvailability();
+
+    // Foundation sub-tab: disable on localhost, force back to SAOS if currently active
+    if (isUsingLocalhost && jerrySubTab == JerrySubTab::Foundation)
+        switchJerrySubTab(JerrySubTab::SAOS);
+    updateJerrySubTabStates();
 
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
 
@@ -8084,6 +8600,7 @@ juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
         case ActiveOp::JerryGenerate:
             return "cooking";
         case ActiveOp::CareyGenerate:
+        case ActiveOp::FoundationGenerate:
             return "generating";
         default:
             return "processing";
@@ -9649,6 +10166,25 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawText("drop audio file here", waveformArea, juce::Justification::centred);
     }
 
+    // Draw upload icon overlay on recording waveform
+    if (uploadIcon && !isRecording)
+    {
+        auto uploadBounds = uploadButton.getBounds();
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(uploadBounds.toFloat(), 3.0f);
+
+        if (uploadButton.isOver() || uploadButton.isDown())
+        {
+            g.setColour(juce::Colours::orange.withAlpha(0.8f));
+            g.drawRoundedRectangle(uploadBounds.toFloat(), 3.0f, 1.5f);
+        }
+
+        auto iconArea = uploadBounds.reduced(6);
+        uploadIcon->drawWithin(g, iconArea.toFloat(),
+            juce::RectanglePlacement::centred, 1.0f);
+    }
+
     // Status text below input waveform (using reserved area)
     g.setFont(juce::FontOptions(12.0f));
 
@@ -9855,6 +10391,15 @@ void Gary4juceAudioProcessorEditor::resized()
     auto connectionRowArea = topSectionFlexBox.items[1].currentBounds.toNearestInt();
     recordingLabelArea = topSectionFlexBox.items[2].currentBounds.toNearestInt();
     waveformArea = topSectionFlexBox.items[3].currentBounds.toNearestInt();
+
+    // Upload button overlay on recording waveform (top-right corner, matching crop button style)
+    auto uploadOverlayArea = juce::Rectangle<int>(
+        waveformArea.getRight() - 50,
+        waveformArea.getY() + 5,
+        45, 25
+    );
+    uploadButton.setBounds(uploadOverlayArea);
+
     inputStatusArea = topSectionFlexBox.items[4].currentBounds.toNearestInt();
     inputInfoArea = topSectionFlexBox.items[5].currentBounds.toNearestInt();
 
@@ -9905,7 +10450,7 @@ void Gary4juceAudioProcessorEditor::resized()
     auto tabSectionBounds = bounds.removeFromTop(320).reduced(20, 10);
     fullTabAreaRect = tabSectionBounds.expanded(20, 10); // Expand back to account for the reduced margins
 
-    // Tab buttons area
+    // Tab buttons area (5 main tabs)
     tabArea = tabSectionBounds.removeFromTop(35);
     auto tabButtonWidth = tabArea.getWidth() / 5;
 
@@ -9915,7 +10460,44 @@ void Gary4juceAudioProcessorEditor::resized()
     terryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     dariusTabButton.setBounds(tabArea.reduced(2, 2));
 
-    // Model controls area (below tabs)
+    // Jerry sub-tab row (between main tabs and model controls — only when Jerry is active)
+    if (currentTab == ModelTab::Jerry)
+    {
+        auto subTabRow = tabSectionBounds.removeFromTop(24);
+        int subPad = subTabRow.getWidth() / 6; // indent to roughly align under jerry tab
+        auto subArea = subTabRow.reduced(subPad / 2, 1);
+        constexpr int helpSize = 20;
+        constexpr int helpInset = 2;
+
+        int btnW = (subArea.getWidth() - 4) / 2;
+        auto leftBtn = subArea.withWidth(btnW);
+        auto rightBtn = subArea.withLeft(subArea.getX() + btnW + 4).withWidth(btnW);
+
+        jerrySubTabSAOS.setBounds(leftBtn);
+        jerrySubTabFoundation.setBounds(rightBtn);
+        jerrySubTabSAOS.toFront(false);
+        jerrySubTabFoundation.toFront(false);
+
+        if (helpIcon)
+        {
+            if (jerrySubTab == JerrySubTab::SAOS)
+            {
+                jerryHelpButton.setBounds(leftBtn.getRight() - helpSize - helpInset,
+                                           leftBtn.getCentreY() - helpSize / 2,
+                                           helpSize, helpSize);
+                jerryHelpButton.toFront(false);
+            }
+            else
+            {
+                foundationHelpButton.setBounds(rightBtn.getRight() - helpSize - helpInset,
+                                                rightBtn.getCentreY() - helpSize / 2,
+                                                helpSize, helpSize);
+                foundationHelpButton.toFront(false);
+            }
+        }
+    }
+
+    // Model controls area (below tabs + optional sub-tab row)
     modelControlsArea = tabSectionBounds.reduced(0, 5);
 
     // ========== GARY CONTROLS LAYOUT ==========
@@ -9940,17 +10522,32 @@ void Gary4juceAudioProcessorEditor::resized()
     if (jerryUI)
         jerryUI->setBounds(modelControlsArea);
 
-    if (helpIcon && currentTab == ModelTab::Jerry && jerryUI)
+    // When on Jerry tab, hide the title labels since sub-tab buttons serve as headers
+    if (currentTab == ModelTab::Jerry)
     {
-        auto titleBounds = jerryUI->getTitleBounds().translated(jerryUI->getX(), jerryUI->getY());
+        if (jerryUI) jerryUI->setTitleVisible(false);
+        if (foundationUI) foundationUI->setTitleVisible(false);
+    }
+    else
+    {
+        if (jerryUI) jerryUI->setTitleVisible(true);
+        if (foundationUI) foundationUI->setTitleVisible(true);
+    }
+
+    if (careyUI)
+        careyUI->setBounds(modelControlsArea);
+
+    if (helpIcon && currentTab == ModelTab::Carey && careyUI)
+    {
+        auto titleBounds = careyUI->getTitleBounds().translated(careyUI->getX(), careyUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("jerry (stable audio open small)"));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("carey (ace-step lego)"));
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
             titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
             20, 20);
-        jerryHelpButton.setBounds(helpBounds);
+        careyHelpButton.setBounds(helpBounds);
     }
 
     if (careyUI)
@@ -10001,6 +10598,9 @@ void Gary4juceAudioProcessorEditor::resized()
         dariusHelpButton.setBounds(helpBounds);
     }
 
+    if (foundationUI)
+        foundationUI->setBounds(modelControlsArea);
+    // Foundation help button is positioned alongside Jerry sub-tab buttons (handled above)
 
 // ========== OUTPUT SECTION (FlexBox Implementation) ==========
     auto outputSection = bounds.removeFromTop(200).reduced(20, 10);

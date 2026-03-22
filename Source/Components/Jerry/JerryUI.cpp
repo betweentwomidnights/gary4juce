@@ -320,10 +320,10 @@ void JerryUI::resized()
 {
     auto area = getLocalBounds().reduced(kOuterMargin);
 
-    // Title at the very top
-    titleBounds = area.removeFromTop(kTitleHeight);
+    // Title at the very top (skip when sub-tab buttons replace it)
+    titleBounds = area.removeFromTop(titleHidden ? 0 : kTitleHeight);
     jerryLabel.setBounds(titleBounds);
-    area.removeFromTop(kInterRowGap);
+    if (!titleHidden) area.removeFromTop(kInterRowGap);
 
     // Model selector row with "+" button
     auto modelRow = area.removeFromTop(kRowHeight);
@@ -1191,6 +1191,13 @@ int JerryUI::getLoopType() const
 juce::Rectangle<int> JerryUI::getTitleBounds() const
 {
     return titleBounds;
+}
+
+void JerryUI::setTitleVisible(bool visible)
+{
+    jerryLabel.setVisible(visible);
+    titleHidden = !visible;
+    resized();
 }
 
 void JerryUI::refreshLoopTypeVisibility()
