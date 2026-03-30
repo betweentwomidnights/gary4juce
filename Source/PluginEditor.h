@@ -82,6 +82,15 @@ private:
     // Connection status
     bool isConnected = false;
     bool connectionFlashState = false;  // For flashing animation when connected
+    bool localGaryOnline = false;
+    bool localTerryOnline = false;
+    bool localJerryOnline = false;
+    bool localCareyOnline = false;
+    bool localFoundationOnline = false;
+    int localOnlineCount = 0;
+    int localHealthPollCounter = 0;
+    juce::int64 localHealthLastPollMs = 0;
+    std::atomic<bool> localHealthPollInFlight{ false };
 
     // Backend toggle system
     bool isUsingLocalhost = false; // Local cache synced with processor
@@ -388,6 +397,13 @@ private:
     juce::String getServiceUrl(ServiceType service, const juce::String& endpoint) const;
     void toggleBackend();
     void updateBackendToggleButton();
+    void triggerLocalServiceHealthPoll(bool force);
+    void resetLocalServiceHealthSnapshot();
+    bool isLocalServiceOnline(ServiceType service) const;
+    ServiceType getActiveLocalService() const;
+    bool isActiveLocalServiceOnline() const;
+    juce::String getLocalConnectionLineOne() const;
+    bool isServiceReachable(ServiceType service) const;
 
     // UI Helper methods
     void updateRecordingStatus();
