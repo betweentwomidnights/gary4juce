@@ -298,8 +298,8 @@ private:
     juce::String currentCoverCaption = "";
     double currentCoverNoiseStrength = 0.2;
     double currentCoverAudioStrength = 0.3;
-    int currentCoverSteps = 50;
-    double currentCoverCfg = 7.0;
+    int currentCoverSteps = CareyUI::kFixedCoverSteps;
+    double currentCoverCfg = CareyUI::kFixedCoverCfg;
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;

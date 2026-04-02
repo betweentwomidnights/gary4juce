@@ -185,6 +185,9 @@ private:
 class CareyUI : public juce::Component
 {
 public:
+    static constexpr int kFixedCoverSteps = 8;
+    static constexpr double kFixedCoverCfg = 1.0;
+
     enum class SubTab
     {
         Lego = 0,
@@ -639,16 +642,21 @@ public:
         };
         addToContent(coverAudioStrengthSlider);
 
+        const juce::String fixedCoverModelTooltip =
+            "cover mode uses the turbo model with fixed 8 steps and cfg 1.0 on both localhost and remote.";
+
         coverStepsLabel.setText("steps", juce::dontSendNotification);
         coverStepsLabel.setFont(juce::FontOptions(12.0f));
         coverStepsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
         coverStepsLabel.setJustificationType(juce::Justification::centredLeft);
+        coverStepsLabel.setTooltip(fixedCoverModelTooltip);
         addToContent(coverStepsLabel);
 
         coverStepsSlider.setRange(8, 100, 1);
-        coverStepsSlider.setValue(50);
+        coverStepsSlider.setValue(kFixedCoverSteps);
         coverStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
-        coverStepsSlider.setTooltip("diffusion steps. more = refined but slower. recommended: 50");
+        coverStepsSlider.setTooltip(fixedCoverModelTooltip);
+        coverStepsSlider.setEnabled(false);
         coverStepsSlider.onValueChange = [this]()
         {
             if (onCoverStepsChanged)
@@ -660,13 +668,15 @@ public:
         coverCfgLabel.setFont(juce::FontOptions(12.0f));
         coverCfgLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
         coverCfgLabel.setJustificationType(juce::Justification::centredLeft);
+        coverCfgLabel.setTooltip(fixedCoverModelTooltip);
         addToContent(coverCfgLabel);
 
-        coverCfgSlider.setRange(3.0, 10.0, 0.1);
-        coverCfgSlider.setValue(7.0);
+        coverCfgSlider.setRange(1.0, 10.0, 0.1);
+        coverCfgSlider.setValue(kFixedCoverCfg);
         coverCfgSlider.setNumDecimalPlacesToDisplay(1);
         coverCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
-        coverCfgSlider.setTooltip("how strictly the model follows the caption. higher = stronger style push. recommended: 7-9");
+        coverCfgSlider.setTooltip(fixedCoverModelTooltip);
+        coverCfgSlider.setEnabled(false);
         coverCfgSlider.onValueChange = [this]()
         {
             if (onCoverCfgChanged)
@@ -936,8 +946,8 @@ public:
     juce::String getCoverLyricsText() const { return lyricsText; }  // Shared across all tabs
     double getCoverNoiseStrength() const { return coverNoiseStrengthSlider.getValue(); }
     double getCoverAudioStrength() const { return coverAudioStrengthSlider.getValue(); }
-    int getCoverSteps() const { return juce::roundToInt(coverStepsSlider.getValue()); }
-    double getCoverCfg() const { return coverCfgSlider.getValue(); }
+    int getCoverSteps() const { return kFixedCoverSteps; }
+    double getCoverCfg() const { return kFixedCoverCfg; }
     bool getCoverUseSrcAsRef() const { return coverUseSrcAsRefToggle.getToggleState(); }
     bool getCoverLoopAssistEnabled() const { return coverLoopAssistToggle.getToggleState(); }
     bool getCoverTrimToInputEnabled() const { return coverTrimToInputToggle.getToggleState(); }
@@ -947,8 +957,8 @@ public:
     void setCoverLyricsText(const juce::String& text) { setLyricsTextInternal(text, false); }  // Shared across all tabs
     void setCoverNoiseStrength(double val) { coverNoiseStrengthSlider.setValue(juce::jlimit(0.0, 1.0, val), juce::dontSendNotification); }
     void setCoverAudioStrength(double val) { coverAudioStrengthSlider.setValue(juce::jlimit(0.0, 1.0, val), juce::dontSendNotification); }
-    void setCoverSteps(int val) { coverStepsSlider.setValue(juce::jlimit(8, 100, val), juce::dontSendNotification); }
-    void setCoverCfg(double val) { coverCfgSlider.setValue(juce::jlimit(3.0, 10.0, val), juce::dontSendNotification); }
+    void setCoverSteps(int) { coverStepsSlider.setValue(kFixedCoverSteps, juce::dontSendNotification); }
+    void setCoverCfg(double) { coverCfgSlider.setValue(kFixedCoverCfg, juce::dontSendNotification); }
     void setCoverUseSrcAsRef(bool enabled) { coverUseSrcAsRefToggle.setToggleState(enabled, juce::dontSendNotification); }
     void setCoverLoopAssistEnabled(bool enabled) { coverLoopAssistToggle.setToggleState(enabled, juce::dontSendNotification); }
     void setCoverTrimToInputEnabled(bool enabled) { coverTrimToInputToggle.setToggleState(enabled, juce::dontSendNotification); }

@@ -474,8 +474,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // onCoverLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCoverNoiseStrengthChanged = [this](double val) { currentCoverNoiseStrength = juce::jlimit(0.0, 1.0, val); };
     careyUI->onCoverAudioStrengthChanged = [this](double val) { currentCoverAudioStrength = juce::jlimit(0.0, 1.0, val); };
-    careyUI->onCoverStepsChanged = [this](int steps) { currentCoverSteps = juce::jlimit(8, 100, steps); };
-    careyUI->onCoverCfgChanged = [this](double val) { currentCoverCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onCoverStepsChanged = [this](int) { currentCoverSteps = CareyUI::kFixedCoverSteps; };
+    careyUI->onCoverCfgChanged = [this](double) { currentCoverCfg = CareyUI::kFixedCoverCfg; };
     careyUI->onCoverUseSrcAsRefChanged = [this](bool enabled) { currentCoverUseSrcAsRef = enabled; };
     careyUI->onCoverLoopAssistChanged = [this](bool enabled) { currentCoverLoopAssistEnabled = enabled; };
     careyUI->onCoverTrimToInputChanged = [this](bool enabled) { currentCoverTrimToInputEnabled = enabled; };
@@ -5067,7 +5067,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -5077,7 +5078,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     }
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+                    if (parsedProgress < 0 && textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
@@ -5503,7 +5505,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -5513,7 +5516,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     }
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+                    if (parsedProgress < 0 && textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
@@ -5611,8 +5615,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const juce::String language = currentCareyLanguage;
     const double coverNoiseStrength = juce::jlimit(0.0, 1.0, currentCoverNoiseStrength);
     const double audioCoverStrength = juce::jlimit(0.0, 1.0, currentCoverAudioStrength);
-    const double guidanceScale = juce::jlimit(3.0, 10.0, currentCoverCfg);
-    const int inferenceSteps = juce::jlimit(8, 100, currentCoverSteps);
+    const double guidanceScale = CareyUI::kFixedCoverCfg;
+    const int inferenceSteps = CareyUI::kFixedCoverSteps;
     const bool useSrcAsRef = currentCoverUseSrcAsRef;
     const bool loopAssistEnabled = currentCoverLoopAssistEnabled;
     const bool trimToInputEnabled = currentCoverTrimToInputEnabled;
@@ -5979,7 +5983,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -6023,7 +6028,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         + " parsedProgress=" + juce::String(parsedProgress));
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+                    if (parsedProgress < 0 && textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
