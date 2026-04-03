@@ -11,6 +11,12 @@
 
 namespace
 {
+    struct CareyFailureInfo
+    {
+        juce::String userMessage;
+        juce::String popupDetail;
+    };
+
     int loopTypeStringToIndex(const juce::String& type)
     {
         if (type.equalsIgnoreCase("drums"))
@@ -72,19 +78,66 @@ namespace
 
         return names;
     }
+
+    CareyFailureInfo parseCareyFailureResponse(const juce::var& responseVar,
+                                               const juce::String& fallbackMessage)
+    {
+        CareyFailureInfo info;
+        info.userMessage = fallbackMessage;
+        info.popupDetail = fallbackMessage;
+
+        auto* responseObj = responseVar.getDynamicObject();
+        if (responseObj == nullptr)
+            return info;
+
+        const juce::String errorText = responseObj->getProperty("error").toString().trim();
+        const juce::String technicalError = responseObj->getProperty("technical_error").toString().trim();
+        const juce::String errorCode = responseObj->getProperty("error_code").toString().trim().toLowerCase();
+        const bool retryable = static_cast<bool>(responseObj->getProperty("retryable"));
+        const juce::String backendName = responseObj->getProperty("backend_name").toString().trim();
+
+        info.userMessage = errorText.isNotEmpty() ? errorText : fallbackMessage;
+        info.popupDetail = technicalError.isNotEmpty()
+            ? technicalError
+            : (errorText.isNotEmpty() ? errorText : fallbackMessage);
+
+        if (errorCode == "acestep_backend_restarting")
+        {
+            juce::String backendLabel = "carey backend";
+            if (backendName.equalsIgnoreCase("turbo"))
+                backendLabel = "carey turbo backend";
+            else if (backendName.equalsIgnoreCase("base"))
+                backendLabel = "carey base backend";
+
+            info.userMessage = backendLabel + " hit a GPU runtime error and is restarting. try again in about a minute.";
+        }
+
+        juce::String metadata;
+        if (errorCode.isNotEmpty())
+            metadata << "\nerror_code=" << errorCode;
+        if (backendName.isNotEmpty())
+            metadata << "\nbackend_name=" << backendName;
+        if (retryable)
+            metadata << "\nretryable=true";
+
+        if (metadata.isNotEmpty() && !info.popupDetail.contains(metadata.trimStart()))
+            info.popupDetail << metadata;
+
+        return info;
+    }
 }
 
 //==============================================================================
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p),
     cropButton("Crop", juce::DrawableButton::ImageFitted),
+    uploadButton("Upload", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
     dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
     careyHelpButton("carey help", juce::DrawableButton::ImageFitted),
-    foundationHelpButton("foundation help", juce::DrawableButton::ImageFitted),
-    uploadButton("Upload", juce::DrawableButton::ImageFitted)
+    foundationHelpButton("foundation help", juce::DrawableButton::ImageFitted)
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
@@ -3069,8 +3122,6 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
             DBG("Retry request aborted - generation stopped");
             return;
         }
-        
-        auto startTime = juce::Time::getCurrentTime();
 
         // Create JSON payload with current UI parameters
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
@@ -4329,21 +4380,13 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     juce::String fullPrompt = currentJerryPrompt + " " + juce::String((int)bpm) + "bpm";
 
     // 3. Determine endpoint based on smart loop toggle
+    const bool useLocalAsyncPolling = audioProcessor.getIsUsingLocalhost();
     juce::String endpoint;
 
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        // Localhost endpoints do NOT have the /audio prefix
-        if (useLocalAsyncPolling)
-            endpoint = generateAsLoop ? "/generate/loop/async" : "/generate/async";
-        else
-            endpoint = generateAsLoop ? "/generate/loop" : "/generate";
-    }
+    if (useLocalAsyncPolling)
+        endpoint = generateAsLoop ? "/generate/loop/async" : "/generate/async";
     else
-    {
-        // Remote backend requires /audio prefix
         endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
-    }
 
     juce::String statusText = generateAsLoop ?
         "cooking a smart loop with jerry..." : "baking with jerry...";
@@ -5153,6 +5196,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
+        juce::String failureDetail;
         juce::String downloadedBase64;
         bool success = false;
         double originalInputDurationSeconds = 0.0;
@@ -5370,10 +5414,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                 const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
                 {
-                    double rawProgress = -1.0;
-                    if (rawProgressVar.isBool())
-                        return -1;
-                    if (rawProgressVar.isInt() || rawProgressVar.isDouble())
+                    double rawProgress = 0.0;
+                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
                         rawProgress = (double)rawProgressVar;
                     else
                     {
@@ -5381,16 +5423,9 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         if (rawText.isEmpty()) return -1;
                         rawProgress = rawText.getDoubleValue();
                     }
-
-                    if (rawProgress < 0.0) return -1;
-                    if (rawProgress == 0.0) return 0;
-
-                    // Treat (0,1) as fractional progress; treat >=1 as percentage points.
-                    // This avoids mapping server value `1` (1%) to 100%.
-                    if (rawProgress < 1.0)
-                        return juce::jlimit(0, 99, juce::roundToInt(rawProgress * 100.0));
-
-                    return juce::jlimit(0, 99, juce::roundToInt(rawProgress));
+                    if (rawProgress <= 0.0) return 0;
+                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
                 const auto parseStepProgressFromText = [](const juce::String& text) -> int
@@ -5449,15 +5484,17 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                     if (status == "failed")
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey generation failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
                     if (!querySuccess && !(generationInProgress || transformInProgress))
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey request failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
@@ -5638,11 +5675,12 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey request failed";
-        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(finalError))
-                showGenerationFailureDialog(finalError);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -5731,6 +5769,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
     {
         juce::String failureReason;
+        juce::String failureDetail;
         juce::String downloadedBase64;
         bool success = false;
 
@@ -5819,10 +5858,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                 const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
                 {
-                    double rawProgress = -1.0;
-                    if (rawProgressVar.isBool())
-                        return -1;
-                    if (rawProgressVar.isInt() || rawProgressVar.isDouble())
+                    double rawProgress = 0.0;
+                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
                         rawProgress = (double)rawProgressVar;
                     else
                     {
@@ -5830,16 +5867,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                         if (rawText.isEmpty()) return -1;
                         rawProgress = rawText.getDoubleValue();
                     }
-
-                    if (rawProgress < 0.0) return -1;
-                    if (rawProgress == 0.0) return 0;
-
-                    // Treat (0,1) as fractional progress; treat >=1 as percentage points.
-                    // This avoids mapping server value `1` (1%) to 100%.
-                    if (rawProgress < 1.0)
-                        return juce::jlimit(0, 99, juce::roundToInt(rawProgress * 100.0));
-
-                    return juce::jlimit(0, 99, juce::roundToInt(rawProgress));
+                    if (rawProgress <= 0.0) return 0;
+                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
                 const auto parseStepProgressFromText = [](const juce::String& text) -> int
@@ -5898,15 +5928,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                     if (status == "failed")
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey complete generation failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey complete generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
                     if (!querySuccess && !(generationInProgress || transformInProgress))
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey complete request failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey complete request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
@@ -5991,11 +6023,12 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey complete request failed";
-        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(finalError))
-                showGenerationFailureDialog(finalError);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -6086,7 +6119,16 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                           audioCoverStrength, guidanceScale, inferenceSteps, useSrcAsRef,
                           loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
+        const auto summarizeHttpBody = [](juce::String body) -> juce::String
+        {
+            auto cleaned = body.replaceCharacters("\r\n\t", "   ").trim();
+            if (cleaned.length() > 180)
+                cleaned = cleaned.substring(0, 180).trim() + "...";
+            return cleaned;
+        };
+
         juce::String failureReason;
+        juce::String failureDetail;
         juce::String downloadedBase64;
         bool success = false;
         double originalInputDurationSeconds = 0.0;
@@ -6270,18 +6312,27 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                     .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json");
 
                 auto submitStream = submitPost.createInputStream(submitOptions);
+                juce::String submitResponse;
+                if (submitStream != nullptr)
+                    submitResponse = submitStream->readEntireStreamAsString();
+
                 if (submitStream == nullptr || submitStatusCode >= 400)
                 {
-                    failureReason = "carey /cover submit failed";
+                    const juce::String bodySummary = summarizeHttpBody(submitResponse);
+                    failureReason = "carey /cover submit failed (HTTP " + juce::String(submitStatusCode) + ")";
+                    if (bodySummary.isNotEmpty())
+                        failureReason += ": " + bodySummary;
                     break;
                 }
 
-                const juce::String submitResponse = submitStream->readEntireStreamAsString();
                 const juce::var submitVar = juce::JSON::parse(submitResponse);
                 auto* submitObj = submitVar.getDynamicObject();
                 if (submitObj == nullptr)
                 {
+                    const juce::String bodySummary = summarizeHttpBody(submitResponse);
                     failureReason = "invalid carey cover submit response";
+                    if (bodySummary.isNotEmpty())
+                        failureReason += ": " + bodySummary;
                     break;
                 }
 
@@ -6307,10 +6358,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                 const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
                 {
-                    double rawProgress = -1.0;
-                    if (rawProgressVar.isBool())
-                        return -1;
-                    if (rawProgressVar.isInt() || rawProgressVar.isDouble())
+                    double rawProgress = 0.0;
+                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
                         rawProgress = (double)rawProgressVar;
                     else
                     {
@@ -6318,16 +6367,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         if (rawText.isEmpty()) return -1;
                         rawProgress = rawText.getDoubleValue();
                     }
-
-                    if (rawProgress < 0.0) return -1;
-                    if (rawProgress == 0.0) return 0;
-
-                    // Treat (0,1) as fractional progress; treat >=1 as percentage points.
-                    // This avoids mapping server value `1` (1%) to 100%.
-                    if (rawProgress < 1.0)
-                        return juce::jlimit(0, 99, juce::roundToInt(rawProgress * 100.0));
-
-                    return juce::jlimit(0, 99, juce::roundToInt(rawProgress));
+                    if (rawProgress <= 0.0) return 0;
+                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
                 const auto parseStepProgressFromText = [](const juce::String& text) -> int
@@ -6364,14 +6406,19 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         .withExtraHeaders("Accept: application/json");
 
                     auto queryStream = queryUrl.createInputStream(queryOptions);
+                    juce::String queryResponse;
+                    if (queryStream != nullptr)
+                        queryResponse = queryStream->readEntireStreamAsString();
+
                     if (queryStream == nullptr || queryStatusCode >= 400)
                     {
-                        failureReason = "carey cover status polling failed";
+                        const juce::String bodySummary = summarizeHttpBody(queryResponse);
+                        failureReason = "carey cover status polling failed (HTTP " + juce::String(queryStatusCode) + ")";
+                        if (bodySummary.isNotEmpty())
+                            failureReason += ": " + bodySummary;
                         break;
                     }
 
-                    const juce::String queryResponse = queryStream->readEntireStreamAsString();
-                    DBG("[carey-cover] RAW RESPONSE: " + queryResponse.substring(0, 500));
                     const juce::var queryVar = juce::JSON::parse(queryResponse);
                     auto* queryObj = queryVar.getDynamicObject();
                     if (queryObj == nullptr)
@@ -6387,15 +6434,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                     if (status == "failed")
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey cover generation failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey cover generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
                     if (!querySuccess && !(generationInProgress || transformInProgress))
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey cover request failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey cover request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
@@ -6450,12 +6499,6 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         }
                         queueMessage = stripped.trim();
                     }
-
-                    DBG("[carey-cover] poll: status=" + status
-                        + " progress=" + queryObj->getProperty("progress").toString()
-                        + " queueStatus=" + queueStatus
-                        + " queueMessage=[" + queueMessage + "]"
-                        + " parsedProgress=" + juce::String(parsedProgress));
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
                     if (parsedProgress < 0 && textStepProgress >= 0)
@@ -6610,11 +6653,12 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey cover request failed";
-        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(finalError))
-                showGenerationFailureDialog(finalError);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -8079,9 +8123,12 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
 
     auto url = makeDariusProgressURL(dariusProgressRequestId);
 
-    std::async(std::launch::async, [this, url]()
+    juce::Thread::launch([this, url]()
         {
-            std::unique_ptr<juce::InputStream> s(url.createInputStream(false, nullptr, nullptr, {}, 10000));
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000);
+
+            std::unique_ptr<juce::InputStream> s(url.createInputStream(options));
             if (!s) return;
 
             auto jsonText = s->readEntireStreamAsString();
@@ -8979,8 +9026,6 @@ void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
         clickPercent = juce::jlimit(0.0, 1.0, clickPercent);
 
         // Convert percentage to time in seconds
-        double seekTime = clickPercent * totalAudioDuration;
-
         // Store click for potential drag - only seek if it's not a drag
         // The actual seek will happen in mouseUp if no drag occurred
 
@@ -10499,7 +10544,7 @@ void Gary4juceAudioProcessorEditor::resized()
     {
         auto titleBounds = garyUI->getTitleBounds().translated(garyUI->getX(), garyUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("gary (musicgen)"));
+        const int textWidth = titleFont.getStringWidth("gary (musicgen)");
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
@@ -10530,7 +10575,7 @@ void Gary4juceAudioProcessorEditor::resized()
     {
         auto titleBounds = careyUI->getTitleBounds().translated(careyUI->getX(), careyUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("carey (ace-step lego)"));
+        const int textWidth = titleFont.getStringWidth("carey (ace-step lego)");
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
@@ -10546,7 +10591,7 @@ void Gary4juceAudioProcessorEditor::resized()
     {
         auto titleBounds = careyUI->getTitleBounds().translated(careyUI->getX(), careyUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("carey (ace-step lego)"));
+        const int textWidth = titleFont.getStringWidth("carey (ace-step lego)");
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
@@ -10562,7 +10607,7 @@ void Gary4juceAudioProcessorEditor::resized()
     {
         auto titleBounds = terryUI->getTitleBounds().translated(terryUI->getX(), terryUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("terry (melodyflow)"));
+        const int textWidth = titleFont.getStringWidth("terry (melodyflow)");
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
@@ -10578,7 +10623,7 @@ void Gary4juceAudioProcessorEditor::resized()
     {
         auto titleBounds = dariusUI->getTitleBounds().translated(dariusUI->getX(), dariusUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("darius (magentaRT)"));
+        const int textWidth = titleFont.getStringWidth("darius (magentaRT)");
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
@@ -10899,26 +10944,70 @@ bool Gary4juceAudioProcessorEditor::shouldShowGenerationFailureDialog(const juce
     if (normalized.isEmpty())
         return false;
 
-    if (normalized.contains("cannot connect")
-        || normalized.contains("failed to connect")
-        || normalized.contains("backend not responding")
-        || normalized.contains("docker compose")
-        || normalized.contains("localhost")
-        || normalized.contains("network error")
-        || normalized.contains("polling failed")
-        || normalized.contains("invalid")
-        || normalized.contains("timed out"))
+    const auto containsAny = [&normalized](std::initializer_list<const char*> needles) {
+        for (const auto* needle : needles)
+        {
+            if (normalized.contains(needle))
+                return true;
+        }
+        return false;
+    };
+
+    if (containsAny({
+            "cannot connect",
+            "failed to connect",
+            "backend not responding",
+            "docker compose",
+            "localhost",
+            "network error",
+            "polling failed",
+            "failed to fetch checkpoints",
+            "failed to fetch model config",
+            "check connection first",
+        }))
     {
         return false;
     }
 
-    return normalized.contains("traceback")
-        || normalized.contains("cublas")
-        || normalized.contains("cuda")
-        || normalized.contains("runtimeerror")
-        || normalized.contains("exception")
-        || normalized.contains("error:")
-        || normalized.length() > 80;
+    if (containsAny({
+            "missing mybuffer.wav",
+            "save your recording first",
+            "failed to read mybuffer.wav",
+            "failed to decode mybuffer.wav",
+            "failed to load mybuffer.wav",
+            "failed to base64 encode",
+            "failed to create ",
+            "failed to write ",
+            "conditioning audio",
+            "audio_duration must be",
+            "cover_noise_strength must be",
+            "audio_cover_strength must be",
+        }))
+    {
+        return false;
+    }
+
+    if (containsAny({
+            "traceback",
+            "cublas",
+            "cuda",
+            "runtimeerror",
+            "exception",
+            "error:",
+            "generation failed",
+            "request failed",
+            "submit failed",
+            "status response",
+            "timed out",
+            "unknown task_id",
+            "http ",
+            "server error",
+        }))
+    {
+        return true;
+    }
+
+    return normalized.length() > 80;
 }
 
 void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
@@ -11087,7 +11176,7 @@ void Gary4juceAudioProcessorEditor::showGenerationFailureDialog(const juce::Stri
     showSupportDialog("generation failed",
         "copy the details below and send them to kev\n"
         "on discord or twitter.\n"
-        "chances are all he has to do is restart the container for you.",
+        "if it looks generic, please still send it anyway.",
         reason,
         false);
 }
