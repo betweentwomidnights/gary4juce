@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="the collabage patch"
-              companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE">
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="3.0.1"
+              useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
+              defines="ASIO_STANDALONE">
   <MAINGROUP id="DH6yqq" name="gary4juce">
     <FILE id="ywx3kS" name="icon.icns" compile="0" resource="1" file="icon.icns"/>
     <GROUP id="{28B6528D-59DF-0DCA-1E43-B839575ABC1A}" name="New Group"/>

@@ -72,27 +72,6 @@ namespace
 
         return names;
     }
-
-    bool localhostHealthResponseLooksOnline(const juce::String& responseText)
-    {
-        if (responseText.trim().isEmpty())
-            return false;
-
-        auto parsed = juce::JSON::parse(responseText);
-        if (auto* obj = parsed.getDynamicObject())
-        {
-            auto status = obj->getProperty("status").toString().trim().toLowerCase();
-            if (status.isNotEmpty())
-            {
-                if (status == "unhealthy" || status == "failed" || status == "down" || status == "error")
-                    return false;
-                return true;
-            }
-        }
-
-        // If health payload is non-empty but non-standard, treat as online.
-        return true;
-    }
 }
 
 //==============================================================================
@@ -331,7 +310,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryUI->setSmartLoop(generateAsLoop);
     jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
     jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
-    jerryUI->setButtonsEnabled(false, isConnected, isGenerating);
+    jerryUI->setButtonsEnabled(false, isServiceReachable(ServiceType::Jerry), isGenerating);
 
     // Update localhost status
     jerryUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
@@ -514,8 +493,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // onCoverLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCoverNoiseStrengthChanged = [this](double val) { currentCoverNoiseStrength = juce::jlimit(0.0, 1.0, val); };
     careyUI->onCoverAudioStrengthChanged = [this](double val) { currentCoverAudioStrength = juce::jlimit(0.0, 1.0, val); };
-    careyUI->onCoverStepsChanged = [this](int steps) { currentCoverSteps = juce::jlimit(8, 100, steps); };
-    careyUI->onCoverCfgChanged = [this](double val) { currentCoverCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onCoverStepsChanged = [this](int) { currentCoverSteps = CareyUI::kFixedCoverSteps; };
+    careyUI->onCoverCfgChanged = [this](double) { currentCoverCfg = CareyUI::kFixedCoverCfg; };
     careyUI->onCoverUseSrcAsRefChanged = [this](bool enabled) { currentCoverUseSrcAsRef = enabled; };
     careyUI->onCoverLoopAssistChanged = [this](bool enabled) { currentCoverLoopAssistEnabled = enabled; };
     careyUI->onCoverTrimToInputChanged = [this](bool enabled) { currentCoverTrimToInputEnabled = enabled; };
@@ -645,6 +624,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Initial status update
     updateRecordingStatus();
+    if (audioProcessor.getIsUsingLocalhost())
+        triggerLocalServiceHealthPoll(true);
+
+    // Kick off initial local service health poll if using localhost
     if (audioProcessor.getIsUsingLocalhost())
         triggerLocalServiceHealthPoll(true);
 
@@ -1059,8 +1042,7 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
 
 void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 {
-    // Foundation sub-tab unavailable on localhost (backend not yet implemented)
-    if (sub == JerrySubTab::Foundation && isUsingLocalhost) return;
+    // Foundation sub-tab now available on both localhost and remote
     if (jerrySubTab == sub && currentTab == ModelTab::Jerry) return;
 
     jerrySubTab = sub;
@@ -1098,15 +1080,7 @@ void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
     jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
 
-    // Foundation sub-tab disabled on localhost (backend not yet implemented)
-    bool foundationAvailable = !isUsingLocalhost;
-    jerrySubTabFoundation.setEnabled(foundationAvailable);
-    if (!foundationAvailable)
-    {
-        jerrySubTabFoundation.setButtonStyle(CustomButton::ButtonStyle::Inactive);
-        jerrySubTabFoundation.setTooltip("foundation-1 is only available on remote (DGX Spark)");
-    }
-    else
+    jerrySubTabFoundation.setEnabled(true);
     {
         jerrySubTabFoundation.setButtonStyle(jerrySubTab == JerrySubTab::Foundation
             ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
@@ -1121,11 +1095,9 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
 
     if (jerryUI)
     {
-        const bool jerryConnected = audioProcessor.getIsUsingLocalhost()
-            ? isLocalServiceOnline(ServiceType::Jerry)
-            : isConnected;
-        const bool canGenerate = jerryConnected && !currentJerryPrompt.trim().isEmpty();
-        const bool canSmartLoop = jerryConnected;
+        const bool jerryOnline = isServiceReachable(ServiceType::Jerry);
+        const bool canGenerate = jerryOnline && !currentJerryPrompt.trim().isEmpty();
+        const bool canSmartLoop = jerryOnline;
         jerryUI->setButtonsEnabled(canGenerate, canSmartLoop, isGenerating);
     }
 
@@ -1139,10 +1111,6 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
     if (!garyUI)
         return;
 
-    const bool garyConnected = audioProcessor.getIsUsingLocalhost()
-        ? isLocalServiceOnline(ServiceType::Gary)
-        : isConnected;
-
     const bool hasAudio = savedSamples > 0;
     const bool continueAvailable = hasOutputAudio;
     const juce::String sessionId = audioProcessor.getCurrentSessionId();
@@ -1150,7 +1118,7 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
     const bool retryAvailableFlag = audioProcessor.getRetryAvailable();
     const bool retryAvailable = hasValidSession && retryAvailableFlag;
 
-    garyUI->setButtonsEnabled(hasAudio, garyConnected, isGenerating, retryAvailable, continueAvailable);
+    garyUI->setButtonsEnabled(hasAudio, isServiceReachable(ServiceType::Gary), isGenerating, retryAvailable, continueAvailable);
 
     if (resetTexts || !isGenerating)
     {
@@ -1224,6 +1192,21 @@ void Gary4juceAudioProcessorEditor::timerCallback()
             connectionFlashState = !connectionFlashState;
             repaint(); // Repaint to show flash change
         }
+    }
+
+    // Local service health polling (every 3 seconds)
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        localHealthPollCounter++;
+        if (localHealthPollCounter >= 60) // 60 * 50ms = 3 seconds
+        {
+            localHealthPollCounter = 0;
+            triggerLocalServiceHealthPoll(false);
+        }
+    }
+    else
+    {
+        localHealthPollCounter = 0;
     }
 
     // Poll backend every 60 timer ticks (every 3 seconds since timer runs every 50ms)
@@ -2526,10 +2509,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         return;
     }
 
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Gary))
     {
         cancelGaryOperation();
-        showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("gary not reachable - check connection first");
         return;
     }
 
@@ -3041,9 +3024,9 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         return;
     }
 
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Gary))
     {
-        showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("gary not reachable - check connection first");
         cancelRetryOperation();
         return;
     }
@@ -3251,9 +3234,9 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
 void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
 {
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Gary))
     {
-        DBG("Not connected - skipping Gary model fetch");
+        DBG("Gary not reachable - skipping model fetch");
         return;
     }
 
@@ -3626,25 +3609,15 @@ void Gary4juceAudioProcessorEditor::applyGaryQuantizationDefaultForCurrentModel(
 
 void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
 {
-    if (jerryModelsFetchInFlight.exchange(true))
+    if (!isServiceReachable(ServiceType::Jerry))
     {
-        DBG("Jerry models fetch already in flight - skipping");
+        DBG("Jerry not reachable - skipping model fetch");
         return;
     }
 
-    const bool isLocalhost = audioProcessor.getIsUsingLocalhost();
-    if (!isLocalhost && !isConnected)
+    if (jerryModelsFetchInFlight.exchange(true))
     {
-        DBG("Not connected - skipping model fetch");
-        jerryModelsFetchInFlight.store(false);
-        return;
-    }
-    if (isLocalhost && !isLocalServiceOnline(ServiceType::Jerry))
-    {
-        DBG("Jerry service offline on localhost - skipping model fetch");
-        if (jerryUI)
-            jerryUI->setLoadingModel(false);
-        jerryModelsFetchInFlight.store(false);
+        DBG("Jerry models fetch already in flight - skipping");
         return;
     }
 
@@ -4326,17 +4299,9 @@ juce::String Gary4juceAudioProcessorEditor::extractCheckpointInfo(const juce::St
 
 void Gary4juceAudioProcessorEditor::sendToJerry()
 {
-    const bool useLocalAsyncPolling = audioProcessor.getIsUsingLocalhost();
-    const bool jerryConnected = useLocalAsyncPolling
-        ? isLocalServiceOnline(ServiceType::Jerry)
-        : isConnected;
-
-    if (!jerryConnected)
+    if (!isServiceReachable(ServiceType::Jerry))
     {
-        if (useLocalAsyncPolling)
-            showStatusMessage("jerry service not connected on localhost - start jerry in gary4local");
-        else
-            showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("jerry not reachable - check connection first");
         return;
     }
 
@@ -4715,9 +4680,7 @@ void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()
     else
         canTransform = outputAvailable;
 
-    canTransform = canTransform && (hasVariation || hasCustomPrompt);
-    if (!audioProcessor.getIsUsingLocalhost())
-        canTransform = canTransform && isConnected;
+    canTransform = canTransform && isServiceReachable(ServiceType::Terry) && (hasVariation || hasCustomPrompt);
 
     const bool undoAvailable = audioProcessor.getUndoTransformAvailable() &&
         !audioProcessor.getCurrentSessionId().isEmpty();
@@ -4740,8 +4703,7 @@ void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
 
     const auto garyDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("gary4juce");
     const bool hasInputAudio = savedSamples > 0 && garyDir.getChildFile("myBuffer.wav").existsAsFile();
-    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
-    const bool backendLooksOnline = usingLocalhost ? isLocalServiceOnline(ServiceType::Carey) : isConnected;
+    const bool backendLooksOnline = isServiceReachable(ServiceType::Carey);
 
     const bool canGenerate = backendLooksOnline && hasInputAudio;
     careyUI->setGenerateButtonEnabled(canGenerate, isGenerating);
@@ -4768,7 +4730,7 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
     careyTabButton.setEnabled(available);
 
     if (audioProcessor.getIsUsingLocalhost())
-        careyTabButton.setTooltip("carey (ace-step lego) - localhost backend");
+        careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
     else
         careyTabButton.setTooltip("carey (ace-step lego) - remote backend");
 
@@ -4786,7 +4748,7 @@ void Gary4juceAudioProcessorEditor::updateFoundationEnablementSnapshot()
     if (!foundationUI)
         return;
 
-    const bool canGenerate = isConnected;
+    const bool canGenerate = isServiceReachable(ServiceType::Foundation);
     foundationUI->setGenerateButtonEnabled(canGenerate, isGenerating);
 
     // Clear the "generating at X BPM..." info text once generation finishes
@@ -4815,9 +4777,9 @@ void Gary4juceAudioProcessorEditor::updateFoundationEnablementSnapshot()
 
 void Gary4juceAudioProcessorEditor::sendToFoundation()
 {
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Foundation))
     {
-        showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("foundation not reachable - check connection first");
         return;
     }
 
@@ -5020,9 +4982,9 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
 
 void Gary4juceAudioProcessorEditor::randomizeFoundation()
 {
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Foundation))
     {
-        showStatusMessage("connect first", 2000);
+        showStatusMessage("foundation not reachable", 2000);
         return;
     }
 
@@ -5107,18 +5069,9 @@ void Gary4juceAudioProcessorEditor::randomizeFoundation()
 
 void Gary4juceAudioProcessorEditor::sendToCarey()
 {
-    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
-    if (usingLocalhost)
+    if (!isServiceReachable(ServiceType::Carey))
     {
-        if (!isLocalServiceOnline(ServiceType::Carey))
-        {
-            showStatusMessage("carey service not connected on localhost - start carey in gary4local");
-            return;
-        }
-    }
-    else if (!isConnected)
-    {
-        showStatusMessage("remote backend not connected - check connection first");
+        showStatusMessage("carey not reachable - check connection first");
         return;
     }
 
@@ -5522,7 +5475,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -5532,7 +5486,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     }
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+                    if (parsedProgress < 0 && textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
@@ -5686,6 +5641,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(finalError))
+                showGenerationFailureDialog(finalError);
             cancelCareyOperation();
         });
     });
@@ -5693,18 +5650,9 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
 void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 {
-    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
-    if (usingLocalhost)
+    if (!isServiceReachable(ServiceType::Carey))
     {
-        if (!isLocalServiceOnline(ServiceType::Carey))
-        {
-            showStatusMessage("carey service not connected on localhost - start carey in gary4local");
-            return;
-        }
-    }
-    else if (!isConnected)
-    {
-        showStatusMessage("remote backend not connected - check connection first");
+        showStatusMessage("carey not reachable - check connection first");
         return;
     }
 
@@ -5976,7 +5924,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -5986,7 +5935,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     }
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+                    if (parsedProgress < 0 && textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
@@ -6044,6 +5994,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(finalError))
+                showGenerationFailureDialog(finalError);
             cancelCareyOperation();
         });
     });
@@ -6051,18 +6003,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
 void Gary4juceAudioProcessorEditor::sendToCareyCover()
 {
-    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
-    if (usingLocalhost)
+    if (!isServiceReachable(ServiceType::Carey))
     {
-        if (!isLocalServiceOnline(ServiceType::Carey))
-        {
-            showStatusMessage("carey service not connected on localhost - start carey in gary4local");
-            return;
-        }
-    }
-    else if (!isConnected)
-    {
-        showStatusMessage("remote backend not connected - check connection first");
+        showStatusMessage("carey not reachable - check connection first");
         return;
     }
 
@@ -6093,8 +6036,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const juce::String language = currentCareyLanguage;
     const double coverNoiseStrength = juce::jlimit(0.0, 1.0, currentCoverNoiseStrength);
     const double audioCoverStrength = juce::jlimit(0.0, 1.0, currentCoverAudioStrength);
-    const double guidanceScale = juce::jlimit(3.0, 10.0, currentCoverCfg);
-    const int inferenceSteps = juce::jlimit(8, 100, currentCoverSteps);
+    const double guidanceScale = CareyUI::kFixedCoverCfg;
+    const int inferenceSteps = CareyUI::kFixedCoverSteps;
     const bool useSrcAsRef = currentCoverUseSrcAsRef;
     const bool loopAssistEnabled = currentCoverLoopAssistEnabled;
     const bool trimToInputEnabled = currentCoverTrimToInputEnabled;
@@ -6470,7 +6413,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0) progressPercent = parsedProgress;
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -6514,7 +6458,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         + " parsedProgress=" + juce::String(parsedProgress));
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (textStepProgress >= 0) progressPercent = textStepProgress;
+                    if (parsedProgress < 0 && textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
@@ -6668,6 +6613,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(finalError))
+                showGenerationFailureDialog(finalError);
             cancelCareyOperation();
         });
     });
@@ -6701,9 +6648,9 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     repaint(); // Force immediate UI update
 
     // Basic validation checks (like Gary and Jerry)
-    if (!audioProcessor.getIsUsingLocalhost() && !isConnected)
+    if (!isServiceReachable(ServiceType::Terry))
     {
-        showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("terry not reachable - check connection first");
         cancelTerryOperation();
         return;
     }
@@ -8288,135 +8235,7 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     updateRecordingStatus();
 }
 
-void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
-{
-    localGaryOnline = false;
-    localTerryOnline = false;
-    localJerryOnline = false;
-    localCareyOnline = false;
-    localOnlineCount = 0;
-    localHealthLastPollMs = 0;
-    localHealthPollCounter = 0;
-    localHealthPollInFlight.store(false);
-}
-
-bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) const
-{
-    switch (service)
-    {
-    case ServiceType::Gary: return localGaryOnline;
-    case ServiceType::Terry: return localTerryOnline;
-    case ServiceType::Jerry: return localJerryOnline;
-    case ServiceType::Carey: return localCareyOnline;
-    }
-    return false;
-}
-
-Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getActiveLocalService() const
-{
-    switch (currentTab)
-    {
-    case ModelTab::Jerry: return ServiceType::Jerry;
-    case ModelTab::Terry: return ServiceType::Terry;
-    case ModelTab::Carey: return ServiceType::Carey;
-    case ModelTab::Gary:
-    case ModelTab::Darius:
-    default:
-        return ServiceType::Gary;
-    }
-}
-
-bool Gary4juceAudioProcessorEditor::isActiveLocalServiceOnline() const
-{
-    if (currentTab == ModelTab::Darius)
-        return localOnlineCount > 0;
-    return isLocalServiceOnline(getActiveLocalService());
-}
-
-juce::String Gary4juceAudioProcessorEditor::getLocalConnectionLineOne() const
-{
-    if (localOnlineCount <= 0)
-        return "disconnected (local)";
-    if (isActiveLocalServiceOnline())
-        return "connected (local)";
-    return "partial (local)";
-}
-
-void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
-{
-    if (!audioProcessor.getIsUsingLocalhost())
-        return;
-
-    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
-    if (!force && nowMs - localHealthLastPollMs < 2000)
-        return;
-    if (localHealthPollInFlight.exchange(true))
-        return;
-    localHealthLastPollMs = nowMs;
-
-    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-    juce::Thread::launch([safeThis]() {
-        auto probeHealth = [](const juce::String& urlText) -> bool
-        {
-            try
-            {
-                juce::URL healthUrl(urlText);
-                int statusCode = 0;
-                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                    .withConnectionTimeoutMs(1500)
-                    .withStatusCode(&statusCode)
-                    .withExtraHeaders("Accept: application/json");
-                auto stream = healthUrl.createInputStream(options);
-                if (stream == nullptr || statusCode >= 400)
-                    return false;
-                auto responseText = stream->readEntireStreamAsString();
-                return localhostHealthResponseLooksOnline(responseText);
-            }
-            catch (...)
-            {
-                return false;
-            }
-        };
-
-        const bool garyOnline = probeHealth("http://127.0.0.1:8000/health");
-        const bool terryOnline = probeHealth("http://127.0.0.1:8002/health");
-        const bool jerryOnline = probeHealth("http://127.0.0.1:8005/health");
-        const bool careyOnline = probeHealth("http://127.0.0.1:8001/health");
-
-        juce::MessageManager::callAsync([safeThis, garyOnline, terryOnline, jerryOnline, careyOnline]() {
-            if (safeThis == nullptr)
-                return;
-
-            safeThis->localHealthPollInFlight.store(false);
-
-            const bool changed =
-                safeThis->localGaryOnline != garyOnline ||
-                safeThis->localTerryOnline != terryOnline ||
-                safeThis->localJerryOnline != jerryOnline ||
-                safeThis->localCareyOnline != careyOnline;
-
-            safeThis->localGaryOnline = garyOnline;
-            safeThis->localTerryOnline = terryOnline;
-            safeThis->localJerryOnline = jerryOnline;
-            safeThis->localCareyOnline = careyOnline;
-            safeThis->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
-                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0);
-
-            safeThis->updateAllGenerationButtonStates();
-
-            if (!jerryOnline && safeThis->jerryUI)
-                safeThis->jerryUI->setLoadingModel(false);
-
-            // Keep Jerry model dropdown fresh while Jerry tab is active on localhost,
-            // so external model changes (e.g. gary4local "use model") appear immediately.
-            if (jerryOnline && safeThis->currentTab == ModelTab::Jerry)
-                safeThis->fetchJerryAvailableModels();
-
-            if (changed)
-                safeThis->repaint();
-        });
-    });
-}
+// (mac's incomplete health polling block removed — superseded by main's version below with all 5 services)
 
 // ========== UPDATED CONNECTION STATUS METHOD ==========
 void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
@@ -8499,13 +8318,16 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
             applyGaryQuantizationDefaultForCurrentModel();
     }
 
-    // Update carey tab availability and state
+    // Update carey tab availability (now available on both backends)
     updateCareyTabAvailability();
 
-    // Foundation sub-tab: disable on localhost, force back to SAOS if currently active
-    if (isUsingLocalhost && jerrySubTab == JerrySubTab::Foundation)
-        switchJerrySubTab(JerrySubTab::SAOS);
+    // Update Foundation sub-tab states (now available on both backends)
     updateJerrySubTabStates();
+
+    // Reset local health snapshot and trigger fresh poll if switching to localhost
+    resetLocalServiceHealthSnapshot();
+    if (isUsingLocalhost)
+        triggerLocalServiceHealthPoll(true);
 
     DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
 
@@ -8519,7 +8341,7 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (ports 8000/8001/8002/8005) - click to switch to remote");
+        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 carey:8003 foundation:8015) - click to switch to remote");
     }
     else
     {
@@ -8527,6 +8349,171 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Standard); // Standard style for remote
         backendToggleButton.setTooltip("using remote backend (g4l.thecollabagepatch.com) - click to switch to localhost");
     }
+}
+
+// ========== LOCAL SERVICE HEALTH POLLING ==========
+
+static bool localhostHealthResponseLooksOnline(const juce::String& responseText)
+{
+    if (responseText.trim().isEmpty())
+        return false;
+
+    auto parsed = juce::JSON::parse(responseText);
+    if (auto* obj = parsed.getDynamicObject())
+    {
+        auto status = obj->getProperty("status").toString().trim().toLowerCase();
+        if (status.isNotEmpty())
+        {
+            if (status == "unhealthy" || status == "failed" || status == "down" || status == "error")
+                return false;
+            return true;
+        }
+    }
+
+    // If health payload is non-empty but non-standard, treat as online.
+    return true;
+}
+
+bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) const
+{
+    switch (service)
+    {
+    case ServiceType::Gary:       return localGaryOnline;
+    case ServiceType::Terry:      return localTerryOnline;
+    case ServiceType::Jerry:      return localJerryOnline;
+    case ServiceType::Carey:      return localCareyOnline;
+    case ServiceType::Foundation: return localFoundationOnline;
+    }
+    return false;
+}
+
+Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getActiveLocalService() const
+{
+    switch (currentTab)
+    {
+    case ModelTab::Jerry:
+        return (jerrySubTab == JerrySubTab::Foundation) ? ServiceType::Foundation : ServiceType::Jerry;
+    case ModelTab::Terry:  return ServiceType::Terry;
+    case ModelTab::Carey:  return ServiceType::Carey;
+    case ModelTab::Gary:
+    case ModelTab::Darius:
+    default:
+        return ServiceType::Gary;
+    }
+}
+
+bool Gary4juceAudioProcessorEditor::isActiveLocalServiceOnline() const
+{
+    if (currentTab == ModelTab::Darius)
+        return localOnlineCount > 0;
+    return isLocalServiceOnline(getActiveLocalService());
+}
+
+juce::String Gary4juceAudioProcessorEditor::getLocalConnectionLineOne() const
+{
+    if (localOnlineCount <= 0)
+        return "disconnected (local)";
+    if (isActiveLocalServiceOnline())
+        return "connected (local)";
+    return "partial (local)";
+}
+
+bool Gary4juceAudioProcessorEditor::isServiceReachable(ServiceType service) const
+{
+    if (audioProcessor.getIsUsingLocalhost())
+        return isLocalServiceOnline(service);
+    return isConnected; // remote backend — single endpoint serves all
+}
+
+void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
+{
+    localGaryOnline = false;
+    localTerryOnline = false;
+    localJerryOnline = false;
+    localCareyOnline = false;
+    localFoundationOnline = false;
+    localOnlineCount = 0;
+    localHealthLastPollMs = 0;
+    localHealthPollCounter = 0;
+    localHealthPollInFlight.store(false);
+}
+
+void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
+{
+    if (!audioProcessor.getIsUsingLocalhost())
+        return;
+
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    if (!force && nowMs - localHealthLastPollMs < 2000)
+        return;
+    if (localHealthPollInFlight.exchange(true))
+        return;
+    localHealthLastPollMs = nowMs;
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis]() {
+        auto probeHealth = [](const juce::String& urlText) -> bool
+        {
+            try
+            {
+                juce::URL healthUrl(urlText);
+                int statusCode = 0;
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(1500)
+                    .withStatusCode(&statusCode)
+                    .withExtraHeaders("Accept: application/json");
+                auto stream = healthUrl.createInputStream(options);
+                if (stream == nullptr || statusCode >= 400)
+                    return false;
+                auto responseText = stream->readEntireStreamAsString();
+                return localhostHealthResponseLooksOnline(responseText);
+            }
+            catch (...)
+            {
+                return false;
+            }
+        };
+
+        const bool garyOnline       = probeHealth("http://127.0.0.1:8000/health");
+        const bool terryOnline      = probeHealth("http://127.0.0.1:8002/health");
+        const bool jerryOnline      = probeHealth("http://127.0.0.1:8005/health");
+        const bool careyOnline      = probeHealth("http://127.0.0.1:8003/health");
+        const bool foundationOnline = probeHealth("http://127.0.0.1:8015/health");
+
+        juce::MessageManager::callAsync([safeThis, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline]() {
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->localHealthPollInFlight.store(false);
+
+            const bool changed =
+                safeThis->localGaryOnline != garyOnline ||
+                safeThis->localTerryOnline != terryOnline ||
+                safeThis->localJerryOnline != jerryOnline ||
+                safeThis->localCareyOnline != careyOnline ||
+                safeThis->localFoundationOnline != foundationOnline;
+
+            safeThis->localGaryOnline = garyOnline;
+            safeThis->localTerryOnline = terryOnline;
+            safeThis->localJerryOnline = jerryOnline;
+            safeThis->localCareyOnline = careyOnline;
+            safeThis->localFoundationOnline = foundationOnline;
+            safeThis->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
+                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0);
+
+            safeThis->updateAllGenerationButtonStates();
+
+            if (!jerryOnline && safeThis->jerryUI)
+                safeThis->jerryUI->setLoadingModel(false);
+
+            // Keep Jerry model dropdown fresh while Jerry tab is active on localhost
+            if (jerryOnline && safeThis->currentTab == ModelTab::Jerry)
+                safeThis->fetchJerryAvailableModels();
+
+            if (changed)
+                safeThis->repaint();
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
@@ -10107,12 +10094,15 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     }
 
     // Connection status display (left side of connection area)
-    const auto connectionTextArea = connectionStatusArea;
+
+    // Calculate the text area (left side, leaving space for button stack on right)
+    auto connectionTextArea = connectionStatusArea.withTrimmedRight(120); // Reduced space for buttons, more for text
+
     if (audioProcessor.getIsUsingLocalhost())
     {
         g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
         const auto lineOne = getLocalConnectionLineOne();
-        const auto lineTwo = juce::String(localOnlineCount) + "/4 online";
+        const auto lineTwo = juce::String(localOnlineCount) + "/5 online";
         const bool anyOnline = localOnlineCount > 0;
         const bool activeOnline = isActiveLocalServiceOnline();
 
@@ -10121,27 +10111,25 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         else if (activeOnline)
             g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffb7ffd1));
         else
-            g.setColour(juce::Colour(0xffe1c46d));
+            g.setColour(juce::Colour(0xffe1c46d)); // Yellow/amber for partial
 
         g.drawFittedText(lineOne + "\n" + lineTwo, connectionTextArea, juce::Justification::centredLeft, 2);
+    }
+    else if (isConnected)
+    {
+        g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
+        // White flashing for connected state
+        g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffcccccc));
+        juce::String statusText = "connected (" + audioProcessor.getCurrentBackendType() + ")";
+        g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
     }
     else
     {
         g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-        if (isConnected)
-        {
-            // White flashing for connected state
-            g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffcccccc));
-            juce::String statusText = "connected (" + audioProcessor.getCurrentBackendType() + ")";
-            g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
-        }
-        else
-        {
-            // Static grey for disconnected state
-            g.setColour(juce::Colour(0xff666666));
-            juce::String statusText = "disconnected (" + audioProcessor.getCurrentBackendType() + ")";
-            g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
-        }
+        // Static grey for disconnected state
+        g.setColour(juce::Colour(0xff666666));
+        juce::String statusText = "disconnected (" + audioProcessor.getCurrentBackendType() + ")";
+        g.drawFittedText(statusText, connectionTextArea, juce::Justification::centredLeft, 1);
     }
 
     // Recording status section header (using reserved area)
@@ -10248,7 +10236,8 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     g.fillRoundedRectangle(fullTabArea.toFloat(), 5.0f);
 
     // Tab section border (color depends on current tab and connection)
-    if (isConnected)
+    const bool tabBorderOnline = audioProcessor.getIsUsingLocalhost() ? isActiveLocalServiceOnline() : isConnected;
+    if (tabBorderOnline)
     {
         switch (currentTab)
         {
@@ -10697,7 +10686,7 @@ void Gary4juceAudioProcessorEditor::updateRetryButtonState()
     bool retryAvailable = audioProcessor.getRetryAvailable();  // Get the explicit flag
 
     // FIXED: Include retryAvailable in the canRetry calculation
-    bool canRetry = hasValidSession && retryAvailable && !isGenerating && isConnected;
+    bool canRetry = hasValidSession && retryAvailable && !isGenerating && isServiceReachable(ServiceType::Gary);
 
     updateGaryButtonStates(false);
     if (garyUI)
@@ -10856,6 +10845,8 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
 
     // Show error message
     showStatusMessage(reason, 5000);
+    if (shouldShowGenerationFailureDialog(reason))
+        showGenerationFailureDialog(reason);
 
     repaint();
 
@@ -10899,17 +10890,78 @@ void Gary4juceAudioProcessorEditor::performSmartHealthCheck()
     DBG("Performing smart health check");
 }
 
-void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
+bool Gary4juceAudioProcessorEditor::shouldShowGenerationFailureDialog(const juce::String& reason) const
 {
-    DBG("=== SHOWING BACKEND DISCONNECTION DIALOG ===");
+    if (audioProcessor.getIsUsingLocalhost())
+        return false;
 
-    // Create custom button panel component with safer memory management
-    class CustomButtonPanel : public juce::Component
+    const juce::String normalized = reason.trim().toLowerCase();
+    if (normalized.isEmpty())
+        return false;
+
+    if (normalized.contains("cannot connect")
+        || normalized.contains("failed to connect")
+        || normalized.contains("backend not responding")
+        || normalized.contains("docker compose")
+        || normalized.contains("localhost")
+        || normalized.contains("network error")
+        || normalized.contains("polling failed")
+        || normalized.contains("invalid")
+        || normalized.contains("timed out"))
+    {
+        return false;
+    }
+
+    return normalized.contains("traceback")
+        || normalized.contains("cublas")
+        || normalized.contains("cuda")
+        || normalized.contains("runtimeerror")
+        || normalized.contains("exception")
+        || normalized.contains("error:")
+        || normalized.length() > 80;
+}
+
+void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
+                                                      const juce::String& message,
+                                                      const juce::String& detailText,
+                                                      bool showCheckConnectionHint)
+{
+    DBG("=== SHOWING SUPPORT DIALOG: " + title + " ===");
+
+    class SupportButtonPanel : public juce::Component
     {
     public:
-        CustomButtonPanel(Gary4juceAudioProcessorEditor* editor)
-            : parentEditor(editor)
+        SupportButtonPanel(Gary4juceAudioProcessorEditor* editor,
+                           const juce::String& detailsToCopy,
+                           const bool shouldShowConnectionHint)
+            : parentEditor(editor),
+              detailText(detailsToCopy),
+              showConnectionHint(shouldShowConnectionHint)
         {
+            if (detailText.isNotEmpty())
+            {
+                detailEditor = std::make_unique<juce::TextEditor>();
+                detailEditor->setMultiLine(true);
+                detailEditor->setReadOnly(true);
+                detailEditor->setScrollbarsShown(true);
+                detailEditor->setCaretVisible(false);
+                detailEditor->setPopupMenuEnabled(true);
+                detailEditor->setText(detailText, juce::dontSendNotification);
+                addAndMakeVisible(detailEditor.get());
+
+                copyButton = std::make_unique<CustomButton>();
+                copyButton->setButtonText("copy error");
+                copyButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+                copyButton->setTooltip("copy the error details to your clipboard");
+                copyButton->onClick = [this]() {
+                    juce::SystemClipboard::copyTextToClipboard(detailText);
+                    copyButton->setButtonText("copied");
+                    if (parentEditor != nullptr)
+                        parentEditor->showStatusMessage("error copied to clipboard", 2000);
+                };
+                addAndMakeVisible(copyButton.get());
+            }
+
             // Create Discord button with icon
             discordButton = std::make_unique<CustomButton>();
             discordButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -10934,74 +10986,108 @@ void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
                 };
             addAndMakeVisible(xButton.get());
 
-            // Visual reference area with bar chart icon
-            visualRefLabel = std::make_unique<juce::Label>();
-            visualRefLabel->setText("in a few minutes, click this button in the main window:", juce::dontSendNotification);
-            visualRefLabel->setJustificationType(juce::Justification::centred);
-            visualRefLabel->setColour(juce::Label::textColourId, juce::Colours::white);
-            addAndMakeVisible(visualRefLabel.get());
-
-            // Create visual reference button (non-clickable)
-            if (editor->checkConnectionIcon)
+            if (showConnectionHint)
             {
-                visualRefButton = std::make_unique<CustomButton>();
-                visualRefButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
-                visualRefButton->setIcon(editor->checkConnectionIcon->createCopy());
-                visualRefButton->setEnabled(false); // Make it non-clickable
-                visualRefButton->setTooltip("this is the check connection button in the main UI");
-                addAndMakeVisible(visualRefButton.get());
+                visualRefLabel = std::make_unique<juce::Label>();
+                visualRefLabel->setText("in a few minutes, click this button in the main window:", juce::dontSendNotification);
+                visualRefLabel->setJustificationType(juce::Justification::centred);
+                visualRefLabel->setColour(juce::Label::textColourId, juce::Colours::white);
+                addAndMakeVisible(visualRefLabel.get());
+
+                if (editor->checkConnectionIcon)
+                {
+                    visualRefButton = std::make_unique<CustomButton>();
+                    visualRefButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+                    visualRefButton->setIcon(editor->checkConnectionIcon->createCopy());
+                    visualRefButton->setEnabled(false);
+                    visualRefButton->setTooltip("this is the check connection button in the main UI");
+                    addAndMakeVisible(visualRefButton.get());
+                }
             }
 
-            setSize(300, 120);
+            int height = 70;
+            if (detailEditor) height += 140;
+            if (showConnectionHint) height += 70;
+            setSize(340, height);
         }
 
         void resized() override
         {
-            auto area = getLocalBounds();
+            auto area = getLocalBounds().reduced(8);
 
-            // Visual reference section (top part)
-            auto visualRefArea = area.removeFromTop(60);
-            visualRefLabel->setBounds(visualRefArea.removeFromTop(30));
-            if (visualRefButton)
-                visualRefButton->setBounds(visualRefArea.reduced(10).withSizeKeepingCentre(30, 30));
+            if (detailEditor)
+            {
+                detailEditor->setBounds(area.removeFromTop(140));
+                area.removeFromTop(8);
+            }
 
-            // Button section (bottom part)  
-            auto buttonArea = area.reduced(10);
-            int buttonWidth = buttonArea.getWidth() / 2 - 5;
+            if (showConnectionHint && visualRefLabel)
+            {
+                auto visualRefArea = area.removeFromTop(62);
+                visualRefLabel->setBounds(visualRefArea.removeFromTop(28));
+                if (visualRefButton)
+                    visualRefButton->setBounds(visualRefArea.reduced(10).withSizeKeepingCentre(30, 30));
+                area.removeFromTop(6);
+            }
+
+            auto buttonArea = area.removeFromTop(32);
+            const int buttonCount = copyButton ? 3 : 2;
+            const int gap = 8;
+            const int buttonWidth = (buttonArea.getWidth() - (gap * (buttonCount - 1))) / buttonCount;
+
+            if (copyButton)
+            {
+                copyButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
+                buttonArea.removeFromLeft(gap);
+            }
             discordButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
-            buttonArea.removeFromLeft(10); // spacing
-            xButton->setBounds(buttonArea);
+            buttonArea.removeFromLeft(gap);
+            xButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
         }
 
     private:
         Gary4juceAudioProcessorEditor* parentEditor;
+        juce::String detailText;
+        bool showConnectionHint = false;
+        std::unique_ptr<CustomButton> copyButton;
         std::unique_ptr<CustomButton> discordButton;
         std::unique_ptr<CustomButton> xButton;
         std::unique_ptr<CustomButton> visualRefButton;
         std::unique_ptr<juce::Label> visualRefLabel;
+        std::unique_ptr<juce::TextEditor> detailEditor;
     };
 
-    // Create alert window with updated message
-    auto* alertWindow = new juce::AlertWindow("backend down",
-        "our backend runs on a spot vm\n"
-        "and azure prolly deallocated it.\n"
-        "hit up kev in discord/twitter or",
+    auto* alertWindow = new juce::AlertWindow(title,
+        message,
         juce::MessageBoxIconType::WarningIcon,
         this);
 
-    // Create and add custom button panel - AlertWindow will own it
-    auto* customButtons = new CustomButtonPanel(this);
+    auto* customButtons = new SupportButtonPanel(this, detailText, showCheckConnectionHint);
     alertWindow->addCustomComponent(customButtons);
-
-    // Add only close button as standard button - this will auto-close the modal
     alertWindow->addButton("close", 999);
-
-    // Enter modal state - REMOVE the exitModalState call!
     alertWindow->enterModalState(true,
         juce::ModalCallbackFunction::create([alertWindow](int result) {
-            // The modal is already closed when this callback runs
-            // Just clean up and handle the result
             DBG("Modal closed with result: " + juce::String(result));
-            delete alertWindow; // This is all you need!
-            }));
+            delete alertWindow;
+        }));
+}
+
+void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
+{
+    showSupportDialog("backend down",
+        "our backend runs on a spot vm\n"
+        "and azure prolly deallocated it.\n"
+        "hit up kev in discord/twitter or",
+        {},
+        true);
+}
+
+void Gary4juceAudioProcessorEditor::showGenerationFailureDialog(const juce::String& reason)
+{
+    showSupportDialog("generation failed",
+        "copy the details below and send them to kev\n"
+        "on discord or twitter.\n"
+        "chances are all he has to do is restart the container for you.",
+        reason,
+        false);
 }

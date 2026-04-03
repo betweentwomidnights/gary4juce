@@ -149,7 +149,7 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
             case ServiceType::Jerry:
                 return "http://localhost:8005" + endpoint;
             case ServiceType::Carey:
-                return "http://localhost:8001" + endpoint;
+                return "http://localhost:8003" + endpoint;
             case ServiceType::Foundation:
                 return "http://localhost:8015" + endpoint;
             default:

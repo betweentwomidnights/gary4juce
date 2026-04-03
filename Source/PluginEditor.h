@@ -86,6 +86,7 @@ private:
     bool localTerryOnline = false;
     bool localJerryOnline = false;
     bool localCareyOnline = false;
+    bool localFoundationOnline = false;
     int localOnlineCount = 0;
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;
@@ -298,8 +299,8 @@ private:
     juce::String currentCoverCaption = "";
     double currentCoverNoiseStrength = 0.2;
     double currentCoverAudioStrength = 0.3;
-    int currentCoverSteps = 50;
-    double currentCoverCfg = 7.0;
+    int currentCoverSteps = CareyUI::kFixedCoverSteps;
+    double currentCoverCfg = CareyUI::kFixedCoverCfg;
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;
@@ -407,6 +408,7 @@ private:
     ServiceType getActiveLocalService() const;
     bool isActiveLocalServiceOnline() const;
     juce::String getLocalConnectionLineOne() const;
+    bool isServiceReachable(ServiceType service) const;
 
     // UI Helper methods
     void updateRecordingStatus();
@@ -487,6 +489,12 @@ private:
     void resetStallDetection();
     void performSmartHealthCheck();
     void showBackendDisconnectionDialog();
+    void showGenerationFailureDialog(const juce::String& reason);
+    void showSupportDialog(const juce::String& title,
+                           const juce::String& message,
+                           const juce::String& detailText,
+                           bool showCheckConnectionHint);
+    bool shouldShowGenerationFailureDialog(const juce::String& reason) const;
 
     bool isCurrentlyQueued = false;
 
