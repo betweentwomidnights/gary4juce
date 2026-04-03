@@ -5233,6 +5233,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(finalError))
+                showGenerationFailureDialog(finalError);
             cancelCareyOperation();
         });
     });
@@ -5575,6 +5577,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(finalError))
+                showGenerationFailureDialog(finalError);
             cancelCareyOperation();
         });
     });
@@ -6183,6 +6187,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(finalError))
+                showGenerationFailureDialog(finalError);
             cancelCareyOperation();
         });
     });
@@ -10359,6 +10365,8 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
 
     // Show error message
     showStatusMessage(reason, 5000);
+    if (shouldShowGenerationFailureDialog(reason))
+        showGenerationFailureDialog(reason);
 
     repaint();
 
@@ -10399,17 +10407,78 @@ void Gary4juceAudioProcessorEditor::performSmartHealthCheck()
     DBG("Performing smart health check");
 }
 
-void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
+bool Gary4juceAudioProcessorEditor::shouldShowGenerationFailureDialog(const juce::String& reason) const
 {
-    DBG("=== SHOWING BACKEND DISCONNECTION DIALOG ===");
+    if (audioProcessor.getIsUsingLocalhost())
+        return false;
 
-    // Create custom button panel component with safer memory management
-    class CustomButtonPanel : public juce::Component
+    const juce::String normalized = reason.trim().toLowerCase();
+    if (normalized.isEmpty())
+        return false;
+
+    if (normalized.contains("cannot connect")
+        || normalized.contains("failed to connect")
+        || normalized.contains("backend not responding")
+        || normalized.contains("docker compose")
+        || normalized.contains("localhost")
+        || normalized.contains("network error")
+        || normalized.contains("polling failed")
+        || normalized.contains("invalid")
+        || normalized.contains("timed out"))
+    {
+        return false;
+    }
+
+    return normalized.contains("traceback")
+        || normalized.contains("cublas")
+        || normalized.contains("cuda")
+        || normalized.contains("runtimeerror")
+        || normalized.contains("exception")
+        || normalized.contains("error:")
+        || normalized.length() > 80;
+}
+
+void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
+                                                      const juce::String& message,
+                                                      const juce::String& detailText,
+                                                      bool showCheckConnectionHint)
+{
+    DBG("=== SHOWING SUPPORT DIALOG: " + title + " ===");
+
+    class SupportButtonPanel : public juce::Component
     {
     public:
-        CustomButtonPanel(Gary4juceAudioProcessorEditor* editor)
-            : parentEditor(editor)
+        SupportButtonPanel(Gary4juceAudioProcessorEditor* editor,
+                           const juce::String& detailsToCopy,
+                           const bool shouldShowConnectionHint)
+            : parentEditor(editor),
+              detailText(detailsToCopy),
+              showConnectionHint(shouldShowConnectionHint)
         {
+            if (detailText.isNotEmpty())
+            {
+                detailEditor = std::make_unique<juce::TextEditor>();
+                detailEditor->setMultiLine(true);
+                detailEditor->setReadOnly(true);
+                detailEditor->setScrollbarsShown(true);
+                detailEditor->setCaretVisible(false);
+                detailEditor->setPopupMenuEnabled(true);
+                detailEditor->setText(detailText, juce::dontSendNotification);
+                addAndMakeVisible(detailEditor.get());
+
+                copyButton = std::make_unique<CustomButton>();
+                copyButton->setButtonText("copy error");
+                copyButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+                copyButton->setTooltip("copy the error details to your clipboard");
+                copyButton->onClick = [this]() {
+                    juce::SystemClipboard::copyTextToClipboard(detailText);
+                    copyButton->setButtonText("copied");
+                    if (parentEditor != nullptr)
+                        parentEditor->showStatusMessage("error copied to clipboard", 2000);
+                };
+                addAndMakeVisible(copyButton.get());
+            }
+
             // Create Discord button with icon
             discordButton = std::make_unique<CustomButton>();
             discordButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -10434,74 +10503,108 @@ void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
                 };
             addAndMakeVisible(xButton.get());
 
-            // Visual reference area with bar chart icon
-            visualRefLabel = std::make_unique<juce::Label>();
-            visualRefLabel->setText("in a few minutes, click this button in the main window:", juce::dontSendNotification);
-            visualRefLabel->setJustificationType(juce::Justification::centred);
-            visualRefLabel->setColour(juce::Label::textColourId, juce::Colours::white);
-            addAndMakeVisible(visualRefLabel.get());
-
-            // Create visual reference button (non-clickable)
-            if (editor->checkConnectionIcon)
+            if (showConnectionHint)
             {
-                visualRefButton = std::make_unique<CustomButton>();
-                visualRefButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
-                visualRefButton->setIcon(editor->checkConnectionIcon->createCopy());
-                visualRefButton->setEnabled(false); // Make it non-clickable
-                visualRefButton->setTooltip("this is the check connection button in the main UI");
-                addAndMakeVisible(visualRefButton.get());
+                visualRefLabel = std::make_unique<juce::Label>();
+                visualRefLabel->setText("in a few minutes, click this button in the main window:", juce::dontSendNotification);
+                visualRefLabel->setJustificationType(juce::Justification::centred);
+                visualRefLabel->setColour(juce::Label::textColourId, juce::Colours::white);
+                addAndMakeVisible(visualRefLabel.get());
+
+                if (editor->checkConnectionIcon)
+                {
+                    visualRefButton = std::make_unique<CustomButton>();
+                    visualRefButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
+                    visualRefButton->setIcon(editor->checkConnectionIcon->createCopy());
+                    visualRefButton->setEnabled(false);
+                    visualRefButton->setTooltip("this is the check connection button in the main UI");
+                    addAndMakeVisible(visualRefButton.get());
+                }
             }
 
-            setSize(300, 120);
+            int height = 70;
+            if (detailEditor) height += 140;
+            if (showConnectionHint) height += 70;
+            setSize(340, height);
         }
 
         void resized() override
         {
-            auto area = getLocalBounds();
+            auto area = getLocalBounds().reduced(8);
 
-            // Visual reference section (top part)
-            auto visualRefArea = area.removeFromTop(60);
-            visualRefLabel->setBounds(visualRefArea.removeFromTop(30));
-            if (visualRefButton)
-                visualRefButton->setBounds(visualRefArea.reduced(10).withSizeKeepingCentre(30, 30));
+            if (detailEditor)
+            {
+                detailEditor->setBounds(area.removeFromTop(140));
+                area.removeFromTop(8);
+            }
 
-            // Button section (bottom part)  
-            auto buttonArea = area.reduced(10);
-            int buttonWidth = buttonArea.getWidth() / 2 - 5;
+            if (showConnectionHint && visualRefLabel)
+            {
+                auto visualRefArea = area.removeFromTop(62);
+                visualRefLabel->setBounds(visualRefArea.removeFromTop(28));
+                if (visualRefButton)
+                    visualRefButton->setBounds(visualRefArea.reduced(10).withSizeKeepingCentre(30, 30));
+                area.removeFromTop(6);
+            }
+
+            auto buttonArea = area.removeFromTop(32);
+            const int buttonCount = copyButton ? 3 : 2;
+            const int gap = 8;
+            const int buttonWidth = (buttonArea.getWidth() - (gap * (buttonCount - 1))) / buttonCount;
+
+            if (copyButton)
+            {
+                copyButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
+                buttonArea.removeFromLeft(gap);
+            }
             discordButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
-            buttonArea.removeFromLeft(10); // spacing
-            xButton->setBounds(buttonArea);
+            buttonArea.removeFromLeft(gap);
+            xButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
         }
 
     private:
         Gary4juceAudioProcessorEditor* parentEditor;
+        juce::String detailText;
+        bool showConnectionHint = false;
+        std::unique_ptr<CustomButton> copyButton;
         std::unique_ptr<CustomButton> discordButton;
         std::unique_ptr<CustomButton> xButton;
         std::unique_ptr<CustomButton> visualRefButton;
         std::unique_ptr<juce::Label> visualRefLabel;
+        std::unique_ptr<juce::TextEditor> detailEditor;
     };
 
-    // Create alert window with updated message
-    auto* alertWindow = new juce::AlertWindow("backend down",
-        "our backend runs on a spot vm\n"
-        "and azure prolly deallocated it.\n"
-        "hit up kev in discord/twitter or",
+    auto* alertWindow = new juce::AlertWindow(title,
+        message,
         juce::MessageBoxIconType::WarningIcon,
         this);
 
-    // Create and add custom button panel - AlertWindow will own it
-    auto* customButtons = new CustomButtonPanel(this);
+    auto* customButtons = new SupportButtonPanel(this, detailText, showCheckConnectionHint);
     alertWindow->addCustomComponent(customButtons);
-
-    // Add only close button as standard button - this will auto-close the modal
     alertWindow->addButton("close", 999);
-
-    // Enter modal state - REMOVE the exitModalState call!
     alertWindow->enterModalState(true,
         juce::ModalCallbackFunction::create([alertWindow](int result) {
-            // The modal is already closed when this callback runs
-            // Just clean up and handle the result
             DBG("Modal closed with result: " + juce::String(result));
-            delete alertWindow; // This is all you need!
-            }));
+            delete alertWindow;
+        }));
+}
+
+void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
+{
+    showSupportDialog("backend down",
+        "our backend runs on a spot vm\n"
+        "and azure prolly deallocated it.\n"
+        "hit up kev in discord/twitter or",
+        {},
+        true);
+}
+
+void Gary4juceAudioProcessorEditor::showGenerationFailureDialog(const juce::String& reason)
+{
+    showSupportDialog("generation failed",
+        "copy the details below and send them to kev\n"
+        "on discord or twitter.\n"
+        "chances are all he has to do is restart the container for you.",
+        reason,
+        false);
 }

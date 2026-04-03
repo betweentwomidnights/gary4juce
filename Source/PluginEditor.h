@@ -484,6 +484,12 @@ private:
     void resetStallDetection();
     void performSmartHealthCheck();
     void showBackendDisconnectionDialog();
+    void showGenerationFailureDialog(const juce::String& reason);
+    void showSupportDialog(const juce::String& title,
+                           const juce::String& message,
+                           const juce::String& detailText,
+                           bool showCheckConnectionHint);
+    bool shouldShowGenerationFailureDialog(const juce::String& reason) const;
 
     bool isCurrentlyQueued = false;
 
