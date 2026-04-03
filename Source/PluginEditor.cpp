@@ -10,6 +10,12 @@
 
 namespace
 {
+    struct CareyFailureInfo
+    {
+        juce::String userMessage;
+        juce::String popupDetail;
+    };
+
     int loopTypeStringToIndex(const juce::String& type)
     {
         if (type.equalsIgnoreCase("drums"))
@@ -70,6 +76,53 @@ namespace
         }();
 
         return names;
+    }
+
+    CareyFailureInfo parseCareyFailureResponse(const juce::var& responseVar,
+                                               const juce::String& fallbackMessage)
+    {
+        CareyFailureInfo info;
+        info.userMessage = fallbackMessage;
+        info.popupDetail = fallbackMessage;
+
+        auto* responseObj = responseVar.getDynamicObject();
+        if (responseObj == nullptr)
+            return info;
+
+        const juce::String errorText = responseObj->getProperty("error").toString().trim();
+        const juce::String technicalError = responseObj->getProperty("technical_error").toString().trim();
+        const juce::String errorCode = responseObj->getProperty("error_code").toString().trim().toLowerCase();
+        const bool retryable = static_cast<bool>(responseObj->getProperty("retryable"));
+        const juce::String backendName = responseObj->getProperty("backend_name").toString().trim();
+
+        info.userMessage = errorText.isNotEmpty() ? errorText : fallbackMessage;
+        info.popupDetail = technicalError.isNotEmpty()
+            ? technicalError
+            : (errorText.isNotEmpty() ? errorText : fallbackMessage);
+
+        if (errorCode == "acestep_backend_restarting")
+        {
+            juce::String backendLabel = "carey backend";
+            if (backendName.equalsIgnoreCase("turbo"))
+                backendLabel = "carey turbo backend";
+            else if (backendName.equalsIgnoreCase("base"))
+                backendLabel = "carey base backend";
+
+            info.userMessage = backendLabel + " hit a GPU runtime error and is restarting. try again in about a minute.";
+        }
+
+        juce::String metadata;
+        if (errorCode.isNotEmpty())
+            metadata << "\nerror_code=" << errorCode;
+        if (backendName.isNotEmpty())
+            metadata << "\nbackend_name=" << backendName;
+        if (retryable)
+            metadata << "\nretryable=true";
+
+        if (metadata.isNotEmpty() && !info.popupDetail.contains(metadata.trimStart()))
+            info.popupDetail << metadata;
+
+        return info;
     }
 }
 
@@ -4754,6 +4807,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
+        juce::String failureDetail;
         juce::String downloadedBase64;
         bool success = false;
         double originalInputDurationSeconds = 0.0;
@@ -5041,15 +5095,17 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                     if (status == "failed")
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey generation failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
                     if (!querySuccess && !(generationInProgress || transformInProgress))
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey request failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
@@ -5230,11 +5286,12 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey request failed";
-        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(finalError))
-                showGenerationFailureDialog(finalError);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -5323,6 +5380,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
     {
         juce::String failureReason;
+        juce::String failureDetail;
         juce::String downloadedBase64;
         bool success = false;
 
@@ -5481,15 +5539,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                     if (status == "failed")
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey complete generation failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey complete generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
                     if (!querySuccess && !(generationInProgress || transformInProgress))
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey complete request failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey complete request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
@@ -5574,11 +5634,12 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey complete request failed";
-        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(finalError))
-                showGenerationFailureDialog(finalError);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -5670,6 +5731,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                           loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
+        juce::String failureDetail;
         juce::String downloadedBase64;
         bool success = false;
         double originalInputDurationSeconds = 0.0;
@@ -5961,15 +6023,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                     if (status == "failed")
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey cover generation failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey cover generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
                     if (!querySuccess && !(generationInProgress || transformInProgress))
                     {
-                        const juce::String errorText = queryObj->getProperty("error").toString().trim();
-                        failureReason = errorText.isNotEmpty() ? errorText : "carey cover request failed";
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey cover request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
                         break;
                     }
 
@@ -6184,11 +6248,12 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey cover request failed";
-        juce::MessageManager::callAsync([this, finalError, cancelCareyOperation]()
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
             showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(finalError))
-                showGenerationFailureDialog(finalError);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -10416,26 +10481,70 @@ bool Gary4juceAudioProcessorEditor::shouldShowGenerationFailureDialog(const juce
     if (normalized.isEmpty())
         return false;
 
-    if (normalized.contains("cannot connect")
-        || normalized.contains("failed to connect")
-        || normalized.contains("backend not responding")
-        || normalized.contains("docker compose")
-        || normalized.contains("localhost")
-        || normalized.contains("network error")
-        || normalized.contains("polling failed")
-        || normalized.contains("invalid")
-        || normalized.contains("timed out"))
+    const auto containsAny = [&normalized](std::initializer_list<const char*> needles) {
+        for (const auto* needle : needles)
+        {
+            if (normalized.contains(needle))
+                return true;
+        }
+        return false;
+    };
+
+    if (containsAny({
+            "cannot connect",
+            "failed to connect",
+            "backend not responding",
+            "docker compose",
+            "localhost",
+            "network error",
+            "polling failed",
+            "failed to fetch checkpoints",
+            "failed to fetch model config",
+            "check connection first",
+        }))
     {
         return false;
     }
 
-    return normalized.contains("traceback")
-        || normalized.contains("cublas")
-        || normalized.contains("cuda")
-        || normalized.contains("runtimeerror")
-        || normalized.contains("exception")
-        || normalized.contains("error:")
-        || normalized.length() > 80;
+    if (containsAny({
+            "missing mybuffer.wav",
+            "save your recording first",
+            "failed to read mybuffer.wav",
+            "failed to decode mybuffer.wav",
+            "failed to load mybuffer.wav",
+            "failed to base64 encode",
+            "failed to create ",
+            "failed to write ",
+            "conditioning audio",
+            "audio_duration must be",
+            "cover_noise_strength must be",
+            "audio_cover_strength must be",
+        }))
+    {
+        return false;
+    }
+
+    if (containsAny({
+            "traceback",
+            "cublas",
+            "cuda",
+            "runtimeerror",
+            "exception",
+            "error:",
+            "generation failed",
+            "request failed",
+            "submit failed",
+            "status response",
+            "timed out",
+            "unknown task_id",
+            "http ",
+            "server error",
+        }))
+    {
+        return true;
+    }
+
+    return normalized.length() > 80;
 }
 
 void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
@@ -10604,7 +10713,7 @@ void Gary4juceAudioProcessorEditor::showGenerationFailureDialog(const juce::Stri
     showSupportDialog("generation failed",
         "copy the details below and send them to kev\n"
         "on discord or twitter.\n"
-        "chances are all he has to do is restart the container for you.",
+        "if it looks generic, please still send it anyway.",
         reason,
         false);
 }
