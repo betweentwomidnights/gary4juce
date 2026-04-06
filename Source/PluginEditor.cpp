@@ -10,11 +10,283 @@
 
 namespace
 {
+    static constexpr auto kDefaultUpdateManifestUrl =
+        "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json";
+    static constexpr auto kUpdateManifestOverrideEnv = "GARY4JUCE_UPDATE_MANIFEST_URL";
+    static constexpr auto kUpdatePrefsFolder = "gary4juce";
+    static constexpr auto kUpdatePrefsAppName = "gary4juce-updater";
+    static constexpr auto kUpdatePrefsSuffix = ".settings";
+    static constexpr auto kLastUpdateCheckKey = "lastUpdateCheckMs";
+    static constexpr auto kSkippedUpdateVersionKey = "skippedUpdateVersion";
+    static constexpr juce::int64 kAutoUpdateCheckCooldownMs = 12LL * 60LL * 60LL * 1000LL;
+    static constexpr int kUpdateCheckTimeoutMs = 4000;
+
     struct CareyFailureInfo
     {
         juce::String userMessage;
         juce::String popupDetail;
     };
+
+    struct SemanticVersion
+    {
+        int major = 0;
+        int minor = 0;
+        int patch = 0;
+        juce::String prerelease;
+        bool valid = false;
+
+        static SemanticVersion parse(const juce::String& value)
+        {
+            SemanticVersion version;
+            auto normalized = value.trim().trimCharactersAtStart("vV");
+
+            if (normalized.isEmpty())
+                return version;
+
+            const auto hyphenIndex = normalized.indexOfChar('-');
+            const auto core = hyphenIndex >= 0 ? normalized.substring(0, hyphenIndex) : normalized;
+            version.prerelease = hyphenIndex >= 0 ? normalized.substring(hyphenIndex + 1).trim() : juce::String();
+
+            auto parts = juce::StringArray::fromTokens(core, ".", "");
+            parts.removeEmptyStrings();
+
+            if (parts.isEmpty() || parts.size() > 3)
+                return version;
+
+            int components[3] = { 0, 0, 0 };
+
+            for (int i = 0; i < parts.size(); ++i)
+            {
+                const auto part = parts[i].trim();
+
+                if (part.isEmpty())
+                    return version;
+
+                for (int j = 0; j < part.length(); ++j)
+                    if (!juce::CharacterFunctions::isDigit(part[j]))
+                        return version;
+
+                components[i] = part.getIntValue();
+            }
+
+            version.major = components[0];
+            version.minor = components[1];
+            version.patch = components[2];
+            version.valid = true;
+            return version;
+        }
+
+        int compareTo(const SemanticVersion& other) const noexcept
+        {
+            if (major != other.major) return major < other.major ? -1 : 1;
+            if (minor != other.minor) return minor < other.minor ? -1 : 1;
+            if (patch != other.patch) return patch < other.patch ? -1 : 1;
+
+            if (prerelease.isEmpty() && other.prerelease.isNotEmpty()) return 1;
+            if (prerelease.isNotEmpty() && other.prerelease.isEmpty()) return -1;
+
+            return prerelease.compareNatural(other.prerelease);
+        }
+    };
+
+    struct PluginUpdateManifest
+    {
+        juce::String channel = "stable";
+        juce::String latestVersion;
+        juce::String downloadUrl;
+        juce::String publishedAt;
+        juce::StringArray notes;
+    };
+
+    struct PluginUpdateCheckResult
+    {
+        juce::String currentVersion;
+        juce::String manifestUrl;
+        juce::String channel = "stable";
+        juce::String latestVersion;
+        juce::String downloadUrl;
+        juce::String publishedAt;
+        juce::StringArray notes;
+        juce::String error;
+        juce::int64 checkedAtMs = 0;
+        bool updateAvailable = false;
+        bool shouldPrompt = false;
+    };
+
+    juce::String normalizeVersionString(const juce::String& value)
+    {
+        return value.trim().trimCharactersAtStart("vV");
+    }
+
+    bool versionsMatch(const juce::String& left, const juce::String& right)
+    {
+        const auto lhs = SemanticVersion::parse(left);
+        const auto rhs = SemanticVersion::parse(right);
+
+        if (lhs.valid && rhs.valid)
+            return lhs.compareTo(rhs) == 0;
+
+        return normalizeVersionString(left).equalsIgnoreCase(normalizeVersionString(right));
+    }
+
+    bool isVersionNewer(const juce::String& latest, const juce::String& current)
+    {
+        const auto latestVersion = SemanticVersion::parse(latest);
+        const auto currentVersion = SemanticVersion::parse(current);
+
+        if (latestVersion.valid && currentVersion.valid)
+            return latestVersion.compareTo(currentVersion) > 0;
+
+        return normalizeVersionString(latest).compareNatural(normalizeVersionString(current), false) > 0;
+    }
+
+    juce::String configuredUpdateManifestUrl()
+    {
+        const auto overrideUrl = juce::SystemStats::getEnvironmentVariable(kUpdateManifestOverrideEnv, {}).trim();
+        return overrideUrl.isNotEmpty() ? overrideUrl : juce::String(kDefaultUpdateManifestUrl);
+    }
+
+    bool readUpdateManifest(const juce::String& jsonText,
+                            PluginUpdateManifest& manifest,
+                            juce::String& error)
+    {
+        const auto manifestVar = juce::JSON::parse(jsonText);
+        auto* manifestObj = manifestVar.getDynamicObject();
+
+        if (manifestObj == nullptr)
+        {
+            error = "invalid update manifest json";
+            return false;
+        }
+
+        manifest.channel = manifestObj->getProperty("channel").toString().trim();
+        if (manifest.channel.isEmpty())
+            manifest.channel = "stable";
+
+        manifest.latestVersion = manifestObj->getProperty("latest_version").toString().trim();
+        manifest.downloadUrl = manifestObj->getProperty("download_url").toString().trim();
+        manifest.publishedAt = manifestObj->getProperty("published_at").toString().trim();
+
+        if (auto* notesArray = manifestObj->getProperty("notes").getArray())
+        {
+            for (const auto& note : *notesArray)
+            {
+                const auto trimmed = note.toString().trim();
+                if (trimmed.isNotEmpty())
+                    manifest.notes.add(trimmed);
+            }
+        }
+        else
+        {
+            const auto notesText = manifestObj->getProperty("notes").toString().trim();
+            if (notesText.isNotEmpty())
+                manifest.notes.add(notesText);
+        }
+
+        if (manifest.latestVersion.isEmpty())
+        {
+            error = "update manifest missing latest_version";
+            return false;
+        }
+
+        return true;
+    }
+
+    PluginUpdateCheckResult runPluginUpdateCheck(const juce::String& currentVersion,
+                                                 const juce::String& skippedVersion,
+                                                 const bool includeSkippedVersion)
+    {
+        PluginUpdateCheckResult result;
+        result.currentVersion = currentVersion.trim();
+        result.manifestUrl = configuredUpdateManifestUrl();
+        result.checkedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+
+        int statusCode = 0;
+        juce::StringPairArray responseHeaders;
+
+        juce::URL manifestUrl(result.manifestUrl);
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(kUpdateCheckTimeoutMs)
+            .withExtraHeaders("Accept: application/json\r\nUser-Agent: gary4juce/" + result.currentVersion + "\r\n")
+            .withResponseHeaders(&responseHeaders)
+            .withStatusCode(&statusCode);
+
+        std::unique_ptr<juce::InputStream> stream(manifestUrl.createInputStream(options));
+
+        if (stream == nullptr)
+        {
+            result.error = "update manifest unavailable";
+            return result;
+        }
+
+        const auto responseText = stream->readEntireStreamAsString();
+
+        if (statusCode >= 400)
+        {
+            result.error = "update manifest returned http " + juce::String(statusCode);
+            return result;
+        }
+
+        PluginUpdateManifest manifest;
+        if (!readUpdateManifest(responseText, manifest, result.error))
+            return result;
+
+        result.channel = manifest.channel;
+        result.latestVersion = manifest.latestVersion;
+        result.downloadUrl = manifest.downloadUrl;
+        result.publishedAt = manifest.publishedAt;
+        result.notes = manifest.notes;
+        result.updateAvailable = isVersionNewer(manifest.latestVersion, currentVersion);
+
+        if (result.updateAvailable && manifest.downloadUrl.isEmpty())
+        {
+            result.error = "update manifest missing download_url";
+            return result;
+        }
+
+        result.shouldPrompt = result.updateAvailable
+            && (includeSkippedVersion || !versionsMatch(skippedVersion, manifest.latestVersion));
+
+        return result;
+    }
+
+    juce::String buildUpdatePromptMessage(const juce::String& currentVersion,
+                                          const juce::String& latestVersion,
+                                          const juce::StringArray& notes,
+                                          const juce::String& channel,
+                                          const juce::String& publishedAt)
+    {
+        juce::String message;
+        message << "you're on v" << currentVersion << ".\n";
+        message << "v" << latestVersion << " is available";
+
+        if (channel.isNotEmpty() && !channel.equalsIgnoreCase("stable"))
+            message << " (" << channel << ")";
+
+        message << ".";
+
+        if (publishedAt.isNotEmpty())
+            message << "\npublished: " << publishedAt;
+
+        if (!notes.isEmpty())
+        {
+            message << "\n\nwhat's new:";
+
+            const auto maxNotes = juce::jmin(6, notes.size());
+            for (int i = 0; i < maxNotes; ++i)
+            {
+                auto line = notes[i].trim();
+                if (line.length() > 120)
+                    line = line.substring(0, 117).trimEnd() + "...";
+
+                if (line.isNotEmpty())
+                    message << "\n- " << line;
+            }
+        }
+
+        message << "\n\nclose your DAW before replacing the plugin files.";
+        return message;
+    }
 
     int loopTypeStringToIndex(const juce::String& type)
     {
@@ -621,6 +893,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         });
     };
 
+    checkUpdatesButton.setButtonText("check updates");
+    checkUpdatesButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    checkUpdatesButton.setTooltip("check GitHub Releases for a newer gary4juce build");
+    checkUpdatesButton.onClick = [this]()
+    {
+        checkForPluginUpdates(true, true);
+    };
+
     // Backend toggle button setup
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
     backendToggleButton.setButtonText("remote");
@@ -642,6 +922,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     clearBufferButton.onClick = [this]() { clearRecordingBuffer(); };
 
     addAndMakeVisible(checkConnectionButton);
+    addAndMakeVisible(checkUpdatesButton);
     addAndMakeVisible(backendToggleButton);
 
     // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
@@ -896,6 +1177,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     
     // Force initial layout now that help icons are created
     resized();
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(1500, [safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->maybeAutoCheckForUpdates();
+    });
 }
 
 void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
@@ -918,6 +1206,9 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
     // Stop any health checks in processor
     audioProcessor.stopHealthChecks();
+    updateCheckInFlight.store(false);
+    updatePromptVisible = false;
+    clearDeferredUpdatePrompt();
 
     // Wait for ongoing requests to notice the flags and abort
     juce::Thread::sleep(150);
@@ -1196,6 +1487,8 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         }
     }
 
+    maybeShowDeferredUpdatePrompt();
+
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
     if (isPlayingOutput)
     {
@@ -1396,6 +1689,252 @@ juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::S
     if (trimmed.length() > 60)
         return trimmed.substring(0, 60) + "...";
     return trimmed;
+}
+
+void Gary4juceAudioProcessorEditor::maybeAutoCheckForUpdates()
+{
+    if (hasCheckedForUpdatesThisEditorSession)
+        return;
+
+    hasCheckedForUpdatesThisEditorSession = true;
+
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    const auto lastCheckMs = getLastUpdateCheckTimeMs();
+
+    if (lastCheckMs > 0 && (nowMs - lastCheckMs) < kAutoUpdateCheckCooldownMs)
+    {
+        DBG("Skipping auto update check; last check was " + juce::String((nowMs - lastCheckMs) / 1000) + "s ago");
+        return;
+    }
+
+    checkForPluginUpdates(false);
+}
+
+void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool includeSkippedVersion)
+{
+    if (updateCheckInFlight.exchange(true))
+    {
+        if (manual)
+            showStatusMessage("update check already running", 2000);
+        return;
+    }
+
+    if (manual)
+    {
+        checkUpdatesButton.setEnabled(false);
+        showStatusMessage("checking for updates...", 2500);
+    }
+
+    const auto currentVersion = juce::String(ProjectInfo::versionString);
+    const auto skippedVersion = includeSkippedVersion ? juce::String() : getSkippedUpdateVersion();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+
+    juce::Thread::launch([safeThis, currentVersion, skippedVersion, manual, includeSkippedVersion]()
+    {
+        const auto result = runPluginUpdateCheck(currentVersion, skippedVersion, includeSkippedVersion);
+
+        juce::MessageManager::callAsync([safeThis, result, manual]()
+        {
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->updateCheckInFlight.store(false);
+            safeThis->checkUpdatesButton.setEnabled(true);
+            safeThis->setLastUpdateCheckTimeMs(result.checkedAtMs > 0
+                                                   ? result.checkedAtMs
+                                                   : juce::Time::getCurrentTime().toMilliseconds());
+
+            if (result.error.isNotEmpty())
+            {
+                DBG("Plugin update check failed: " + result.error);
+                if (manual)
+                    safeThis->showStatusMessage("update check failed", 3500);
+                return;
+            }
+
+            if (!result.updateAvailable)
+            {
+                if (manual)
+                {
+                    safeThis->setSkippedUpdateVersion({});
+                    safeThis->showStatusMessage("you're already on the latest gary4juce", 3000);
+                }
+                return;
+            }
+
+            if (!result.shouldPrompt && !manual)
+                return;
+
+            if (safeThis->updatePromptVisible)
+            {
+                if (manual)
+                    safeThis->showStatusMessage("update prompt already open", 2500);
+                return;
+            }
+
+            if (safeThis->isGenerating)
+            {
+                safeThis->deferredUpdatePromptReady = true;
+                safeThis->deferredUpdateVersion = result.latestVersion;
+                safeThis->deferredUpdateDownloadUrl = result.downloadUrl;
+                safeThis->deferredUpdateChannel = result.channel;
+                safeThis->deferredUpdatePublishedAt = result.publishedAt;
+                safeThis->deferredUpdateNotes = result.notes;
+
+                if (manual)
+                    safeThis->showStatusMessage("update ready after this render", 3500);
+
+                return;
+            }
+
+            if (auto* modalManager = juce::ModalComponentManager::getInstanceWithoutCreating())
+            {
+                if (modalManager->getNumModalComponents() > 0)
+                {
+                    safeThis->deferredUpdatePromptReady = true;
+                    safeThis->deferredUpdateVersion = result.latestVersion;
+                    safeThis->deferredUpdateDownloadUrl = result.downloadUrl;
+                    safeThis->deferredUpdateChannel = result.channel;
+                    safeThis->deferredUpdatePublishedAt = result.publishedAt;
+                    safeThis->deferredUpdateNotes = result.notes;
+
+                    if (manual)
+                        safeThis->showStatusMessage("update ready when this dialog closes", 3500);
+
+                    return;
+                }
+            }
+
+            safeThis->showPluginUpdatePrompt(result.latestVersion,
+                                             result.downloadUrl,
+                                             result.notes,
+                                             result.channel,
+                                             result.publishedAt);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::maybeShowDeferredUpdatePrompt()
+{
+    if (!deferredUpdatePromptReady || updatePromptVisible || isGenerating)
+        return;
+
+    if (auto* modalManager = juce::ModalComponentManager::getInstanceWithoutCreating())
+        if (modalManager->getNumModalComponents() > 0)
+            return;
+
+    if (deferredUpdateDownloadUrl.isEmpty() || deferredUpdateVersion.isEmpty())
+    {
+        clearDeferredUpdatePrompt();
+        return;
+    }
+
+    const auto latestVersion = deferredUpdateVersion;
+    const auto downloadUrl = deferredUpdateDownloadUrl;
+    const auto notes = deferredUpdateNotes;
+    const auto channel = deferredUpdateChannel;
+    const auto publishedAt = deferredUpdatePublishedAt;
+
+    clearDeferredUpdatePrompt();
+    showPluginUpdatePrompt(latestVersion, downloadUrl, notes, channel, publishedAt);
+}
+
+void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& latestVersion,
+                                                           const juce::String& downloadUrl,
+                                                           const juce::StringArray& notes,
+                                                           const juce::String& channel,
+                                                           const juce::String& publishedAt)
+{
+    if (updatePromptVisible || latestVersion.isEmpty() || downloadUrl.isEmpty())
+        return;
+
+    updatePromptVisible = true;
+
+    auto* alertWindow = new juce::AlertWindow("update available",
+                                              buildUpdatePromptMessage(ProjectInfo::versionString,
+                                                                       latestVersion,
+                                                                       notes,
+                                                                       channel,
+                                                                       publishedAt),
+                                              juce::MessageBoxIconType::InfoIcon,
+                                              this);
+
+    alertWindow->addButton("download update", 1);
+    alertWindow->addButton("not now", 0);
+    alertWindow->addButton("skip this version", 2);
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    alertWindow->enterModalState(true,
+        juce::ModalCallbackFunction::create([safeThis, alertWindow, latestVersion, downloadUrl](int result)
+        {
+            std::unique_ptr<juce::AlertWindow> cleanup(alertWindow);
+
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->updatePromptVisible = false;
+
+            if (result == 1)
+            {
+                safeThis->setSkippedUpdateVersion({});
+                if (!juce::URL(downloadUrl).launchInDefaultBrowser())
+                    safeThis->showStatusMessage("couldn't open the release page", 3500);
+            }
+            else if (result == 2)
+            {
+                safeThis->setSkippedUpdateVersion(latestVersion);
+                safeThis->showStatusMessage("will skip v" + latestVersion + " for now", 3000);
+            }
+        }));
+}
+
+void Gary4juceAudioProcessorEditor::clearDeferredUpdatePrompt()
+{
+    deferredUpdatePromptReady = false;
+    deferredUpdateVersion.clear();
+    deferredUpdateDownloadUrl.clear();
+    deferredUpdateChannel = "stable";
+    deferredUpdatePublishedAt.clear();
+    deferredUpdateNotes.clear();
+}
+
+juce::PropertiesFile& Gary4juceAudioProcessorEditor::getUpdatePreferences()
+{
+    if (updatePreferences == nullptr)
+    {
+        juce::PropertiesFile::Options options;
+        options.applicationName = kUpdatePrefsAppName;
+        options.filenameSuffix = kUpdatePrefsSuffix;
+        options.folderName = kUpdatePrefsFolder;
+        options.osxLibrarySubFolder = "Application Support";
+        options.commonToAllUsers = false;
+        options.storageFormat = juce::PropertiesFile::storeAsXML;
+        updatePreferences = std::make_unique<juce::PropertiesFile>(options);
+    }
+
+    return *updatePreferences;
+}
+
+juce::String Gary4juceAudioProcessorEditor::getSkippedUpdateVersion()
+{
+    return getUpdatePreferences().getValue(kSkippedUpdateVersionKey).trim();
+}
+
+void Gary4juceAudioProcessorEditor::setSkippedUpdateVersion(const juce::String& version)
+{
+    getUpdatePreferences().setValue(kSkippedUpdateVersionKey, version.trim());
+    getUpdatePreferences().saveIfNeeded();
+}
+
+juce::int64 Gary4juceAudioProcessorEditor::getLastUpdateCheckTimeMs()
+{
+    return getUpdatePreferences().getValue(kLastUpdateCheckKey).getLargeIntValue();
+}
+
+void Gary4juceAudioProcessorEditor::setLastUpdateCheckTimeMs(juce::int64 timeMs)
+{
+    getUpdatePreferences().setValue(kLastUpdateCheckKey, juce::String(timeMs));
+    getUpdatePreferences().saveIfNeeded();
 }
 
 void Gary4juceAudioProcessorEditor::showStatusMessage(const juce::String& message, int durationMs)
@@ -9701,7 +10240,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     // Connection status display (left side of connection area)
 
     // Calculate the text area (left side, leaving space for button stack on right)
-    auto connectionTextArea = connectionStatusArea.withTrimmedRight(120); // Reduced space for buttons, more for text
+    auto connectionTextArea = connectionStatusArea.withTrimmedRight(96);
 
     if (audioProcessor.getIsUsingLocalhost())
     {
@@ -9924,10 +10463,10 @@ void Gary4juceAudioProcessorEditor::resized()
     titleItem.height = 40;  // Title + some padding
     titleItem.margin = juce::FlexItem::Margin(8, 0, 0, 0);  // 10px top margin
 
-    // 2. Connection status area (fixed height) - now includes check button
+    // 2. Connection status area (fixed height) - backend toggle + check connection icon
     juce::Component connectionComponent;
     juce::FlexItem connectionItem(connectionComponent);
-    connectionItem.height = 35;  // Taller to accommodate button
+    connectionItem.height = 60;
     connectionItem.margin = juce::FlexItem::Margin(5, 20, 5, 20);
 
     // 3. Recording label area (fixed height)
@@ -9986,6 +10525,13 @@ void Gary4juceAudioProcessorEditor::resized()
     recordingLabelArea = topSectionFlexBox.items[2].currentBounds.toNearestInt();
     waveformArea = topSectionFlexBox.items[3].currentBounds.toNearestInt();
 
+    auto updatesButtonBounds = juce::Rectangle<int>(
+        titleArea.getX() + 16,
+        titleArea.getY() + (titleArea.getHeight() - 24) / 2,
+        112,
+        24);
+    checkUpdatesButton.setBounds(updatesButtonBounds);
+
     // Upload button overlay on recording waveform (top-right corner, matching crop button style)
     auto uploadOverlayArea = juce::Rectangle<int>(
         waveformArea.getRight() - 50,
@@ -9998,13 +10544,13 @@ void Gary4juceAudioProcessorEditor::resized()
     inputInfoArea = topSectionFlexBox.items[5].currentBounds.toNearestInt();
 
     // Manual layout for connection status area: stacked buttons on the right
-    auto buttonStackArea = connectionStatusArea.removeFromRight(120); // Reserve space for buttons
-    
-    // Stack the buttons vertically in the button area
-    auto toggleButtonBounds = buttonStackArea.removeFromTop(25).withSizeKeepingCentre(80, 25);
-    buttonStackArea.removeFromTop(5); // Small gap
-    auto checkButtonBounds = buttonStackArea.removeFromTop(28).withSizeKeepingCentre(120, 28);
-    
+    auto buttonStackArea = connectionStatusArea.removeFromRight(96).reduced(0, 2);
+    constexpr int stackGap = 4;
+
+    auto toggleButtonBounds = buttonStackArea.removeFromTop(22).withSizeKeepingCentre(82, 22);
+    buttonStackArea.removeFromTop(stackGap);
+    auto checkButtonBounds = buttonStackArea.removeFromTop(34).withSizeKeepingCentre(40, 34);
+
     // Position the buttons
     backendToggleButton.setBounds(toggleButtonBounds);
     checkConnectionButton.setBounds(checkButtonBounds);

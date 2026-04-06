@@ -36,6 +36,7 @@ put it on your master, press play, record some audio, and start iterating.
 - [ ] potentially add 'extract' mode if we can get it to be more reliable
 - [ ] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
 - [ ] produce better carey dice captions
+- [ ] add auto-update functionality (see [AUTO_UPDATE_PLAN.md](AUTO_UPDATE_PLAN.md))
 - [x] introduce time signature option to the carey UI
 - [ ] create finetuning guide for stable-audio-open-small (youtube + written)
 

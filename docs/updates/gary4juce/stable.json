@@ -1,0 +1,12 @@
+{
+  "channel": "stable",
+  "latest_version": "3.0.1",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.1",
+  "sha256": null,
+  "published_at": "2026-04-06T00:00:00Z",
+  "notes": [
+    "v3 brings Carey, Foundation-1, and Darius into gary4juce.",
+    "The plugin can now check this manifest and point users to GitHub Releases when a newer build is available.",
+    "Close your DAW before replacing plugin files with a downloaded update."
+  ]
+}

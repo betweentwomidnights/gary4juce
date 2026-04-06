@@ -119,6 +119,7 @@ private:
 
     // UI Components
     CustomButton checkConnectionButton;
+    CustomButton checkUpdatesButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
 
@@ -414,6 +415,20 @@ private:
     juce::String cleanCareyQueueMessage(const juce::String& raw);
     void sendToGary();
     void sendToJerry();  // New method for Jerry
+    void maybeAutoCheckForUpdates();
+    void checkForPluginUpdates(bool manual, bool includeSkippedVersion = false);
+    void maybeShowDeferredUpdatePrompt();
+    void showPluginUpdatePrompt(const juce::String& latestVersion,
+                                const juce::String& downloadUrl,
+                                const juce::StringArray& notes,
+                                const juce::String& channel,
+                                const juce::String& publishedAt);
+    void clearDeferredUpdatePrompt();
+    juce::PropertiesFile& getUpdatePreferences();
+    juce::String getSkippedUpdateVersion();
+    void setSkippedUpdateVersion(const juce::String& version);
+    juce::int64 getLastUpdateCheckTimeMs();
+    void setLastUpdateCheckTimeMs(juce::int64 timeMs);
 
     // Polling system
     bool isPolling = false;
@@ -567,6 +582,17 @@ private:
 
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
+
+    std::unique_ptr<juce::PropertiesFile> updatePreferences;
+    std::atomic<bool> updateCheckInFlight{ false };
+    bool hasCheckedForUpdatesThisEditorSession = false;
+    bool updatePromptVisible = false;
+    bool deferredUpdatePromptReady = false;
+    juce::String deferredUpdateVersion;
+    juce::String deferredUpdateDownloadUrl;
+    juce::String deferredUpdateChannel = "stable";
+    juce::String deferredUpdatePublishedAt;
+    juce::StringArray deferredUpdateNotes;
 
     
 
