@@ -429,6 +429,8 @@ private:
     void setSkippedUpdateVersion(const juce::String& version);
     juce::int64 getLastUpdateCheckTimeMs();
     void setLastUpdateCheckTimeMs(juce::int64 timeMs);
+    bool getStartupUpdateCheckEnabled();
+    void setStartupUpdateCheckEnabled(bool enabled);
 
     // Polling system
     bool isPolling = false;

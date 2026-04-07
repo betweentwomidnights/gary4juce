@@ -18,6 +18,7 @@ namespace
     static constexpr auto kUpdatePrefsSuffix = ".settings";
     static constexpr auto kLastUpdateCheckKey = "lastUpdateCheckMs";
     static constexpr auto kSkippedUpdateVersionKey = "skippedUpdateVersion";
+    static constexpr auto kStartupUpdateCheckEnabledKey = "startupUpdateCheckEnabled";
     static constexpr juce::int64 kAutoUpdateCheckCooldownMs = 12LL * 60LL * 60LL * 1000LL;
     static constexpr int kUpdateCheckTimeoutMs = 4000;
 
@@ -113,6 +114,45 @@ namespace
         bool shouldPrompt = false;
     };
 
+    class UpdatePromptOptions final : public juce::Component
+    {
+    public:
+        explicit UpdatePromptOptions(const bool checkOnStartup)
+        {
+            startupUpdateToggle.setButtonText("check for updates on startup");
+            startupUpdateToggle.setToggleState(checkOnStartup, juce::dontSendNotification);
+            startupUpdateToggle.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            addAndMakeVisible(startupUpdateToggle);
+
+            setSize(320, 24);
+        }
+
+        bool shouldCheckOnStartup() const
+        {
+            return startupUpdateToggle.getToggleState();
+        }
+
+        void resized() override
+        {
+            startupUpdateToggle.setBounds(getLocalBounds());
+        }
+
+    private:
+        juce::ToggleButton startupUpdateToggle;
+    };
+
+    void removeCustomComponent(juce::AlertWindow& alertWindow, juce::Component& component)
+    {
+        for (int i = alertWindow.getNumCustomComponents(); --i >= 0;)
+        {
+            if (alertWindow.getCustomComponent(i) == &component)
+            {
+                alertWindow.removeCustomComponent(i);
+                return;
+            }
+        }
+    }
+
     juce::String normalizeVersionString(const juce::String& value)
     {
         return value.trim().trimCharactersAtStart("vV");
@@ -143,7 +183,11 @@ namespace
     juce::String configuredUpdateManifestUrl()
     {
         const auto overrideUrl = juce::SystemStats::getEnvironmentVariable(kUpdateManifestOverrideEnv, {}).trim();
-        return overrideUrl.isNotEmpty() ? overrideUrl : juce::String(kDefaultUpdateManifestUrl);
+
+        if (overrideUrl.isNotEmpty())
+            return overrideUrl;
+
+        return juce::String(kDefaultUpdateManifestUrl);
     }
 
     bool readUpdateManifest(const juce::String& jsonText,
@@ -1698,6 +1742,12 @@ void Gary4juceAudioProcessorEditor::maybeAutoCheckForUpdates()
 
     hasCheckedForUpdatesThisEditorSession = true;
 
+    if (!getStartupUpdateCheckEnabled())
+    {
+        DBG("Skipping auto update check; startup checks disabled");
+        return;
+    }
+
     const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
     const auto lastCheckMs = getLastUpdateCheckTimeMs();
 
@@ -1863,16 +1913,28 @@ void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& l
     alertWindow->addButton("not now", 0);
     alertWindow->addButton("skip this version", 2);
 
+    auto* optionsComponent = new UpdatePromptOptions(getStartupUpdateCheckEnabled());
+    alertWindow->addCustomComponent(optionsComponent);
+
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     alertWindow->enterModalState(true,
-        juce::ModalCallbackFunction::create([safeThis, alertWindow, latestVersion, downloadUrl](int result)
+        juce::ModalCallbackFunction::create([safeThis, alertWindow, optionsComponent, latestVersion, downloadUrl](int result)
         {
+            const auto checkOnStartup = optionsComponent == nullptr || optionsComponent->shouldCheckOnStartup();
+
+            if (optionsComponent != nullptr)
+            {
+                removeCustomComponent(*alertWindow, *optionsComponent);
+                delete optionsComponent;
+            }
+
             std::unique_ptr<juce::AlertWindow> cleanup(alertWindow);
 
             if (safeThis == nullptr)
                 return;
 
             safeThis->updatePromptVisible = false;
+            safeThis->setStartupUpdateCheckEnabled(checkOnStartup);
 
             if (result == 1)
             {
@@ -1934,6 +1996,17 @@ juce::int64 Gary4juceAudioProcessorEditor::getLastUpdateCheckTimeMs()
 void Gary4juceAudioProcessorEditor::setLastUpdateCheckTimeMs(juce::int64 timeMs)
 {
     getUpdatePreferences().setValue(kLastUpdateCheckKey, juce::String(timeMs));
+    getUpdatePreferences().saveIfNeeded();
+}
+
+bool Gary4juceAudioProcessorEditor::getStartupUpdateCheckEnabled()
+{
+    return getUpdatePreferences().getBoolValue(kStartupUpdateCheckEnabledKey, true);
+}
+
+void Gary4juceAudioProcessorEditor::setStartupUpdateCheckEnabled(bool enabled)
+{
+    getUpdatePreferences().setValue(kStartupUpdateCheckEnabledKey, enabled);
     getUpdatePreferences().saveIfNeeded();
 }
 
