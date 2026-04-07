@@ -831,9 +831,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onGenerate = [this]() { sendToCarey(); };
 
     careyUI->onCompleteCaptionChanged = [this](const juce::String& text) { currentCareyCompleteCaption = text; };
+    careyUI->onCompleteModelChanged = [this](const juce::String& model)
+    {
+        currentCareyCompleteModel = model.equalsIgnoreCase("xl-base") ? "xl-base" : "xl-turbo";
+    };
     careyUI->onCompleteBpmChanged = [this](int bpm) { currentCareyCompleteBpm = juce::jlimit(40, 240, bpm); };
-    careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(32, 100, steps); };
-    careyUI->onCompleteCfgChanged = [this](double val) { currentCompleteCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(8, 100, steps); };
+    careyUI->onCompleteCfgChanged = [this](double val) { currentCompleteCfg = juce::jlimit(1.0, 10.0, val); };
     careyUI->onCompleteDurationChanged = [this](int seconds) { currentCareyCompleteDurationSeconds = juce::jlimit(30, 180, seconds); };
     careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
     // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
@@ -858,6 +862,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setSteps(currentCareySteps);
     careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
     careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+    careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
+    careyUI->setCompleteModel(currentCareyCompleteModel);
+    careyUI->setCompleteBpm(currentCareyCompleteBpm);
+    careyUI->setCompleteSteps(currentCareyCompleteSteps);
+    careyUI->setCompleteCfg(currentCompleteCfg);
+    careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+    careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
+    careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);
     careyUI->setCoverSteps(currentCoverSteps);
@@ -4995,6 +5007,9 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
     const bool available = isCareyTabAvailable();
     careyTabButton.setEnabled(available);
 
+    if (careyUI)
+        careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
+
     if (audioProcessor.getIsUsingLocalhost())
         careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
     else
@@ -5943,8 +5958,15 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         if (standaloneBpm > 0)
             bpm = standaloneBpm;
     }
-    const int inferenceSteps = juce::jlimit(32, 100, currentCareyCompleteSteps);
-    const double guidanceScale = juce::jlimit(3.0, 10.0, currentCompleteCfg);
+    const bool useRemoteCompleteModel = !isUsingLocalhost;
+    const bool useCompleteBaseModel = useRemoteCompleteModel && currentCareyCompleteModel.equalsIgnoreCase("xl-base");
+    const bool useCompleteTurboModel = useRemoteCompleteModel && !useCompleteBaseModel;
+    const int inferenceSteps = useCompleteTurboModel
+        ? CareyUI::kFixedCompleteTurboSteps
+        : juce::jlimit(32, 100, currentCareyCompleteSteps);
+    const double guidanceScale = useCompleteTurboModel
+        ? CareyUI::kFixedCompleteTurboCfg
+        : juce::jlimit(3.0, 10.0, currentCompleteCfg);
     const juce::String caption = currentCareyCompleteCaption.trim();
     const juce::String lyrics = currentCareyLyrics;  // Shared lyrics across all tabs
     const juce::String keyScale = currentCareyKeyScale;
@@ -5955,6 +5977,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     DBG("[carey-complete] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
+        + ", model=" + (useRemoteCompleteModel ? (useCompleteBaseModel ? "xl-base" : "xl-turbo") : "localhost-managed")
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
@@ -5989,7 +6012,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     showStatusMessage("submitting carey complete request...", 2500);
 
-    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, cancelCareyOperation]()
+    juce::Thread::launch([this, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, useCompleteBaseModel, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String failureDetail;
@@ -6020,6 +6043,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
                 submitPayload->setProperty("bpm", bpm);
                 submitPayload->setProperty("inference_steps", inferenceSteps);
+                if (useCompleteBaseModel)
+                    submitPayload->setProperty("model", "xl-base");
                 submitPayload->setProperty("audio_duration", (double)targetDurationSeconds);
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);

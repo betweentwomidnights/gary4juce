@@ -5,8 +5,9 @@
   "sha256": null,
   "published_at": "2026-04-07T00:00:00Z",
   "notes": [
-    "Adds an option in the update prompt to turn off startup update checks.",
-    "Manual checks remain available from the check updates button.",
+    "Adds the in-plugin check updates button and plugin-safe update prompt.",
+    "Carey complete mode on the remote backend now supports ACE-Step v1.5 XL models, with xl-turbo as the default and xl-base available in Advanced.",
+    "xl-turbo is fixed at 8 steps / CFG 1.0; xl-base keeps editable steps / CFG for slower higher-control runs.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

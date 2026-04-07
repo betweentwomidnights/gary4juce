@@ -291,6 +291,7 @@ private:
     juce::String currentCareyLyrics = "";     // Shared across all 3 tabs
     juce::String currentCareyLanguage = "en"; // Language code for lyrics vocalization
     juce::String currentCareyCompleteCaption = "";
+    juce::String currentCareyCompleteModel = "xl-turbo";
     int currentCareyCompleteBpm = 120;
     int currentCareyCompleteSteps = 50;
     double currentCompleteCfg = 7.0;

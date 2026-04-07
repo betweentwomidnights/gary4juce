@@ -40,6 +40,10 @@ the model doesn't perform well with audio shorter than ~1 minute. loop assist du
 - **duration slider** controls how long the output will be (30-180 seconds). the model generates the full duration including your input audio as the beginning.
 - **use source as reference** passes your audio as both the conditioning input and a style reference, encouraging the continuation to stay closer to your original timbre and feel.
 
+### remote xl models
+
+on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo), which is fixed at 8 inference steps and 1.0 cfg for faster results. advanced settings can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base), which restores editable steps/cfg and defaults to 50 steps and 7.0 cfg.
+
 ---
 
 ## cover mode
