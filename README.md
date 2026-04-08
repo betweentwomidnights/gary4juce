@@ -33,8 +33,9 @@ put it on your master, press play, record some audio, and start iterating.
 
 - [ ] add foundation-1 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
 - [ ] finish assimilating the mac branch of gary4juce
+- [ ] release gary4juce v3.0.2 mac AU/VST3
 - [ ] potentially add 'extract' mode if we can get it to be more reliable
-- [ ] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
+- [x] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
 - [ ] produce better carey dice captions
 - [x] introduce time signature option to the carey UI
 - [ ] create finetuning guide for stable-audio-open-small (youtube + written)
@@ -42,6 +43,12 @@ put it on your master, press play, record some audio, and start iterating.
 ---
 
 ## what's new in v3
+
+### v3.0.2 - plugin-safe updates + ace-step xl models
+
+gary4juce now includes a plugin-safe update checker: the UI can check the GitHub release feed and open the download page without trying to self-replace files while a DAW is running.
+
+carey's complete mode on the remote backend now uses ACE-Step v1.5 XL models, defaulting to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo). advanced settings can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) for editable steps/cfg; turbo is fixed at 8 steps and 1.0 cfg.
 
 ### rc-jerry (foundation-1) - structured loop generation
 
@@ -73,6 +80,8 @@ the biggest addition to gary4juce yet. three modes powered by the [ACE-Step 1.5]
 - **cover** - remix/restyle your audio with a text caption. chain with lego for a gibberish-to-lyrics workflow.
 
 plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, and inference step tuning.
+
+v3.0.2 adds remote complete-mode selection between [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) as the default and [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) for editable steps/cfg.
 
 **[detailed carey guide](CAREY.md)** - tips, parameter explanations, and workflow tricks.
 
@@ -262,6 +271,8 @@ three modes for stem generation, continuation, and remix:
 - **cover** - remix/restyle with caption guidance
 
 shared lyrics editor, 50-language support, key/scale selection, and per-tab cfg control.
+
+on the remote backend, complete mode defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) from advanced settings.
 
 **[full guide with tips and workflows](CAREY.md)**
 

@@ -187,6 +187,10 @@ class CareyUI : public juce::Component
 public:
     static constexpr int kFixedCoverSteps = 8;
     static constexpr double kFixedCoverCfg = 1.0;
+    static constexpr int kFixedCompleteTurboSteps = 8;
+    static constexpr double kFixedCompleteTurboCfg = 1.0;
+    static constexpr int kDefaultCompleteBaseSteps = 50;
+    static constexpr double kDefaultCompleteBaseCfg = 7.0;
 
     enum class SubTab
     {
@@ -462,6 +466,25 @@ public:
             updateContentLayout();
         };
         addToContent(completeAdvancedToggle);
+
+        completeModelLabel.setText("model", juce::dontSendNotification);
+        completeModelLabel.setFont(juce::FontOptions(12.0f));
+        completeModelLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+        completeModelLabel.setJustificationType(juce::Justification::centredLeft);
+        completeModelLabel.setTooltip("remote complete model: turbo is fast and fixed at 8 steps / cfg 1.0; base allows editable steps and cfg.");
+        addToContent(completeModelLabel);
+
+        completeTurboModelToggle.setButtonText("xl-turbo");
+        completeTurboModelToggle.setToggleState(true, juce::dontSendNotification);
+        completeTurboModelToggle.setTooltip("fast remote complete model, fixed at 8 steps and cfg 1.0.");
+        completeTurboModelToggle.onClick = [this]() { setCompleteModel("xl-turbo"); };
+        addToContent(completeTurboModelToggle);
+
+        completeBaseModelToggle.setButtonText("xl-base");
+        completeBaseModelToggle.setToggleState(false, juce::dontSendNotification);
+        completeBaseModelToggle.setTooltip("remote complete base model with editable steps and cfg.");
+        completeBaseModelToggle.onClick = [this]() { setCompleteModel("xl-base"); };
+        addToContent(completeBaseModelToggle);
 
         completeBpmLabel.setText("bpm", juce::dontSendNotification);
         completeBpmLabel.setFont(juce::FontOptions(12.0f));
@@ -863,6 +886,11 @@ public:
         return juce::roundToInt(completeStepsSlider.getValue());
     }
 
+    juce::String getCompleteModel() const
+    {
+        return completeBaseModelToggle.getToggleState() ? "xl-base" : "xl-turbo";
+    }
+
     void setCaptionText(const juce::String& text)
     {
         captionEditor.setText(text, juce::dontSendNotification);
@@ -912,11 +940,29 @@ public:
 
     void setCompleteSteps(int steps)
     {
-        completeStepsSlider.setValue(juce::jlimit(32, 100, steps), juce::dontSendNotification);
+        completeStepsSlider.setValue(juce::jlimit(8, 100, steps), juce::dontSendNotification);
     }
 
     double getCompleteCfg() const { return completeCfgSlider.getValue(); }
-    void setCompleteCfg(double val) { completeCfgSlider.setValue(juce::jlimit(3.0, 10.0, val), juce::dontSendNotification); }
+    void setCompleteCfg(double val) { completeCfgSlider.setValue(juce::jlimit(1.0, 10.0, val), juce::dontSendNotification); }
+
+    void setCompleteModel(const juce::String& model)
+    {
+        const bool useBaseModel = model.equalsIgnoreCase("xl-base");
+        completeTurboModelToggle.setToggleState(!useBaseModel, juce::dontSendNotification);
+        completeBaseModelToggle.setToggleState(useBaseModel, juce::dontSendNotification);
+        updateCompleteModelControls(true);
+    }
+
+    void setCompleteRemoteModelSelectionEnabled(bool enabled)
+    {
+        if (completeRemoteModelSelectionEnabled == enabled)
+            return;
+
+        completeRemoteModelSelectionEnabled = enabled;
+        updateCompleteModelControls(true);
+        updateContentLayout();
+    }
 
     bool getCompleteUseSrcAsRef() const { return completeUseSrcAsRefToggle.getToggleState(); }
     void setCompleteUseSrcAsRef(bool enabled) { completeUseSrcAsRefToggle.setToggleState(enabled, juce::dontSendNotification); }
@@ -1081,6 +1127,7 @@ public:
     std::function<void(const juce::String&)> onLyricsLanguageChanged;  // Fires when language selection changes
 
     std::function<void(const juce::String&)> onCompleteCaptionChanged;
+    std::function<void(const juce::String&)> onCompleteModelChanged;
     std::function<void(int)> onCompleteBpmChanged;
     std::function<void(int)> onCompleteStepsChanged;
     std::function<void(double)> onCompleteCfgChanged;
@@ -1235,6 +1282,18 @@ private:
 
             if (completeAdvancedOpen)
             {
+                if (completeRemoteModelSelectionEnabled)
+                {
+                    auto modelRow = fullRow(28);
+                    completeModelLabel.setBounds(modelRow.removeFromLeft(110));
+                    const int toggleGap = 8;
+                    const int toggleWidth = (modelRow.getWidth() - toggleGap) / 2;
+                    completeTurboModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
+                    modelRow.removeFromLeft(toggleGap);
+                    completeBaseModelToggle.setBounds(modelRow);
+                    y += 36;
+                }
+
                 if (isStandalone)
                 {
                     auto bpmRow = fullRow(28);
@@ -1375,6 +1434,9 @@ private:
 
         // Advanced: only visible if open AND tab is active
         const bool showAdvanced = shouldBeVisible && completeAdvancedOpen;
+        completeModelLabel.setVisible(showAdvanced && completeRemoteModelSelectionEnabled);
+        completeTurboModelToggle.setVisible(showAdvanced && completeRemoteModelSelectionEnabled);
+        completeBaseModelToggle.setVisible(showAdvanced && completeRemoteModelSelectionEnabled);
         completeBpmLabel.setVisible(showAdvanced && isStandalone);
         completeBpmSlider.setVisible(showAdvanced && isStandalone);
         completeStepsLabel.setVisible(showAdvanced);
@@ -1384,6 +1446,54 @@ private:
         completeDurationLabel.setVisible(showAdvanced);
         completeDurationSlider.setVisible(showAdvanced);
         completeUseSrcAsRefToggle.setVisible(showAdvanced);
+    }
+
+    void updateCompleteModelControls(bool notify)
+    {
+        const bool remoteTurbo = completeRemoteModelSelectionEnabled && getCompleteModel() == "xl-turbo";
+        const bool heldTurboValues = getCompleteSteps() <= kFixedCompleteTurboSteps
+            && getCompleteCfg() <= kFixedCompleteTurboCfg;
+
+        if (remoteTurbo)
+        {
+            completeStepsSlider.setRange(kFixedCompleteTurboSteps, 100, 1);
+            completeStepsSlider.setValue(kFixedCompleteTurboSteps, juce::dontSendNotification);
+            completeStepsSlider.setEnabled(false);
+            completeStepsSlider.setTooltip("xl-turbo is fixed at 8 steps on the remote backend.");
+            completeStepsLabel.setTooltip("xl-turbo is fixed at 8 steps on the remote backend.");
+
+            completeCfgSlider.setRange(kFixedCompleteTurboCfg, 10.0, 0.1);
+            completeCfgSlider.setValue(kFixedCompleteTurboCfg, juce::dontSendNotification);
+            completeCfgSlider.setEnabled(false);
+            completeCfgSlider.setTooltip("xl-turbo is fixed at cfg 1.0 on the remote backend.");
+            completeCfgLabel.setTooltip("xl-turbo is fixed at cfg 1.0 on the remote backend.");
+        }
+        else
+        {
+            completeStepsSlider.setRange(32, 100, 1);
+            if (heldTurboValues)
+                completeStepsSlider.setValue(kDefaultCompleteBaseSteps, juce::dontSendNotification);
+            completeStepsSlider.setEnabled(true);
+            completeStepsSlider.setTooltip("diffusion steps. more = refined but slower. recommended: 50");
+            completeStepsLabel.setTooltip({});
+
+            completeCfgSlider.setRange(3.0, 10.0, 0.1);
+            if (heldTurboValues)
+                completeCfgSlider.setValue(kDefaultCompleteBaseCfg, juce::dontSendNotification);
+            completeCfgSlider.setEnabled(true);
+            completeCfgSlider.setTooltip("cfg scale - how strongly the model follows the caption. higher = more literal. 3=loose, 7=balanced, 10=strict");
+            completeCfgLabel.setTooltip({});
+        }
+
+        if (notify)
+        {
+            if (onCompleteModelChanged)
+                onCompleteModelChanged(getCompleteModel());
+            if (onCompleteStepsChanged)
+                onCompleteStepsChanged(getCompleteSteps());
+            if (onCompleteCfgChanged)
+                onCompleteCfgChanged(getCompleteCfg());
+        }
     }
 
     void setCoverControlsVisible(bool shouldBeVisible)
@@ -1677,6 +1787,9 @@ private:
     CustomTextEditor completeCaptionEditor;
     CustomButton completeCaptionDiceButton;
     CustomButton completeLyricsButton;
+    juce::Label completeModelLabel;
+    juce::ToggleButton completeTurboModelToggle;
+    juce::ToggleButton completeBaseModelToggle;
     juce::Label completeBpmLabel;
     CustomSlider completeBpmSlider;
     juce::Label completeStepsLabel;
@@ -1724,6 +1837,7 @@ private:
     bool legoAdvancedOpen = false;
     bool completeAdvancedOpen = false;
     bool coverAdvancedOpen = false;
+    bool completeRemoteModelSelectionEnabled = false;
 
     juce::Rectangle<int> titleBounds;
 };

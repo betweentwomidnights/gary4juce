@@ -1,0 +1,13 @@
+{
+  "channel": "stable-mac",
+  "latest_version": "3.0.2-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.2-mac",
+  "sha256": null,
+  "published_at": "2026-04-07T00:00:00Z",
+  "notes": [
+    "Mac build of gary4juce v3.0.2.",
+    "Adds the in-plugin check updates button and plugin-safe update prompt.",
+    "Carey complete mode on the remote backend now supports ACE-Step v1.5 XL models.",
+    "Close your DAW before replacing plugin files with a downloaded update."
+  ]
+}
