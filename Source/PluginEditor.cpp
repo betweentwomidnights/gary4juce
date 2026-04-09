@@ -28,6 +28,30 @@ namespace
         juce::String popupDetail;
     };
 
+    juce::String stripAnsiAndControlChars(const juce::String& text)
+    {
+        juce::String sanitized;
+        for (int i = 0; i < text.length(); ++i)
+        {
+            const auto ch = text[i];
+
+            if (ch == 0x1b && (i + 1) < text.length() && text[i + 1] == '[')
+            {
+                i += 2;
+                while (i < text.length() && ((text[i] >= '0' && text[i] <= '9') || text[i] == ';'))
+                    ++i;
+                continue;
+            }
+
+            if (ch < 32)
+                continue;
+
+            sanitized += ch;
+        }
+
+        return sanitized.trim();
+    }
+
     struct SemanticVersion
     {
         int major = 0;
@@ -830,6 +854,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onLyricsLanguageChanged = [this](const juce::String& lang) { currentCareyLanguage = lang; audioProcessor.setCareyLanguage(lang); };
     careyUI->onGenerate = [this]() { sendToCarey(); };
 
+    careyUI->onExtractTrackChanged = [this](const juce::String& track) { currentCareyExtractTrackName = track.trim().toLowerCase(); };
+    careyUI->onExtractBpmChanged = [this](int bpm) { currentCareyExtractBpm = juce::jlimit(20, 300, bpm); };
+    careyUI->onExtractStepsChanged = [this](int steps) { currentCareyExtractSteps = juce::jlimit(32, 100, steps); };
+    careyUI->onExtractCfgChanged = [this](double val) { currentCareyExtractCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onExtractGenerate = [this]() { sendToCareyExtract(); };
+
     careyUI->onCompleteCaptionChanged = [this](const juce::String& text) { currentCareyCompleteCaption = text; };
     careyUI->onCompleteModelChanged = [this](const juce::String& model)
     {
@@ -862,6 +892,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setSteps(currentCareySteps);
     careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
     careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+    currentCareyExtractBpm = juce::jlimit(20, 300, juce::roundToInt(getCareyBpmForRequest()));
+    careyUI->setExtractTrackName(currentCareyExtractTrackName);
+    careyUI->setExtractBpm(currentCareyExtractBpm);
+    careyUI->setExtractSteps(currentCareyExtractSteps);
+    careyUI->setExtractCfg(currentCareyExtractCfg);
     careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
     careyUI->setCompleteModel(currentCareyCompleteModel);
     careyUI->setCompleteBpm(currentCareyCompleteBpm);
@@ -870,6 +905,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
     careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
+    careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);
     careyUI->setCoverSteps(currentCoverSteps);
@@ -1685,7 +1721,7 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
 
 juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::String& raw)
 {
-    const juce::String trimmed = raw.trim();
+    const juce::String trimmed = stripAnsiAndControlChars(raw);
     if (trimmed.isEmpty())
         return {};
 
@@ -5008,7 +5044,10 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
     careyTabButton.setEnabled(available);
 
     if (careyUI)
+    {
         careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
+        careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
+    }
 
     if (audioProcessor.getIsUsingLocalhost())
         careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
@@ -5750,8 +5789,6 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0)
-                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -5760,8 +5797,11 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         queueMessage = queueObj->getProperty("message").toString().trim();
                     }
 
+                    queueMessage = stripAnsiAndControlChars(queueMessage);
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (parsedProgress < 0 && textStepProgress >= 0)
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
+                    else if (textStepProgress >= 0)
                         progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
@@ -5913,6 +5953,352 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey request failed";
+        const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
+        juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
+        {
+            showStatusMessage(finalError, 4500);
+            if (shouldShowGenerationFailureDialog(popupDetail))
+                showGenerationFailureDialog(popupDetail);
+            cancelCareyOperation();
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::sendToCareyExtract()
+{
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("carey extract is remote-only for now");
+        return;
+    }
+
+    if (!isServiceReachable(ServiceType::Carey))
+    {
+        showStatusMessage("carey not reachable - check connection first");
+        return;
+    }
+
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    const juce::File bufferFile = garyDir.getChildFile("myBuffer.wav");
+
+    if (!bufferFile.existsAsFile())
+    {
+        showStatusMessage("missing myBuffer.wav - save your recording first");
+        return;
+    }
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(bufferFile));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+    {
+        showStatusMessage("failed to read myBuffer.wav for carey extract");
+        return;
+    }
+
+    juce::String trackName = currentCareyExtractTrackName.trim().toLowerCase();
+    static const juce::StringArray kAllowedExtractTracks = {
+        "drums", "vocals", "backing_vocals", "bass", "guitar", "piano",
+        "synth", "keyboard", "strings", "percussion", "brass", "woodwinds"
+    };
+    if (!kAllowedExtractTracks.contains(trackName))
+        trackName = "drums";
+
+    int bpm = juce::jlimit(20, 300, juce::roundToInt(getCareyBpmForRequest()));
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+        bpm = juce::jlimit(20, 300, currentCareyExtractBpm);
+    const int inferenceSteps = juce::jlimit(32, 100, currentCareyExtractSteps);
+    const double guidanceScale = juce::jlimit(3.0, 10.0, currentCareyExtractCfg);
+
+    DBG("[carey-extract] remote request metas - bpm=" + juce::String(bpm)
+        + ", steps=" + juce::String(inferenceSteps)
+        + ", track=" + trackName
+        + ", cfg=" + juce::String(guidanceScale, 1));
+
+    const auto cancelCareyOperation = [this]()
+    {
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
+    setActiveOp(ActiveOp::CareyGenerate);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    repaint();
+
+    showStatusMessage("submitting carey extract request...", 2500);
+
+    juce::Thread::launch([this, bufferFile, trackName, bpm, inferenceSteps, guidanceScale, cancelCareyOperation]()
+    {
+        juce::String failureReason;
+        juce::String failureDetail;
+        juce::String downloadedBase64;
+        bool success = false;
+
+        do
+        {
+            try
+            {
+                juce::MemoryBlock sourceAudioData;
+                if (!bufferFile.loadFileAsData(sourceAudioData) || sourceAudioData.getSize() <= 0)
+                {
+                    failureReason = "failed to load myBuffer.wav bytes for carey extract request";
+                    break;
+                }
+
+                const juce::String sourceAudioBase64 = juce::Base64::toBase64(sourceAudioData.getData(), sourceAudioData.getSize());
+                if (sourceAudioBase64.isEmpty())
+                {
+                    failureReason = "failed to base64 encode carey extract audio";
+                    break;
+                }
+
+                juce::URL submitUrl(getServiceUrl(ServiceType::Carey, "/extract"));
+
+                juce::DynamicObject::Ptr submitPayload = new juce::DynamicObject();
+                submitPayload->setProperty("audio_data", sourceAudioBase64);
+                submitPayload->setProperty("track_name", trackName);
+                submitPayload->setProperty("bpm", bpm);
+                submitPayload->setProperty("guidance_scale", guidanceScale);
+                submitPayload->setProperty("inference_steps", inferenceSteps);
+                submitPayload->setProperty("batch_size", 1);
+                submitPayload->setProperty("audio_format", "wav");
+
+                const juce::String submitJson = juce::JSON::toString(juce::var(submitPayload.get()));
+                juce::URL submitPost = submitUrl.withPOSTData(submitJson);
+
+                int submitStatusCode = 0;
+                auto submitOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withHttpRequestCmd("POST")
+                    .withConnectionTimeoutMs(120000)
+                    .withStatusCode(&submitStatusCode)
+                    .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json");
+
+                auto submitStream = submitPost.createInputStream(submitOptions);
+                if (submitStream == nullptr || submitStatusCode >= 400)
+                {
+                    failureReason = "carey /extract submit failed";
+                    break;
+                }
+
+                const juce::String submitResponse = submitStream->readEntireStreamAsString();
+                const juce::var submitVar = juce::JSON::parse(submitResponse);
+                auto* submitObj = submitVar.getDynamicObject();
+                if (submitObj == nullptr)
+                {
+                    failureReason = "invalid carey extract submit response";
+                    break;
+                }
+
+                juce::String taskId = submitObj->getProperty("task_id").toString();
+                if (taskId.isEmpty())
+                {
+                    if (auto* dataObj = submitObj->getProperty("data").getDynamicObject())
+                        taskId = dataObj->getProperty("task_id").toString();
+                }
+
+                const bool submitSuccess = (bool)submitObj->getProperty("success");
+                if (taskId.isEmpty() || !submitSuccess)
+                {
+                    const juce::String errorText = submitObj->getProperty("error").toString().trim();
+                    failureReason = errorText.isNotEmpty() ? errorText : "missing task_id from carey extract submit response";
+                    break;
+                }
+
+                juce::URL queryUrl(getServiceUrl(ServiceType::Carey, "/extract/status/" + taskId));
+                constexpr int kPollIntervalMs = 1500;
+                constexpr int kMaxPollCount = 600;
+
+                const auto applyProgressFromVar = [](const juce::var& rawProgressVar) -> int
+                {
+                    double rawProgress = 0.0;
+                    if (rawProgressVar.isInt() || rawProgressVar.isBool() || rawProgressVar.isDouble())
+                        rawProgress = (double)rawProgressVar;
+                    else
+                    {
+                        const juce::String rawText = rawProgressVar.toString().trim();
+                        if (rawText.isEmpty()) return -1;
+                        rawProgress = rawText.getDoubleValue();
+                    }
+                    if (rawProgress <= 0.0) return 0;
+                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
+                };
+
+                const auto parseStepProgressFromText = [](const juce::String& text) -> int
+                {
+                    int bestPercent = -1;
+                    int searchFrom = 0;
+                    while (searchFrom < text.length())
+                    {
+                        const int slash = text.indexOfChar(searchFrom, '/');
+                        if (slash < 0) break;
+                        int leftStart = slash - 1;
+                        while (leftStart >= 0 && juce::CharacterFunctions::isDigit(text[leftStart])) --leftStart;
+                        int rightEnd = slash + 1;
+                        while (rightEnd < text.length() && juce::CharacterFunctions::isDigit(text[rightEnd])) ++rightEnd;
+                        if ((leftStart + 1) < slash && (slash + 1) < rightEnd)
+                        {
+                            const int currentStep = text.substring(leftStart + 1, slash).getIntValue();
+                            const int totalSteps = text.substring(slash + 1, rightEnd).getIntValue();
+                            if (totalSteps > 0 && currentStep >= 0 && currentStep <= totalSteps)
+                                bestPercent = juce::jmax(bestPercent, juce::jlimit(0, 99, juce::roundToInt((double)currentStep * 100.0 / (double)totalSteps)));
+                        }
+                        searchFrom = slash + 1;
+                    }
+                    return bestPercent;
+                };
+
+                for (int pollCount = 0; pollCount < kMaxPollCount; ++pollCount)
+                {
+                    int queryStatusCode = 0;
+                    auto queryOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withHttpRequestCmd("GET")
+                        .withConnectionTimeoutMs(15000)
+                        .withStatusCode(&queryStatusCode)
+                        .withExtraHeaders("Accept: application/json");
+
+                    auto queryStream = queryUrl.createInputStream(queryOptions);
+                    if (queryStream == nullptr || queryStatusCode >= 400)
+                    {
+                        failureReason = "carey extract status polling failed";
+                        break;
+                    }
+
+                    const juce::String queryResponse = queryStream->readEntireStreamAsString();
+                    const juce::var queryVar = juce::JSON::parse(queryResponse);
+                    auto* queryObj = queryVar.getDynamicObject();
+                    if (queryObj == nullptr)
+                    {
+                        failureReason = "invalid carey extract status response";
+                        break;
+                    }
+
+                    const juce::String status = queryObj->getProperty("status").toString().trim().toLowerCase();
+                    const bool querySuccess = (bool)queryObj->getProperty("success");
+                    const bool generationInProgress = (bool)queryObj->getProperty("generation_in_progress");
+                    const bool transformInProgress = (bool)queryObj->getProperty("transform_in_progress");
+
+                    if (status == "failed")
+                    {
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey extract generation failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
+                        break;
+                    }
+
+                    if (!querySuccess && !(generationInProgress || transformInProgress))
+                    {
+                        const auto failureInfo = parseCareyFailureResponse(queryVar, "carey extract request failed");
+                        failureReason = failureInfo.userMessage;
+                        failureDetail = failureInfo.popupDetail;
+                        break;
+                    }
+
+                    if (status == "completed")
+                    {
+                        downloadedBase64 = queryObj->getProperty("audio_data").toString();
+                        if (downloadedBase64.isEmpty())
+                        {
+                            failureReason = "carey extract completed without audio_data";
+                            break;
+                        }
+                        success = true;
+                        break;
+                    }
+
+                    int progressPercent = juce::jlimit(0, 99, generationProgress);
+                    const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
+
+                    juce::String queueStatus, queueMessage;
+                    if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
+                    {
+                        queueStatus = queueObj->getProperty("status").toString().trim().toLowerCase();
+                        queueMessage = queueObj->getProperty("message").toString().trim();
+                    }
+
+                    if (queueMessage.isEmpty())
+                    {
+                        queueMessage = queryObj->getProperty("message").toString().trim();
+                        if (queueMessage.isEmpty())
+                            queueMessage = queryObj->getProperty("status_message").toString().trim();
+                    }
+
+                    queueMessage = stripAnsiAndControlChars(queueMessage);
+                    const int textStepProgress = parseStepProgressFromText(queueMessage);
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
+                    else if (textStepProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, textStepProgress);
+
+                    bool queued = (queueStatus == "queued");
+                    if (progressPercent > 0 || queueStatus == "ready") queued = false;
+
+                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
+                    if (statusText.isEmpty())
+                    {
+                        if (queued) statusText = "queued - starting soon...";
+                        else if (progressPercent > 0) statusText = "processing";
+                        else statusText = status.isNotEmpty() ? status : "processing";
+                    }
+
+                    juce::MessageManager::callAsync([this, progressPercent, queued, statusText]()
+                    {
+                        smoothProgressAnimation = false;
+                        generationProgress = progressPercent;
+                        isCurrentlyQueued = queued;
+                        if (statusText.isNotEmpty())
+                            showStatusMessage("carey extract: " + statusText, 2500);
+                        repaint();
+                    });
+
+                    juce::Thread::sleep(kPollIntervalMs);
+                }
+
+                if (!success && failureReason.isEmpty())
+                    failureReason = "carey extract request timed out";
+            }
+            catch (const std::exception& e)
+            {
+                failureReason = "carey extract request failed: " + juce::String(e.what());
+            }
+            catch (...)
+            {
+                failureReason = "carey extract request failed with unknown error";
+            }
+        } while (false);
+
+        if (success && downloadedBase64.isNotEmpty())
+        {
+            juce::MessageManager::callAsync([this, downloadedBase64]()
+            {
+                isCurrentlyQueued = false;
+                generationProgress = 100;
+                smoothProgressAnimation = false;
+                setActiveOp(ActiveOp::None);
+                saveGeneratedAudio(downloadedBase64);
+                showStatusMessage("carey extract complete", 2500);
+                updateAllGenerationButtonStates();
+            });
+            return;
+        }
+
+        const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey extract request failed";
         const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
         juce::MessageManager::callAsync([this, finalError, popupDetail, cancelCareyOperation]()
         {
@@ -6204,8 +6590,6 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0)
-                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -6214,8 +6598,11 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                         queueMessage = queueObj->getProperty("message").toString().trim();
                     }
 
+                    queueMessage = stripAnsiAndControlChars(queueMessage);
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (parsedProgress < 0 && textStepProgress >= 0)
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
+                    else if (textStepProgress >= 0)
                         progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");
@@ -6688,8 +7075,6 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
                     int progressPercent = juce::jlimit(0, 99, generationProgress);
                     const int parsedProgress = applyProgressFromVar(queryObj->getProperty("progress"));
-                    if (parsedProgress >= 0)
-                        progressPercent = juce::jmax(progressPercent, parsedProgress);
 
                     juce::String queueStatus, queueMessage;
                     if (auto* queueObj = queryObj->getProperty("queue_status").getDynamicObject())
@@ -6706,25 +7091,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                             queueMessage = queryObj->getProperty("status_message").toString().trim();
                     }
 
-                    // Strip ANSI escape codes from queueMessage before parsing
-                    // (cover backend may send raw tqdm output with ANSI control sequences)
-                    {
-                        juce::String stripped;
-                        for (int ci = 0; ci < queueMessage.length(); ++ci)
-                        {
-                            const auto ch = queueMessage[ci];
-                            if (ch == 0x1b && (ci + 1) < queueMessage.length() && queueMessage[ci + 1] == '[')
-                            {
-                                ci += 2;
-                                while (ci < queueMessage.length() && ((queueMessage[ci] >= '0' && queueMessage[ci] <= '9') || queueMessage[ci] == ';'))
-                                    ++ci;
-                                continue;
-                            }
-                            if (ch >= 32)
-                                stripped += ch;
-                        }
-                        queueMessage = stripped.trim();
-                    }
+                    queueMessage = stripAnsiAndControlChars(queueMessage);
 
                     DBG("[carey-cover] poll: status=" + status
                         + " progress=" + queryObj->getProperty("progress").toString()
@@ -6733,7 +7100,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         + " parsedProgress=" + juce::String(parsedProgress));
 
                     const int textStepProgress = parseStepProgressFromText(queueMessage);
-                    if (parsedProgress < 0 && textStepProgress >= 0)
+                    if (parsedProgress >= 0)
+                        progressPercent = juce::jmax(progressPercent, parsedProgress);
+                    else if (textStepProgress >= 0)
                         progressPercent = juce::jmax(progressPercent, textStepProgress);
 
                     bool queued = (queueStatus == "queued");

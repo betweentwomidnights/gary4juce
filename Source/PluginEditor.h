@@ -305,11 +305,16 @@ private:
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;
+    juce::String currentCareyExtractTrackName = "drums";
+    int currentCareyExtractBpm = 120;
+    int currentCareyExtractSteps = CareyUI::kDefaultExtractSteps;
+    double currentCareyExtractCfg = CareyUI::kDefaultExtractCfg;
 
     juce::String currentCareyKeyScale = "";
     juce::String currentCareyTimeSig = "";  // empty = auto-detect
 
     void sendToCarey();
+    void sendToCareyExtract();
     void sendToCareyComplete();
     void sendToCareyCover();
     void updateCareyEnablementSnapshot();

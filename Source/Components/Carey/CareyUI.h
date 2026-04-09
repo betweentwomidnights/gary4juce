@@ -191,15 +191,18 @@ public:
     static constexpr double kFixedCompleteTurboCfg = 1.0;
     static constexpr int kDefaultCompleteBaseSteps = 50;
     static constexpr double kDefaultCompleteBaseCfg = 7.0;
+    static constexpr int kDefaultExtractSteps = 80;
+    static constexpr double kDefaultExtractCfg = 10.0;
 
     enum class SubTab
     {
         Lego = 0,
         Complete,
-        Cover
+        Cover,
+        Extract
     };
 
-    // Lyrics are shared across all 3 tabs (lego/complete/cover)
+    // Lyrics are shared across lego/complete/cover. extract does not use lyrics.
 
     CareyUI()
     {
@@ -222,6 +225,8 @@ public:
         completeSubTabButton.setTooltip("this mode is pretty unhinged...expect to chop out the samples amongst the madness");
         prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
         coverSubTabButton.setTooltip("experimental - results may vary. use at your own risk");
+        prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
+        extractSubTabButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
 
         // Key/scale dropdowns (persistent across subtabs)
         keyScaleLabel.setText("key", juce::dontSendNotification);
@@ -766,6 +771,106 @@ public:
         coverInfoLabel.setJustificationType(juce::Justification::centred);
         addToContent(coverInfoLabel);
 
+        // ===== EXTRACT CONTROLS =====
+
+        extractTrackLabel.setText("track", juce::dontSendNotification);
+        extractTrackLabel.setFont(juce::FontOptions(12.0f));
+        extractTrackLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+        extractTrackLabel.setJustificationType(juce::Justification::centredLeft);
+        addToContent(extractTrackLabel);
+
+        initializeExtractTrackOptions();
+        extractTrackComboBox.setTextWhenNothingSelected("select stem to extract...");
+        extractTrackComboBox.setTooltip("drums and vocals are the most reliable. other stems are still experimental.");
+        extractTrackComboBox.onChange = [this]()
+        {
+            if (onExtractTrackChanged)
+                onExtractTrackChanged(getExtractTrackName());
+        };
+        extractTrackComboBox.setSelectedId(1, juce::dontSendNotification); // drums
+        addToContent(extractTrackComboBox);
+
+        extractBpmLabel.setText("bpm", juce::dontSendNotification);
+        extractBpmLabel.setFont(juce::FontOptions(12.0f));
+        extractBpmLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+        extractBpmLabel.setJustificationType(juce::Justification::centredLeft);
+        addToContent(extractBpmLabel);
+
+        extractBpmSlider.setRange(20, 300, 1);
+        extractBpmSlider.setValue(120);
+        extractBpmSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+        extractBpmSlider.setTooltip("BPM for the source audio. extract works best when this matches the input.");
+        extractBpmSlider.onValueChange = [this]()
+        {
+            if (onExtractBpmChanged)
+                onExtractBpmChanged(getExtractBpm());
+        };
+        addToContent(extractBpmSlider);
+
+        extractAdvancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+        extractAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+        extractAdvancedToggle.setTooltip("show/hide advanced extraction settings");
+        extractAdvancedToggle.onClick = [this]() {
+            extractAdvancedOpen = !extractAdvancedOpen;
+            extractAdvancedToggle.setButtonText(extractAdvancedOpen
+                ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
+                : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+            updateContentLayout();
+        };
+        addToContent(extractAdvancedToggle);
+
+        extractStepsLabel.setText("steps", juce::dontSendNotification);
+        extractStepsLabel.setFont(juce::FontOptions(12.0f));
+        extractStepsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+        extractStepsLabel.setJustificationType(juce::Justification::centredLeft);
+        addToContent(extractStepsLabel);
+
+        extractStepsSlider.setRange(32, 100, 1);
+        extractStepsSlider.setValue(kDefaultExtractSteps);
+        extractStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+        extractStepsSlider.setTooltip("diffusion steps for extract. more = slower but usually cleaner. recommended: 80");
+        extractStepsSlider.onValueChange = [this]()
+        {
+            if (onExtractStepsChanged)
+                onExtractStepsChanged(getExtractSteps());
+        };
+        addToContent(extractStepsSlider);
+
+        extractCfgLabel.setText("cfg scale", juce::dontSendNotification);
+        extractCfgLabel.setFont(juce::FontOptions(12.0f));
+        extractCfgLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+        extractCfgLabel.setJustificationType(juce::Justification::centredLeft);
+        addToContent(extractCfgLabel);
+
+        extractCfgSlider.setRange(3.0, 10.0, 0.1);
+        extractCfgSlider.setValue(kDefaultExtractCfg);
+        extractCfgSlider.setNumDecimalPlacesToDisplay(1);
+        extractCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+        extractCfgSlider.setTooltip("guidance scale for extract. recommended: 10.0");
+        extractCfgSlider.onValueChange = [this]()
+        {
+            if (onExtractCfgChanged)
+                onExtractCfgChanged(getExtractCfg());
+        };
+        addToContent(extractCfgSlider);
+
+        extractGenerateButton.setButtonText(juce::String::fromUTF8("extract with carey \xe2\x9a\xa0"));
+        extractGenerateButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+        extractGenerateButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
+        extractGenerateButton.setEnabled(false);
+        extractGenerateButton.onClick = [this]()
+        {
+            if (onExtractGenerate)
+                onExtractGenerate();
+        };
+        addToContent(extractGenerateButton);
+
+        extractInfoLabel.setText("drums and vocals work best. other stem types are still experimental.", juce::dontSendNotification);
+        extractInfoLabel.setFont(juce::FontOptions(11.0f));
+        extractInfoLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+        extractInfoLabel.setJustificationType(juce::Justification::centred);
+        addToContent(extractInfoLabel);
+
         updateLyricsButtonLabels();
         setCurrentSubTabInternal(SubTab::Lego, false);
     }
@@ -790,27 +895,43 @@ public:
 
         area.removeFromTop(6);
         auto subTabRow = area.removeFromTop(30);
-        const int tabWidth = subTabRow.getWidth() / 3;
+        const int tabWidth = subTabRow.getWidth() / 4;
         legoSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
         completeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-        coverSubTabButton.setBounds(subTabRow.reduced(2, 2));
+        coverSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
+        extractSubTabButton.setBounds(subTabRow.reduced(2, 2));
+
+        const bool showGlobalMusicFields = (currentSubTab != SubTab::Extract);
+        keyScaleLabel.setVisible(showGlobalMusicFields);
+        keyRootComboBox.setVisible(showGlobalMusicFields);
+        keyModeComboBox.setVisible(showGlobalMusicFields && keyRootComboBox.getSelectedId() > 1);
+        timeSigLabel.setVisible(showGlobalMusicFields);
+        timeSigComboBox.setVisible(showGlobalMusicFields);
 
         area.removeFromTop(4);
-        auto keyRow = area.removeFromTop(22);
-        keyScaleLabel.setBounds(keyRow.removeFromLeft(26));
-        keyRow.removeFromLeft(4);
-        keyRootComboBox.setBounds(keyRow.removeFromLeft(72));
-        if (keyModeComboBox.isVisible())
+        if (showGlobalMusicFields)
         {
+            auto keyRow = area.removeFromTop(22);
+            keyScaleLabel.setBounds(keyRow.removeFromLeft(26));
             keyRow.removeFromLeft(4);
-            keyModeComboBox.setBounds(keyRow.removeFromLeft(68));
-        }
-        keyRow.removeFromLeft(8);
-        timeSigLabel.setBounds(keyRow.removeFromLeft(30));
-        keyRow.removeFromLeft(4);
-        timeSigComboBox.setBounds(keyRow.removeFromLeft(68));
+            keyRootComboBox.setBounds(keyRow.removeFromLeft(72));
+            if (keyModeComboBox.getSelectedId() > 0 && keyModeComboBox.isVisible())
+            {
+                keyRow.removeFromLeft(4);
+                keyModeComboBox.setBounds(keyRow.removeFromLeft(68));
+            }
+            keyRow.removeFromLeft(4);
+            timeSigLabel.setBounds(keyRow.removeFromLeft(30));
+            keyRow.removeFromLeft(4);
+            timeSigComboBox.setBounds(keyRow.removeFromLeft(68));
 
-        area.removeFromTop(4);
+            area.removeFromTop(4);
+        }
+        else
+        {
+            area.removeFromTop(2);
+        }
+
         if (contentViewport != nullptr)
             contentViewport->setBounds(area);
 
@@ -856,6 +977,30 @@ public:
         return juce::roundToInt(stepsSlider.getValue());
     }
 
+    juce::String getExtractTrackName() const
+    {
+        const int selectedId = extractTrackComboBox.getSelectedId();
+        const int index = selectedId - 1;
+        if (index >= 0 && index < extractTrackOptionValues.size())
+            return extractTrackOptionValues[index];
+        return "drums";
+    }
+
+    int getExtractBpm() const
+    {
+        return juce::roundToInt(extractBpmSlider.getValue());
+    }
+
+    int getExtractSteps() const
+    {
+        return juce::roundToInt(extractStepsSlider.getValue());
+    }
+
+    double getExtractCfg() const
+    {
+        return extractCfgSlider.getValue();
+    }
+
     juce::String getCompleteCaptionText() const
     {
         return completeCaptionEditor.getText().trim();
@@ -898,7 +1043,7 @@ public:
 
     void setTrackName(const juce::String& trackName)
     {
-        const int trackIndex = findTrackIndex(trackName.trim().toLowerCase());
+        const int trackIndex = findTrackIndex(trackOptionValues, trackName.trim().toLowerCase());
         trackComboBox.setSelectedId(trackIndex >= 0 ? trackIndex + 1 : 1, juce::dontSendNotification);
     }
 
@@ -909,6 +1054,27 @@ public:
 
     double getLegoCfg() const { return legoCfgSlider.getValue(); }
     void setLegoCfg(double val) { legoCfgSlider.setValue(juce::jlimit(3.0, 10.0, val), juce::dontSendNotification); }
+
+    void setExtractTrackName(const juce::String& trackName)
+    {
+        const int trackIndex = findTrackIndex(extractTrackOptionValues, trackName.trim().toLowerCase());
+        extractTrackComboBox.setSelectedId(trackIndex >= 0 ? trackIndex + 1 : 1, juce::dontSendNotification);
+    }
+
+    void setExtractBpm(int bpm)
+    {
+        extractBpmSlider.setValue(juce::jlimit(20, 300, bpm), juce::dontSendNotification);
+    }
+
+    void setExtractSteps(int value)
+    {
+        extractStepsSlider.setValue(juce::jlimit(32, 100, value), juce::dontSendNotification);
+    }
+
+    void setExtractCfg(double value)
+    {
+        extractCfgSlider.setValue(juce::jlimit(3.0, 10.0, value), juce::dontSendNotification);
+    }
 
     void setCompleteCaptionText(const juce::String& text)
     {
@@ -962,6 +1128,25 @@ public:
         completeRemoteModelSelectionEnabled = enabled;
         updateCompleteModelControls(true);
         updateContentLayout();
+    }
+
+    void setExtractRemoteGenerationEnabled(bool enabled)
+    {
+        extractRemoteGenerationEnabled = enabled;
+
+        if (extractRemoteGenerationEnabled)
+        {
+            extractGenerateButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
+            extractInfoLabel.setText("drums and vocals work best. other stem types are still experimental.", juce::dontSendNotification);
+        }
+        else
+        {
+            extractGenerateButton.setTooltip("extract isn't available yet in the gary4local api");
+            extractInfoLabel.setText("extract isn't available yet in the gary4local api. switch off local backend to use it.", juce::dontSendNotification);
+        }
+
+        if (currentSubTab == SubTab::Extract)
+            updateContentLayout();
     }
 
     bool getCompleteUseSrcAsRef() const { return completeUseSrcAsRefToggle.getToggleState(); }
@@ -1046,6 +1231,18 @@ public:
         }
     }
 
+    void setExtractAdvancedOpen(bool open)
+    {
+        if (extractAdvancedOpen != open)
+        {
+            extractAdvancedOpen = open;
+            extractAdvancedToggle.setButtonText(open
+                ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
+                : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+            updateContentLayout();
+        }
+    }
+
     // Key/scale (global across subtabs)
     juce::String getKeyScale() const
     {
@@ -1113,6 +1310,12 @@ public:
         const bool coverAvailable = (bool)onCoverGenerate;
         coverGenerateButton.setEnabled(coverAvailable && enabled && !isGenerating);
         coverGenerateButton.setButtonText(isGenerating ? "generating..." : "remix with carey");
+
+        const bool extractAvailable = (bool)onExtractGenerate && extractRemoteGenerationEnabled;
+        extractGenerateButton.setEnabled(extractAvailable && enabled && !isGenerating);
+        extractGenerateButton.setButtonText(isGenerating
+            ? "generating..."
+            : juce::String::fromUTF8("extract with carey \xe2\x9a\xa0"));
     }
 
     std::function<void(SubTab)> onSubTabChanged;
@@ -1125,6 +1328,12 @@ public:
     std::function<void()> onGenerate;
     std::function<void(const juce::String&)> onLyricsChanged;          // Shared: fires from any tab's lyrics button
     std::function<void(const juce::String&)> onLyricsLanguageChanged;  // Fires when language selection changes
+
+    std::function<void(const juce::String&)> onExtractTrackChanged;
+    std::function<void(int)> onExtractBpmChanged;
+    std::function<void(int)> onExtractStepsChanged;
+    std::function<void(double)> onExtractCfgChanged;
+    std::function<void()> onExtractGenerate;
 
     std::function<void(const juce::String&)> onCompleteCaptionChanged;
     std::function<void(const juce::String&)> onCompleteModelChanged;
@@ -1164,7 +1373,7 @@ private:
 
         currentSubTab = tab;
         updateSubTabButtonStyles();
-        updateContentLayout();
+        resized();
 
         if (notify && onSubTabChanged)
             onSubTabChanged(currentSubTab);
@@ -1177,6 +1386,8 @@ private:
         completeSubTabButton.setButtonStyle(currentSubTab == SubTab::Complete
             ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
         coverSubTabButton.setButtonStyle(currentSubTab == SubTab::Cover
+            ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+        extractSubTabButton.setButtonStyle(currentSubTab == SubTab::Extract
             ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     }
 
@@ -1194,9 +1405,11 @@ private:
         const bool showingLego = (currentSubTab == SubTab::Lego);
         const bool showingComplete = (currentSubTab == SubTab::Complete);
         const bool showingCover = (currentSubTab == SubTab::Cover);
+        const bool showingExtract = (currentSubTab == SubTab::Extract);
         setLegoControlsVisible(showingLego);
         setCompleteControlsVisible(showingComplete);
         setCoverControlsVisible(showingCover);
+        setExtractControlsVisible(showingExtract);
 
         constexpr int sidePadding = 8;
         int y = 8;
@@ -1328,7 +1541,7 @@ private:
             completeInfoLabel.setBounds(fullRow(32));
             y += 40;
         }
-        else // Cover
+        else if (showingCover)
         {
             coverCaptionLabel.setBounds(fullRow(18));
             y += 20;
@@ -1388,6 +1601,47 @@ private:
 
             coverInfoLabel.setBounds(fullRow(40));
             y += 48;
+        }
+        else // Extract
+        {
+            const bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+
+            extractTrackLabel.setBounds(fullRow(18));
+            y += 20;
+
+            extractTrackComboBox.setBounds(fullRow(28));
+            y += 36;
+
+            if (isStandalone)
+            {
+                auto bpmRow = fullRow(28);
+                extractBpmLabel.setBounds(bpmRow.removeFromLeft(60));
+                extractBpmSlider.setBounds(bpmRow);
+                y += 36;
+            }
+
+            extractAdvancedToggle.setBounds(fullRow(26));
+            y += 32;
+
+            if (extractAdvancedOpen)
+            {
+                auto stepsRow = fullRow(28);
+                extractStepsLabel.setBounds(stepsRow.removeFromLeft(110));
+                extractStepsSlider.setBounds(stepsRow);
+                y += 36;
+
+                auto cfgRow = fullRow(28);
+                extractCfgLabel.setBounds(cfgRow.removeFromLeft(110));
+                extractCfgSlider.setBounds(cfgRow);
+                y += 36;
+            }
+
+            auto extractGenerateRow = fullRow(34).reduced(36, 0);
+            extractGenerateButton.setBounds(extractGenerateRow);
+            y += 44;
+
+            extractInfoLabel.setBounds(fullRow(32));
+            y += 40;
         }
 
         const int minHeight = juce::jmax(y + 8, contentViewport->getHeight());
@@ -1524,6 +1778,25 @@ private:
         coverUseSrcAsRefToggle.setVisible(showAdvanced);
     }
 
+    void setExtractControlsVisible(bool shouldBeVisible)
+    {
+        const bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+
+        extractTrackLabel.setVisible(shouldBeVisible);
+        extractTrackComboBox.setVisible(shouldBeVisible);
+        extractBpmLabel.setVisible(shouldBeVisible && isStandalone);
+        extractBpmSlider.setVisible(shouldBeVisible && isStandalone);
+        extractAdvancedToggle.setVisible(shouldBeVisible);
+        extractGenerateButton.setVisible(shouldBeVisible);
+        extractInfoLabel.setVisible(shouldBeVisible);
+
+        const bool showAdvanced = shouldBeVisible && extractAdvancedOpen;
+        extractStepsLabel.setVisible(showAdvanced);
+        extractStepsSlider.setVisible(showAdvanced);
+        extractCfgLabel.setVisible(showAdvanced);
+        extractCfgSlider.setVisible(showAdvanced);
+    }
+
     void onKeyScaleSelectionChanged()
     {
         const bool keySelected = (keyRootComboBox.getSelectedId() > 1);
@@ -1536,31 +1809,52 @@ private:
 
     void initializeTrackOptions()
     {
-        addTrackOption("vocals", "vocals");
-        addTrackOption("backing vocals", "backing_vocals");
-        addTrackOption("drums", "drums");
-        addTrackOption("bass", "bass");
-        addTrackOption("guitar", "guitar");
-        addTrackOption("piano", "piano");
-        addTrackOption("strings", "strings");
-        addTrackOption("synth", "synth");
-        addTrackOption("keyboard", "keyboard");
-        addTrackOption("percussion", "percussion");
-        addTrackOption("brass", "brass");
-        addTrackOption("woodwinds", "woodwinds");
+        addTrackOption(trackOptionValues, trackComboBox, "vocals", "vocals");
+        addTrackOption(trackOptionValues, trackComboBox, "backing vocals", "backing_vocals");
+        addTrackOption(trackOptionValues, trackComboBox, "drums", "drums");
+        addTrackOption(trackOptionValues, trackComboBox, "bass", "bass");
+        addTrackOption(trackOptionValues, trackComboBox, "guitar", "guitar");
+        addTrackOption(trackOptionValues, trackComboBox, "piano", "piano");
+        addTrackOption(trackOptionValues, trackComboBox, "strings", "strings");
+        addTrackOption(trackOptionValues, trackComboBox, "synth", "synth");
+        addTrackOption(trackOptionValues, trackComboBox, "keyboard", "keyboard");
+        addTrackOption(trackOptionValues, trackComboBox, "percussion", "percussion");
+        addTrackOption(trackOptionValues, trackComboBox, "brass", "brass");
+        addTrackOption(trackOptionValues, trackComboBox, "woodwinds", "woodwinds");
     }
 
-    void addTrackOption(const juce::String& label, const juce::String& value)
+    void initializeExtractTrackOptions()
     {
-        trackOptionValues.add(value);
-        trackComboBox.addItem(label, trackOptionValues.size());
+        const juce::String warningSuffix = juce::String::fromUTF8(" \xe2\x9a\xa0");
+
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "drums", "drums");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "vocals", "vocals");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "backing vocals" + warningSuffix, "backing_vocals");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "bass" + warningSuffix, "bass");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "guitar" + warningSuffix, "guitar");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "piano" + warningSuffix, "piano");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "synth" + warningSuffix, "synth");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "keyboard" + warningSuffix, "keyboard");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "strings" + warningSuffix, "strings");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "percussion" + warningSuffix, "percussion");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "brass" + warningSuffix, "brass");
+        addTrackOption(extractTrackOptionValues, extractTrackComboBox, "woodwinds" + warningSuffix, "woodwinds");
     }
 
-    int findTrackIndex(const juce::String& normalizedTrackName) const
+    void addTrackOption(juce::StringArray& optionValues,
+                        CustomComboBox& comboBox,
+                        const juce::String& label,
+                        const juce::String& value)
     {
-        for (int i = 0; i < trackOptionValues.size(); ++i)
+        optionValues.add(value);
+        comboBox.addItem(label, optionValues.size());
+    }
+
+    int findTrackIndex(const juce::StringArray& optionValues, const juce::String& normalizedTrackName) const
+    {
+        for (int i = 0; i < optionValues.size(); ++i)
         {
-            if (trackOptionValues[i].equalsIgnoreCase(normalizedTrackName))
+            if (optionValues[i].equalsIgnoreCase(normalizedTrackName))
                 return i;
         }
         return -1;
@@ -1759,6 +2053,8 @@ private:
     juce::Label careyLabel;
     CustomButton legoSubTabButton;
     CustomButton completeSubTabButton;
+    CustomButton coverSubTabButton;
+    CustomButton extractSubTabButton;
     CustomLookAndFeel customLookAndFeel;
     std::unique_ptr<juce::Viewport> contentViewport;
     std::unique_ptr<juce::Component> contentComponent;
@@ -1780,7 +2076,7 @@ private:
     juce::ToggleButton trimToInputToggle;
     CustomButton legoGenerateButton;
     juce::Label legoInfoLabel;
-    juce::String lyricsText;      // Shared across all tabs (lego/complete/cover)
+    juce::String lyricsText;      // Shared across lego/complete/cover
     juce::String lyricsLanguage = "en";  // Language code for lyrics vocalization
 
     juce::Label completeCaptionLabel;
@@ -1803,7 +2099,6 @@ private:
     juce::Label completeInfoLabel;
     // completeLyricsText removed - lyrics are shared via lyricsText
 
-    CustomButton coverSubTabButton;
     juce::Label keyScaleLabel;
     juce::Label timeSigLabel;
     CustomComboBox timeSigComboBox;
@@ -1831,13 +2126,28 @@ private:
     juce::Label coverInfoLabel;
     // coverLyricsText removed - lyrics are shared via lyricsText
 
+    juce::Label extractTrackLabel;
+    CustomComboBox extractTrackComboBox;
+    juce::StringArray extractTrackOptionValues;
+    juce::Label extractBpmLabel;
+    CustomSlider extractBpmSlider;
+    juce::Label extractStepsLabel;
+    CustomSlider extractStepsSlider;
+    juce::Label extractCfgLabel;
+    CustomSlider extractCfgSlider;
+    CustomButton extractGenerateButton;
+    juce::Label extractInfoLabel;
+
     CustomButton legoAdvancedToggle;
     CustomButton completeAdvancedToggle;
     CustomButton coverAdvancedToggle;
+    CustomButton extractAdvancedToggle;
     bool legoAdvancedOpen = false;
     bool completeAdvancedOpen = false;
     bool coverAdvancedOpen = false;
+    bool extractAdvancedOpen = false;
     bool completeRemoteModelSelectionEnabled = false;
+    bool extractRemoteGenerationEnabled = true;
 
     juce::Rectangle<int> titleBounds;
 };
