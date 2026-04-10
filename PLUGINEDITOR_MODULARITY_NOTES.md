@@ -36,6 +36,13 @@ Small feature-local helper headers were also added:
 - `Source/PluginEditorTextHelpers.h`
   Shared ANSI/control-character stripping used by `showStatusMessage` and Carey queue sanitization
 
+The Carey UI component was also normalized to match the existing split-implementation pattern used by other model UIs:
+
+- `Source/Components/Carey/CareyUI.h`
+  Carey UI declarations, public accessors, and member state
+- `Source/Components/Carey/CareyUI.cpp`
+  Carey UI construction, layout, drawing, prompt-bank helpers, and lyrics dialog implementation
+
 ## What Still Lives In PluginEditor.cpp
 
 `Source/PluginEditor.cpp` remains the home for shared editor behavior and the still-unsplit domains:

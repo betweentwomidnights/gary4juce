@@ -44,6 +44,7 @@
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
       </GROUP>
       <GROUP id="{9725C3F3-D755-8341-1DD9-AA047C147FCD}" name="Carey">
+        <FILE id="CrUiCp" name="CareyUI.cpp" compile="1" resource="0" file="Source/Components/Carey/CareyUI.cpp"/>
         <FILE id="u2yVAk" name="CareyUI.h" compile="0" resource="0" file="Source/Components/Carey/CareyUI.h"/>
       </GROUP>
       <GROUP id="{F1D2E3A4-B5C6-7890-ABCD-EF1234567890}" name="Foundation">
