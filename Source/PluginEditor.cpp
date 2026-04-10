@@ -5771,7 +5771,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     auto writer = std::unique_ptr<juce::AudioFormatWriter>(
         wavFormat->createWriterFor(fileStream.get(), reader->sampleRate,
-            (unsigned int)reader->numChannels, 24, {}, 0));
+            (unsigned int)reader->numChannels, 16, {}, 0));
 
     if (!writer)
     {

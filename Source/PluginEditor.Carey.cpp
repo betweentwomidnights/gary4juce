@@ -332,7 +332,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                             stream.release(),
                             sourceSampleRate,
                             (unsigned int)conditioningBuffer->getNumChannels(),
-                            24, {}, 0));
+                            16, {}, 0));
 
                         if (writer == nullptr)
                         {
@@ -618,7 +618,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         juce::WavAudioFormat trimWavFormat;
                         std::unique_ptr<juce::AudioFormatWriter> trimWriter(trimWavFormat.createWriterFor(
                             trimStream.release(), trimReader->sampleRate,
-                            (unsigned int)trimChannels, 24, {}, 0));
+                            (unsigned int)trimChannels, 16, {}, 0));
 
                         if (trimWriter == nullptr)
                         {
@@ -1554,7 +1554,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                             stream.release(),
                             sourceSampleRate,
                             (unsigned int)conditioningBuffer->getNumChannels(),
-                            24, {}, 0));
+                            16, {}, 0));
 
                         if (writer == nullptr)
                         {
@@ -1860,7 +1860,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         juce::WavAudioFormat trimWavFormat;
                         std::unique_ptr<juce::AudioFormatWriter> trimWriter(trimWavFormat.createWriterFor(
                             trimStream.release(), trimReader->sampleRate,
-                            (unsigned int)trimChannels, 24, {}, 0));
+                            (unsigned int)trimChannels, 16, {}, 0));
 
                         if (trimWriter == nullptr)
                         {

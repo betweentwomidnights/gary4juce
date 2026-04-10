@@ -350,7 +350,7 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     writer.reset(wavFormat.createWriterFor(fileStream.release(), // Transfer ownership
         snapshotSampleRate,
         snapshotChannels,
-        24, // 24-bit depth for carey quality (model generates at 48k, needs clean input)
+        16, // 16-bit depth for carey quality (model generates at 48k, needs clean input)
         {},
         0));
 
@@ -373,7 +373,7 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
         if (file.exists())
         {
             auto fileSize = file.getSize();
-            auto expectedSize = snapshotSamples * snapshotChannels * 3 + 44; // 24-bit + WAV header
+            auto expectedSize = snapshotSamples * snapshotChannels * 2 + 44; // 16-bit + WAV header
             DBG("Final file size: " + juce::String(fileSize) + " bytes (expected ~" + juce::String(expectedSize) + " bytes)");
 
             if (fileSize > expectedSize * 2) // If more than 2x expected size

@@ -138,7 +138,7 @@ inline juce::File makeBarAlignedCopy(const juce::File& srcFile, double bpm, int 
     std::unique_ptr<juce::FileOutputStream> out(trimmed.createOutputStream());
     if (!out) { BTLOG("createOutputStream failed"); return srcFile; }
 
-    const int bitsPerSample = 24;
+    const int bitsPerSample = 16;
     std::unique_ptr<juce::AudioFormatWriter> writer(
         wav.createWriterFor(out.release(), sr, (unsigned int)reader->numChannels, bitsPerSample, {}, 0));
     if (!writer) { BTLOG("createWriterFor failed"); return srcFile; }
@@ -238,7 +238,7 @@ inline juce::File makeBarAlignedMaxSecondsCopy(const juce::File& srcFile,
     std::unique_ptr<juce::FileOutputStream> out(trimmed.createOutputStream());
     if (!out) { BTLOG("createOutputStream failed (max)"); return srcFile; }
 
-    const int bitsPerSample = 24;
+    const int bitsPerSample = 16;
     std::unique_ptr<juce::AudioFormatWriter> writer(
         wav.createWriterFor(out.release(), sr, (unsigned int)reader->numChannels, bitsPerSample, {}, 0));
     if (!writer) { BTLOG("createWriterFor failed (max)"); return srcFile; }
