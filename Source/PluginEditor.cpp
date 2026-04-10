@@ -9,6 +9,7 @@
 #include "PluginEditorTerryHelpers.h"
 #include "PluginEditorTextHelpers.h"
 #include "./Utils/BarTrim.h"
+#include "./Utils/MacDockIcon.h"
 #include "./Components/Base/CustomComboBox.h"
 
 using plugin_editor_detail::loopTypeIndexToString;
@@ -34,6 +35,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
 {
     setSize(400, 850);  // Made taller to accommodate controls
+
+#if JUCE_MAC
+    applyStandaloneDockIconIfAvailable();
+#endif
 
     // Check initial backend connection status
     isConnected = audioProcessor.isBackendConnected();
@@ -66,15 +71,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     careyTabButton.setButtonText("carey");
     careyTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
-    careyTabButton.onClick = [this]()
-        {
-            if (!isCareyTabAvailable())
-            {
-                showStatusMessage("carey is remote-only for now. switch backend to remote.", 3000);
-                return;
-            }
-            switchToTab(ModelTab::Carey);
-        };
+    careyTabButton.onClick = [this]() { switchToTab(ModelTab::Carey); };
     addAndMakeVisible(careyTabButton);
 
     dariusTabButton.setButtonText("darius");
@@ -107,6 +104,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     garyUI->onModelChanged = [this](int index)
     {
         currentModelIndex = index;
+
+        if (audioProcessor.getIsUsingLocalhost())
+            applyGaryQuantizationDefaultForCurrentModel();
+    };
+
+    garyUI->onQuantizationModeChanged = [this](const juce::String& mode)
+    {
+        currentGaryQuantizationMode = mode;
     };
 
     garyUI->onSendToGary = [this]()
@@ -125,6 +130,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
 
     garyUI->setPromptDuration(currentPromptDuration);
+    garyUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
+    garyUI->setQuantizationMode(currentGaryQuantizationMode, juce::dontSendNotification);
 
     // Fetch available models from backend (will populate dropdown when response arrives)
     if (isConnected)
@@ -214,6 +221,17 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                     // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
                     DBG("[prompts] onModelChanged -> remote -> using prefer=finetune (TTL guarded)");
                     maybeFetchRemoteJerryPrompts(); // will no-op if TTL/in-flight/cache says so
+                }
+            }
+            else
+            {
+                if (isFinetune
+                    && currentJerryFinetuneRepo.isNotEmpty()
+                    && currentJerryFinetuneCheckpoint.isNotEmpty())
+                {
+                    DBG("[prompts] onModelChanged -> localhost -> fetching by repo+ckpt: "
+                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
+                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
                 }
             }
         };
@@ -512,16 +530,16 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         if (audioProcessor.getIsUsingLocalhost())
             triggerLocalServiceHealthPoll(true);
         checkConnectionButton.setEnabled(false);
-        
+
         juce::Timer::callAfterDelay(6000, [this]() {
             checkConnectionButton.setEnabled(true);
-            
+
             // Show popup if remote backend check failed, but throttle it
             if (!audioProcessor.isBackendConnected() && !audioProcessor.getIsUsingLocalhost())
             {
                 auto currentTime = juce::Time::getCurrentTime();
                 auto timeSinceLastPopup = currentTime - lastBackendDisconnectionPopupTime;
-                
+
                 // Only show popup if it hasn't been shown in the last 10 minutes
                 if (timeSinceLastPopup.inMinutes() >= 10)
                 {
@@ -532,7 +550,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 {
                     // Just show a status message instead of the popup
                     showStatusMessage("remote backend not responding", 4000);
-                    DBG("Manual check failed but popup throttled (last shown " + 
+                    DBG("Manual check failed but popup throttled (last shown " +
                         juce::String(timeSinceLastPopup.inMinutes()) + " minutes ago)");
                 }
             }
@@ -615,7 +633,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     clearOutputButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(clearOutputButton);
 
-    // Stop output button  
+    // Stop output button
     stopIcon = IconFactory::createStopIcon();
     if (stopIcon)
         stopOutputButton.setIcon(stopIcon->createCopy());
@@ -627,10 +645,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Crop button - simple approach with custom drawing
     cropIcon = IconFactory::createCropIcon();
-    
+
     // Load the logo image for the title
     logoImage = IconFactory::loadLogoImage();
-    
+
     cropButton.setTooltip("crop audio at current playback position");
     cropButton.onClick = [this]() { cropAudioAtCurrentPosition(); };
     cropButton.setEnabled(false);
@@ -678,18 +696,18 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Set initial tab state
     updateTabButtonStates();
-    
+
     // CRITICAL: Set initial visibility state for tabs
     switchToTab(ModelTab::Gary);
-    
+
     // Initialize tooltip window
     tooltipWindow = std::make_unique<juce::TooltipWindow>(this);
-    
+
     // Setup help icons and social media icons
     helpIcon = IconFactory::createHelpIcon();
     discordIcon = IconFactory::createDiscordIcon();
     xIcon = IconFactory::createXIcon();
-    
+
     if (helpIcon)
     {
         // gary help button
@@ -699,15 +717,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://github.com/facebookresearch/audiocraft").launchInDefaultBrowser();
         };
         addAndMakeVisible(garyHelpButton);
-        
-        // jerry help button  
+
+        // jerry help button
         jerryHelpButton.setImages(helpIcon.get());
         jerryHelpButton.setTooltip("learn more about stable audio open small");
         jerryHelpButton.onClick = [this]() {
             juce::URL("https://huggingface.co/stabilityai/stable-audio-open-small").launchInDefaultBrowser();
         };
         addAndMakeVisible(jerryHelpButton);
-        
+
         // terry help button
         terryHelpButton.setImages(helpIcon.get());
         terryHelpButton.setTooltip("learn more about melodyflow");
@@ -740,19 +758,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         };
         addAndMakeVisible(foundationHelpButton);
     }
-    
+
     // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
-    
+
     DBG("=== RESTORING PLUGIN STATE AFTER WINDOW RECREATION ===");
-    
+
     // 1. Restore persistent state from processor
     savedSamples = audioProcessor.getSavedSamples();
     isConnected = audioProcessor.isBackendConnected();
     transformRecording = audioProcessor.getTransformRecording();
-    
+
     DBG("Restored savedSamples: " + juce::String(savedSamples));
     DBG("Restored connection status: " + juce::String(isConnected ? "connected" : "disconnected"));
-    
+
     // 2. Restore output audio state by checking file existence
     if (outputAudioFile.exists())
     {
@@ -765,7 +783,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     }
 
 
-    
+
     // 3. CRITICAL: Restore Terry audio source selection
     const bool restoredTransformRecording = audioProcessor.getTransformRecording();
     setTerryAudioSource(restoredTransformRecording);
@@ -805,9 +823,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // 5. Update all button states after restoration
     updateAllGenerationButtonStates();
-    updateRetryButtonState();        
-    updateContinueButtonState();     
-    updateTerryEnablementSnapshot(); 
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateTerryEnablementSnapshot();
 
     // 6. Double-check button states after connection stabilizes
     juce::Timer::callAfterDelay(2000, [this]() {
@@ -815,12 +833,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         updateTerryEnablementSnapshot();
         DBG("Button states updated after connection check");
         });
-    
+
     DBG("All button states updated after restoration");
-    
+
     // 5. Set initial tab and visibility
     switchToTab(ModelTab::Gary);
-    
+
     // Force initial layout now that help icons are created
     resized();
 
@@ -870,10 +888,10 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     isEditorValid.store(false);
     // NEW: Stop all background operations FIRST
     stopAllBackgroundOperations();
-    
+
     // Ensure tooltip window is cleaned up first
     tooltipWindow.reset();
-    
+
     // CRITICAL: Stop all timers first to prevent any callbacks during destruction
     stopTimer();
 
@@ -1349,7 +1367,7 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
                         g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
                         g.setColour(juce::Colours::red); // Reset for next iteration
                     }
-                    if (x < savedPixels - 1) // Right side  
+                    if (x < savedPixels - 1) // Right side
                     {
                         g.setColour(juce::Colours::red.withAlpha(0.6f));
                         g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
@@ -1520,10 +1538,10 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
 void Gary4juceAudioProcessorEditor::stopPolling()
 {
     isPolling = false;
-    
+
     // Wait briefly for any ongoing poll requests to notice the flag
     juce::Thread::sleep(50);
-    
+
     DBG("Stopped polling - ongoing requests should abort");
 }
 
@@ -1699,10 +1717,27 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
 void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& responseText)
 {
+    const auto activeOpNow = getActiveOp();
+    const bool isLocalTerryOp =
+        audioProcessor.getIsUsingLocalhost()
+        && activeOpNow == ActiveOp::TerryTransform;
+
+    const auto resetJerryButtonIfNeeded = [this, activeOpNow]()
+    {
+        if (activeOpNow == ActiveOp::JerryGenerate && jerryUI)
+            jerryUI->setGenerateButtonText("generate with jerry");
+    };
+
     if (responseText.isEmpty())
     {
         DBG("Empty polling response - backend likely down");
         stopPolling();
+
+        if (isLocalTerryOp)
+        {
+            handleGenerationFailure("cannot connect to terry on localhost - ensure terry is running in gary4local");
+            return;
+        }
 
         // Empty response indicates backend failure - check health immediately
         audioProcessor.checkBackendHealth();
@@ -1718,6 +1753,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 showStatusMessage("backend reachable but no response; retry", 3000);
             }
             });
+        resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
         return;
     }
@@ -1764,6 +1800,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 stopPolling();
                 showStatusMessage("processing failed", 3000);
+                resetJerryButtonIfNeeded();
                 setActiveOp(ActiveOp::None);
                 return;
             }
@@ -1979,6 +2016,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     updateContinueButtonState();
                 }
 
+                resetJerryButtonIfNeeded();
                 setActiveOp(ActiveOp::None);
             }
             else
@@ -2008,6 +2046,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     updateAllGenerationButtonStates();
                     repaint();
 
+                    resetJerryButtonIfNeeded();
                     setActiveOp(ActiveOp::None);
                 }
                 else if (status == "completed")
@@ -2028,6 +2067,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     updateAllGenerationButtonStates();
                     repaint();
 
+                    resetJerryButtonIfNeeded();
                     setActiveOp(ActiveOp::None);
                 }
             }
@@ -2036,6 +2076,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
         {
             DBG("Failed to parse polling response as JSON - backend likely down");
             stopPolling();
+
+            if (isLocalTerryOp)
+            {
+                handleGenerationFailure("terry returned an invalid response");
+                return;
+            }
 
             // JSON parsing failure indicates backend issues - check health
             audioProcessor.checkBackendHealth();
@@ -2051,6 +2097,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     showStatusMessage("bad response; retry", 3000);
                 }
                 });
+            resetJerryButtonIfNeeded();
             setActiveOp(ActiveOp::None);
         }
     }
@@ -2058,6 +2105,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
     {
         DBG("Exception parsing polling response - backend likely down");
         stopPolling();
+
+        if (isLocalTerryOp)
+        {
+            handleGenerationFailure("failed to parse terry response");
+            return;
+        }
 
         // Exception indicates backend issues - check health
         audioProcessor.checkBackendHealth();
@@ -2073,6 +2126,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 showStatusMessage("parse error; retry", 3000);
             }
             });
+        resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
     }
 }
@@ -2177,7 +2231,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     smoothProgressAnimation = false;
     resetStallDetection();
 
-    
+
     if (savedSamples <= 0)
     {
         cancelGaryOperation();
@@ -2199,6 +2253,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
     // Get the selected model from dynamic list
     auto selectedModel = getSelectedGaryModelPath();
+    const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
+    const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
 
     // Debug current values
     DBG("Current prompt duration value: " + juce::String(currentPromptDuration) + " (will be cast to: " + juce::String((int)currentPromptDuration) + ")");
@@ -2247,7 +2303,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     repaint(); // Force immediate UI update
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, selectedModel, base64Audio, cancelGaryOperation]() {
+    juce::Thread::launch([this, selectedModel, base64Audio, isLocalhostRequest, capturedQuantizationMode, cancelGaryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Gary request aborted - generation stopped");
@@ -2265,6 +2321,8 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
         jsonRequest->setProperty("description", "");
+        if (isLocalhostRequest)
+            jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -2279,7 +2337,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
         try
         {
-            // JUCE 8.0.8 CORRECT HYBRID APPROACH: 
+            // JUCE 8.0.8 CORRECT HYBRID APPROACH:
             // Use URL.withPOSTData for POST body, InputStreamOptions for modern settings
             juce::URL postUrl = url.withPOSTData(jsonString);
 
@@ -2381,7 +2439,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
             {
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
-                
+
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
@@ -2408,7 +2466,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 {
                     DBG("Gary failed - checking backend health");
                     audioProcessor.checkBackendHealth();
-                    
+
                     // Give health check time, then handle result
                     juce::Timer::callAfterDelay(6000, [this]() {
                         if (!audioProcessor.isBackendConnected())
@@ -2500,10 +2558,12 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
     // Capture current model path NOW (before thread launch)
     juce::String capturedModelPath = getSelectedGaryModelPath();
+    const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
+    const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
     DBG("Captured model path for continue: " + capturedModelPath);
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, audioData, capturedModelPath, cancelContinueOperation]() {
+    juce::Thread::launch([this, audioData, capturedModelPath, isLocalhostRequest, capturedQuantizationMode, cancelContinueOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Continue request aborted - generation stopped");
@@ -2523,6 +2583,8 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
         jsonRequest->setProperty("description", "");
+        if (isLocalhostRequest)
+            jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -2625,7 +2687,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
             {
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
-                
+
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
@@ -2646,13 +2708,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Continue request failed: " + errorMsg);
-                
+
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Continue failed - checking backend health");
                     audioProcessor.checkBackendHealth();
-                    
+
                     // Give health check time, then handle result
                     juce::Timer::callAfterDelay(6000, [this]() {
                         if (!audioProcessor.isBackendConnected())
@@ -2662,7 +2724,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                         }
                     });
                 }
-                
+
                 if (garyUI)
                     garyUI->setContinueButtonText("continue");
 
@@ -2709,7 +2771,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
 
     DBG("Retrying last continuation for session: " + sessionId);
-    
+
     // Reset generation state immediately (like other operations)
     isGenerating = true;
     continueInProgress = true;  // Retry is also a continue-type operation
@@ -2724,17 +2786,19 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     // Button text feedback during processing
     if (garyUI)
         garyUI->setRetryButtonText("retrying...");
-    
+
     showStatusMessage("retrying last continuation...", 2000);
+    const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
+    const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
 
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([this, sessionId, cancelRetryOperation]() {
+    juce::Thread::launch([this, sessionId, isLocalhostRequest, capturedQuantizationMode, cancelRetryOperation]() {
         // SAFETY: Exit if generation stopped
         if (!isGenerating) {
             DBG("Retry request aborted - generation stopped");
             return;
         }
-        
+
         auto startTime = juce::Time::getCurrentTime();
 
         // Create JSON payload with current UI parameters
@@ -2748,6 +2812,8 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
         jsonRequest->setProperty("description", "");
+        if (isLocalhostRequest)
+            jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -2835,7 +2901,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
             {
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
-                
+
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
@@ -2856,13 +2922,13 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Retry request failed: " + errorMsg);
-                
+
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Retry failed - checking backend health");
                     audioProcessor.checkBackendHealth();
-                    
+
                     // Give health check time, then handle result
                     juce::Timer::callAfterDelay(6000, [this]() {
                         if (!audioProcessor.isBackendConnected())
@@ -2935,13 +3001,17 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
 
         // Fallback to safe defaults
         garyModelList.clear();
-        garyModelList.push_back({"vanya ai dnb 0.1", "thepatch/vanya_ai_dnb_0.1", 1});
+        garyModelList.push_back({"vanya ai dnb 0.1", "thepatch/vanya_ai_dnb_0.1", "small", 1});
 
         garyModelItems.clear();
         garyModelItems.add("vanya ai dnb 0.1");
 
         if (garyUI)
             garyUI->setModelItems(garyModelItems, 0);
+
+        currentModelIndex = 0;
+        if (audioProcessor.getIsUsingLocalhost())
+            applyGaryQuantizationDefaultForCurrentModel();
 
         return;
     }
@@ -3035,7 +3105,7 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                     item.isSubMenu = false;
                     menuItems.push_back(item);
 
-                    garyModelList.push_back({name, path, nextId});
+                    garyModelList.push_back({name, path, size, nextId});
                     if (firstSelectableId == 0)
                         firstSelectableId = nextId;
 
@@ -3081,7 +3151,7 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                                 item.isSubMenu = false;
                                 menuItems.push_back(item);
 
-                                garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                                garyModelList.push_back({checkpointName, checkpointPath, size, nextId});
                                 if (firstSelectableId == 0)
                                     firstSelectableId = nextId;
 
@@ -3124,7 +3194,7 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                             subItem.isSubMenu = false;
                             groupItem.subItems.push_back(subItem);
 
-                            garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                            garyModelList.push_back({checkpointName, checkpointPath, size, nextId});
                             if (firstSelectableId == 0)
                                 firstSelectableId = nextId;
 
@@ -3162,6 +3232,9 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
                 }
             }
         }
+
+        if (audioProcessor.getIsUsingLocalhost())
+            applyGaryQuantizationDefaultForCurrentModel();
 
         DBG("Loaded " + juce::String(garyModelList.size()) + " Gary models with hierarchical menu");
     }
@@ -3208,6 +3281,57 @@ juce::String Gary4juceAudioProcessorEditor::getSelectedGaryModelPath() const
     // Fallback to safe default
     DBG("Invalid Gary model ID: " + juce::String(selectedId) + ", using fallback");
     return "thepatch/vanya_ai_dnb_0.1";
+}
+
+juce::String Gary4juceAudioProcessorEditor::getSelectedGaryModelSizeCategory() const
+{
+    if (!garyUI)
+        return {};
+
+    auto* modelComboBox = dynamic_cast<const CustomComboBox*>(&garyUI->getModelComboBox());
+    if (!modelComboBox)
+        return {};
+
+    const int selectedId = modelComboBox->getSelectedId();
+    for (const auto& model : garyModelList)
+    {
+        if (model.dropdownId == selectedId)
+            return model.sizeCategory;
+    }
+
+    if (currentModelIndex >= 0 && currentModelIndex < static_cast<int>(garyModelList.size()))
+        return garyModelList[static_cast<size_t>(currentModelIndex)].sizeCategory;
+
+    return {};
+}
+
+juce::String Gary4juceAudioProcessorEditor::getDefaultGaryQuantizationForSize(const juce::String& sizeCategory) const
+{
+    const juce::String normalized = sizeCategory.trim().toLowerCase();
+
+    if (normalized == "small")
+        return "none";
+    if (normalized == "medium")
+        return "q8_decoder_linears";
+    if (normalized == "large")
+        return "q4_decoder_linears";
+
+    return "q4_decoder_linears";
+}
+
+void Gary4juceAudioProcessorEditor::applyGaryQuantizationDefaultForCurrentModel()
+{
+    if (!garyUI)
+        return;
+
+    const juce::String sizeCategory = getSelectedGaryModelSizeCategory();
+    const juce::String defaultMode = getDefaultGaryQuantizationForSize(sizeCategory);
+    currentGaryQuantizationMode = defaultMode;
+    garyUI->setQuantizationMode(defaultMode, juce::dontSendNotification);
+
+    DBG("Gary quantization default -> size: "
+        + (sizeCategory.isNotEmpty() ? sizeCategory : "unknown")
+        + ", mode: " + defaultMode);
 }
 
 // JERRY API CALLS
@@ -4510,16 +4634,36 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             switch (getActiveOp())
             {
                 case ActiveOp::TerryTransform:
-                    displayText = "transforming: " + juce::String(displayedProgress) + "%";
+                    if (displayedProgress <= 0)
+                        displayText = "transforming...";
+                    else
+                        displayText = "transforming: " + juce::String(displayedProgress) + "%";
                     break;
                 case ActiveOp::GaryGenerate:
                 case ActiveOp::GaryContinue:
                 case ActiveOp::GaryRetry:
                 case ActiveOp::JerryGenerate:
-                    displayText = "cooking: " + juce::String(displayedProgress) + "%";
+                    if (withinWarmup)
+                    {
+                        if (displayedProgress <= 0)
+                            displayText = "downloading...";
+                        else
+                            displayText = "downloading: " + juce::String(displayedProgress) + "%";
+                    }
+                    else if (displayedProgress <= 0)
+                    {
+                        displayText = "cooking...";
+                    }
+                    else
+                    {
+                        displayText = "cooking: " + juce::String(displayedProgress) + "%";
+                    }
                     break;
                 default:
-                    displayText = "processing: " + juce::String(displayedProgress) + "%";
+                    if (displayedProgress <= 0)
+                        displayText = "processing...";
+                    else
+                        displayText = "processing: " + juce::String(displayedProgress) + "%";
                     break;
             }
         }
@@ -4855,7 +4999,7 @@ void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
 void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
 {
     // If we didn't drag, and we're in the output waveform area, perform seek
-    if (!dragStarted && isMouseOverOutputWaveform(event.getPosition()) && 
+    if (!dragStarted && isMouseOverOutputWaveform(event.getPosition()) &&
         hasOutputAudio && totalAudioDuration > 0.0)
     {
         // Calculate click position relative to waveform area (same as original logic)
@@ -4872,12 +5016,12 @@ void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
         DBG("Click-to-seek: " + juce::String(clickPercent * 100.0, 1) + "% = " +
             juce::String(seekTime, 2) + "s");
     }
-    
+
     // Reset drag state
     isDragging = false;
     dragStarted = false;
     repaint();
-    
+
     juce::Component::mouseUp(event);
 }
 
@@ -5880,9 +6024,9 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         // Calculate aspect ratio and fit logo in title area
         float logoAspect = (float)logoImage.getWidth() / (float)logoImage.getHeight();
         float areaAspect = (float)titleArea.getWidth() / (float)titleArea.getHeight();
-        
+
         juce::Rectangle<int> logoRect = titleArea;
-        
+
         // Scale to fit while maintaining aspect ratio
         if (logoAspect > areaAspect)
         {
@@ -5892,11 +6036,11 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         }
         else
         {
-            // Logo is taller - fit to height  
+            // Logo is taller - fit to height
             int newWidth = (int)(titleArea.getHeight() * logoAspect);
             logoRect = logoRect.withSizeKeepingCentre(newWidth, titleArea.getHeight());
         }
-        
+
         g.drawImage(logoImage, logoRect.toFloat());
     }
     else

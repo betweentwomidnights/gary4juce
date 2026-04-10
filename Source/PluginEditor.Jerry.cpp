@@ -62,28 +62,55 @@ void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
         return;
     }
 
-    juce::Thread::launch([this]()
+    if (jerryModelsFetchInFlight.exchange(true))
+    {
+        DBG("Jerry models fetch already in flight - skipping");
+        return;
+    }
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis]()
         {
-            // Determine endpoint based on connection type (same pattern as sendToJerry)
-            juce::String endpoint = audioProcessor.getIsUsingLocalhost()
-                ? "/models/status"           // Localhost: no /audio prefix
-                : "/audio/models/status";    // Remote: requires /audio prefix
+            if (safeThis == nullptr)
+                return;
 
-            juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+            try
+            {
+                juce::String endpoint = safeThis->audioProcessor.getIsUsingLocalhost()
+                    ? "/models/status"
+                    : "/audio/models/status";
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
-                juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(10000)
-            ));
+                juce::URL url(safeThis->getServiceUrl(ServiceType::Jerry, endpoint));
 
-            juce::String responseText;
-            if (stream != nullptr)
-                responseText = stream->readEntireStreamAsString();
+                std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+                    juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(10000)
+                ));
 
-            juce::MessageManager::callAsync([this, responseText]()
-                {
-                    handleJerryModelsResponse(responseText);
-                });
+                juce::String responseText;
+                if (stream != nullptr)
+                    responseText = stream->readEntireStreamAsString();
+
+                juce::MessageManager::callAsync([safeThis, responseText]()
+                    {
+                        if (safeThis == nullptr)
+                            return;
+
+                        safeThis->jerryModelsFetchInFlight.store(false);
+                        safeThis->handleJerryModelsResponse(responseText);
+                    });
+            }
+            catch (...)
+            {
+                juce::MessageManager::callAsync([safeThis]()
+                    {
+                        if (safeThis == nullptr)
+                            return;
+
+                        safeThis->jerryModelsFetchInFlight.store(false);
+                        safeThis->handleJerryModelsResponse({});
+                    });
+            }
         });
 }
 
@@ -92,6 +119,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
     if (responseText.isEmpty())
     {
         DBG("Empty models response");
+        if (jerryUI)
+            jerryUI->setLoadingModel(false);
         return;
     }
 
@@ -128,12 +157,38 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
         juce::StringArray modelTypes;
         juce::StringArray modelRepos;
         juce::StringArray modelCheckpoints;
+        juce::StringArray modelSamplerProfiles;
         juce::Array<bool> isFinetune;
+
+        const auto determineSamplerProfile = [](const juce::String& modelType,
+                                                const juce::String& modelSource,
+                                                juce::int64 sampleSize)
+        {
+            const auto source = modelSource.toLowerCase();
+
+            if (sampleSize > 524288)
+                return juce::String("sao10");
+
+            if (source.contains("stable-audio-open-1.0")
+                || source.contains("stable_audio_open_1_0")
+                || source.contains("stableaudioopen1.0")
+                || source.contains("sao1"))
+            {
+                return juce::String("sao10");
+            }
+
+            if (modelType == "finetune")
+                return juce::String("saos_finetune");
+
+            return juce::String("standard");
+        };
 
         auto* detailsObj = modelDetails.getDynamicObject();
         if (!detailsObj)
         {
             DBG("Failed to get model_details as dynamic object");
+            if (jerryUI)
+                jerryUI->setLoadingModel(false);
             return;
         }
 
@@ -148,6 +203,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
             {
                 juce::String source = modelData->getProperty("source").toString();
                 juce::String type = modelData->getProperty("type").toString();
+                const juce::int64 sampleSize = modelData->getProperty("sample_size").toString().getLargeIntValue();
+                const juce::String samplerProfile = determineSamplerProfile(type, source, sampleSize);
 
                 DBG("Processing model - Key: " + modelKey + ", Source: " + source + ", Type: " + type);
 
@@ -209,23 +266,41 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
                 modelTypes.add(type);
                 modelRepos.add(repo);
                 modelCheckpoints.add(checkpoint);
+                modelSamplerProfiles.add(samplerProfile);
                 isFinetune.add(type == "finetune");
 
                 DBG("Added model: " + displayName);
                 DBG("  Type: " + type + ", Repo: " + repo + ", Checkpoint: " + checkpoint);
+                DBG("  Sample size: " + juce::String(sampleSize) + ", Sampler profile: " + samplerProfile);
             }
         }
 
         if (jerryUI && modelNames.size() > 0)
         {
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
-                modelTypes, modelRepos, modelCheckpoints);
+                modelTypes, modelRepos, modelCheckpoints, modelSamplerProfiles);
+            jerryUI->setLoadingModel(false);
+
+            if (audioProcessor.getIsUsingLocalhost() && jerryUI->getSelectedModelIsFinetune())
+            {
+                const auto selectedRepo = jerryUI->getSelectedFinetuneRepo();
+                const auto selectedCheckpoint = jerryUI->getSelectedFinetuneCheckpoint();
+                if (selectedRepo.isNotEmpty() && selectedCheckpoint.isNotEmpty())
+                    fetchJerryPrompts(selectedRepo, selectedCheckpoint);
+            }
+
             DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
+        }
+        else if (jerryUI)
+        {
+            jerryUI->setLoadingModel(false);
         }
     }
     catch (...)
     {
         DBG("Exception parsing models response");
+        if (jerryUI)
+            jerryUI->setLoadingModel(false);
     }
 }
 
@@ -630,15 +705,35 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
     juce::String fullPrompt = currentJerryPrompt + " " + juce::String((int)bpm) + "bpm";
 
+    const bool useLocalAsyncPolling = audioProcessor.getIsUsingLocalhost();
     juce::String endpoint;
 
-    if (audioProcessor.getIsUsingLocalhost())
-        endpoint = generateAsLoop ? "/generate/loop" : "/generate";
+    if (useLocalAsyncPolling)
+        endpoint = generateAsLoop ? "/generate/loop/async" : "/generate/async";
     else
         endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
 
     juce::String statusText = generateAsLoop ?
         "cooking a smart loop with jerry..." : "baking with jerry...";
+
+    if (useLocalAsyncPolling)
+    {
+        setActiveOp(ActiveOp::JerryGenerate);
+        isGenerating = true;
+        generationProgress = 0;
+        lastKnownProgress = 0;
+        targetProgress = 0;
+        smoothProgressAnimation = false;
+        isCurrentlyQueued = false;
+        resetStallDetection();
+
+        audioProcessor.clearCurrentSessionId();
+        audioProcessor.setRetryAvailable(false);
+        updateRetryButtonState();
+        updateContinueButtonState();
+        updateAllGenerationButtonStates();
+        repaint();
+    }
 
     DBG("=== JERRY GENERATION REQUEST ===");
     DBG("Jerry generating with prompt: " + fullPrompt);
@@ -651,11 +746,29 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     if (generateAsLoop)
         DBG("Loop Type: " + currentLoopType);
 
+    auto cancelJerryOperation = [this]()
+    {
+        stopPolling();
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        if (jerryUI)
+            jerryUI->setGenerateButtonText("generate with jerry");
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
     if (jerryUI)
         jerryUI->setGenerateButtonText("generating");
     showStatusMessage(statusText, 2000);
 
-    juce::Thread::launch([this, fullPrompt, endpoint]() {
+    juce::String requestId;
+    if (useLocalAsyncPolling)
+        requestId = juce::Uuid().toString();
+
+    juce::Thread::launch([this, fullPrompt, endpoint, useLocalAsyncPolling, requestId, cancelJerryOperation]() {
         auto startTime = juce::Time::getCurrentTime();
 
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
@@ -675,6 +788,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         if (generateAsLoop)
             jsonRequest->setProperty("loop_type", currentLoopType);
 
+        if (useLocalAsyncPolling)
+            jsonRequest->setProperty("request_id", requestId);
+
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Jerry JSON payload: " + jsonString);
@@ -689,7 +805,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             juce::URL postUrl = url.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(30000)
+                .withConnectionTimeoutMs(useLocalAsyncPolling ? 15000 : 30000)
                 .withExtraHeaders("Content-Type: application/json");
 
             auto stream = postUrl.createInputStream(options);
@@ -727,7 +843,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             statusCode = 0;
         }
 
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, useLocalAsyncPolling, requestId, cancelJerryOperation]() {
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total Jerry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
 
@@ -741,6 +857,24 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                     bool success = responseObj->getProperty("success");
                     if (success)
                     {
+                        if (useLocalAsyncPolling)
+                        {
+                            juce::String sessionId = responseObj->getProperty("session_id").toString();
+                            if (sessionId.isEmpty())
+                                sessionId = requestId;
+
+                            if (sessionId.isEmpty())
+                            {
+                                showStatusMessage("jerry async request missing session id", 5000);
+                                cancelJerryOperation();
+                                return;
+                            }
+
+                            showStatusMessage("sent to jerry. processing...", 2000);
+                            startPollingForResults(sessionId);
+                            return;
+                        }
+
                         auto audioBase64 = responseObj->getProperty("audio_base64").toString();
 
                         if (audioBase64.isNotEmpty())
@@ -791,6 +925,8 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                         auto error = responseObj->getProperty("error").toString();
                         showStatusMessage("jerry error: " + error, 5000);
                         DBG("Jerry server error: " + error);
+                        if (useLocalAsyncPolling)
+                            cancelJerryOperation();
                     }
                 }
                 else
@@ -805,6 +941,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                         if (!audioProcessor.isBackendConnected())
                             handleBackendDisconnection();
                     });
+
+                    if (useLocalAsyncPolling)
+                        cancelJerryOperation();
                 }
             }
             else
@@ -814,7 +953,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect to jerry on localhost - ensure docker compose is running";
+                    errorMsg = "cannot connect to jerry on localhost - ensure jerry is running in gary4local";
                     markBackendDisconnectedFromRequestFailure("jerry request");
                 }
                 else if (statusCode == 0)
@@ -833,6 +972,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 showStatusMessage(errorMsg, 4000);
                 DBG("Jerry request failed: " + errorMsg);
 
+                if (useLocalAsyncPolling)
+                    cancelJerryOperation();
+
                 if (shouldCheckHealth)
                 {
                     DBG("Jerry failed - checking backend health");
@@ -848,7 +990,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 }
             }
 
-            if (jerryUI)
+            if (!useLocalAsyncPolling && jerryUI)
                 jerryUI->setGenerateButtonText("generate with jerry");
             });
         });

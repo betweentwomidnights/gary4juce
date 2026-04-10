@@ -9,7 +9,7 @@
 namespace
 {
     static constexpr auto kDefaultUpdateManifestUrl =
-        "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json";
+        "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable-mac.json";
     static constexpr auto kUpdateManifestOverrideEnv = "GARY4JUCE_UPDATE_MANIFEST_URL";
     static constexpr auto kUpdatePrefsFolder = "gary4juce";
     static constexpr auto kUpdatePrefsAppName = "gary4juce-updater";

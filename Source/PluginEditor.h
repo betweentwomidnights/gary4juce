@@ -169,7 +169,6 @@ private:
     void switchJerrySubTab(JerrySubTab sub);
     void updateJerrySubTabStates();
 
-
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
     juce::Rectangle<int> fullTabAreaRect;  // Store the calculated tab area
@@ -185,6 +184,7 @@ private:
     struct GaryModelInfo {
         juce::String displayName;  // "keygen-gary-small-6"
         juce::String fullPath;     // "thepatch/keygen-gary-small-6"
+        juce::String sizeCategory; // "small" | "medium" | "large"
         int dropdownId;            // Unique ID for ComboBox
     };
     std::vector<GaryModelInfo> garyModelList;  // Maps dropdown ID -> model path
@@ -192,6 +192,7 @@ private:
     // Current Gary settings
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
+    juce::String currentGaryQuantizationMode = "q4_decoder_linears";
 
     std::unique_ptr<JerryUI> jerryUI;
 
@@ -350,6 +351,9 @@ private:
     void fetchGaryAvailableModels();
     void handleGaryModelsResponse(const juce::String& responseText);
     juce::String getSelectedGaryModelPath() const;
+    juce::String getSelectedGaryModelSizeCategory() const;
+    juce::String getDefaultGaryQuantizationForSize(const juce::String& sizeCategory) const;
+    void applyGaryQuantizationDefaultForCurrentModel();
 
     void fetchJerryAvailableModels();
     void handleJerryModelsResponse(const juce::String& responseText);
@@ -373,6 +377,7 @@ private:
 
     // Optional local cache to avoid re-fetching
     juce::HashMap<juce::String, juce::String> promptsCache; // key: repo + "|" + checkpoint
+    std::atomic<bool> jerryModelsFetchInFlight{ false };
 
     // Debounce/TTL state
     std::atomic<bool> promptsFetchInFlight{ false };

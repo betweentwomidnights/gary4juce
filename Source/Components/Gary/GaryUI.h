@@ -22,6 +22,8 @@ public:
     void setModelItems(const juce::StringArray& items, int selectedIndex);
     void setModelItemEnabled(int index, bool enabled);
     void setSelectedModelIndex(int index, juce::NotificationType notification = juce::dontSendNotification);
+    void setUsingLocalhost(bool useLocalhost);
+    void setQuantizationMode(const juce::String& mode, juce::NotificationType notification = juce::dontSendNotification);
     void setButtonsEnabled(bool hasAudio,
                            bool isConnected,
                            bool isGenerating,
@@ -33,6 +35,7 @@ public:
 
     float getPromptDuration() const;
     int getSelectedModelIndex() const;
+    juce::String getQuantizationMode() const;
 
     juce::Rectangle<int> getTitleBounds() const;
 
@@ -42,6 +45,7 @@ public:
 
     std::function<void(float)> onPromptDurationChanged;
     std::function<void(int)> onModelChanged;
+    std::function<void(const juce::String&)> onQuantizationModeChanged;
     std::function<void()> onSendToGary;
     std::function<void()> onContinue;
     std::function<void()> onRetry;
@@ -59,12 +63,19 @@ private:
     juce::Label promptDurationLabel;
     CustomComboBox modelComboBox;
     juce::Label modelLabel;
+    juce::Label quantizationLabel;
+    CustomButton quantizationNoneButton;
+    CustomButton quantizationQ8Button;
+    CustomButton quantizationQ4Button;
+    CustomButton quantizationQ4EmbButton;
     CustomButton sendToGaryButton;
     CustomButton continueButton;
     CustomButton retryButton;
 
     float promptDuration { 6.0f };
     int modelIndex { 0 };
+    bool isUsingLocalhostMode { false };
+    juce::String quantizationMode { "q4_decoder_linears" };
 
     juce::Rectangle<int> titleBounds;
 };

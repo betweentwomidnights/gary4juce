@@ -329,10 +329,10 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
             {
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
-                
+
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
+                    errorMsg = "cannot connect to terry on localhost - ensure terry is running in gary4local";
                     markBackendDisconnectedFromRequestFailure("terry request");
                 }
                 else if (statusCode == 0)
@@ -350,13 +350,13 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
                 showStatusMessage(errorMsg, 4000);
                 DBG("Terry request failed: " + errorMsg);
-                
+
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Terry failed - checking backend health");
                     audioProcessor.checkBackendHealth();
-                    
+
                     // Give health check time, then handle result
                     juce::Timer::callAfterDelay(6000, [this]() {
                         if (!audioProcessor.isBackendConnected())
@@ -539,7 +539,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 juce::String errorMsg;
                 if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect for undo on localhost - ensure docker compose is running";
+                    errorMsg = "cannot connect for undo on localhost - ensure terry is running in gary4local";
                     markBackendDisconnectedFromRequestFailure("terry undo request");
                 }
                 else if (statusCode == 0)

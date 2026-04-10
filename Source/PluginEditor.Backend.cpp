@@ -47,6 +47,13 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
         jerryUI->setUsingLocalhost(isUsingLocalhost);
     }
 
+    if (garyUI)
+    {
+        garyUI->setUsingLocalhost(isUsingLocalhost);
+        if (isUsingLocalhost)
+            applyGaryQuantizationDefaultForCurrentModel();
+    }
+
     // Update carey tab availability (now available on both backends)
     updateCareyTabAvailability();
 
@@ -311,16 +318,16 @@ bool Gary4juceAudioProcessorEditor::checkForGenerationStall()
 void Gary4juceAudioProcessorEditor::handleGenerationStall()
 {
     DBG("Handling generation stall - checking backend health");
-    
+
     // Stop polling immediately
     stopPolling();
-    
+
     // Show immediate feedback
     showStatusMessage("checking backend connection...", 3000);
-    
+
     // Check if backend is actually down
     audioProcessor.checkBackendHealth();
-    
+
     // Give health check time to complete, then handle result
     juce::Timer::callAfterDelay(6000, [this]() {
         if (!audioProcessor.isBackendConnected())
@@ -339,7 +346,7 @@ void Gary4juceAudioProcessorEditor::handleGenerationStall()
 void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
 {
     DBG("=== BACKEND DISCONNECTION CONFIRMED - CLEANING UP STATE ===");
-    
+
     // Clean up generation state
     isGenerating = false;
     isPolling = false;
@@ -347,7 +354,7 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
     hasDetectedStall = false;
-    
+
     // Update connection status
     updateConnectionStatus(false);
 
@@ -359,13 +366,16 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
 
     repaint();
 
+    if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
+        jerryUI->setGenerateButtonText("generate with jerry");
+
     setActiveOp(ActiveOp::None);
 }
 
 void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& reason)
 {
     DBG("Generation failed: " + reason);
-    
+
     // Clean up generation state (same as disconnection)
     isGenerating = false;
     isPolling = false;
@@ -373,7 +383,7 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
     hasDetectedStall = false;
-    
+
     // Update all button states centrally
     updateAllGenerationButtonStates();
 
@@ -383,6 +393,9 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
         showGenerationFailureDialog(reason);
 
     repaint();
+
+    if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
+        jerryUI->setGenerateButtonText("generate with jerry");
 
     setActiveOp(ActiveOp::None);
 }
@@ -408,14 +421,14 @@ void Gary4juceAudioProcessorEditor::resetStallDetection()
 void Gary4juceAudioProcessorEditor::performSmartHealthCheck()
 {
     auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
-    
+
     // Don't spam health checks
     if (currentTime - lastHealthCheckTime < MIN_HEALTH_CHECK_INTERVAL_MS)
     {
         DBG("Skipping health check - too soon since last check");
         return;
     }
-    
+
     lastHealthCheckTime = currentTime;
     audioProcessor.checkBackendHealth();
     DBG("Performing smart health check");
