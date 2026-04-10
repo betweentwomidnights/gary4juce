@@ -312,6 +312,7 @@ private:
 
     juce::String currentCareyKeyScale = "";
     juce::String currentCareyTimeSig = "";  // empty = auto-detect
+    std::atomic<int> careyRequestNonce { 0 };
 
     void sendToCarey();
     void sendToCareyExtract();
@@ -450,6 +451,8 @@ private:
     bool isGenerating = false;
     bool continueInProgress = false;  // Track if current generation is a continue operation
     ActiveOp activeOp = ActiveOp::None;
+    int careyWaveformProgress = 0;
+    bool careyWaveformQueued = false;
 
     // UI areas
     juce::Rectangle<int> outputWaveformArea;
@@ -515,6 +518,21 @@ private:
     bool shouldShowGenerationFailureDialog(const juce::String& reason) const;
 
     bool isCurrentlyQueued = false;
+    int getWaveformGenerationProgress() const
+    {
+        return activeOp == ActiveOp::CareyGenerate ? careyWaveformProgress : generationProgress;
+    }
+
+    bool getWaveformGenerationQueued() const
+    {
+        return activeOp == ActiveOp::CareyGenerate ? careyWaveformQueued : isCurrentlyQueued;
+    }
+
+    void setCareyWaveformState(int progress, bool queued)
+    {
+        careyWaveformProgress = juce::jlimit(0, 100, progress);
+        careyWaveformQueued = queued;
+    }
 
     void seekToPosition(double timeInSeconds);
 

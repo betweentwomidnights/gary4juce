@@ -72,7 +72,27 @@
             file="Source/PluginProcessor.h"/>
       <FILE id="fvEhHg" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
+      <FILE id="PECrC0" name="PluginEditor.Carey.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Carey.cpp"/>
+      <FILE id="PEJry0" name="PluginEditor.Jerry.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Jerry.cpp"/>
+      <FILE id="PETry0" name="PluginEditor.Terry.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Terry.cpp"/>
+      <FILE id="PEBck0" name="PluginEditor.Backend.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Backend.cpp"/>
+      <FILE id="PEUpd0" name="PluginEditor.Updates.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Updates.cpp"/>
+      <FILE id="PEFnd0" name="PluginEditor.Foundation.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Foundation.cpp"/>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorCareyHelpers.h"/>
+      <FILE id="PEJHlp" name="PluginEditorJerryHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorJerryHelpers.h"/>
+      <FILE id="PETHlp" name="PluginEditorTerryHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorTerryHelpers.h"/>
+      <FILE id="PETxHp" name="PluginEditorTextHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorTextHelpers.h"/>
     </GROUP>
     <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
       <FILE id="lx8qMz" name="BarTrim.h" compile="0" resource="0" file="Source/Utils/BarTrim.h"/>
