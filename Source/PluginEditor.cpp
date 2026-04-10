@@ -5701,7 +5701,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         rawProgress = rawText.getDoubleValue();
                     }
                     if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    const double normalized = (rawProgress < 1.0) ? rawProgress : rawProgress / 100.0;
                     return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
@@ -6136,7 +6136,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
                         rawProgress = rawText.getDoubleValue();
                     }
                     if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    const double normalized = (rawProgress < 1.0) ? rawProgress : rawProgress / 100.0;
                     return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
@@ -6502,7 +6502,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                         rawProgress = rawText.getDoubleValue();
                     }
                     if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    const double normalized = (rawProgress < 1.0) ? rawProgress : rawProgress / 100.0;
                     return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
@@ -6986,7 +6986,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         rawProgress = rawText.getDoubleValue();
                     }
                     if (rawProgress <= 0.0) return 0;
-                    const double normalized = (rawProgress <= 1.0) ? rawProgress : rawProgress / 100.0;
+                    const double normalized = (rawProgress < 1.0) ? rawProgress : rawProgress / 100.0;
                     return juce::jlimit(0, 99, juce::roundToInt(normalized * 100.0));
                 };
 
