@@ -1,13 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "3.0.2",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.2",
+  "latest_version": "3.0.3",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.3",
   "sha256": null,
-  "published_at": "2026-04-07T00:00:00Z",
+  "published_at": "2026-04-11T00:00:00Z",
   "notes": [
-    "Adds the in-plugin check updates button and plugin-safe update prompt.",
-    "Carey complete mode on the remote backend now supports ACE-Step v1.5 XL models, with xl-turbo as the default and xl-base available in Advanced.",
-    "xl-turbo is fixed at 8 steps / CFG 1.0; xl-base keeps editable steps / CFG for slower higher-control runs.",
+    "Carey complete mode now adapts to the backend: remote keeps xl-turbo / xl-base, while localhost uses turbo / base / sft.",
+    "Localhost complete requests now send explicit model choices that line up with gary4local's new Carey XL toggle and routing logic.",
+    "Turbo remains fixed at 8 steps / CFG 1.0, while base and sft keep editable steps / CFG for slower higher-control runs.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

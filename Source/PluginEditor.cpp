@@ -417,7 +417,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCompleteCaptionChanged = [this](const juce::String& text) { currentCareyCompleteCaption = text; };
     careyUI->onCompleteModelChanged = [this](const juce::String& model)
     {
-        currentCareyCompleteModel = model.equalsIgnoreCase("xl-base") ? "xl-base" : "xl-turbo";
+        currentCareyCompleteModel = model.trim().toLowerCase();
     };
     careyUI->onCompleteBpmChanged = [this](int bpm) { currentCareyCompleteBpm = juce::jlimit(40, 240, bpm); };
     careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(8, 100, steps); };

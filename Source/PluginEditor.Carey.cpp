@@ -1044,8 +1044,12 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
             bpm = standaloneBpm;
     }
     const bool useRemoteCompleteModel = !isUsingLocalhost;
-    const bool useCompleteBaseModel = useRemoteCompleteModel && currentCareyCompleteModel.equalsIgnoreCase("xl-base");
-    const bool useCompleteTurboModel = useRemoteCompleteModel && !useCompleteBaseModel;
+    const juce::String requestedCompleteModel = currentCareyCompleteModel.trim().toLowerCase();
+    const bool useCompleteTurboModel = requestedCompleteModel.isEmpty() || requestedCompleteModel.contains("turbo");
+    const bool useCompleteSftModel = !useCompleteTurboModel && requestedCompleteModel.contains("sft");
+    const juce::String submitCompleteModel = useRemoteCompleteModel
+        ? (useCompleteTurboModel ? "xl-turbo" : "xl-base")
+        : (useCompleteTurboModel ? "turbo" : (useCompleteSftModel ? "sft" : "base"));
     const int inferenceSteps = useCompleteTurboModel
         ? CareyUI::kFixedCompleteTurboSteps
         : juce::jlimit(32, 100, currentCareyCompleteSteps);
@@ -1060,9 +1064,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
     const bool useSrcAsRef = currentCompleteUseSrcAsRef;
 
-    DBG("[carey-complete] remote request metas - bpm=" + juce::String(bpm)
+    DBG("[carey-complete] request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
-        + ", model=" + (useRemoteCompleteModel ? (useCompleteBaseModel ? "xl-base" : "xl-turbo") : "localhost-managed")
+        + ", model=" + submitCompleteModel
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
@@ -1102,7 +1106,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     showStatusMessage("submitting carey complete request...", 2500);
 
-    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, useCompleteBaseModel, cancelCareyOperation]()
+    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, submitCompleteModel, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String failureDetail;
@@ -1133,8 +1137,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
                 submitPayload->setProperty("bpm", bpm);
                 submitPayload->setProperty("inference_steps", inferenceSteps);
-                if (useCompleteBaseModel)
-                    submitPayload->setProperty("model", "xl-base");
+                submitPayload->setProperty("model", submitCompleteModel);
                 submitPayload->setProperty("audio_duration", (double)targetDurationSeconds);
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);

@@ -403,20 +403,19 @@ CareyUI::CareyUI()
     completeModelLabel.setFont(juce::FontOptions(12.0f));
     completeModelLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
     completeModelLabel.setJustificationType(juce::Justification::centredLeft);
-    completeModelLabel.setTooltip("remote complete model: turbo is fast and fixed at 8 steps / cfg 1.0; base allows editable steps and cfg.");
     addToContent(completeModelLabel);
 
-    completeTurboModelToggle.setButtonText("xl-turbo");
     completeTurboModelToggle.setToggleState(true, juce::dontSendNotification);
-    completeTurboModelToggle.setTooltip("fast remote complete model, fixed at 8 steps and cfg 1.0.");
-    completeTurboModelToggle.onClick = [this]() { setCompleteModel("xl-turbo"); };
+    completeTurboModelToggle.onClick = [this]() { setCompleteModel(completeRemoteModelSelectionEnabled ? "xl-turbo" : "turbo"); };
     addToContent(completeTurboModelToggle);
 
-    completeBaseModelToggle.setButtonText("xl-base");
     completeBaseModelToggle.setToggleState(false, juce::dontSendNotification);
-    completeBaseModelToggle.setTooltip("remote complete base model with editable steps and cfg.");
-    completeBaseModelToggle.onClick = [this]() { setCompleteModel("xl-base"); };
+    completeBaseModelToggle.onClick = [this]() { setCompleteModel(completeRemoteModelSelectionEnabled ? "xl-base" : "base"); };
     addToContent(completeBaseModelToggle);
+
+    completeSftModelToggle.setToggleState(false, juce::dontSendNotification);
+    completeSftModelToggle.onClick = [this]() { setCompleteModel("sft"); };
+    addToContent(completeSftModelToggle);
 
     completeBpmLabel.setText("bpm", juce::dontSendNotification);
     completeBpmLabel.setFont(juce::FontOptions(12.0f));
@@ -794,8 +793,76 @@ CareyUI::CareyUI()
     extractInfoLabel.setJustificationType(juce::Justification::centred);
     addToContent(extractInfoLabel);
 
+    updateCompleteModelSelectorCopy();
     updateLyricsButtonLabels();
     setCurrentSubTabInternal(SubTab::Lego, false);
+}
+
+juce::String CareyUI::getCompleteModel() const
+{
+    if (completeRemoteModelSelectionEnabled)
+        return completeBaseModelToggle.getToggleState() ? "xl-base" : "xl-turbo";
+
+    if (completeSftModelToggle.getToggleState())
+        return "sft";
+    if (completeBaseModelToggle.getToggleState())
+        return "base";
+    return "turbo";
+}
+
+void CareyUI::setCompleteModel(const juce::String& model)
+{
+    const juce::String normalized = model.trim().toLowerCase();
+    const bool useTurboModel = normalized.isEmpty() || normalized.contains("turbo");
+    const bool useSftModel = !useTurboModel && normalized.contains("sft");
+    const bool useBaseModel = !useTurboModel && !useSftModel;
+
+    if (completeRemoteModelSelectionEnabled)
+    {
+        completeTurboModelToggle.setToggleState(useTurboModel, juce::dontSendNotification);
+        completeBaseModelToggle.setToggleState(!useTurboModel, juce::dontSendNotification);
+        completeSftModelToggle.setToggleState(false, juce::dontSendNotification);
+    }
+    else
+    {
+        completeTurboModelToggle.setToggleState(useTurboModel, juce::dontSendNotification);
+        completeBaseModelToggle.setToggleState(useBaseModel, juce::dontSendNotification);
+        completeSftModelToggle.setToggleState(useSftModel, juce::dontSendNotification);
+    }
+
+    updateCompleteModelControls(true);
+}
+
+void CareyUI::updateCompleteModelSelectorCopy()
+{
+    if (completeRemoteModelSelectionEnabled)
+    {
+        completeModelLabel.setTooltip("remote complete model: xl-turbo is fixed at 8 steps / cfg 1.0; xl-base keeps editable steps and cfg.");
+
+        completeTurboModelToggle.setButtonText("xl-turbo");
+        completeTurboModelToggle.setTooltip("fast remote complete model, fixed at 8 steps and cfg 1.0.");
+
+        completeBaseModelToggle.setButtonText("xl-base");
+        completeBaseModelToggle.setTooltip("remote complete base model with editable steps and cfg.");
+
+        completeSftModelToggle.setButtonText("sft");
+        completeSftModelToggle.setTooltip({});
+    }
+    else
+    {
+        const juce::String localHint = "if you want the xl variants instead, toggle carey xl models in gary4local. recommended: 16 GB VRAM.";
+
+        completeModelLabel.setTooltip("localhost complete model: turbo is fixed at 8 steps / cfg 1.0. base and sft keep editable steps and cfg. " + localHint);
+
+        completeTurboModelToggle.setButtonText("turbo");
+        completeTurboModelToggle.setTooltip("fast localhost complete model, fixed at 8 steps and cfg 1.0. " + localHint);
+
+        completeBaseModelToggle.setButtonText("base");
+        completeBaseModelToggle.setTooltip("localhost complete base model with editable steps and cfg. " + localHint);
+
+        completeSftModelToggle.setButtonText("sft");
+        completeSftModelToggle.setTooltip("localhost complete sft model with editable steps and cfg. " + localHint);
+    }
 }
 
 CareyUI::~CareyUI()
@@ -996,17 +1063,21 @@ void CareyUI::updateContentLayout()
 
         if (completeAdvancedOpen)
         {
-            if (completeRemoteModelSelectionEnabled)
+            auto modelRow = fullRow(28);
+            completeModelLabel.setBounds(modelRow.removeFromLeft(110));
+            const int toggleCount = completeRemoteModelSelectionEnabled ? 2 : 3;
+            const int toggleGap = 8;
+            const int totalGap = toggleGap * (toggleCount - 1);
+            const int toggleWidth = (modelRow.getWidth() - totalGap) / toggleCount;
+            completeTurboModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
+            modelRow.removeFromLeft(toggleGap);
+            completeBaseModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
+            if (!completeRemoteModelSelectionEnabled)
             {
-                auto modelRow = fullRow(28);
-                completeModelLabel.setBounds(modelRow.removeFromLeft(110));
-                const int toggleGap = 8;
-                const int toggleWidth = (modelRow.getWidth() - toggleGap) / 2;
-                completeTurboModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
                 modelRow.removeFromLeft(toggleGap);
-                completeBaseModelToggle.setBounds(modelRow);
-                y += 36;
+                completeSftModelToggle.setBounds(modelRow);
             }
+            y += 36;
 
             if (isStandalone)
             {
@@ -1185,9 +1256,10 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
     completeInfoLabel.setVisible(shouldBeVisible);
 
     const bool showAdvanced = shouldBeVisible && completeAdvancedOpen;
-    completeModelLabel.setVisible(showAdvanced && completeRemoteModelSelectionEnabled);
-    completeTurboModelToggle.setVisible(showAdvanced && completeRemoteModelSelectionEnabled);
-    completeBaseModelToggle.setVisible(showAdvanced && completeRemoteModelSelectionEnabled);
+    completeModelLabel.setVisible(showAdvanced);
+    completeTurboModelToggle.setVisible(showAdvanced);
+    completeBaseModelToggle.setVisible(showAdvanced);
+    completeSftModelToggle.setVisible(showAdvanced && !completeRemoteModelSelectionEnabled);
     completeBpmLabel.setVisible(showAdvanced && isStandalone);
     completeBpmSlider.setVisible(showAdvanced && isStandalone);
     completeStepsLabel.setVisible(showAdvanced);
@@ -1201,23 +1273,25 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
 
 void CareyUI::updateCompleteModelControls(bool notify)
 {
-    const bool remoteTurbo = completeRemoteModelSelectionEnabled && getCompleteModel() == "xl-turbo";
+    updateCompleteModelSelectorCopy();
+
+    const bool turboSelected = getCompleteModel().containsIgnoreCase("turbo");
     const bool heldTurboValues = getCompleteSteps() <= kFixedCompleteTurboSteps
         && getCompleteCfg() <= kFixedCompleteTurboCfg;
 
-    if (remoteTurbo)
+    if (turboSelected)
     {
         completeStepsSlider.setRange(kFixedCompleteTurboSteps, 100, 1);
         completeStepsSlider.setValue(kFixedCompleteTurboSteps, juce::dontSendNotification);
         completeStepsSlider.setEnabled(false);
-        completeStepsSlider.setTooltip("xl-turbo is fixed at 8 steps on the remote backend.");
-        completeStepsLabel.setTooltip("xl-turbo is fixed at 8 steps on the remote backend.");
+        completeStepsSlider.setTooltip("turbo is fixed at 8 steps for complete generation.");
+        completeStepsLabel.setTooltip("turbo is fixed at 8 steps for complete generation.");
 
         completeCfgSlider.setRange(kFixedCompleteTurboCfg, 10.0, 0.1);
         completeCfgSlider.setValue(kFixedCompleteTurboCfg, juce::dontSendNotification);
         completeCfgSlider.setEnabled(false);
-        completeCfgSlider.setTooltip("xl-turbo is fixed at cfg 1.0 on the remote backend.");
-        completeCfgLabel.setTooltip("xl-turbo is fixed at cfg 1.0 on the remote backend.");
+        completeCfgSlider.setTooltip("turbo is fixed at cfg 1.0 for complete generation.");
+        completeCfgLabel.setTooltip("turbo is fixed at cfg 1.0 for complete generation.");
     }
     else
     {

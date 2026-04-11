@@ -116,10 +116,7 @@ public:
         return juce::roundToInt(completeStepsSlider.getValue());
     }
 
-    juce::String getCompleteModel() const
-    {
-        return completeBaseModelToggle.getToggleState() ? "xl-base" : "xl-turbo";
-    }
+    juce::String getCompleteModel() const;
 
     void setCaptionText(const juce::String& text)
     {
@@ -197,21 +194,16 @@ public:
     double getCompleteCfg() const { return completeCfgSlider.getValue(); }
     void setCompleteCfg(double val) { completeCfgSlider.setValue(juce::jlimit(1.0, 10.0, val), juce::dontSendNotification); }
 
-    void setCompleteModel(const juce::String& model)
-    {
-        const bool useBaseModel = model.equalsIgnoreCase("xl-base");
-        completeTurboModelToggle.setToggleState(!useBaseModel, juce::dontSendNotification);
-        completeBaseModelToggle.setToggleState(useBaseModel, juce::dontSendNotification);
-        updateCompleteModelControls(true);
-    }
+    void setCompleteModel(const juce::String& model);
 
     void setCompleteRemoteModelSelectionEnabled(bool enabled)
     {
+        const juce::String currentModel = getCompleteModel();
         if (completeRemoteModelSelectionEnabled == enabled)
             return;
 
         completeRemoteModelSelectionEnabled = enabled;
-        updateCompleteModelControls(true);
+        setCompleteModel(currentModel);
         updateContentLayout();
     }
 
@@ -445,6 +437,7 @@ private:
     void setLegoControlsVisible(bool shouldBeVisible);
     void setCompleteControlsVisible(bool shouldBeVisible);
     void updateCompleteModelControls(bool notify);
+    void updateCompleteModelSelectorCopy();
     void setCoverControlsVisible(bool shouldBeVisible);
     void setExtractControlsVisible(bool shouldBeVisible);
     void onKeyScaleSelectionChanged();
@@ -506,6 +499,7 @@ private:
     juce::Label completeModelLabel;
     juce::ToggleButton completeTurboModelToggle;
     juce::ToggleButton completeBaseModelToggle;
+    juce::ToggleButton completeSftModelToggle;
     juce::Label completeBpmLabel;
     CustomSlider completeBpmSlider;
     juce::Label completeStepsLabel;
