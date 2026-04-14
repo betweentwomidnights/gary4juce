@@ -1591,6 +1591,8 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                     return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
                 if (activeOp == ActiveOp::CareyGenerate)
                     return juce::URL(getServiceUrl(ServiceType::Carey, "/poll_status/" + sessionId));
+                if (activeOp == ActiveOp::JerryGenerate)
+                    return juce::URL(getServiceUrl(ServiceType::Jerry, "/api/juce/poll_status/" + sessionId));
                 if (activeOp == ActiveOp::TerryTransform)
                     return juce::URL(getServiceUrl(ServiceType::Terry, "/api/juce/poll_status/" + sessionId));
                 return juce::URL(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
