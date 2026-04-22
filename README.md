@@ -1,89 +1,83 @@
 ﻿# gary4juce
 
-a VST3/AU plugin for AI-assisted music production. six models, one interface.
+a VST3/AU plugin for musicians who want AI to meet them where they actually live. for me, that's ableton. for you, it might be fl studio or, if you're insane, reaper lol
 
 https://thepatch.gumroad.com/l/gary4juce
 
 localhost backends:
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
-- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) - foundation-1 support still pending there
-
-built with JUCE 8.0.8 by kev @ [thecollabagepatch.com](https://thecollabagepatch.com)
+- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) - foundation-1 now works there on apple silicon
 
 videos about it here when i can: https://youtube.com/@thepatch_dev
 
 ---
 
-## what is this?
+## built for musicians
+
+this is about using AI models as collab partners inside your DAW. 
+
+if you just want pure text-to-music, you probably don't need a VST. this project exists for people who want AI to react to their timing, chords, phrasing, stems and loops, rather than build an entire song from scratch for you.
 
 gary4juce gives you six AI music models directly in your DAW:
 
-- **gary** (musicgen) - continuation/anti-looper. extends your audio in creative directions
-- **jerry** (stable-audio-open-small) - BPM-aware 12-second loop generation in under a second
+- **gary** ([musicgen](https://github.com/facebookresearch/audiocraft)) - continuation/anti-looper. extends your audio in creative directions
+- **jerry** ([stable-audio-open-small](https://huggingface.co/stabilityai/stable-audio-open-small)) - BPM-aware 12-second loop generation in under a second
 - **rc-jerry** ([foundation-1](https://huggingface.co/RoyalCities/Foundation-1)) - BPM and key-aware 4/8-bar loop generation with structured prompt assembly
-- **carey** (ace-step) - stem generation, audio continuation, and remix/cover with lyrics + multilingual support
-- **terry** (melodyflow) - audio transformation. turn your guitar into an orchestra
-- **darius** (magenta-realtime) - high-quality 48kHz continuations with style control
+- **carey** ([ace-step](https://github.com/ace-step/ACE-Step-1.5)) - stem generation, extraction, audio continuation, and remix/cover with lyrics + multilingual support
+- **terry** ([melodyflow](https://huggingface.co/spaces/facebook/melodyflow)) - audio transformation. turn your guitar into an orchestra
+- **darius** ([magenta-realtime](https://github.com/magenta/magenta-realtime)) - high-quality 48kHz continuations with style control
 
 put it on your master, press play, record some audio, and start iterating.
 
-> note: carey LoRA selection and LoRA-specific dice caption pools currently work on the remote backend only. localhost carey still runs without those LoRA features for now.
+> note: carey LoRA selection and LoRA-specific dice caption pools currently work on the remote backend only. localhost carey still runs without those LoRA features for now, but gary4local support for carey loras on windows and macOS is in progress.
 
 ---
 
 ## TODO
 
-- [ ] add foundation-1 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
+- [x] add foundation-1 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) for apple silicon
 - [ ] finish assimilating the mac branch of gary4juce
-- [ ] release gary4juce v3.0.2 mac AU/VST3
-- [ ] potentially add 'extract' mode if we can get it to be more reliable
+- [x] release gary4juce v3.0.2 mac AU/VST3
+- [x] add carey extract mode
 - [x] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
+- [ ] release gary4juce v3.0.4 mac AU/VST3
 - [ ] produce better carey dice captions
 - [x] introduce time signature option to the carey UI
-- [ ] create finetuning guide for stable-audio-open-small (youtube + written)
 
 ---
 
 ## what's new in v3
 
-### v3.0.2 - plugin-safe updates + ace-step xl models
+### v3.0.4 - carey loras, extract mode, and a reliability pass
 
-gary4juce now includes a plugin-safe update checker: the UI can check the GitHub release feed and open the download page without trying to self-replace files while a DAW is running.
+carey now supports lora selection in complete and cover mode on the remote backend. kev has trained three loras for remote use so far, and each one can drive its own dice-caption pool. loras trained on xl-base can also be used on xl-turbo.
 
-carey's complete mode on the remote backend now uses ACE-Step v1.5 XL models, defaulting to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo). advanced settings can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) for editable steps/cfg; turbo is fixed at 8 steps and 1.0 cfg.
+carey also now includes extract mode. results vary wildly depending on what you want to extract, but vocals, drums, and sometimes bass can already be genuinely useful.
 
-### rc-jerry (foundation-1) - structured loop generation
+complete and cover mode are much more reliable now that the backend uses the repainting branch of ACE-Step. complete is less unhinged than the older workflow, and cover has become a practical way to polish noisy xl-base complete outputs with xl-turbo.
 
-[Foundation-1](https://huggingface.co/RoyalCities/Foundation-1) by RoyalCities joins the jerry tab as a sub-tab. where jerry (SAOS) excels at quick drum loops, rc-jerry generates BPM and key-aware synth/instrument loops of 4 or 8 bars using a structured prompt engine. it can also iterate on input audio â€” record or drag in up to 8 bars, toggle "use input audio" in advanced settings, and the model will re-voice your recording with the target timbre/FX while preserving rhythmic and melodic structure.
+localhost carey lora support is the next step and is currently being added to gary4local on both windows and macOS.
 
-the UI is built around composable controls that assemble prompts from tagged categories:
+### foundation-1 on apple silicon macOS
 
-- **family/type** - instrument family (synth, bass, keys, mallet, brass, etc.) and subfamily
-- **character** - up to 3 timbre descriptor knobs from 50 tags (warm, gritty, crisp, metallic, etc.) with +/- to add/remove
-- **extra descriptors** - freeform text tags with +/- rows (like darius style embeddings)
-- **behavior** - speed, rhythm, contour, density as toggle+knob controls (some with optional 2nd knob via +/-)
-- **spatial, style, frequency band, synthesis** - toggle+knob for spatial character, style tags, freq bands, and wave/tech
-- **effects** - reverb, delay, distortion, phaser, bitcrush as toggle+knob pedals
-- **randomize** - backend `/randomize` endpoint uses RoyalCities' weighted prompt engine to populate the entire UI with musically coherent presets
-- **audio2audio** - toggle "use input audio" to re-voice your recording buffer with the selected timbre/FX (transformation slider controls how much to change)
-- **presets** - save/load `.f1preset` files to `~/Documents/gary4juce/foundation-presets/`
-- **state persistence** - all settings saved/restored with your DAW project
+[Foundation-1](https://huggingface.co/RoyalCities/Foundation-1) is now available in gary4local mac on apple silicon, so rc-jerry is no longer a windows-only localhost feature.
 
-BPM is synced from DAW and snapped to supported values (100-150), with automatic time-stretching when needed. key and scale are user-controlled.
+### still worth mentioning from the v3 cycle
 
-powered by [RC-stable-audio-tools](https://github.com/RoyalCities/RC-stable-audio-tools). currently available on the remote backend and in the windows build of gary4local. the macOS build of gary4local still needs foundation-1 support.
+- plugin-safe updates let the UI check the GitHub release feed and open the download page without trying to self-replace files while a DAW is running.
+- rc-jerry / foundation-1 added structured BPM and key-aware loop generation as a second jerry sub-tab.
+- carey's remote complete mode gained ACE-Step XL model selection between [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base).
 
 ### carey (ace-step) joined the party
 
-the biggest addition to gary4juce yet. three modes powered by the [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) diffusion transformer:
+the biggest addition to gary4juce yet. four modes powered by the [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) diffusion transformer:
 
 - **lego** - generate vocals or backing vocals over your existing audio. loop assist handles short clips automatically.
-- **complete** - extend any audio into a full continuation. experimental, wildly creative when it converges.
+- **complete** - extend any audio into a full continuation.
 - **cover** - remix/restyle your audio with a text caption. chain with lego for a gibberish-to-lyrics workflow.
+- **extract** - try to pull out a target stem from your recording buffer. best bets so far are vocals, drums, and sometimes bass.
 
-plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, and inference step tuning.
-
-v3.0.2 adds remote complete-mode selection between [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) as the default and [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) for editable steps/cfg.
+plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, inference step tuning, and remote-only lora selection in complete/cover mode.
 
 **[detailed carey guide](CAREY.md)** - tips, parameter explanations, and workflow tricks.
 
@@ -153,7 +147,7 @@ it manages local envs for gary, terry, jerry, carey, and foundation-1 and lives 
 
 use [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac).
 
-same idea, same plugin workflow. current known gap: foundation-1 has not been added there yet.
+same idea, same plugin workflow. foundation-1 is now available there on apple silicon.
 
 for most people, the dedicated gary4local apps are the right localhost path now.
 
@@ -165,7 +159,7 @@ rc-jerry uses the [RC-stable-audio-tools](https://github.com/RoyalCities/RC-stab
 
 **localhost (windows):** available through [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer).
 
-**localhost (macOS):** not there yet in [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac).
+**localhost (macOS):** available on apple silicon through [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac).
 
 ### carey backend (ace-step)
 
@@ -259,22 +253,24 @@ learn more: https://huggingface.co/stabilityai/stable-audio-open-small
 - randomize button generates musically coherent presets via backend weighted prompt engine
 - save/load presets as `.f1preset` files
 - excels at synth, bass, keys, mallet, and brass loops
-- available on remote and in the windows build of gary4local
-- macOS localhost support is still pending in gary4local mac
+- available on remote, in the windows build of gary4local, and in gary4local mac on apple silicon
 
 learn more: https://huggingface.co/RoyalCities/Foundation-1
 
 ### carey tab (ace-step)
 
-three modes for stem generation, continuation, and remix:
+four modes for stem generation, extraction, continuation, and remix:
 
 - **lego** - generate vocals/backing vocals over your audio
 - **complete** - extend audio into a full continuation
 - **cover** - remix/restyle with caption guidance
+- **extract** - attempt target stem extraction from your recording buffer
 
 shared lyrics editor, 50-language support, key/scale selection, and per-tab cfg control.
 
 on the remote backend, complete mode defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) from advanced settings.
+
+lora selection is currently available for complete and cover on the remote backend only.
 
 **[full guide with tips and workflows](CAREY.md)**
 
@@ -353,7 +349,7 @@ gary4juce/
 |   |   +-- Gary/GaryUI.cpp/h         # musicgen interface
 |   |   +-- Jerry/JerryUI.cpp/h       # stable-audio interface
 |   |   +-- Foundation/FoundationUI.h # foundation-1 interface (jerry sub-tab)
-|   |   +-- Carey/CareyUI.h           # ace-step interface (lego/complete/cover)
+|   |   +-- Carey/CareyUI.h           # ace-step interface (lego/complete/cover/extract)
 |   |   +-- Terry/TerryUI.cpp/h       # melodyflow interface
 |   |   \-- Darius/DariusUI.cpp/h     # magenta interface
 |   \-- Utils/
@@ -386,8 +382,8 @@ steps:
 - **darius needs beefy hardware:** 24GB+ VRAM or use hugging face space
 - **terry occasionally weird:** melodyflow is still experimental, results vary
 - **carey cover mode:** progress display uses time-based estimation (ace-step doesn't report step counts for cover tasks)
-- **carey complete mode:** experimental - prefers fuller/denser input audio for best results
-- **foundation-1 on mac localhost:** still pending in gary4local mac
+- **carey complete mode:** much more reliable now, but it still prefers fuller/denser input audio for best results
+- **carey loras on localhost:** still rolling out in gary4local for windows and macOS
 
 ---
 
