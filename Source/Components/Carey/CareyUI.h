@@ -44,6 +44,8 @@ public:
 
     void setCurrentSubTab(SubTab tab) { setCurrentSubTabInternal(tab, false); }
     SubTab getCurrentSubTab() const { return currentSubTab; }
+    void applyRandomCompleteCaption();
+    void applyRandomCoverCaption();
 
     juce::String getCaptionText() const
     {
@@ -522,7 +524,9 @@ private:
     void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
     juce::String pickRandomCaption(const juce::StringArray& prompts, const juce::String& fallback);
     juce::StringArray getLegoPromptBankForTrack(const juce::String& trackName) const;
+    juce::StringArray getCompletePromptBank() const;
     void applyRandomLegoCaption();
+    juce::StringArray getCoverPromptBank() const;
     void setLyricsTextInternal(const juce::String& text, bool notify);
     void updateLyricsButtonLabels();
     void openLyricsEditor();

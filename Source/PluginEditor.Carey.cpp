@@ -288,6 +288,16 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
 
 void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
 {
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        if (careyUI != nullptr)
+        {
+            careyUI->applyRandomCompleteCaption();
+            showStatusMessage("using built-in complete caption (localhost)", 1500);
+        }
+        return;
+    }
+
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");
@@ -397,6 +407,16 @@ void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
 
 void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
 {
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        if (careyUI != nullptr)
+        {
+            careyUI->applyRandomCoverCaption();
+            showStatusMessage("using built-in cover caption (localhost)", 1500);
+        }
+        return;
+    }
+
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");

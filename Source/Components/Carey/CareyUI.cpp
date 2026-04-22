@@ -1875,11 +1875,53 @@ juce::StringArray CareyUI::getLegoPromptBankForTrack(const juce::String& trackNa
     };
 }
 
+juce::StringArray CareyUI::getCompletePromptBank() const
+{
+    return {
+        "A dark, aggressive phonk and trap track built on chopped soul samples and a crushing 808 bassline, with pitched-down vocal chops, menacing minor-key synth stabs, and relentless trap hi-hat patterns. The energy escalates through a heavy, cinematic drop with layered distorted synths and punishing sub bass. The arrangement is dense and relentless, driving forward with a locked groove and an atmosphere that is suffocating, menacing, and intensely physical.",
+        "A warm indie folk arrangement with fingerpicked acoustic guitar, soft upright bass, brushed drums, and intimate vocal textures. Gentle strings bloom in the background while piano doubles key melodic moments. The track grows naturally from sparse verses into a wide, emotional chorus with layered harmonies, preserving an organic feel and hand-played dynamics throughout.",
+        "A modern alt-pop production with tight drums, pulsing synth bass, and glossy vocal layers that alternate between breathy restraint and powerful hook delivery. The arrangement balances clean verse sections with a high-impact chorus, adding subtle ear-candy, reverse textures, and rhythmic vocal chops while maintaining a polished, radio-ready mix.",
+        "A cinematic post-rock soundscape driven by evolving clean electric guitars, wide reverbs, and emotional piano motifs over a steady rhythm section. The dynamics rise in waves, moving from introspective ambient passages into broad, cathartic crescendos with sustained harmonic tension, thick low-end support, and expansive stereo depth.",
+        "A soulful neo-RnB groove with warm Rhodes chords, tight pocket drums, melodic electric bass, and expressive lead vocals supported by lush harmonies. The production favors smooth transitions, tasteful guitar fills, and rich midrange detail, creating a late-night atmosphere that feels intimate, confident, and deeply musical.",
+        "A high-energy electro-pop and dance track with punchy four-on-the-floor drums, sidechained synth stacks, and euphoric topline hooks. Bright arpeggios and riser effects build momentum into explosive drops, while layered vocals and rhythmic ad-libs keep the arrangement energetic, modern, and festival-ready.",
+        "A moody lo-fi hip-hop and jazz fusion piece with dusty drums, mellow piano voicings, tape-style saturation, and subtle ambient textures. The groove stays relaxed but focused, with soft melodic motifs and understated harmonic movement that feel reflective, nocturnal, and emotionally grounded.",
+        "A contemporary rock production with driving drums, gritty rhythm guitars, melodic lead lines, and anthemic vocal phrasing. The arrangement combines tight verse groove, soaring choruses, and a dynamic bridge with cinematic lift, delivering raw energy while keeping instrument separation and mix clarity strong."
+    };
+}
+
 void CareyUI::applyRandomLegoCaption()
 {
     const juce::String caption = pickRandomCaption(getLegoPromptBankForTrack(getTrackName()),
                                                    "supporting stem with musical clarity");
     captionEditor.setText(caption, juce::sendNotification);
+}
+
+void CareyUI::applyRandomCompleteCaption()
+{
+    const juce::String caption = pickRandomCaption(getCompletePromptBank(),
+                                                   "A dark, aggressive phonk and trap track built on chopped soul samples and crushing low-end, with menacing synth movement and relentless rhythmic drive.");
+    completeCaptionEditor.setText(caption, juce::sendNotification);
+}
+
+juce::StringArray CareyUI::getCoverPromptBank() const
+{
+    return {
+        "orchestral symphonic arrangement with lush strings and cinematic dynamics",
+        "lo-fi bedroom pop reimagining with tape warmth and dreamy vocal processing",
+        "stripped-down acoustic folk cover with fingerpicked guitar and intimate vocals",
+        "heavy metal reinterpretation with distorted guitars and aggressive energy",
+        "jazzy lounge arrangement with smooth piano, walking bass, and mellow horns",
+        "electronic synthwave rework with retro synths, gated reverb, and pulsing arpeggios",
+        "reggae dub version with offbeat guitar, deep bass, and echo-heavy mixing",
+        "bossa nova arrangement with nylon guitar, soft percussion, and gentle phrasing"
+    };
+}
+
+void CareyUI::applyRandomCoverCaption()
+{
+    const juce::String caption = pickRandomCaption(getCoverPromptBank(),
+                                                   "orchestral symphonic arrangement with lush strings and cinematic dynamics");
+    coverCaptionEditor.setText(caption, juce::sendNotification);
 }
 
 void CareyUI::setLyricsTextInternal(const juce::String& text, bool notify)
