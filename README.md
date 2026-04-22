@@ -27,6 +27,8 @@ gary4juce gives you six AI music models directly in your DAW:
 
 put it on your master, press play, record some audio, and start iterating.
 
+> note: carey LoRA selection and LoRA-specific dice caption pools currently work on the remote backend only. localhost carey still runs without those LoRA features for now.
+
 ---
 
 ## TODO

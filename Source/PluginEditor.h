@@ -291,20 +291,31 @@ private:
     juce::String currentCareyLyrics = "";     // Shared across all 3 tabs
     juce::String currentCareyLanguage = "en"; // Language code for lyrics vocalization
     juce::String currentCareyCompleteCaption = "";
+    juce::String currentCareyCompleteLora = "";
     juce::String currentCareyCompleteModel = "xl-turbo";
     int currentCareyCompleteBpm = 120;
     int currentCareyCompleteSteps = 50;
     double currentCompleteCfg = 7.0;
     int currentCareyCompleteDurationSeconds = 120;
+    bool currentCareyCompleteUseLora = false;
     bool currentCompleteUseSrcAsRef = false;
+    juce::StringArray availableCareyLoras;
+    juce::String careyLoraFetchBackendUrl;
+    std::atomic<int> careyLoraFetchNonce { 0 };
+    std::atomic<int> careyCaptionRequestNonce { 0 };
     juce::String currentCoverCaption = "";
+    static constexpr bool kCareyCoverModelExperimentEnabled = true;
+    juce::String currentCoverModel = "xl-turbo";
+    juce::String currentCoverLora = "";
     double currentCoverNoiseStrength = 0.2;
     double currentCoverAudioStrength = 0.3;
     int currentCoverSteps = CareyUI::kFixedCoverSteps;
     double currentCoverCfg = CareyUI::kFixedCoverCfg;
+    bool currentCoverUseLora = false;
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;
+    std::atomic<int> careyCoverCaptionRequestNonce { 0 };
     juce::String currentCareyExtractTrackName = "drums";
     int currentCareyExtractBpm = 120;
     int currentCareyExtractSteps = CareyUI::kDefaultExtractSteps;
@@ -322,6 +333,12 @@ private:
     double getCareyBpmForRequest() const;
     bool isCareyTabAvailable() const;
     void updateCareyTabAvailability();
+    void refreshCareyAvailableLoras(bool force = false);
+    void syncCareyLoraUi();
+    void requestCareyCompleteCaption();
+    void requestCareyCoverCaption();
+    juce::String getSelectedCareyCompleteLora() const;
+    juce::String getSelectedCareyCoverLora() const;
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
