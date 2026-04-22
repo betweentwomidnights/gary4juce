@@ -1,13 +1,14 @@
 {
   "channel": "stable",
-  "latest_version": "3.0.3",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.3",
+  "latest_version": "3.0.4",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.4",
   "sha256": null,
-  "published_at": "2026-04-11T00:00:00Z",
+  "published_at": "2026-04-22T05:18:39Z",
   "notes": [
-    "Carey complete mode now adapts to the backend: remote keeps xl-turbo / xl-base, while localhost uses turbo / base / sft.",
-    "Localhost complete requests now send explicit model choices that line up with gary4local's new Carey XL toggle and routing logic.",
-    "Turbo remains fixed at 8 steps / CFG 1.0, while base and sft keep editable steps / CFG for slower higher-control runs.",
+    "Carey now supports remote LoRA selection in complete and cover mode, with LoRA-specific caption pools served from the remote backend.",
+    "LoRA functionality is still remote-backend only in this release. On localhost, complete and cover dice fall back to the built-in caption pools.",
+    "Cover mode now includes the same xl-turbo / xl-base experiment path as complete mode.",
+    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.5",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
