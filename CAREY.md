@@ -1,6 +1,6 @@
 # carey (ace-step) - guide
 
-carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with three modes: **lego**, **complete**, and **cover**. each mode uses the same underlying DiT (diffusion transformer) model but approaches generation differently.
+carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with four modes: **lego**, **complete**, **cover**, and **extract**. each mode uses the same underlying model family, but the backend routing and the best practices are a little different depending on what you're trying to do.
 
 backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
@@ -17,6 +17,12 @@ backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 - **vocals and backing vocals are the sweet spot.** these produce genuinely impressive results. the other stem options (synth, keyboard, etc.) will generate layers that harmonically "fit" your audio, but tend to sound generic. the chords are correct though, so they can serve as a compositional reference.
 - **backing vocals trick:** sound out words that match the syllables you hear in the existing vocal layer. alternatively, if you generated vocals with lyrics, use the same lyrics for backing vocals - the model will create harmonies.
 - **lyrics are optional.** leave them blank for wordless vocal generation (humming, "la la la", etc.). this produces surprisingly musical results and is great as a starting point for the cover mode workflow described below.
+
+### backend notes
+
+- on the remote backend, we moved away from a blanket xl-base lego path for now. xl-base was often singing poorly over our instrumentals and sometimes produced garbled outputs.
+- for lego tasks other than vocals, xl-base can still be more reliable in some cases, but we still don't think those outputs are especially amazing yet.
+- on localhost, lego just uses whichever ace-step backend you currently have loaded, whether that's regular base or xl-base.
 
 ### loop assist & trim to input
 
@@ -35,7 +41,7 @@ the model doesn't perform well with audio shorter than ~1 minute. loop assist du
 
 ### tips
 
-- **this mode is experimental.** results vary wildly between generations. when it converges on something good, it really slaps.
+- **as of april 22, 2026, this mode is much more reliable.** older complete-mode builds were more unhinged and could sometimes create very wild, interesting continuations, but the current backend uses the repainting branch of ace-step and lands in a more controllable place.
 - **the model prefers "full" input audio.** if you record just a solo guitar layer and try to continue it (like you would with musicgen/gary), the model may decide to overwrite your conditioning audio entirely. it works best with denser arrangements as input.
 - **duration slider** controls how long the output will be (30-180 seconds). the model generates the full duration including your input audio as the beginning.
 - **use source as reference** passes your audio as both the conditioning input and a style reference, encouraging the continuation to stay closer to your original timbre and feel.
@@ -62,14 +68,37 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 - **vocals make everything better.** the model produces noticeably higher quality cover outputs when vocals are present in the input audio.
 - **the gibberish-to-lyrics workflow:** generate wordless vocals in lego mode (no lyrics set), then switch to cover mode and type actual lyrics. the model will fill in the vocal melody with real words. this gets powerful with iteration.
 - **loop assist is less reliable here.** cover mode has the same loop assist/trim-to-input functionality as lego, but the results are less consistent with looped short audio. if possible, give it a full minute+ of source material.
+- **as of april 22, 2026, cover mode is much more reliable than it used to be, but it's still hard to fully nail down.** one very practical use is cleaning up a noisy xl-base complete result. running that through cover mode with xl-turbo and a fairly high `cover_noise_strength` can make it feel much shinier.
+- **if you're chasing melodyflow-style flow matching, be careful.** dropping `cover_noise_strength` low enough to transform the audio more aggressively can also change your chords quite a bit.
 
 ---
 
-## shared features across all modes
+## extract mode
+
+**what it does:** tries to pull out a target stem from your recorded audio using the carey workflow instead of a traditional separator.
+
+### notes
+
+- **vocals are the strongest use case so far.** we've also had some genuinely useful bass extractions.
+- **expect noise.** the outputs can be messy, but inside a daw you can often make them usable with filtering, editing, or additional processing.
+- **guitars have been rough.** we've had terrible results trying to extract guitars so far.
+- **most of the other extract targets are still lightly tested as of april 22, 2026.** this model can do so much, and we haven't had time to fully dogfood every extract-mode option yet.
+
+---
+
+## lora adapters
+
+- loras can currently be used in **complete** or **cover** mode.
+- adapters trained on **xl-base** can also be used on **xl-turbo**.
+- todo: add a fuller write-up on how we train and package loras for the remote backend. the current remote adapters were trained with [Side-Step](https://github.com/koda-dernet/Side-Step), a standalone ace-step 1.5 training toolkit with variant-aware adapter fine-tuning.
+
+---
+
+## shared features across the main generation modes
 
 ### lyrics
 
-- one shared lyrics editor across all three tabs - click the **lyrics** button on any tab
+- one shared lyrics editor across lego, complete, and cover - click the **lyrics** button on any of those tabs
 - supports [structure tags] like `[Verse 1]`, `[Chorus]`, etc.
 - use one line per phrase
 - leave blank for instrumental/wordless generation

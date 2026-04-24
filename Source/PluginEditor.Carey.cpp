@@ -111,8 +111,12 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
     if (careyUI)
     {
         careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
+        careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
+        careyUI->setCoverRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
         careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
     }
+
+    refreshCareyAvailableLoras(false);
 
     if (audioProcessor.getIsUsingLocalhost())
         careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
@@ -124,6 +128,390 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
 
     updateTabButtonStates();
     updateCareyEnablementSnapshot();
+}
+
+juce::String Gary4juceAudioProcessorEditor::getSelectedCareyCompleteLora() const
+{
+    if (!currentCareyCompleteUseLora)
+        return {};
+
+    const juce::String requestedLora = currentCareyCompleteLora.trim();
+    if (requestedLora.isEmpty())
+        return {};
+
+    for (const auto& availableLora : availableCareyLoras)
+    {
+        if (availableLora.equalsIgnoreCase(requestedLora))
+            return availableLora;
+    }
+
+    return {};
+}
+
+juce::String Gary4juceAudioProcessorEditor::getSelectedCareyCoverLora() const
+{
+    if (!currentCoverUseLora)
+        return {};
+
+    const juce::String requestedLora = currentCoverLora.trim();
+    if (requestedLora.isEmpty())
+        return {};
+
+    for (const auto& availableLora : availableCareyLoras)
+    {
+        if (availableLora.equalsIgnoreCase(requestedLora))
+            return availableLora;
+    }
+
+    return {};
+}
+
+void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
+{
+    if (!careyUI)
+        return;
+
+    careyUI->setAvailableCompleteLoras(availableCareyLoras);
+    careyUI->setCompleteSelectedLora(currentCareyCompleteLora);
+    careyUI->setCompleteUseLora(currentCareyCompleteUseLora);
+    careyUI->setAvailableCoverLoras(availableCareyLoras);
+    careyUI->setCoverSelectedLora(currentCoverLora);
+    careyUI->setCoverUseLora(currentCoverUseLora);
+}
+
+void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
+{
+    const juce::String loraUrl = getServiceUrl(ServiceType::Carey, "/loras");
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+
+    if (!force
+        && loraUrl == careyLoraFetchBackendUrl
+        && nowMs - careyLoraLastFetchMs < 2000)
+        return;
+
+    if (careyLoraFetchInFlight.exchange(true))
+        return;
+
+    careyLoraFetchBackendUrl = loraUrl;
+    careyLoraLastFetchMs = nowMs;
+    const int fetchNonce = careyLoraFetchNonce.fetch_add(1) + 1;
+
+    juce::Thread::launch([this, fetchNonce, loraUrl]()
+    {
+        juce::StringArray fetchedLoras;
+        bool success = false;
+
+        try
+        {
+            juce::URL url(loraUrl);
+            int statusCode = 0;
+            auto requestOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withHttpRequestCmd("GET")
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+
+            auto stream = url.createInputStream(requestOptions);
+            if (stream != nullptr && statusCode < 400)
+            {
+                const juce::String responseText = stream->readEntireStreamAsString();
+                const juce::var responseVar = juce::JSON::parse(responseText);
+                if (auto* responseObj = responseVar.getDynamicObject())
+                {
+                    for (const auto& entry : responseObj->getProperties())
+                    {
+                        const juce::String loraName = entry.name.toString().trim();
+                        if (loraName.isNotEmpty() && !fetchedLoras.contains(loraName))
+                            fetchedLoras.add(loraName);
+                    }
+
+                    fetchedLoras.sortNatural();
+                    success = true;
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("[carey-lora] failed to fetch /loras: " + juce::String(e.what()));
+        }
+        catch (...)
+        {
+            DBG("[carey-lora] failed to fetch /loras");
+        }
+
+        juce::MessageManager::callAsync([this, fetchNonce, loraUrl, fetchedLoras, success]()
+        {
+            careyLoraFetchInFlight.store(false);
+
+            if (careyLoraFetchNonce.load() != fetchNonce)
+                return;
+
+            if (getServiceUrl(ServiceType::Carey, "/loras") != loraUrl)
+                return;
+
+            availableCareyLoras = success ? fetchedLoras : juce::StringArray();
+
+            juce::String resolvedLora;
+            for (const auto& availableLora : availableCareyLoras)
+            {
+                if (availableLora.equalsIgnoreCase(currentCareyCompleteLora))
+                {
+                    resolvedLora = availableLora;
+                    break;
+                }
+            }
+
+            if (resolvedLora.isNotEmpty())
+                currentCareyCompleteLora = resolvedLora;
+            else if (!availableCareyLoras.isEmpty())
+                currentCareyCompleteLora = availableCareyLoras[0];
+            else
+                currentCareyCompleteLora = {};
+
+            juce::String resolvedCoverLora;
+            for (const auto& availableLora : availableCareyLoras)
+            {
+                if (availableLora.equalsIgnoreCase(currentCoverLora))
+                {
+                    resolvedCoverLora = availableLora;
+                    break;
+                }
+            }
+
+            if (resolvedCoverLora.isNotEmpty())
+                currentCoverLora = resolvedCoverLora;
+            else if (!availableCareyLoras.isEmpty())
+                currentCoverLora = availableCareyLoras[0];
+            else
+                currentCoverLora = {};
+
+            if (availableCareyLoras.isEmpty())
+            {
+                currentCareyCompleteUseLora = false;
+                currentCoverUseLora = false;
+            }
+
+            syncCareyLoraUi();
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
+{
+    if (!isServiceReachable(ServiceType::Carey))
+    {
+        showStatusMessage("carey not reachable - check connection first");
+        return;
+    }
+
+    const juce::String requestedLora = getSelectedCareyCompleteLora();
+    const juce::String captionsUrl = getServiceUrl(ServiceType::Carey, "/captions");
+    const int requestNonce = careyCaptionRequestNonce.fetch_add(1) + 1;
+
+    showStatusMessage(requestedLora.isNotEmpty()
+        ? ("loading " + requestedLora + " caption...")
+        : "loading carey caption...",
+        1500);
+
+    juce::Thread::launch([this, requestNonce, requestedLora, captionsUrl]()
+    {
+        juce::String caption;
+        juce::String failureReason = requestedLora.isNotEmpty()
+            ? ("failed to load " + requestedLora + " caption")
+            : "failed to load carey caption";
+
+        auto extractErrorMessage = [](const juce::var& responseVar) -> juce::String
+        {
+            if (auto* responseObj = responseVar.getDynamicObject())
+            {
+                const juce::String message = responseObj->getProperty("detail").toString().trim();
+                if (message.isNotEmpty())
+                    return message;
+
+                const juce::String error = responseObj->getProperty("error").toString().trim();
+                if (error.isNotEmpty())
+                    return error;
+
+                const juce::String statusMessage = responseObj->getProperty("message").toString().trim();
+                if (statusMessage.isNotEmpty())
+                    return statusMessage;
+            }
+
+            return {};
+        };
+
+        try
+        {
+            juce::URL url(captionsUrl);
+            if (requestedLora.isNotEmpty())
+                url = url.withParameter("lora", requestedLora);
+
+            int statusCode = 0;
+            auto requestOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withHttpRequestCmd("GET")
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+
+            auto stream = url.createInputStream(requestOptions);
+            if (stream != nullptr)
+            {
+                const juce::String responseText = stream->readEntireStreamAsString();
+                const juce::var responseVar = juce::JSON::parse(responseText);
+
+                if (statusCode < 400)
+                {
+                    if (auto* responseObj = responseVar.getDynamicObject())
+                        caption = responseObj->getProperty("caption").toString().trim();
+
+                    if (caption.isEmpty())
+                        failureReason = "carey caption response was missing a caption";
+                }
+                else
+                {
+                    const juce::String serverMessage = extractErrorMessage(responseVar);
+                    if (serverMessage.isNotEmpty())
+                        failureReason = serverMessage;
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            failureReason = "failed to load carey caption: " + juce::String(e.what());
+        }
+        catch (...)
+        {
+            failureReason = "failed to load carey caption";
+        }
+
+        juce::MessageManager::callAsync([this, requestNonce, captionsUrl, caption, failureReason]()
+        {
+            if (careyCaptionRequestNonce.load() != requestNonce)
+                return;
+
+            if (getServiceUrl(ServiceType::Carey, "/captions") != captionsUrl)
+                return;
+
+            if (caption.isNotEmpty())
+            {
+                currentCareyCompleteCaption = caption;
+                if (careyUI)
+                    careyUI->setCompleteCaptionText(caption);
+                return;
+            }
+
+            showStatusMessage(failureReason, 3500);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
+{
+    if (!isServiceReachable(ServiceType::Carey))
+    {
+        showStatusMessage("carey not reachable - check connection first");
+        return;
+    }
+
+    const juce::String requestedLora = getSelectedCareyCoverLora();
+    const juce::String captionsUrl = getServiceUrl(ServiceType::Carey, "/captions");
+    const int requestNonce = careyCoverCaptionRequestNonce.fetch_add(1) + 1;
+
+    showStatusMessage(requestedLora.isNotEmpty()
+        ? ("loading " + requestedLora + " cover caption...")
+        : "loading carey cover caption...",
+        1500);
+
+    juce::Thread::launch([this, requestNonce, requestedLora, captionsUrl]()
+    {
+        juce::String caption;
+        juce::String failureReason = requestedLora.isNotEmpty()
+            ? ("failed to load " + requestedLora + " cover caption")
+            : "failed to load carey cover caption";
+
+        auto extractErrorMessage = [](const juce::var& responseVar) -> juce::String
+        {
+            if (auto* responseObj = responseVar.getDynamicObject())
+            {
+                const juce::String message = responseObj->getProperty("detail").toString().trim();
+                if (message.isNotEmpty())
+                    return message;
+
+                const juce::String error = responseObj->getProperty("error").toString().trim();
+                if (error.isNotEmpty())
+                    return error;
+
+                const juce::String statusMessage = responseObj->getProperty("message").toString().trim();
+                if (statusMessage.isNotEmpty())
+                    return statusMessage;
+            }
+
+            return {};
+        };
+
+        try
+        {
+            juce::URL url(captionsUrl);
+            if (requestedLora.isNotEmpty())
+                url = url.withParameter("lora", requestedLora);
+
+            int statusCode = 0;
+            auto requestOptions = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withHttpRequestCmd("GET")
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+
+            auto stream = url.createInputStream(requestOptions);
+            if (stream != nullptr)
+            {
+                const juce::String responseText = stream->readEntireStreamAsString();
+                const juce::var responseVar = juce::JSON::parse(responseText);
+
+                if (statusCode < 400)
+                {
+                    if (auto* responseObj = responseVar.getDynamicObject())
+                        caption = responseObj->getProperty("caption").toString().trim();
+
+                    if (caption.isEmpty())
+                        failureReason = "carey cover caption response was missing a caption";
+                }
+                else
+                {
+                    const juce::String serverMessage = extractErrorMessage(responseVar);
+                    if (serverMessage.isNotEmpty())
+                        failureReason = serverMessage;
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            failureReason = "failed to load carey cover caption: " + juce::String(e.what());
+        }
+        catch (...)
+        {
+            failureReason = "failed to load carey cover caption";
+        }
+
+        juce::MessageManager::callAsync([this, requestNonce, captionsUrl, caption, failureReason]()
+        {
+            if (careyCoverCaptionRequestNonce.load() != requestNonce)
+                return;
+
+            if (getServiceUrl(ServiceType::Carey, "/captions") != captionsUrl)
+                return;
+
+            if (caption.isNotEmpty())
+            {
+                currentCoverCaption = caption;
+                if (careyUI)
+                    careyUI->setCoverCaptionText(caption);
+                return;
+            }
+
+            showStatusMessage(failureReason, 3500);
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::sendToCarey()
@@ -1062,11 +1450,13 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
     const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
+    const juce::String selectedLora = getSelectedCareyCompleteLora();
     const bool useSrcAsRef = currentCompleteUseSrcAsRef;
 
     DBG("[carey-complete] request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
         + ", model=" + submitCompleteModel
+        + ", lora=" + (selectedLora.isEmpty() ? juce::String("none") : selectedLora)
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
@@ -1106,7 +1496,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     showStatusMessage("submitting carey complete request...", 2500);
 
-    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, useSrcAsRef, submitCompleteModel, cancelCareyOperation]()
+    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, useSrcAsRef, submitCompleteModel, cancelCareyOperation]()
     {
         juce::String failureReason;
         juce::String failureDetail;
@@ -1141,6 +1531,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 submitPayload->setProperty("audio_duration", (double)targetDurationSeconds);
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);
+                if (selectedLora.isNotEmpty())
+                    submitPayload->setProperty("lora", selectedLora);
                 if (keyScale.isNotEmpty())
                     submitPayload->setProperty("key_scale", keyScale);
                 if (language.isNotEmpty() && language != "en")
@@ -1387,14 +1779,30 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const juce::String language = currentCareyLanguage;
     const double coverNoiseStrength = juce::jlimit(0.0, 1.0, currentCoverNoiseStrength);
     const double audioCoverStrength = juce::jlimit(0.0, 1.0, currentCoverAudioStrength);
-    const double guidanceScale = CareyUI::kFixedCoverCfg;
-    const int inferenceSteps = CareyUI::kFixedCoverSteps;
+    const bool useCoverModelExperiment = kCareyCoverModelExperimentEnabled;
+    const juce::String requestedCoverModel = currentCoverModel.trim().toLowerCase();
+    const bool useCoverTurboModel = !useCoverModelExperiment
+        || requestedCoverModel.isEmpty()
+        || requestedCoverModel.contains("turbo");
+    const juce::String submitCoverModel = useCoverModelExperiment
+        ? (isUsingLocalhost ? (useCoverTurboModel ? "turbo" : "base")
+                            : (useCoverTurboModel ? "xl-turbo" : "xl-base"))
+        : juce::String();
+    const double guidanceScale = useCoverTurboModel
+        ? CareyUI::kFixedCoverCfg
+        : juce::jlimit(3.0, 10.0, currentCoverCfg);
+    const int inferenceSteps = useCoverTurboModel
+        ? CareyUI::kFixedCoverSteps
+        : juce::jlimit(8, 100, currentCoverSteps);
+    const juce::String selectedLora = getSelectedCareyCoverLora();
     const bool useSrcAsRef = currentCoverUseSrcAsRef;
     const bool loopAssistEnabled = currentCoverLoopAssistEnabled;
     const bool trimToInputEnabled = currentCoverTrimToInputEnabled;
 
-    DBG("[carey-cover] remote request metas - bpm=" + juce::String(bpm)
+    DBG("[carey-cover] request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
+        + ", model=" + (submitCoverModel.isEmpty() ? juce::String("default") : submitCoverModel)
+        + ", lora=" + (selectedLora.isEmpty() ? juce::String("none") : selectedLora)
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", noise_str=" + juce::String(coverNoiseStrength, 3)
@@ -1439,7 +1847,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     showStatusMessage("submitting carey cover request...", 2500);
 
     juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
-                          audioCoverStrength, guidanceScale, inferenceSteps, useSrcAsRef,
+                          audioCoverStrength, guidanceScale, inferenceSteps, selectedLora, submitCoverModel, useSrcAsRef,
                           loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
     {
         juce::String failureReason;
@@ -1602,6 +2010,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 submitPayload->setProperty("bpm", bpm);
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);
+                if (selectedLora.isNotEmpty())
+                    submitPayload->setProperty("lora", selectedLora);
+                if (submitCoverModel.isNotEmpty())
+                    submitPayload->setProperty("model", submitCoverModel);
                 if (keyScale.isNotEmpty())
                     submitPayload->setProperty("key_scale", keyScale);
                 if (language.isNotEmpty() && language != "en")

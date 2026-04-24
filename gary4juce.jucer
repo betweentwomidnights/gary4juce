@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="3.0.3"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="3.0.5"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE">

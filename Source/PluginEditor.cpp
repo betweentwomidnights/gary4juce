@@ -416,6 +416,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI = std::make_unique<CareyUI>();
     addAndMakeVisible(*careyUI);
 
+    careyUI->onSubTabChanged = [this](CareyUI::SubTab tab)
+    {
+        if (tab == CareyUI::SubTab::Complete || tab == CareyUI::SubTab::Cover)
+            refreshCareyAvailableLoras(true);
+    };
     careyUI->onCaptionChanged = [this](const juce::String& text) { currentCareyCaption = text; };
     careyUI->onTrackChanged = [this](const juce::String& track) { currentCareyTrackName = track.trim().toLowerCase(); };
     careyUI->onStepsChanged = [this](int steps) { currentCareySteps = juce::jlimit(32, 100, steps); };
@@ -433,6 +438,20 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onExtractGenerate = [this]() { sendToCareyExtract(); };
 
     careyUI->onCompleteCaptionChanged = [this](const juce::String& text) { currentCareyCompleteCaption = text; };
+    careyUI->onCompleteCaptionDiceRequested = [this]() { requestCareyCompleteCaption(); };
+    careyUI->onCompleteUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyCompleteUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyCompleteUseLora && currentCareyCompleteLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyCompleteLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onCompleteLoraChanged = [this](const juce::String& loraName)
+    {
+        currentCareyCompleteLora = loraName.trim();
+    };
     careyUI->onCompleteModelChanged = [this](const juce::String& model)
     {
         currentCareyCompleteModel = model.trim().toLowerCase();
@@ -446,11 +465,29 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
 
     careyUI->onCoverCaptionChanged = [this](const juce::String& text) { currentCoverCaption = text; };
+    careyUI->onCoverCaptionDiceRequested = [this]() { requestCareyCoverCaption(); };
+    careyUI->onCoverUseLoraChanged = [this](bool enabled)
+    {
+        currentCoverUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCoverUseLora && currentCoverLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCoverLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onCoverLoraChanged = [this](const juce::String& loraName)
+    {
+        currentCoverLora = loraName.trim();
+    };
+    careyUI->onCoverModelChanged = [this](const juce::String& model)
+    {
+        currentCoverModel = model.trim().toLowerCase();
+    };
     // onCoverLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCoverNoiseStrengthChanged = [this](double val) { currentCoverNoiseStrength = juce::jlimit(0.0, 1.0, val); };
     careyUI->onCoverAudioStrengthChanged = [this](double val) { currentCoverAudioStrength = juce::jlimit(0.0, 1.0, val); };
-    careyUI->onCoverStepsChanged = [this](int) { currentCoverSteps = CareyUI::kFixedCoverSteps; };
-    careyUI->onCoverCfgChanged = [this](double) { currentCoverCfg = CareyUI::kFixedCoverCfg; };
+    careyUI->onCoverStepsChanged = [this](int steps) { currentCoverSteps = juce::jlimit(8, 100, steps); };
+    careyUI->onCoverCfgChanged = [this](double val) { currentCoverCfg = juce::jlimit(1.0, 10.0, val); };
     careyUI->onCoverUseSrcAsRefChanged = [this](bool enabled) { currentCoverUseSrcAsRef = enabled; };
     careyUI->onCoverLoopAssistChanged = [this](bool enabled) { currentCoverLoopAssistEnabled = enabled; };
     careyUI->onCoverTrimToInputChanged = [this](bool enabled) { currentCoverTrimToInputEnabled = enabled; };
@@ -477,12 +514,17 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
     careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
+    careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
+    careyUI->setCoverRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
+    careyUI->setCoverModel(currentCoverModel);
     careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);
     careyUI->setCoverSteps(currentCoverSteps);
     careyUI->setCoverCfg(currentCoverCfg);
+    careyUI->setCoverUseLora(currentCoverUseLora);
     careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
+    syncCareyLoraUi();
     careyUI->setGenerateButtonEnabled(false, false);
 
     // Restore persisted lyrics + language from processor (shared across all tabs)
@@ -943,7 +985,10 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     {
         careyUI->setVisibleForTab(showCarey);
         if (showCarey)
+        {
+            refreshCareyAvailableLoras(true);
             updateCareyEnablementSnapshot();
+        }
     }
 
     // Darius controls visibility

@@ -1,13 +1,14 @@
 {
   "channel": "stable-mac",
-  "latest_version": "3.0.2-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.2-mac",
+  "latest_version": "3.0.3-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.3-mac",
   "sha256": null,
-  "published_at": "2026-04-07T00:00:00Z",
+  "published_at": "2026-04-14T11:42:17Z",
   "notes": [
-    "Mac build of gary4juce v3.0.2.",
-    "Adds the in-plugin check updates button and plugin-safe update prompt.",
-    "Carey complete mode on the remote backend now supports ACE-Step v1.5 XL models.",
+    "Mac build of gary4juce v3.0.3-mac.",
+    "Carey complete keeps ACE-Step XL selection on the remote backend and now routes localhost complete mode through turbo, base, or sft.",
+    "This release was tested against gary4local macOS v0.1.5.",
+    "Standalone is included for convenience, but VST3 and AU remain the recommended experience right now.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

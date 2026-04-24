@@ -373,8 +373,12 @@ CareyUI::CareyUI()
 
     completeCaptionDiceButton.setButtonText("");
     completeCaptionDiceButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
-    completeCaptionDiceButton.setTooltip("generate a random continuation caption");
-    completeCaptionDiceButton.onClick = [this]() { applyRandomCompleteCaption(); };
+    completeCaptionDiceButton.setTooltip("fetch a backend caption for complete mode");
+    completeCaptionDiceButton.onClick = [this]()
+    {
+        if (onCompleteCaptionDiceRequested)
+            onCompleteCaptionDiceRequested();
+    };
     completeCaptionDiceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
     {
         drawDiceIcon(g, bounds.toFloat().reduced(2.0f), completeCaptionDiceButton.isMouseOver(), completeCaptionDiceButton.isDown());
@@ -386,6 +390,36 @@ CareyUI::CareyUI()
     completeLyricsButton.setTooltip("open multiline lyrics editor (optional)");
     completeLyricsButton.onClick = [this]() { openLyricsEditor(); };
     addToContent(completeLyricsButton);
+
+    completeUseLoraToggle.setButtonText("use lora");
+    completeUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+    completeUseLoraToggle.setTooltip("enable a backend LoRA adapter and use its caption pool for the dice button");
+    completeUseLoraToggle.setEnabled(false);
+    completeUseLoraToggle.onClick = [this]()
+    {
+        const bool enabled = completeUseLoraToggle.getToggleState() && !completeLoraOptionValues.isEmpty();
+        completeUseLoraToggle.setToggleState(enabled, juce::dontSendNotification);
+        if (onCompleteUseLoraChanged)
+            onCompleteUseLoraChanged(enabled);
+        updateContentLayout();
+    };
+    addToContent(completeUseLoraToggle);
+
+    completeLoraLabel.setText("lora", juce::dontSendNotification);
+    completeLoraLabel.setFont(juce::FontOptions(12.0f));
+    completeLoraLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    completeLoraLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(completeLoraLabel);
+
+    completeLoraComboBox.setTextWhenNothingSelected("select lora...");
+    completeLoraComboBox.setTooltip("choose which backend LoRA adapter to use for complete mode");
+    completeLoraComboBox.setEnabled(false);
+    completeLoraComboBox.onChange = [this]()
+    {
+        if (onCompleteLoraChanged)
+            onCompleteLoraChanged(getCompleteSelectedLora());
+    };
+    addToContent(completeLoraComboBox);
 
     completeAdvancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
     completeAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
@@ -532,8 +566,12 @@ CareyUI::CareyUI()
 
     coverCaptionDiceButton.setButtonText("");
     coverCaptionDiceButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
-    coverCaptionDiceButton.setTooltip("generate a random cover/remix style caption");
-    coverCaptionDiceButton.onClick = [this]() { applyRandomCoverCaption(); };
+    coverCaptionDiceButton.setTooltip("fetch a backend caption for cover mode");
+    coverCaptionDiceButton.onClick = [this]()
+    {
+        if (onCoverCaptionDiceRequested)
+            onCoverCaptionDiceRequested();
+    };
     coverCaptionDiceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
     {
         drawDiceIcon(g, bounds.toFloat().reduced(2.0f), coverCaptionDiceButton.isMouseOver(), coverCaptionDiceButton.isDown());
@@ -546,6 +584,36 @@ CareyUI::CareyUI()
     coverLyricsButton.onClick = [this]() { openLyricsEditor(); };
     addToContent(coverLyricsButton);
 
+    coverUseLoraToggle.setButtonText("use lora");
+    coverUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+    coverUseLoraToggle.setTooltip("enable a backend LoRA adapter and use its caption pool for the dice button");
+    coverUseLoraToggle.setEnabled(false);
+    coverUseLoraToggle.onClick = [this]()
+    {
+        const bool enabled = coverUseLoraToggle.getToggleState() && !coverLoraOptionValues.isEmpty();
+        coverUseLoraToggle.setToggleState(enabled, juce::dontSendNotification);
+        if (onCoverUseLoraChanged)
+            onCoverUseLoraChanged(enabled);
+        updateContentLayout();
+    };
+    addToContent(coverUseLoraToggle);
+
+    coverLoraLabel.setText("lora", juce::dontSendNotification);
+    coverLoraLabel.setFont(juce::FontOptions(12.0f));
+    coverLoraLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    coverLoraLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(coverLoraLabel);
+
+    coverLoraComboBox.setTextWhenNothingSelected("select lora...");
+    coverLoraComboBox.setTooltip("choose which backend LoRA adapter to use for cover mode");
+    coverLoraComboBox.setEnabled(false);
+    coverLoraComboBox.onChange = [this]()
+    {
+        if (onCoverLoraChanged)
+            onCoverLoraChanged(getCoverSelectedLora());
+    };
+    addToContent(coverLoraComboBox);
+
     coverAdvancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
     coverAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
     coverAdvancedToggle.setTooltip("show/hide advanced generation settings");
@@ -557,6 +625,20 @@ CareyUI::CareyUI()
         updateContentLayout();
     };
     addToContent(coverAdvancedToggle);
+
+    coverModelLabel.setText("model", juce::dontSendNotification);
+    coverModelLabel.setFont(juce::FontOptions(12.0f));
+    coverModelLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    coverModelLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(coverModelLabel);
+
+    coverTurboModelToggle.setToggleState(true, juce::dontSendNotification);
+    coverTurboModelToggle.onClick = [this]() { setCoverModel(coverRemoteModelSelectionEnabled ? "xl-turbo" : "turbo"); };
+    addToContent(coverTurboModelToggle);
+
+    coverBaseModelToggle.setToggleState(false, juce::dontSendNotification);
+    coverBaseModelToggle.onClick = [this]() { setCoverModel(coverRemoteModelSelectionEnabled ? "xl-base" : "base"); };
+    addToContent(coverBaseModelToggle);
 
     coverNoiseStrengthLabel.setText("noise strength", juce::dontSendNotification);
     coverNoiseStrengthLabel.setFont(juce::FontOptions(12.0f));
@@ -594,21 +676,15 @@ CareyUI::CareyUI()
     };
     addToContent(coverAudioStrengthSlider);
 
-    const juce::String fixedCoverModelTooltip =
-        "cover mode uses the turbo model with fixed 8 steps and cfg 1.0 on both localhost and remote.";
-
     coverStepsLabel.setText("steps", juce::dontSendNotification);
     coverStepsLabel.setFont(juce::FontOptions(12.0f));
     coverStepsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
     coverStepsLabel.setJustificationType(juce::Justification::centredLeft);
-    coverStepsLabel.setTooltip(fixedCoverModelTooltip);
     addToContent(coverStepsLabel);
 
     coverStepsSlider.setRange(8, 100, 1);
     coverStepsSlider.setValue(kFixedCoverSteps);
     coverStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
-    coverStepsSlider.setTooltip(fixedCoverModelTooltip);
-    coverStepsSlider.setEnabled(false);
     coverStepsSlider.onValueChange = [this]()
     {
         if (onCoverStepsChanged)
@@ -620,15 +696,12 @@ CareyUI::CareyUI()
     coverCfgLabel.setFont(juce::FontOptions(12.0f));
     coverCfgLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
     coverCfgLabel.setJustificationType(juce::Justification::centredLeft);
-    coverCfgLabel.setTooltip(fixedCoverModelTooltip);
     addToContent(coverCfgLabel);
 
     coverCfgSlider.setRange(1.0, 10.0, 0.1);
     coverCfgSlider.setValue(kFixedCoverCfg);
     coverCfgSlider.setNumDecimalPlacesToDisplay(1);
     coverCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
-    coverCfgSlider.setTooltip(fixedCoverModelTooltip);
-    coverCfgSlider.setEnabled(false);
     coverCfgSlider.onValueChange = [this]()
     {
         if (onCoverCfgChanged)
@@ -794,6 +867,8 @@ CareyUI::CareyUI()
     addToContent(extractInfoLabel);
 
     updateCompleteModelSelectorCopy();
+    updateCoverModelSelectorCopy();
+    updateCoverModelControls(false);
     updateLyricsButtonLabels();
     setCurrentSubTabInternal(SubTab::Lego, false);
 }
@@ -862,6 +937,91 @@ void CareyUI::updateCompleteModelSelectorCopy()
 
         completeSftModelToggle.setButtonText("sft");
         completeSftModelToggle.setTooltip("localhost complete sft model with editable steps and cfg. " + localHint);
+    }
+}
+
+juce::String CareyUI::getCoverModel() const
+{
+    return coverBaseModelToggle.getToggleState()
+        ? (coverRemoteModelSelectionEnabled ? "xl-base" : "base")
+        : (coverRemoteModelSelectionEnabled ? "xl-turbo" : "turbo");
+}
+
+void CareyUI::setCoverModel(const juce::String& model)
+{
+    const juce::String normalized = model.trim().toLowerCase();
+    const bool useTurboModel = normalized.isEmpty() || normalized.contains("turbo");
+
+    coverTurboModelToggle.setToggleState(useTurboModel, juce::dontSendNotification);
+    coverBaseModelToggle.setToggleState(!useTurboModel, juce::dontSendNotification);
+
+    updateCoverModelControls(true);
+}
+
+void CareyUI::setCoverModelSelectionEnabled(bool enabled)
+{
+    if (coverModelSelectionEnabled == enabled)
+        return;
+
+    coverModelSelectionEnabled = enabled;
+    if (!coverModelSelectionEnabled)
+        setCoverModel(coverRemoteModelSelectionEnabled ? "xl-turbo" : "turbo");
+    else
+        updateCoverModelControls(true);
+
+    updateContentLayout();
+}
+
+void CareyUI::setCoverRemoteModelSelectionEnabled(bool enabled)
+{
+    const juce::String currentModel = getCoverModel();
+    if (coverRemoteModelSelectionEnabled == enabled)
+        return;
+
+    coverRemoteModelSelectionEnabled = enabled;
+    setCoverModel(currentModel);
+    updateContentLayout();
+}
+
+void CareyUI::setCoverSteps(int steps)
+{
+    if (getCoverModel().containsIgnoreCase("turbo"))
+        coverStepsSlider.setValue(kFixedCoverSteps, juce::dontSendNotification);
+    else
+        coverStepsSlider.setValue(juce::jlimit(8, 100, steps), juce::dontSendNotification);
+}
+
+void CareyUI::setCoverCfg(double value)
+{
+    if (getCoverModel().containsIgnoreCase("turbo"))
+        coverCfgSlider.setValue(kFixedCoverCfg, juce::dontSendNotification);
+    else
+        coverCfgSlider.setValue(juce::jlimit(3.0, 10.0, value), juce::dontSendNotification);
+}
+
+void CareyUI::updateCoverModelSelectorCopy()
+{
+    if (coverRemoteModelSelectionEnabled)
+    {
+        coverModelLabel.setTooltip("remote cover model: xl-turbo is fixed at 8 steps / cfg 1.0; xl-base unlocks editable steps and cfg.");
+
+        coverTurboModelToggle.setButtonText("xl-turbo");
+        coverTurboModelToggle.setTooltip("fast remote cover model, fixed at 8 steps and cfg 1.0.");
+
+        coverBaseModelToggle.setButtonText("xl-base");
+        coverBaseModelToggle.setTooltip("remote cover base model with editable steps and cfg.");
+    }
+    else
+    {
+        const juce::String localHint = "if you want the xl variants instead, toggle carey xl models in gary4local. recommended: 16 GB VRAM.";
+
+        coverModelLabel.setTooltip("localhost cover model: turbo is fixed at 8 steps / cfg 1.0. base keeps editable steps and cfg. " + localHint);
+
+        coverTurboModelToggle.setButtonText("turbo");
+        coverTurboModelToggle.setTooltip("fast localhost cover model, fixed at 8 steps and cfg 1.0. " + localHint);
+
+        coverBaseModelToggle.setButtonText("base");
+        coverBaseModelToggle.setTooltip("localhost cover base model with editable steps and cfg. " + localHint);
     }
 }
 
@@ -1079,6 +1239,17 @@ void CareyUI::updateContentLayout()
             }
             y += 36;
 
+            completeUseLoraToggle.setBounds(fullRow(22));
+            y += 30;
+
+            if (completeUseLoraToggle.getToggleState() && !completeLoraOptionValues.isEmpty())
+            {
+                auto completeLoraRow = fullRow(28);
+                completeLoraLabel.setBounds(completeLoraRow.removeFromLeft(110));
+                completeLoraComboBox.setBounds(completeLoraRow);
+                y += 36;
+            }
+
             if (isStandalone)
             {
                 auto bpmRow = fullRow(28);
@@ -1134,6 +1305,29 @@ void CareyUI::updateContentLayout()
 
         if (coverAdvancedOpen)
         {
+            if (coverModelSelectionEnabled)
+            {
+                auto modelRow = fullRow(28);
+                coverModelLabel.setBounds(modelRow.removeFromLeft(110));
+                const int toggleGap = 8;
+                const int toggleWidth = (modelRow.getWidth() - toggleGap) / 2;
+                coverTurboModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
+                modelRow.removeFromLeft(toggleGap);
+                coverBaseModelToggle.setBounds(modelRow);
+                y += 36;
+            }
+
+            coverUseLoraToggle.setBounds(fullRow(22));
+            y += 30;
+
+            if (coverUseLoraToggle.getToggleState() && !coverLoraOptionValues.isEmpty())
+            {
+                auto coverLoraRow = fullRow(28);
+                coverLoraLabel.setBounds(coverLoraRow.removeFromLeft(110));
+                coverLoraComboBox.setBounds(coverLoraRow);
+                y += 36;
+            }
+
             auto noiseRow = fullRow(28);
             coverNoiseStrengthLabel.setBounds(noiseRow.removeFromLeft(110));
             coverNoiseStrengthSlider.setBounds(noiseRow);
@@ -1246,16 +1440,20 @@ void CareyUI::setLegoControlsVisible(bool shouldBeVisible)
 void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
 {
     const bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    const bool showAdvanced = shouldBeVisible && completeAdvancedOpen;
 
     completeCaptionLabel.setVisible(shouldBeVisible);
     completeCaptionEditor.setVisible(shouldBeVisible);
     completeCaptionDiceButton.setVisible(shouldBeVisible);
     completeLyricsButton.setVisible(shouldBeVisible);
+    completeUseLoraToggle.setVisible(showAdvanced);
+    const bool showLoraSelector = showAdvanced && completeUseLoraToggle.getToggleState() && !completeLoraOptionValues.isEmpty();
+    completeLoraLabel.setVisible(showLoraSelector);
+    completeLoraComboBox.setVisible(showLoraSelector);
     completeAdvancedToggle.setVisible(shouldBeVisible);
     completeGenerateButton.setVisible(shouldBeVisible);
     completeInfoLabel.setVisible(shouldBeVisible);
 
-    const bool showAdvanced = shouldBeVisible && completeAdvancedOpen;
     completeModelLabel.setVisible(showAdvanced);
     completeTurboModelToggle.setVisible(showAdvanced);
     completeBaseModelToggle.setVisible(showAdvanced);
@@ -1321,6 +1519,102 @@ void CareyUI::updateCompleteModelControls(bool notify)
     }
 }
 
+void CareyUI::setAvailableCompleteLoras(const juce::StringArray& loraNames)
+{
+    const juce::String previousSelection = getCompleteSelectedLora();
+    const bool wasUsingLora = completeUseLoraToggle.getToggleState();
+
+    completeLoraOptionValues.clear();
+    completeLoraComboBox.clear(juce::dontSendNotification);
+
+    juce::StringArray normalizedLoraNames;
+    for (const auto& rawName : loraNames)
+    {
+        const juce::String name = rawName.trim();
+        if (name.isNotEmpty() && !normalizedLoraNames.contains(name))
+            normalizedLoraNames.add(name);
+    }
+
+    normalizedLoraNames.sortNatural();
+
+    for (int i = 0; i < normalizedLoraNames.size(); ++i)
+    {
+        completeLoraOptionValues.add(normalizedLoraNames[i]);
+        completeLoraComboBox.addItem(normalizedLoraNames[i], i + 1);
+    }
+
+    const bool hasLoras = !completeLoraOptionValues.isEmpty();
+    completeUseLoraToggle.setEnabled(hasLoras);
+    completeUseLoraToggle.setTooltip(hasLoras
+        ? "enable a backend LoRA adapter and use its caption pool for the dice button"
+        : "no LoRA adapters are available on the current Carey backend");
+    completeLoraComboBox.setEnabled(hasLoras);
+    completeLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
+
+    if (hasLoras)
+    {
+        const int restoredIndex = findTrackIndex(completeLoraOptionValues, previousSelection.trim());
+        completeLoraComboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
+    }
+    else
+    {
+        completeUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+        completeLoraComboBox.setSelectedId(0, juce::dontSendNotification);
+    }
+
+    completeUseLoraToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
+
+    updateContentLayout();
+}
+
+void CareyUI::setAvailableCoverLoras(const juce::StringArray& loraNames)
+{
+    const juce::String previousSelection = getCoverSelectedLora();
+    const bool wasUsingLora = coverUseLoraToggle.getToggleState();
+
+    coverLoraOptionValues.clear();
+    coverLoraComboBox.clear(juce::dontSendNotification);
+
+    juce::StringArray normalizedLoraNames;
+    for (const auto& rawName : loraNames)
+    {
+        const juce::String name = rawName.trim();
+        if (name.isNotEmpty() && !normalizedLoraNames.contains(name))
+            normalizedLoraNames.add(name);
+    }
+
+    normalizedLoraNames.sortNatural();
+
+    for (int i = 0; i < normalizedLoraNames.size(); ++i)
+    {
+        coverLoraOptionValues.add(normalizedLoraNames[i]);
+        coverLoraComboBox.addItem(normalizedLoraNames[i], i + 1);
+    }
+
+    const bool hasLoras = !coverLoraOptionValues.isEmpty();
+    coverUseLoraToggle.setEnabled(hasLoras);
+    coverUseLoraToggle.setTooltip(hasLoras
+        ? "enable a backend LoRA adapter and use its caption pool for the dice button"
+        : "no LoRA adapters are available on the current Carey backend");
+    coverLoraComboBox.setEnabled(hasLoras);
+    coverLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
+
+    if (hasLoras)
+    {
+        const int restoredIndex = findTrackIndex(coverLoraOptionValues, previousSelection.trim());
+        coverLoraComboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
+    }
+    else
+    {
+        coverUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+        coverLoraComboBox.setSelectedId(0, juce::dontSendNotification);
+    }
+
+    coverUseLoraToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
+
+    updateContentLayout();
+}
+
 void CareyUI::setCoverControlsVisible(bool shouldBeVisible)
 {
     coverCaptionLabel.setVisible(shouldBeVisible);
@@ -1332,6 +1626,14 @@ void CareyUI::setCoverControlsVisible(bool shouldBeVisible)
     coverInfoLabel.setVisible(shouldBeVisible);
 
     const bool showAdvanced = shouldBeVisible && coverAdvancedOpen;
+    const bool showModelSelector = showAdvanced && coverModelSelectionEnabled;
+    coverModelLabel.setVisible(showModelSelector);
+    coverTurboModelToggle.setVisible(showModelSelector);
+    coverBaseModelToggle.setVisible(showModelSelector);
+    coverUseLoraToggle.setVisible(showAdvanced);
+    const bool showLoraSelector = showAdvanced && coverUseLoraToggle.getToggleState() && !coverLoraOptionValues.isEmpty();
+    coverLoraLabel.setVisible(showLoraSelector);
+    coverLoraComboBox.setVisible(showLoraSelector);
     coverNoiseStrengthLabel.setVisible(showAdvanced);
     coverNoiseStrengthSlider.setVisible(showAdvanced);
     coverAudioStrengthLabel.setVisible(showAdvanced);
@@ -1345,6 +1647,56 @@ void CareyUI::setCoverControlsVisible(bool shouldBeVisible)
     coverTrimToInputLabel.setVisible(showAdvanced);
     coverTrimToInputToggle.setVisible(showAdvanced);
     coverUseSrcAsRefToggle.setVisible(showAdvanced);
+}
+
+void CareyUI::updateCoverModelControls(bool notify)
+{
+    updateCoverModelSelectorCopy();
+
+    const bool turboSelected = getCoverModel().containsIgnoreCase("turbo");
+    const bool heldTurboValues = getCoverSteps() <= kFixedCoverSteps
+        && getCoverCfg() <= kFixedCoverCfg;
+
+    if (turboSelected)
+    {
+        coverStepsSlider.setRange(kFixedCoverSteps, 100, 1);
+        coverStepsSlider.setValue(kFixedCoverSteps, juce::dontSendNotification);
+        coverStepsSlider.setEnabled(false);
+        coverStepsSlider.setTooltip("turbo is fixed at 8 steps for cover generation.");
+        coverStepsLabel.setTooltip("turbo is fixed at 8 steps for cover generation.");
+
+        coverCfgSlider.setRange(kFixedCoverCfg, 10.0, 0.1);
+        coverCfgSlider.setValue(kFixedCoverCfg, juce::dontSendNotification);
+        coverCfgSlider.setEnabled(false);
+        coverCfgSlider.setTooltip("turbo is fixed at cfg 1.0 for cover generation.");
+        coverCfgLabel.setTooltip("turbo is fixed at cfg 1.0 for cover generation.");
+    }
+    else
+    {
+        coverStepsSlider.setRange(8, 100, 1);
+        if (heldTurboValues)
+            coverStepsSlider.setValue(kDefaultCoverBaseSteps, juce::dontSendNotification);
+        coverStepsSlider.setEnabled(true);
+        coverStepsSlider.setTooltip("diffusion steps. more = refined but slower. cover mode supports quick tests down to 8.");
+        coverStepsLabel.setTooltip({});
+
+        coverCfgSlider.setRange(3.0, 10.0, 0.1);
+        if (heldTurboValues)
+            coverCfgSlider.setValue(kDefaultCoverBaseCfg, juce::dontSendNotification);
+        coverCfgSlider.setEnabled(true);
+        coverCfgSlider.setTooltip("cfg scale - how strongly the model follows the caption. higher = more literal. 3=loose, 7=balanced, 10=strict");
+        coverCfgLabel.setTooltip({});
+    }
+
+    if (notify)
+    {
+        if (onCoverModelChanged)
+            onCoverModelChanged(getCoverModel());
+        if (onCoverStepsChanged)
+            onCoverStepsChanged(getCoverSteps());
+        if (onCoverCfgChanged)
+            onCoverCfgChanged(getCoverCfg());
+    }
 }
 
 void CareyUI::setExtractControlsVisible(bool shouldBeVisible)

@@ -16,6 +16,8 @@ class CareyUI : public juce::Component
 public:
     static constexpr int kFixedCoverSteps = 8;
     static constexpr double kFixedCoverCfg = 1.0;
+    static constexpr int kDefaultCoverBaseSteps = 50;
+    static constexpr double kDefaultCoverBaseCfg = 7.0;
     static constexpr int kFixedCompleteTurboSteps = 8;
     static constexpr double kFixedCompleteTurboCfg = 1.0;
     static constexpr int kDefaultCompleteBaseSteps = 50;
@@ -42,6 +44,8 @@ public:
 
     void setCurrentSubTab(SubTab tab) { setCurrentSubTabInternal(tab, false); }
     SubTab getCurrentSubTab() const { return currentSubTab; }
+    void applyRandomCompleteCaption();
+    void applyRandomCoverCaption();
 
     juce::String getCaptionText() const
     {
@@ -89,6 +93,20 @@ public:
     juce::String getCompleteCaptionText() const
     {
         return completeCaptionEditor.getText().trim();
+    }
+
+    bool getCompleteUseLora() const
+    {
+        return completeUseLoraToggle.getToggleState();
+    }
+
+    juce::String getCompleteSelectedLora() const
+    {
+        const int selectedId = completeLoraComboBox.getSelectedId();
+        const int index = selectedId - 1;
+        if (index >= 0 && index < completeLoraOptionValues.size())
+            return completeLoraOptionValues[index];
+        return {};
     }
 
     juce::String getLyricsText() const
@@ -161,6 +179,24 @@ public:
     void setCompleteCaptionText(const juce::String& text)
     {
         completeCaptionEditor.setText(text, juce::dontSendNotification);
+    }
+
+    void setCompleteUseLora(bool enabled)
+    {
+        const bool shouldEnable = enabled && !completeLoraOptionValues.isEmpty();
+        if (completeUseLoraToggle.getToggleState() != shouldEnable)
+            completeUseLoraToggle.setToggleState(shouldEnable, juce::dontSendNotification);
+
+        updateContentLayout();
+    }
+
+    void setAvailableCompleteLoras(const juce::StringArray& loraNames);
+
+    void setCompleteSelectedLora(const juce::String& loraName)
+    {
+        const int loraIndex = findTrackIndex(completeLoraOptionValues, loraName.trim());
+        completeLoraComboBox.setSelectedId(loraIndex >= 0 ? loraIndex + 1 : 0, juce::dontSendNotification);
+        updateContentLayout();
     }
 
     void setLyricsText(const juce::String& text)
@@ -250,21 +286,49 @@ public:
     }
 
     juce::String getCoverCaptionText() const { return coverCaptionEditor.getText().trim(); }
+    bool getCoverUseLora() const { return coverUseLoraToggle.getToggleState(); }
+    juce::String getCoverSelectedLora() const
+    {
+        const int selectedId = coverLoraComboBox.getSelectedId();
+        const int index = selectedId - 1;
+        if (index >= 0 && index < coverLoraOptionValues.size())
+            return coverLoraOptionValues[index];
+        return {};
+    }
     juce::String getCoverLyricsText() const { return lyricsText; }
     double getCoverNoiseStrength() const { return coverNoiseStrengthSlider.getValue(); }
     double getCoverAudioStrength() const { return coverAudioStrengthSlider.getValue(); }
-    int getCoverSteps() const { return kFixedCoverSteps; }
-    double getCoverCfg() const { return kFixedCoverCfg; }
+    int getCoverSteps() const { return juce::roundToInt(coverStepsSlider.getValue()); }
+    double getCoverCfg() const { return coverCfgSlider.getValue(); }
+    juce::String getCoverModel() const;
     bool getCoverUseSrcAsRef() const { return coverUseSrcAsRefToggle.getToggleState(); }
     bool getCoverLoopAssistEnabled() const { return coverLoopAssistToggle.getToggleState(); }
     bool getCoverTrimToInputEnabled() const { return coverTrimToInputToggle.getToggleState(); }
 
     void setCoverCaptionText(const juce::String& text) { coverCaptionEditor.setText(text, juce::dontSendNotification); }
+    void setCoverUseLora(bool enabled)
+    {
+        const bool shouldEnable = enabled && !coverLoraOptionValues.isEmpty();
+        if (coverUseLoraToggle.getToggleState() != shouldEnable)
+            coverUseLoraToggle.setToggleState(shouldEnable, juce::dontSendNotification);
+
+        updateContentLayout();
+    }
+    void setAvailableCoverLoras(const juce::StringArray& loraNames);
+    void setCoverModel(const juce::String& model);
+    void setCoverModelSelectionEnabled(bool enabled);
+    void setCoverRemoteModelSelectionEnabled(bool enabled);
+    void setCoverSelectedLora(const juce::String& loraName)
+    {
+        const int loraIndex = findTrackIndex(coverLoraOptionValues, loraName.trim());
+        coverLoraComboBox.setSelectedId(loraIndex >= 0 ? loraIndex + 1 : 0, juce::dontSendNotification);
+        updateContentLayout();
+    }
     void setCoverLyricsText(const juce::String& text) { setLyricsTextInternal(text, false); }
     void setCoverNoiseStrength(double val) { coverNoiseStrengthSlider.setValue(juce::jlimit(0.0, 1.0, val), juce::dontSendNotification); }
     void setCoverAudioStrength(double val) { coverAudioStrengthSlider.setValue(juce::jlimit(0.0, 1.0, val), juce::dontSendNotification); }
-    void setCoverSteps(int) { coverStepsSlider.setValue(kFixedCoverSteps, juce::dontSendNotification); }
-    void setCoverCfg(double) { coverCfgSlider.setValue(kFixedCoverCfg, juce::dontSendNotification); }
+    void setCoverSteps(int steps);
+    void setCoverCfg(double value);
     void setCoverUseSrcAsRef(bool enabled) { coverUseSrcAsRefToggle.setToggleState(enabled, juce::dontSendNotification); }
     void setCoverLoopAssistEnabled(bool enabled) { coverLoopAssistToggle.setToggleState(enabled, juce::dontSendNotification); }
     void setCoverTrimToInputEnabled(bool enabled) { coverTrimToInputToggle.setToggleState(enabled, juce::dontSendNotification); }
@@ -408,6 +472,9 @@ public:
     std::function<void()> onExtractGenerate;
 
     std::function<void(const juce::String&)> onCompleteCaptionChanged;
+    std::function<void()> onCompleteCaptionDiceRequested;
+    std::function<void(bool)> onCompleteUseLoraChanged;
+    std::function<void(const juce::String&)> onCompleteLoraChanged;
     std::function<void(const juce::String&)> onCompleteModelChanged;
     std::function<void(int)> onCompleteBpmChanged;
     std::function<void(int)> onCompleteStepsChanged;
@@ -417,6 +484,10 @@ public:
     std::function<void(bool)> onCompleteUseSrcAsRefChanged;
 
     std::function<void(const juce::String&)> onCoverCaptionChanged;
+    std::function<void()> onCoverCaptionDiceRequested;
+    std::function<void(bool)> onCoverUseLoraChanged;
+    std::function<void(const juce::String&)> onCoverLoraChanged;
+    std::function<void(const juce::String&)> onCoverModelChanged;
     std::function<void(double)> onCoverNoiseStrengthChanged;
     std::function<void(double)> onCoverAudioStrengthChanged;
     std::function<void(int)> onCoverStepsChanged;
@@ -439,6 +510,8 @@ private:
     void updateCompleteModelControls(bool notify);
     void updateCompleteModelSelectorCopy();
     void setCoverControlsVisible(bool shouldBeVisible);
+    void updateCoverModelControls(bool notify);
+    void updateCoverModelSelectorCopy();
     void setExtractControlsVisible(bool shouldBeVisible);
     void onKeyScaleSelectionChanged();
     void initializeTrackOptions();
@@ -453,9 +526,7 @@ private:
     juce::StringArray getLegoPromptBankForTrack(const juce::String& trackName) const;
     juce::StringArray getCompletePromptBank() const;
     void applyRandomLegoCaption();
-    void applyRandomCompleteCaption();
     juce::StringArray getCoverPromptBank() const;
-    void applyRandomCoverCaption();
     void setLyricsTextInternal(const juce::String& text, bool notify);
     void updateLyricsButtonLabels();
     void openLyricsEditor();
@@ -496,6 +567,10 @@ private:
     CustomTextEditor completeCaptionEditor;
     CustomButton completeCaptionDiceButton;
     CustomButton completeLyricsButton;
+    juce::ToggleButton completeUseLoraToggle;
+    juce::Label completeLoraLabel;
+    CustomComboBox completeLoraComboBox;
+    juce::StringArray completeLoraOptionValues;
     juce::Label completeModelLabel;
     juce::ToggleButton completeTurboModelToggle;
     juce::ToggleButton completeBaseModelToggle;
@@ -522,6 +597,13 @@ private:
     CustomTextEditor coverCaptionEditor;
     CustomButton coverCaptionDiceButton;
     CustomButton coverLyricsButton;
+    juce::ToggleButton coverUseLoraToggle;
+    juce::Label coverLoraLabel;
+    CustomComboBox coverLoraComboBox;
+    juce::StringArray coverLoraOptionValues;
+    juce::Label coverModelLabel;
+    juce::ToggleButton coverTurboModelToggle;
+    juce::ToggleButton coverBaseModelToggle;
     juce::Label coverNoiseStrengthLabel;
     CustomSlider coverNoiseStrengthSlider;
     juce::Label coverAudioStrengthLabel;
@@ -559,6 +641,8 @@ private:
     bool coverAdvancedOpen = false;
     bool extractAdvancedOpen = false;
     bool completeRemoteModelSelectionEnabled = false;
+    bool coverModelSelectionEnabled = true;
+    bool coverRemoteModelSelectionEnabled = true;
     bool extractRemoteGenerationEnabled = true;
 
     juce::Rectangle<int> titleBounds;
