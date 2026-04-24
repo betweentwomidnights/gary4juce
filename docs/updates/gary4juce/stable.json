@@ -1,14 +1,14 @@
 {
   "channel": "stable",
-  "latest_version": "3.0.4",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.4",
+  "latest_version": "3.0.5",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.5",
   "sha256": null,
-  "published_at": "2026-04-22T05:18:39Z",
+  "published_at": "2026-04-24T23:20:44Z",
   "notes": [
-    "Carey now supports remote LoRA selection in complete and cover mode, with LoRA-specific caption pools served from the remote backend.",
-    "LoRA functionality is still remote-backend only in this release. On localhost, complete and cover dice fall back to the built-in caption pools.",
-    "Cover mode now includes the same xl-turbo / xl-base experiment path as complete mode.",
-    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.5",
+    "Carey LoRA selection and caption dice now work on localhost too when paired with gary4local v0.1.6.",
+    "The Carey UI now refreshes local LoRA availability while the service is running, so adapters added or removed in gary4local show up without a tab switch.",
+    "Complete and cover continue to support LoRAs on the remote backend as well.",
+    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.6",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
