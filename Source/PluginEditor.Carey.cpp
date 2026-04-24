@@ -182,10 +182,18 @@ void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
 void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
 {
     const juce::String loraUrl = getServiceUrl(ServiceType::Carey, "/loras");
-    if (!force && loraUrl == careyLoraFetchBackendUrl && !availableCareyLoras.isEmpty())
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+
+    if (!force
+        && loraUrl == careyLoraFetchBackendUrl
+        && nowMs - careyLoraLastFetchMs < 2000)
+        return;
+
+    if (careyLoraFetchInFlight.exchange(true))
         return;
 
     careyLoraFetchBackendUrl = loraUrl;
+    careyLoraLastFetchMs = nowMs;
     const int fetchNonce = careyLoraFetchNonce.fetch_add(1) + 1;
 
     juce::Thread::launch([this, fetchNonce, loraUrl]()
@@ -233,6 +241,8 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
 
         juce::MessageManager::callAsync([this, fetchNonce, loraUrl, fetchedLoras, success]()
         {
+            careyLoraFetchInFlight.store(false);
+
             if (careyLoraFetchNonce.load() != fetchNonce)
                 return;
 
@@ -288,16 +298,6 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
 
 void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
 {
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        if (careyUI != nullptr)
-        {
-            careyUI->applyRandomCompleteCaption();
-            showStatusMessage("using built-in complete caption (localhost)", 1500);
-        }
-        return;
-    }
-
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");
@@ -407,16 +407,6 @@ void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
 
 void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
 {
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        if (careyUI != nullptr)
-        {
-            careyUI->applyRandomCoverCaption();
-            showStatusMessage("using built-in cover caption (localhost)", 1500);
-        }
-        return;
-    }
-
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");

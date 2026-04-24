@@ -301,6 +301,8 @@ private:
     bool currentCompleteUseSrcAsRef = false;
     juce::StringArray availableCareyLoras;
     juce::String careyLoraFetchBackendUrl;
+    juce::int64 careyLoraLastFetchMs = 0;
+    std::atomic<bool> careyLoraFetchInFlight { false };
     std::atomic<int> careyLoraFetchNonce { 0 };
     std::atomic<int> careyCaptionRequestNonce { 0 };
     juce::String currentCoverCaption = "";

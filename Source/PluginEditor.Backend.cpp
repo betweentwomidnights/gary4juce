@@ -215,6 +215,8 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
 
             safeThis->localHealthPollInFlight.store(false);
 
+            const bool careyStatusChanged = safeThis->localCareyOnline != careyOnline;
+
             const bool changed =
                 safeThis->localGaryOnline != garyOnline ||
                 safeThis->localTerryOnline != terryOnline ||
@@ -238,6 +240,12 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             // Keep Jerry model dropdown fresh while Jerry tab is active on localhost
             if (jerryOnline && safeThis->currentTab == ModelTab::Jerry)
                 safeThis->fetchJerryAvailableModels();
+
+            if (safeThis->currentTab == ModelTab::Carey && (careyStatusChanged || careyOnline))
+            {
+                safeThis->refreshCareyAvailableLoras(careyStatusChanged);
+                safeThis->updateCareyEnablementSnapshot();
+            }
 
             if (changed)
                 safeThis->repaint();
