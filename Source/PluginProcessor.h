@@ -6,11 +6,13 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>  // ADD THIS FOR ATOMIC TYPES
+#include <memory>
 
 //==============================================================================
 /**
 */
-class Gary4juceAudioProcessor : public juce::AudioProcessor
+class Gary4juceAudioProcessor : public juce::AudioProcessor,
+                                public juce::ChangeBroadcaster
 {
 public:
     //==============================================================================
@@ -19,7 +21,7 @@ public:
 
     // Backend connection methods
     void checkBackendHealth();
-    bool isBackendConnected() const { return backendConnected; }
+    bool isBackendConnected() const { return backendConnected.load(); }
     void setBackendConnectionStatus(bool connected);
     void stopHealthChecks();
 
@@ -124,9 +126,12 @@ private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessor)
 
-        // Backend connection state
-        bool backendConnected = false;
-    std::atomic<bool> shouldStopBackgroundOperations{ false };
+    class BackendHealthChecker;
+
+    // Backend connection state
+    std::atomic<bool> backendConnected{ false };
+    std::unique_ptr<BackendHealthChecker> backendHealthChecker;
+    std::shared_ptr<std::atomic<bool>> backendHealthCallbackToken;
     
     // Backend URL management
     bool isUsingLocalhost = false;
@@ -136,6 +141,8 @@ private:
     juce::CriticalSection bufferLock;
     std::atomic<int> atomicRecordedSamples{ 0 };
     std::atomic<bool> atomicRecording{ false };
+    std::atomic<bool> recordingStartPending{ false };
+    std::atomic<bool> recordingStopPending{ false };
 
     // Recording buffer state
     juce::AudioBuffer<float> recordingBuffer;
@@ -169,17 +176,27 @@ private:
     // Foundation UI state persistence
     juce::String foundationState;
 
+    struct OutputPlaybackData
+    {
+        juce::AudioBuffer<float> buffer;
+        double sampleRate = 44100.0;
+        double durationSeconds = 0.0;
+    };
+
     // Output audio playback state (for host audio mixing)
-    juce::AudioBuffer<float> outputPlaybackBuffer;
-    juce::CriticalSection playbackBufferLock;
+    std::shared_ptr<const OutputPlaybackData> outputPlaybackData;
     std::atomic<bool> isPlayingOutputAudio{false};
     std::atomic<bool> isPausedOutputAudio{false};
     std::atomic<double> outputPlaybackPosition{0.0};  // In seconds
     std::atomic<double> outputAudioDuration{0.0};     // Total duration in seconds
     std::atomic<double> outputAudioSampleRate{44100.0};
-    int outputPlaybackReadPosition = 0;  // In samples, accessed under lock
+    std::atomic<int> outputPlaybackReadPosition{ 0 };  // In samples
 
     // Private methods
     void startRecording();
     void stopRecording();
+    void requestRecordingStartFromAudioThread() noexcept;
+    void requestRecordingStopFromAudioThread() noexcept;
+    void tryApplyPendingRecordingStateFromAudioThread() noexcept;
+    void stopRecordingNonBlocking() noexcept;
 };

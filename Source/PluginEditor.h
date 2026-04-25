@@ -28,6 +28,7 @@
 */
 class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::Timer,
+    public juce::ChangeListener,
     public juce::DragAndDropContainer,
     public juce::FileDragAndDropTarget
 {
@@ -39,6 +40,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     // Backend connection status
     void updateConnectionStatus(bool connected);
@@ -562,6 +564,11 @@ private:
     void retryLastContinuation();
     void updateRetryButtonState();
     void updateContinueButtonState();
+    using GenerationAsyncToken = std::uint32_t;
+    GenerationAsyncToken beginGenerationAsyncWork() noexcept;
+    GenerationAsyncToken currentGenerationAsyncToken() const noexcept;
+    void invalidateGenerationAsyncWork() noexcept;
+    bool isGenerationAsyncWorkCurrent(GenerationAsyncToken token) const noexcept;
 
     // Drag and drop functionality (output)
     bool isDragging = false;
@@ -625,6 +632,7 @@ private:
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);
 
+    std::atomic<GenerationAsyncToken> generationAsyncToken{ 0 };
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
 

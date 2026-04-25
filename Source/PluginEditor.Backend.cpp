@@ -322,6 +322,7 @@ void Gary4juceAudioProcessorEditor::handleGenerationStall()
     
     // Stop polling immediately
     stopPolling();
+    const auto stalledToken = currentGenerationAsyncToken();
     
     // Show immediate feedback
     showStatusMessage("checking backend connection...", 3000);
@@ -330,16 +331,20 @@ void Gary4juceAudioProcessorEditor::handleGenerationStall()
     audioProcessor.checkBackendHealth();
     
     // Give health check time to complete, then handle result
-    juce::Timer::callAfterDelay(6000, [this]() {
-        if (!audioProcessor.isBackendConnected())
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(6000, [safeThis, stalledToken]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stalledToken))
+            return;
+
+        if (!safeThis->audioProcessor.isBackendConnected())
         {
             // Backend is confirmed down
-            handleBackendDisconnection();
+            safeThis->handleBackendDisconnection();
         }
         else
         {
             // Backend is up but generation failed for other reasons
-            handleGenerationFailure("generation timed out - try again or check backend logs");
+            safeThis->handleGenerationFailure("generation timed out - try again or check backend logs");
         }
     });
 }
@@ -351,6 +356,7 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
     // Clean up generation state
     isGenerating = false;
     isPolling = false;
+    invalidateGenerationAsyncWork();
     generationProgress = 0;
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
@@ -377,6 +383,7 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
     // Clean up generation state (same as disconnection)
     isGenerating = false;
     isPolling = false;
+    invalidateGenerationAsyncWork();
     generationProgress = 0;
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
