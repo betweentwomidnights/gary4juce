@@ -124,7 +124,8 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
         careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
     }
 
-    refreshCareyAvailableLoras(false);
+    if (currentTab == ModelTab::Carey)
+        refreshCareyAvailableLoras(false);
 
     if (audioProcessor.getIsUsingLocalhost())
         careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
@@ -203,13 +204,11 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
     careyLoraFetchBackendUrl = loraUrl;
     careyLoraLastFetchMs = nowMs;
     const int fetchNonce = careyLoraFetchNonce.fetch_add(1) + 1;
-    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
-    juce::Thread::launch([safeThis, fetchNonce, loraUrl]()
+    juce::Thread::launch([asyncAlive, editor, fetchNonce, loraUrl]()
     {
-        if (safeThis == nullptr)
-            return;
-
         juce::StringArray fetchedLoras;
         bool success = false;
 
@@ -251,25 +250,26 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
             DBG("[carey-lora] failed to fetch /loras");
         }
 
-        juce::MessageManager::callAsync([safeThis, fetchNonce, loraUrl, fetchedLoras, success]()
+        juce::MessageManager::callAsync([asyncAlive, editor, fetchNonce, loraUrl, fetchedLoras, success]()
         {
-            if (safeThis == nullptr)
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
 
-            safeThis->careyLoraFetchInFlight.store(false);
+            editor->careyLoraFetchInFlight.store(false);
 
-            if (safeThis->careyLoraFetchNonce.load() != fetchNonce)
+            if (editor->careyLoraFetchNonce.load() != fetchNonce)
                 return;
 
-            if (safeThis->getServiceUrl(ServiceType::Carey, "/loras") != loraUrl)
+            if (editor->getServiceUrl(ServiceType::Carey, "/loras") != loraUrl)
                 return;
 
-            safeThis->availableCareyLoras = success ? fetchedLoras : juce::StringArray();
+            editor->availableCareyLoras = success ? fetchedLoras : juce::StringArray();
 
             juce::String resolvedLora;
-            for (const auto& availableLora : safeThis->availableCareyLoras)
+            for (const auto& availableLora : editor->availableCareyLoras)
             {
-                if (availableLora.equalsIgnoreCase(safeThis->currentCareyCompleteLora))
+                if (availableLora.equalsIgnoreCase(editor->currentCareyCompleteLora))
                 {
                     resolvedLora = availableLora;
                     break;
@@ -277,16 +277,16 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
             }
 
             if (resolvedLora.isNotEmpty())
-                safeThis->currentCareyCompleteLora = resolvedLora;
-            else if (!safeThis->availableCareyLoras.isEmpty())
-                safeThis->currentCareyCompleteLora = safeThis->availableCareyLoras[0];
+                editor->currentCareyCompleteLora = resolvedLora;
+            else if (!editor->availableCareyLoras.isEmpty())
+                editor->currentCareyCompleteLora = editor->availableCareyLoras[0];
             else
-                safeThis->currentCareyCompleteLora = {};
+                editor->currentCareyCompleteLora = {};
 
             juce::String resolvedCoverLora;
-            for (const auto& availableLora : safeThis->availableCareyLoras)
+            for (const auto& availableLora : editor->availableCareyLoras)
             {
-                if (availableLora.equalsIgnoreCase(safeThis->currentCoverLora))
+                if (availableLora.equalsIgnoreCase(editor->currentCoverLora))
                 {
                     resolvedCoverLora = availableLora;
                     break;
@@ -294,19 +294,19 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
             }
 
             if (resolvedCoverLora.isNotEmpty())
-                safeThis->currentCoverLora = resolvedCoverLora;
-            else if (!safeThis->availableCareyLoras.isEmpty())
-                safeThis->currentCoverLora = safeThis->availableCareyLoras[0];
+                editor->currentCoverLora = resolvedCoverLora;
+            else if (!editor->availableCareyLoras.isEmpty())
+                editor->currentCoverLora = editor->availableCareyLoras[0];
             else
-                safeThis->currentCoverLora = {};
+                editor->currentCoverLora = {};
 
-            if (safeThis->availableCareyLoras.isEmpty())
+            if (editor->availableCareyLoras.isEmpty())
             {
-                safeThis->currentCareyCompleteUseLora = false;
-                safeThis->currentCoverUseLora = false;
+                editor->currentCareyCompleteUseLora = false;
+                editor->currentCoverUseLora = false;
             }
 
-            safeThis->syncCareyLoraUi();
+            editor->syncCareyLoraUi();
         });
     });
 }

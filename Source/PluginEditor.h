@@ -628,6 +628,10 @@ private:
     juce::CriticalSection fileLock;  // Protects file operations
     std::atomic<bool> isDragInProgress{ false };
     std::atomic<bool> isEditorValid{ true };  // Add this alongside your existing atomics
+    std::shared_ptr<std::atomic<bool>> editorAsyncAlive{ std::make_shared<std::atomic<bool>>(true) };
+    juce::int64 editorCreatedAtMs = 0;
+    std::atomic<bool> garyModelFetchScheduled{ false };
+    std::atomic<bool> garyModelFetchInFlight{ false };
 
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);

@@ -18,6 +18,7 @@ using plugin_editor_detail::stripAnsiAndControlChars;
 
 namespace
 {
+    constexpr int kStartupNetworkGraceMs = 750;
 }
 
 //==============================================================================
@@ -33,6 +34,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton("Upload", juce::DrawableButton::ImageFitted)
 
 {
+    editorCreatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+
     setSize(400, 850);  // Made taller to accommodate controls
 
     audioProcessor.addChangeListener(this);
@@ -945,17 +948,19 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
-    isEditorValid.store(false);
+    isEditorValid.store(false, std::memory_order_release);
+    if (editorAsyncAlive != nullptr)
+        editorAsyncAlive->store(false, std::memory_order_release);
+
+    // Stop timers before mutating teardown state so no periodic UI work can interleave.
+    stopTimer();
+
     audioProcessor.removeChangeListener(this);
 
-    // NEW: Stop all background operations FIRST
     stopAllBackgroundOperations();
     
     // Ensure tooltip window is cleaned up first
     tooltipWindow.reset();
-    
-    // CRITICAL: Stop all timers first to prevent any callbacks during destruction
-    stopTimer();
 
     // Stop playback through processor (host audio)
     audioProcessor.stopOutputPlayback();
@@ -1135,6 +1140,9 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 // Updated timerCallback() with smooth progress animation:
 void Gary4juceAudioProcessorEditor::timerCallback()
 {
+    if (!isEditorValid.load(std::memory_order_acquire))
+        return;
+
     updateRecordingStatus();
 
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
@@ -3056,18 +3064,49 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
 void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
 {
+    if (!isEditorValid.load(std::memory_order_acquire))
+        return;
+
     if (!isServiceReachable(ServiceType::Gary))
     {
         DBG("Gary not reachable - skipping model fetch");
         return;
     }
 
-    juce::Thread::launch([this]()
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    const auto editorAgeMs = nowMs - editorCreatedAtMs;
+    if (editorAgeMs < kStartupNetworkGraceMs)
+    {
+        if (!garyModelFetchScheduled.exchange(true, std::memory_order_acq_rel))
         {
-            // Both localhost and remote use the same endpoint for Gary models
-            juce::String endpoint = "/api/models";
+            const auto delayMs = static_cast<int>(kStartupNetworkGraceMs - editorAgeMs);
+            const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+            auto* editor = this;
 
-            juce::URL url(getServiceUrl(ServiceType::Gary, endpoint));
+            juce::Timer::callAfterDelay(delayMs, [asyncAlive, editor]()
+            {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                editor->garyModelFetchScheduled.store(false, std::memory_order_release);
+                editor->fetchGaryAvailableModels();
+            });
+        }
+
+        return;
+    }
+
+    if (garyModelFetchInFlight.exchange(true, std::memory_order_acq_rel))
+        return;
+
+    const auto modelsUrl = getServiceUrl(ServiceType::Gary, "/api/models");
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, modelsUrl]()
+        {
+            juce::URL url(modelsUrl);
 
             std::unique_ptr<juce::InputStream> stream(url.createInputStream(
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
@@ -3078,9 +3117,14 @@ void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
             if (stream != nullptr)
                 responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText]()
                 {
-                    handleGaryModelsResponse(responseText);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->garyModelFetchInFlight.store(false, std::memory_order_release);
+                    editor->handleGaryModelsResponse(responseText);
                 });
         });
 }
