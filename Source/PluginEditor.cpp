@@ -699,12 +699,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
             "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a");
 
+        const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+        auto* editor = this;
+
         chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this, chooser](const juce::FileChooser& fc)
+            [asyncAlive, editor, chooser](const juce::FileChooser& fc)
             {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
                 auto result = fc.getResult();
                 if (result.existsAsFile())
-                    loadAudioFileIntoBuffer(result);
+                    editor->loadAudioFileIntoBuffer(result);
             });
     };
     uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
@@ -3431,13 +3438,16 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
         dariusUI->setConnectionStatus("checking connection...", juce::Colours::yellow);
     }
 
-    // Create health check request in background thread
-    juce::Thread::launch([this]() {
-        juce::String healthUrl = dariusBackendUrl.trim();
-        if (!healthUrl.endsWith("/"))
-            healthUrl += "/";
-        healthUrl += "health";
+    juce::String healthUrl = dariusBackendUrl.trim();
+    if (!healthUrl.endsWith("/"))
+        healthUrl += "/";
+    healthUrl += "health";
 
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    // Create health check request in background thread
+    juce::Thread::launch([asyncAlive, editor, healthUrl]() {
         juce::URL url(healthUrl);
 
         std::unique_ptr<juce::InputStream> stream(url.createInputStream(
@@ -3455,8 +3465,12 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, connectionSucceeded]() {
-            handleDariusHealthResponse(responseText, connectionSucceeded);
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, connectionSucceeded]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->handleDariusHealthResponse(responseText, connectionSucceeded);
             });
         });
 }
@@ -3561,15 +3575,16 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
         return;
     }
 
-    // Launch background fetch (same pattern as health)
-    juce::Thread::launch([this]()
-        {
-            // Build URL exactly like checkDariusHealth(), but for /model/config
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String full = base + "model/config";
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String full = base + "model/config";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    // Launch background fetch (same pattern as health)
+    juce::Thread::launch([asyncAlive, editor, full]()
+        {
             juce::URL url(full);
 
             std::unique_ptr<juce::InputStream> stream(url.createInputStream(
@@ -3590,9 +3605,13 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
                 responseText = stream->readEntireStreamAsString();
 
             // Bounce back to main thread
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusConfigResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusConfigResponse(responseText, statusCode);
                 });
         });
 }
@@ -3671,13 +3690,15 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
         return;
     }
 
-    juce::Thread::launch([this, repo, revision]()
-        {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String endpoint = base + "model/checkpoints";
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String endpoint = base + "model/checkpoints";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    juce::Thread::launch([asyncAlive, editor, repo, revision, endpoint]()
+        {
             juce::URL url(endpoint);
             // Add query parameters like the Swift service (repo_id, revision)
             url = url.withParameter("repo_id", repo)
@@ -3696,9 +3717,13 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
             if (stream != nullptr)
                 responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusCheckpointsResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusCheckpointsResponse(responseText, statusCode);
                 });
         });
 }
@@ -3852,16 +3877,16 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
         return;
     }
 
-    juce::Thread::launch([this, requestObj]()
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String endpoint = base + "model/select";
+    const juce::String jsonString = juce::JSON::toString(requestObj);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, endpoint, jsonString]()
         {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String endpoint = base + "model/select";
-
-            // Build JSON body (follow your existing POST pattern)
-            const juce::String jsonString = juce::JSON::toString(requestObj);
-
             juce::URL url(endpoint);
             juce::URL postUrl = url.withPOSTData(jsonString);
 
@@ -3887,9 +3912,13 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
                 DBG("select exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusSelectResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusSelectResponse(responseText, statusCode);
                 });
         });
 }
@@ -4257,7 +4286,10 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
     juce::URL url = makeGenerateURL(reqId);
 
     // Fire the POST on a worker thread
-    juce::Thread::launch([this, url]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, url]()
         {
             juce::String responseText;
             int statusCode = 0;
@@ -4281,9 +4313,13 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
                 DBG("generate exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusGenerateResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusGenerateResponse(responseText, statusCode);
                 });
         });
 }
@@ -4373,9 +4409,14 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
 
     auto url = makeDariusProgressURL(dariusProgressRequestId);
 
-    std::async(std::launch::async, [this, url]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, url]()
         {
-            std::unique_ptr<juce::InputStream> s(url.createInputStream(false, nullptr, nullptr, {}, 10000));
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000);
+            std::unique_ptr<juce::InputStream> s(url.createInputStream(options));
             if (!s) return;
 
             auto jsonText = s->readEntireStreamAsString();
@@ -4391,19 +4432,23 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
                 const int pct = pctVar.isVoid() ? 0 : (int)pctVar;
                 const juce::String stage = stageVar.toString();
 
-                juce::MessageManager::callAsync([this, pct, stage]()
+                juce::MessageManager::callAsync([asyncAlive, editor, pct, stage]()
                     {
-                        if (!dariusIsPollingProgress) return;
+                        const auto alive = asyncAlive.lock();
+                        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                            return;
+
+                        if (!editor->dariusIsPollingProgress) return;
 
                         // feed your smoothing fields
-                        lastKnownProgress = generationProgress;
-                        targetProgress = juce::jlimit(0, 100, pct);
-                        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                        smoothProgressAnimation = true;
+                        editor->lastKnownProgress = editor->generationProgress;
+                        editor->targetProgress = juce::jlimit(0, 100, pct);
+                        editor->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        editor->smoothProgressAnimation = true;
 
                         if (stage == "done" || stage == "error" || pct >= 100)
                         {
-                            stopDariusProgressPoll();
+                            editor->stopDariusProgressPoll();
                             // leave isGenerating changes to the POST response handler
                         }
                     });
@@ -4422,11 +4467,15 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
     if (dariusBackendUrl.trim().isEmpty())
         return;
 
-    juce::Thread::launch([this]()
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/")) base += "/";
+    const juce::String assetsStatusUrl = base + "model/assets/status";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, assetsStatusUrl]()
         {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/")) base += "/";
-            juce::URL url(base + "model/assets/status");
+            juce::URL url(assetsStatusUrl);
 
             juce::String responseText;
             int statusCode = 0;
@@ -4439,8 +4488,12 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
                 statusCode = web->getStatusCode();
             if (stream) responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]() {
-                handleDariusAssetsStatusResponse(responseText, statusCode);
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]() {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                editor->handleDariusAssetsStatusResponse(responseText, statusCode);
                 });
         });
 }
@@ -5354,16 +5407,23 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         // Launch the dialog and capture the window reference
         auto dialogWindow = options.launchAsync();
 
+        const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+        auto* editor = this;
+
         // Set up the confirm callback to process the selected segment and close the dialog
-        dialog->onConfirm = [this, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
+        dialog->onConfirm = [asyncAlive, editor, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
                                                               double sourceSampleRate,
                                                               double selectionStartTime) mutable
         {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
             DBG("Processing selected segment from " + filename + " starting at " + juce::String(selectionStartTime, 2) + "s");
             DBG("Source sample rate: " + juce::String(sourceSampleRate) + " Hz");
 
             // Store the selection start time for future reopening
-            lastSelectionStartTime = selectionStartTime;
+            editor->lastSelectionStartTime = selectionStartTime;
 
             // Make a copy of the selected buffer
             juce::AudioBuffer<float> tempBuffer(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
@@ -5373,7 +5433,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
 
             // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
-            double hostSampleRate = audioProcessor.getCurrentSampleRate();
+            double hostSampleRate = editor->audioProcessor.getCurrentSampleRate();
             DBG("Host sample rate: " + juce::String(hostSampleRate) + " Hz");
 
             if (std::abs(sourceSampleRate - hostSampleRate) > 1.0)  // Different sample rates
@@ -5422,7 +5482,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
 
             // Load into processor's recording buffer (now at correct host rate)
-            audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
+            editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
             // Save to myBuffer.wav (reuse existing save pattern)
             auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
@@ -5434,7 +5494,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
                 auto result = garyDir.createDirectory();
                 if (!result.wasOk())
                 {
-                    showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
+                    editor->showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
                     DBG("ERROR: Could not create gary4juce directory: " + result.getErrorMessage());
                     return;
                 }
@@ -5444,17 +5504,17 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             auto bufferFile = garyDir.getChildFile("myBuffer.wav");
 
             // Use the processor's existing saveRecordingToFile method
-            audioProcessor.saveRecordingToFile(bufferFile);
+            editor->audioProcessor.saveRecordingToFile(bufferFile);
 
             // Update savedSamples and UI state
-            savedSamples = audioProcessor.getSavedSamples();
+            editor->savedSamples = editor->audioProcessor.getSavedSamples();
 
             // Calculate actual duration from the final buffer
             double finalDuration = (double)tempBuffer.getNumSamples() / hostSampleRate;
-            showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
+            editor->showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
 
-            updateAllGenerationButtonStates();
-            repaint();
+            editor->updateAllGenerationButtonStates();
+            editor->repaint();
 
             // Close the dialog
             if (dialogWindow != nullptr)
@@ -5611,14 +5671,17 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
     filesToDrag.add(uniqueDragFile.getFullPathName());
     DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
 
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
     // SAFETY: Enhanced callback with multiple safety checks
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this, uniqueDragFile]()
+    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [asyncAlive, editor, uniqueDragFile]()
         {
             // SAFETY CHECK 1: Component validity
-            if (!isEditorValid.load())
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
             {
                 DBG("Drag callback ignored - editor no longer valid");
-                isDragInProgress.store(false);
                 // Still try to clean up the file
                 if (uniqueDragFile.existsAsFile())
                 {
@@ -5628,13 +5691,13 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             }
 
             // SAFETY CHECK 2: Use MessageManager to ensure main thread execution
-            juce::MessageManager::callAsync([this, uniqueDragFile]()
+            juce::MessageManager::callAsync([asyncAlive, editor, uniqueDragFile]()
                 {
                     // SAFETY CHECK 3: Double-check component validity on main thread
-                    if (!isEditorValid.load())
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
                     {
                         DBG("Drag callback ignored on main thread - editor no longer valid");
-                        isDragInProgress.store(false);
                         if (uniqueDragFile.existsAsFile())
                         {
                             uniqueDragFile.deleteFile();
@@ -5643,8 +5706,8 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
                     }
 
                     DBG("Drag operation completed successfully");
-                    showStatusMessage("audio dragged successfully!", 2000);
-                    isDragInProgress.store(false);
+                    editor->showStatusMessage("audio dragged successfully!", 2000);
+                    editor->isDragInProgress.store(false);
 
                     // Clean up with delay and additional safety
                     juce::Timer::callAfterDelay(3000, [uniqueDragFile]()
@@ -5686,6 +5749,20 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
 
 std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 {
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    auto postDragFailure = [asyncAlive, editor](const juce::String& message)
+    {
+        juce::MessageManager::callAsync([asyncAlive, editor, message]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->showStatusMessage(message, 2000);
+        });
+    };
+
     try
     {
         // Create dragged_audio folder
@@ -5699,9 +5776,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
             if (!result.wasOk())
             {
                 DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
-                juce::MessageManager::callAsync([this]() {
-                    showStatusMessage("drag failed - folder creation error", 2000);
-                    });
+                postDragFailure("drag failed - folder creation error");
                 return { false, juce::File{} };
             }
         }
@@ -5716,9 +5791,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         if (!sourceStream.openedOk())
         {
             DBG("Failed to open source file for reading");
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - source file locked", 2000);
-                });
+            postDragFailure("drag failed - source file locked");
             return { false, juce::File{} };
         }
 
@@ -5726,9 +5799,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         if (!destStream.openedOk())
         {
             DBG("Failed to open destination file for writing");
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - destination error", 2000);
-                });
+            postDragFailure("drag failed - destination error");
             return { false, juce::File{} };
         }
 
@@ -5752,9 +5823,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - copy verification failed", 2000);
-                });
+            postDragFailure("drag failed - copy verification failed");
             return { false, juce::File{} };
         }
 
@@ -5764,9 +5833,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
     catch (const std::exception& e)
     {
         DBG("Exception in prepareFileForDrag: " + juce::String(e.what()));
-        juce::MessageManager::callAsync([this]() {
-            showStatusMessage("drag failed - exception occurred", 2000);
-            });
+        postDragFailure("drag failed - exception occurred");
         return { false, juce::File{} };
     }
 }
