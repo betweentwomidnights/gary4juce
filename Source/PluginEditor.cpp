@@ -2404,7 +2404,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
 
     // Create HTTP request in background thread
     juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio, requestUrl]() {
-        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Gary request aborted - generation stopped");
             return;
         }
@@ -2663,7 +2663,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
     // Create HTTP request in background thread
     juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration, requestUrl]() {
-        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Continue request aborted - generation stopped");
             return;
         }
@@ -2897,7 +2897,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
     // Create HTTP request in background thread (same pattern as other requests)
     juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel, requestUrl]() {
-        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Retry request aborted - generation stopped");
             return;
         }

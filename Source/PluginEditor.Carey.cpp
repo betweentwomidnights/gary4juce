@@ -645,7 +645,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 && safeThis->careyRequestNonce.load() == requestNonce;
         };
 
-        if (!isRequestCurrent() || !safeThis->isGenerating)
+        if (!isRequestCurrent())
         {
             DBG("[carey] request aborted - generation stopped");
             return;
@@ -1241,7 +1241,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
                 && safeThis->careyRequestNonce.load() == requestNonce;
         };
 
-        if (!isRequestCurrent() || !safeThis->isGenerating)
+        if (!isRequestCurrent())
         {
             DBG("[carey-extract] request aborted - generation stopped");
             return;
@@ -1626,7 +1626,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 && safeThis->careyRequestNonce.load() == requestNonce;
         };
 
-        if (!isRequestCurrent() || !safeThis->isGenerating)
+        if (!isRequestCurrent())
         {
             DBG("[carey-complete] request aborted - generation stopped");
             return;
@@ -2022,7 +2022,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 && safeThis->careyRequestNonce.load() == requestNonce;
         };
 
-        if (!isRequestCurrent() || !safeThis->isGenerating)
+        if (!isRequestCurrent())
         {
             DBG("[carey-cover] request aborted - generation stopped");
             return;

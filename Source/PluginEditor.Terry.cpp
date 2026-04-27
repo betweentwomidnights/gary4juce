@@ -191,7 +191,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
     juce::Thread::launch([safeThis, generationToken, base64Audio, variationNames, hasVariation, hasCustomPrompt, flowstep, useMidpoint, customPrompt, selectedVariation, requestUrl]() {
-        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Terry request aborted - generation stopped");
             return;
         }
