@@ -11,7 +11,9 @@ using plugin_editor_detail::parseCareyFailureResponse;
 using plugin_editor_detail::resolveCareyProgressPercent;
 using plugin_editor_detail::stripAnsiAndControlChars;
 
-juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::String& raw)
+namespace
+{
+juce::String cleanCareyQueueMessageText(const juce::String& raw)
 {
     const juce::String trimmed = stripAnsiAndControlChars(raw);
     if (trimmed.isEmpty())
@@ -74,6 +76,12 @@ juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::S
         return trimmed.substring(0, 60) + "...";
     return trimmed;
 }
+}
+
+juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::String& raw)
+{
+    return cleanCareyQueueMessageText(raw);
+}
 
 void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
 {
@@ -116,7 +124,8 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
         careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
     }
 
-    refreshCareyAvailableLoras(false);
+    if (currentTab == ModelTab::Carey)
+        refreshCareyAvailableLoras(false);
 
     if (audioProcessor.getIsUsingLocalhost())
         careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
@@ -195,8 +204,10 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
     careyLoraFetchBackendUrl = loraUrl;
     careyLoraLastFetchMs = nowMs;
     const int fetchNonce = careyLoraFetchNonce.fetch_add(1) + 1;
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
-    juce::Thread::launch([this, fetchNonce, loraUrl]()
+    juce::Thread::launch([asyncAlive, editor, fetchNonce, loraUrl]()
     {
         juce::StringArray fetchedLoras;
         bool success = false;
@@ -239,22 +250,26 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
             DBG("[carey-lora] failed to fetch /loras");
         }
 
-        juce::MessageManager::callAsync([this, fetchNonce, loraUrl, fetchedLoras, success]()
+        juce::MessageManager::callAsync([asyncAlive, editor, fetchNonce, loraUrl, fetchedLoras, success]()
         {
-            careyLoraFetchInFlight.store(false);
-
-            if (careyLoraFetchNonce.load() != fetchNonce)
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
 
-            if (getServiceUrl(ServiceType::Carey, "/loras") != loraUrl)
+            editor->careyLoraFetchInFlight.store(false);
+
+            if (editor->careyLoraFetchNonce.load() != fetchNonce)
                 return;
 
-            availableCareyLoras = success ? fetchedLoras : juce::StringArray();
+            if (editor->getServiceUrl(ServiceType::Carey, "/loras") != loraUrl)
+                return;
+
+            editor->availableCareyLoras = success ? fetchedLoras : juce::StringArray();
 
             juce::String resolvedLora;
-            for (const auto& availableLora : availableCareyLoras)
+            for (const auto& availableLora : editor->availableCareyLoras)
             {
-                if (availableLora.equalsIgnoreCase(currentCareyCompleteLora))
+                if (availableLora.equalsIgnoreCase(editor->currentCareyCompleteLora))
                 {
                     resolvedLora = availableLora;
                     break;
@@ -262,16 +277,16 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
             }
 
             if (resolvedLora.isNotEmpty())
-                currentCareyCompleteLora = resolvedLora;
-            else if (!availableCareyLoras.isEmpty())
-                currentCareyCompleteLora = availableCareyLoras[0];
+                editor->currentCareyCompleteLora = resolvedLora;
+            else if (!editor->availableCareyLoras.isEmpty())
+                editor->currentCareyCompleteLora = editor->availableCareyLoras[0];
             else
-                currentCareyCompleteLora = {};
+                editor->currentCareyCompleteLora = {};
 
             juce::String resolvedCoverLora;
-            for (const auto& availableLora : availableCareyLoras)
+            for (const auto& availableLora : editor->availableCareyLoras)
             {
-                if (availableLora.equalsIgnoreCase(currentCoverLora))
+                if (availableLora.equalsIgnoreCase(editor->currentCoverLora))
                 {
                     resolvedCoverLora = availableLora;
                     break;
@@ -279,19 +294,19 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
             }
 
             if (resolvedCoverLora.isNotEmpty())
-                currentCoverLora = resolvedCoverLora;
-            else if (!availableCareyLoras.isEmpty())
-                currentCoverLora = availableCareyLoras[0];
+                editor->currentCoverLora = resolvedCoverLora;
+            else if (!editor->availableCareyLoras.isEmpty())
+                editor->currentCoverLora = editor->availableCareyLoras[0];
             else
-                currentCoverLora = {};
+                editor->currentCoverLora = {};
 
-            if (availableCareyLoras.isEmpty())
+            if (editor->availableCareyLoras.isEmpty())
             {
-                currentCareyCompleteUseLora = false;
-                currentCoverUseLora = false;
+                editor->currentCareyCompleteUseLora = false;
+                editor->currentCoverUseLora = false;
             }
 
-            syncCareyLoraUi();
+            editor->syncCareyLoraUi();
         });
     });
 }
@@ -307,14 +322,18 @@ void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
     const juce::String requestedLora = getSelectedCareyCompleteLora();
     const juce::String captionsUrl = getServiceUrl(ServiceType::Carey, "/captions");
     const int requestNonce = careyCaptionRequestNonce.fetch_add(1) + 1;
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
 
     showStatusMessage(requestedLora.isNotEmpty()
         ? ("loading " + requestedLora + " caption...")
         : "loading carey caption...",
         1500);
 
-    juce::Thread::launch([this, requestNonce, requestedLora, captionsUrl]()
+    juce::Thread::launch([safeThis, requestNonce, requestedLora, captionsUrl]()
     {
+        if (safeThis == nullptr)
+            return;
+
         juce::String caption;
         juce::String failureReason = requestedLora.isNotEmpty()
             ? ("failed to load " + requestedLora + " caption")
@@ -384,23 +403,26 @@ void Gary4juceAudioProcessorEditor::requestCareyCompleteCaption()
             failureReason = "failed to load carey caption";
         }
 
-        juce::MessageManager::callAsync([this, requestNonce, captionsUrl, caption, failureReason]()
+        juce::MessageManager::callAsync([safeThis, requestNonce, captionsUrl, caption, failureReason]()
         {
-            if (careyCaptionRequestNonce.load() != requestNonce)
+            if (safeThis == nullptr)
                 return;
 
-            if (getServiceUrl(ServiceType::Carey, "/captions") != captionsUrl)
+            if (safeThis->careyCaptionRequestNonce.load() != requestNonce)
+                return;
+
+            if (safeThis->getServiceUrl(ServiceType::Carey, "/captions") != captionsUrl)
                 return;
 
             if (caption.isNotEmpty())
             {
-                currentCareyCompleteCaption = caption;
-                if (careyUI)
-                    careyUI->setCompleteCaptionText(caption);
+                safeThis->currentCareyCompleteCaption = caption;
+                if (safeThis->careyUI)
+                    safeThis->careyUI->setCompleteCaptionText(caption);
                 return;
             }
 
-            showStatusMessage(failureReason, 3500);
+            safeThis->showStatusMessage(failureReason, 3500);
         });
     });
 }
@@ -416,14 +438,18 @@ void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
     const juce::String requestedLora = getSelectedCareyCoverLora();
     const juce::String captionsUrl = getServiceUrl(ServiceType::Carey, "/captions");
     const int requestNonce = careyCoverCaptionRequestNonce.fetch_add(1) + 1;
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
 
     showStatusMessage(requestedLora.isNotEmpty()
         ? ("loading " + requestedLora + " cover caption...")
         : "loading carey cover caption...",
         1500);
 
-    juce::Thread::launch([this, requestNonce, requestedLora, captionsUrl]()
+    juce::Thread::launch([safeThis, requestNonce, requestedLora, captionsUrl]()
     {
+        if (safeThis == nullptr)
+            return;
+
         juce::String caption;
         juce::String failureReason = requestedLora.isNotEmpty()
             ? ("failed to load " + requestedLora + " cover caption")
@@ -493,23 +519,26 @@ void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
             failureReason = "failed to load carey cover caption";
         }
 
-        juce::MessageManager::callAsync([this, requestNonce, captionsUrl, caption, failureReason]()
+        juce::MessageManager::callAsync([safeThis, requestNonce, captionsUrl, caption, failureReason]()
         {
-            if (careyCoverCaptionRequestNonce.load() != requestNonce)
+            if (safeThis == nullptr)
                 return;
 
-            if (getServiceUrl(ServiceType::Carey, "/captions") != captionsUrl)
+            if (safeThis->careyCoverCaptionRequestNonce.load() != requestNonce)
+                return;
+
+            if (safeThis->getServiceUrl(ServiceType::Carey, "/captions") != captionsUrl)
                 return;
 
             if (caption.isNotEmpty())
             {
-                currentCoverCaption = caption;
-                if (careyUI)
-                    careyUI->setCoverCaptionText(caption);
+                safeThis->currentCoverCaption = caption;
+                if (safeThis->careyUI)
+                    safeThis->careyUI->setCoverCaptionText(caption);
                 return;
             }
 
-            showStatusMessage(failureReason, 3500);
+            safeThis->showStatusMessage(failureReason, 3500);
         });
     });
 }
@@ -602,9 +631,26 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     updateAllGenerationButtonStates();
     repaint();
     showStatusMessage("submitting carey request...", 2500);
+    const juce::String submitUrlText = getServiceUrl(ServiceType::Carey, "/lego");
+    const juce::String statusUrlPrefix = getServiceUrl(ServiceType::Carey, "/lego/status/");
+    const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
+        auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
+            return safeThis != nullptr
+                && safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                && safeThis->careyRequestNonce.load() == requestNonce;
+        };
+
+        if (!isRequestCurrent())
+        {
+            DBG("[carey] request aborted - generation stopped");
+            return;
+        }
+
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
@@ -758,7 +804,10 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     break;
                 }
 
-                juce::URL submitUrl(getServiceUrl(ServiceType::Carey, "/lego"));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL submitUrl(submitUrlText);
 
                 juce::DynamicObject::Ptr submitPayload = new juce::DynamicObject();
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
@@ -818,16 +867,17 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     break;
                 }
 
-                juce::URL queryUrl(getServiceUrl(ServiceType::Carey, "/lego/status/" + taskId));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL queryUrl(statusUrlPrefix + taskId);
                 constexpr int kPollIntervalMs = 1500;
                 constexpr int kMaxPollCount = 600;
-
-                const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
                 int lastResolvedProgress = 0;
 
                 for (int pollCount = 0; pollCount < kMaxPollCount; ++pollCount)
                 {
-                    if (careyRequestNonce.load() != requestNonce)
+                    if (!isRequestCurrent())
                         return;
 
                     int queryStatusCode = 0;
@@ -902,7 +952,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
-                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
+                    juce::String statusText = cleanCareyQueueMessageText(queueMessage);
                     if (statusText.isEmpty())
                     {
                         if (queued) statusText = "queued - starting soon...";
@@ -910,18 +960,20 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                         else statusText = status.isNotEmpty() ? status : "processing";
                     }
 
-                    juce::MessageManager::callAsync([this, requestNonce, progressPercent, queued, statusText]()
+                    juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, progressPercent, queued, statusText]()
                     {
-                        if (careyRequestNonce.load() != requestNonce)
+                        if (safeThis == nullptr
+                            || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                            || safeThis->careyRequestNonce.load() != requestNonce)
                             return;
 
-                        smoothProgressAnimation = false;
-                        generationProgress = progressPercent;
-                        isCurrentlyQueued = queued;
-                        setCareyWaveformState(progressPercent, queued);
+                        safeThis->smoothProgressAnimation = false;
+                        safeThis->generationProgress = progressPercent;
+                        safeThis->isCurrentlyQueued = queued;
+                        safeThis->setCareyWaveformState(progressPercent, queued);
                         if (statusText.isNotEmpty())
-                            showStatusMessage("carey: " + statusText, 2500);
-                        repaint();
+                            safeThis->showStatusMessage("carey: " + statusText, 2500);
+                        safeThis->repaint();
                     });
 
                     juce::Thread::sleep(kPollIntervalMs);
@@ -1038,33 +1090,54 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 }
             }
 
-            juce::MessageManager::callAsync([this, requestNonce, finalBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalBase64]()
             {
-                if (careyRequestNonce.load() != requestNonce)
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
                     return;
 
-                isCurrentlyQueued = false;
-                generationProgress = 100;
-                smoothProgressAnimation = false;
-                setCareyWaveformState(100, false);
-                setActiveOp(ActiveOp::None);
-                saveGeneratedAudio(finalBase64);
-                showStatusMessage("carey generation complete", 2500);
-                updateAllGenerationButtonStates();
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 100;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(100, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->saveGeneratedAudio(finalBase64);
+                safeThis->showStatusMessage("carey generation complete", 2500);
+                safeThis->updateAllGenerationButtonStates();
             });
             return;
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey request failed";
         const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
-        juce::MessageManager::callAsync([this, requestNonce, finalError, popupDetail, cancelCareyOperation]()
+        juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalError, popupDetail]()
         {
-            if (careyRequestNonce.load() != requestNonce)
+            if (safeThis == nullptr
+                || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                || safeThis->careyRequestNonce.load() != requestNonce)
                 return;
 
-            showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(popupDetail))
-                showGenerationFailureDialog(popupDetail);
+            auto cancelCareyOperation = [safeThis, generationToken, requestNonce]()
+            {
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
+                    return;
+
+                safeThis->isGenerating = false;
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 0;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(0, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+                safeThis->repaint();
+            };
+
+            safeThis->showStatusMessage(finalError, 4500);
+            if (safeThis->shouldShowGenerationFailureDialog(popupDetail))
+                safeThis->showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -1154,9 +1227,26 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
     updateAllGenerationButtonStates();
     repaint();
     showStatusMessage("submitting carey extract request...", 2500);
+    const juce::String submitUrlText = getServiceUrl(ServiceType::Carey, "/extract");
+    const juce::String statusUrlPrefix = getServiceUrl(ServiceType::Carey, "/extract/status/");
+    const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([this, requestNonce, bufferFile, trackName, bpm, inferenceSteps, guidanceScale, cancelCareyOperation]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, trackName, bpm, inferenceSteps, guidanceScale, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
+        auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
+            return safeThis != nullptr
+                && safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                && safeThis->careyRequestNonce.load() == requestNonce;
+        };
+
+        if (!isRequestCurrent())
+        {
+            DBG("[carey-extract] request aborted - generation stopped");
+            return;
+        }
+
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
@@ -1180,7 +1270,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
                     break;
                 }
 
-                juce::URL submitUrl(getServiceUrl(ServiceType::Carey, "/extract"));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL submitUrl(submitUrlText);
 
                 juce::DynamicObject::Ptr submitPayload = new juce::DynamicObject();
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
@@ -1232,16 +1325,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
                     break;
                 }
 
-                juce::URL queryUrl(getServiceUrl(ServiceType::Carey, "/extract/status/" + taskId));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL queryUrl(statusUrlPrefix + taskId);
                 constexpr int kPollIntervalMs = 1500;
                 constexpr int kMaxPollCount = 600;
-
-                const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
                 int lastResolvedProgress = 0;
 
                 for (int pollCount = 0; pollCount < kMaxPollCount; ++pollCount)
                 {
-                    if (careyRequestNonce.load() != requestNonce)
+                    if (!isRequestCurrent())
                         return;
 
                     int queryStatusCode = 0;
@@ -1323,7 +1417,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
 
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
-                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
+                    juce::String statusText = cleanCareyQueueMessageText(queueMessage);
                     if (statusText.isEmpty())
                     {
                         if (queued) statusText = "queued - starting soon...";
@@ -1331,18 +1425,20 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
                         else statusText = status.isNotEmpty() ? status : "processing";
                     }
 
-                    juce::MessageManager::callAsync([this, requestNonce, progressPercent, queued, statusText]()
+                    juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, progressPercent, queued, statusText]()
                     {
-                        if (careyRequestNonce.load() != requestNonce)
+                        if (safeThis == nullptr
+                            || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                            || safeThis->careyRequestNonce.load() != requestNonce)
                             return;
 
-                        smoothProgressAnimation = false;
-                        generationProgress = progressPercent;
-                        isCurrentlyQueued = queued;
-                        setCareyWaveformState(progressPercent, queued);
+                        safeThis->smoothProgressAnimation = false;
+                        safeThis->generationProgress = progressPercent;
+                        safeThis->isCurrentlyQueued = queued;
+                        safeThis->setCareyWaveformState(progressPercent, queued);
                         if (statusText.isNotEmpty())
-                            showStatusMessage("carey extract: " + statusText, 2500);
-                        repaint();
+                            safeThis->showStatusMessage("carey extract: " + statusText, 2500);
+                        safeThis->repaint();
                     });
 
                     juce::Thread::sleep(kPollIntervalMs);
@@ -1363,33 +1459,54 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
 
         if (success && downloadedBase64.isNotEmpty())
         {
-            juce::MessageManager::callAsync([this, requestNonce, downloadedBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, downloadedBase64]()
             {
-                if (careyRequestNonce.load() != requestNonce)
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
                     return;
 
-                isCurrentlyQueued = false;
-                generationProgress = 100;
-                smoothProgressAnimation = false;
-                setCareyWaveformState(100, false);
-                setActiveOp(ActiveOp::None);
-                saveGeneratedAudio(downloadedBase64);
-                showStatusMessage("carey extract complete", 2500);
-                updateAllGenerationButtonStates();
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 100;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(100, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->saveGeneratedAudio(downloadedBase64);
+                safeThis->showStatusMessage("carey extract complete", 2500);
+                safeThis->updateAllGenerationButtonStates();
             });
             return;
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey extract request failed";
         const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
-        juce::MessageManager::callAsync([this, requestNonce, finalError, popupDetail, cancelCareyOperation]()
+        juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalError, popupDetail]()
         {
-            if (careyRequestNonce.load() != requestNonce)
+            if (safeThis == nullptr
+                || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                || safeThis->careyRequestNonce.load() != requestNonce)
                 return;
 
-            showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(popupDetail))
-                showGenerationFailureDialog(popupDetail);
+            auto cancelCareyOperation = [safeThis, generationToken, requestNonce]()
+            {
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
+                    return;
+
+                safeThis->isGenerating = false;
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 0;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(0, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+                safeThis->repaint();
+            };
+
+            safeThis->showStatusMessage(finalError, 4500);
+            if (safeThis->shouldShowGenerationFailureDialog(popupDetail))
+                safeThis->showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -1495,9 +1612,26 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     repaint();
 
     showStatusMessage("submitting carey complete request...", 2500);
+    const juce::String submitUrlText = getServiceUrl(ServiceType::Carey, "/complete");
+    const juce::String statusUrlPrefix = getServiceUrl(ServiceType::Carey, "/complete/status/");
+    const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, useSrcAsRef, submitCompleteModel, cancelCareyOperation]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, useSrcAsRef, submitCompleteModel, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
+        auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
+            return safeThis != nullptr
+                && safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                && safeThis->careyRequestNonce.load() == requestNonce;
+        };
+
+        if (!isRequestCurrent())
+        {
+            DBG("[carey-complete] request aborted - generation stopped");
+            return;
+        }
+
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
@@ -1521,7 +1655,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     break;
                 }
 
-                juce::URL submitUrl(getServiceUrl(ServiceType::Carey, "/complete"));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL submitUrl(submitUrlText);
 
                 juce::DynamicObject::Ptr submitPayload = new juce::DynamicObject();
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
@@ -1585,16 +1722,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     break;
                 }
 
-                juce::URL queryUrl(getServiceUrl(ServiceType::Carey, "/complete/status/" + taskId));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL queryUrl(statusUrlPrefix + taskId);
                 constexpr int kPollIntervalMs = 1500;
                 constexpr int kMaxPollCount = 600;
-
-                const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
                 int lastResolvedProgress = 0;
 
                 for (int pollCount = 0; pollCount < kMaxPollCount; ++pollCount)
                 {
-                    if (careyRequestNonce.load() != requestNonce)
+                    if (!isRequestCurrent())
                         return;
 
                     int queryStatusCode = 0;
@@ -1670,7 +1808,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
 
-                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
+                    juce::String statusText = cleanCareyQueueMessageText(queueMessage);
                     if (statusText.isEmpty())
                     {
                         if (queued) statusText = "queued - starting soon...";
@@ -1678,18 +1816,20 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                         else statusText = status.isNotEmpty() ? status : "processing";
                     }
 
-                    juce::MessageManager::callAsync([this, requestNonce, progressPercent, queued, statusText]()
+                    juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, progressPercent, queued, statusText]()
                     {
-                        if (careyRequestNonce.load() != requestNonce)
+                        if (safeThis == nullptr
+                            || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                            || safeThis->careyRequestNonce.load() != requestNonce)
                             return;
 
-                        smoothProgressAnimation = false;
-                        generationProgress = progressPercent;
-                        isCurrentlyQueued = queued;
-                        setCareyWaveformState(progressPercent, queued);
+                        safeThis->smoothProgressAnimation = false;
+                        safeThis->generationProgress = progressPercent;
+                        safeThis->isCurrentlyQueued = queued;
+                        safeThis->setCareyWaveformState(progressPercent, queued);
                         if (statusText.isNotEmpty())
-                            showStatusMessage("carey complete: " + statusText, 2500);
-                        repaint();
+                            safeThis->showStatusMessage("carey complete: " + statusText, 2500);
+                        safeThis->repaint();
                     });
 
                     juce::Thread::sleep(kPollIntervalMs);
@@ -1710,33 +1850,54 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
         if (success && downloadedBase64.isNotEmpty())
         {
-            juce::MessageManager::callAsync([this, requestNonce, downloadedBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, downloadedBase64]()
             {
-                if (careyRequestNonce.load() != requestNonce)
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
                     return;
 
-                isCurrentlyQueued = false;
-                generationProgress = 100;
-                smoothProgressAnimation = false;
-                setCareyWaveformState(100, false);
-                setActiveOp(ActiveOp::None);
-                saveGeneratedAudio(downloadedBase64);
-                showStatusMessage("carey continuation complete", 2500);
-                updateAllGenerationButtonStates();
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 100;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(100, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->saveGeneratedAudio(downloadedBase64);
+                safeThis->showStatusMessage("carey continuation complete", 2500);
+                safeThis->updateAllGenerationButtonStates();
             });
             return;
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey complete request failed";
         const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
-        juce::MessageManager::callAsync([this, requestNonce, finalError, popupDetail, cancelCareyOperation]()
+        juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalError, popupDetail]()
         {
-            if (careyRequestNonce.load() != requestNonce)
+            if (safeThis == nullptr
+                || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                || safeThis->careyRequestNonce.load() != requestNonce)
                 return;
 
-            showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(popupDetail))
-                showGenerationFailureDialog(popupDetail);
+            auto cancelCareyOperation = [safeThis, generationToken, requestNonce]()
+            {
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
+                    return;
+
+                safeThis->isGenerating = false;
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 0;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(0, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+                safeThis->repaint();
+            };
+
+            safeThis->showStatusMessage(finalError, 4500);
+            if (safeThis->shouldShowGenerationFailureDialog(popupDetail))
+                safeThis->showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
@@ -1845,11 +2006,28 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     repaint();
 
     showStatusMessage("submitting carey cover request...", 2500);
+    const juce::String submitUrlText = getServiceUrl(ServiceType::Carey, "/cover");
+    const juce::String statusUrlPrefix = getServiceUrl(ServiceType::Carey, "/cover/status/");
+    const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([this, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
                           audioCoverStrength, guidanceScale, inferenceSteps, selectedLora, submitCoverModel, useSrcAsRef,
-                          loopAssistEnabled, trimToInputEnabled, cancelCareyOperation]()
+                          loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
+        auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
+            return safeThis != nullptr
+                && safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                && safeThis->careyRequestNonce.load() == requestNonce;
+        };
+
+        if (!isRequestCurrent())
+        {
+            DBG("[carey-cover] request aborted - generation stopped");
+            return;
+        }
+
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
@@ -2003,7 +2181,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                     break;
                 }
 
-                juce::URL submitUrl(getServiceUrl(ServiceType::Carey, "/cover"));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL submitUrl(submitUrlText);
 
                 juce::DynamicObject::Ptr submitPayload = new juce::DynamicObject();
                 submitPayload->setProperty("audio_data", sourceAudioBase64);
@@ -2070,16 +2251,17 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 }
 
                 DBG("[carey-cover] task_id: " + taskId);
-                juce::URL queryUrl(getServiceUrl(ServiceType::Carey, "/cover/status/" + taskId));
+                if (!isRequestCurrent())
+                    return;
+
+                juce::URL queryUrl(statusUrlPrefix + taskId);
                 constexpr int kPollIntervalMs = 1500;
                 constexpr int kMaxPollCount = 600;
-
-                const bool allowTextProgressFallback = !audioProcessor.getIsUsingLocalhost();
                 int lastResolvedProgress = 0;
 
                 for (int pollCount = 0; pollCount < kMaxPollCount; ++pollCount)
                 {
-                    if (careyRequestNonce.load() != requestNonce)
+                    if (!isRequestCurrent())
                         return;
 
                     int queryStatusCode = 0;
@@ -2171,7 +2353,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                     bool queued = (queueStatus == "queued");
                     if (progressPercent > 0 || queueStatus == "ready") queued = false;
 
-                    juce::String statusText = cleanCareyQueueMessage(queueMessage);
+                    juce::String statusText = cleanCareyQueueMessageText(queueMessage);
                     if (statusText.isEmpty())
                     {
                         if (queued) statusText = "queued - starting soon...";
@@ -2179,18 +2361,20 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                         else statusText = status.isNotEmpty() ? status : "processing";
                     }
 
-                    juce::MessageManager::callAsync([this, requestNonce, progressPercent, queued, statusText]()
+                    juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, progressPercent, queued, statusText]()
                     {
-                        if (careyRequestNonce.load() != requestNonce)
+                        if (safeThis == nullptr
+                            || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                            || safeThis->careyRequestNonce.load() != requestNonce)
                             return;
 
-                        smoothProgressAnimation = false;
-                        generationProgress = progressPercent;
-                        isCurrentlyQueued = queued;
-                        setCareyWaveformState(progressPercent, queued);
+                        safeThis->smoothProgressAnimation = false;
+                        safeThis->generationProgress = progressPercent;
+                        safeThis->isCurrentlyQueued = queued;
+                        safeThis->setCareyWaveformState(progressPercent, queued);
                         if (statusText.isNotEmpty())
-                            showStatusMessage("carey cover: " + statusText, 2500);
-                        repaint();
+                            safeThis->showStatusMessage("carey cover: " + statusText, 2500);
+                        safeThis->repaint();
                     });
 
                     juce::Thread::sleep(kPollIntervalMs);
@@ -2307,33 +2491,54 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 }
             }
 
-            juce::MessageManager::callAsync([this, requestNonce, finalBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalBase64]()
             {
-                if (careyRequestNonce.load() != requestNonce)
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
                     return;
 
-                isCurrentlyQueued = false;
-                generationProgress = 100;
-                smoothProgressAnimation = false;
-                setCareyWaveformState(100, false);
-                setActiveOp(ActiveOp::None);
-                saveGeneratedAudio(finalBase64);
-                showStatusMessage("carey cover remix complete", 2500);
-                updateAllGenerationButtonStates();
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 100;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(100, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->saveGeneratedAudio(finalBase64);
+                safeThis->showStatusMessage("carey cover remix complete", 2500);
+                safeThis->updateAllGenerationButtonStates();
             });
             return;
         }
 
         const juce::String finalError = failureReason.isNotEmpty() ? failureReason : "carey cover request failed";
         const juce::String popupDetail = failureDetail.isNotEmpty() ? failureDetail : finalError;
-        juce::MessageManager::callAsync([this, requestNonce, finalError, popupDetail, cancelCareyOperation]()
+        juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalError, popupDetail]()
         {
-            if (careyRequestNonce.load() != requestNonce)
+            if (safeThis == nullptr
+                || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                || safeThis->careyRequestNonce.load() != requestNonce)
                 return;
 
-            showStatusMessage(finalError, 4500);
-            if (shouldShowGenerationFailureDialog(popupDetail))
-                showGenerationFailureDialog(popupDetail);
+            auto cancelCareyOperation = [safeThis, generationToken, requestNonce]()
+            {
+                if (safeThis == nullptr
+                    || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
+                    || safeThis->careyRequestNonce.load() != requestNonce)
+                    return;
+
+                safeThis->isGenerating = false;
+                safeThis->isCurrentlyQueued = false;
+                safeThis->generationProgress = 0;
+                safeThis->smoothProgressAnimation = false;
+                safeThis->setCareyWaveformState(0, false);
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+                safeThis->repaint();
+            };
+
+            safeThis->showStatusMessage(finalError, 4500);
+            if (safeThis->shouldShowGenerationFailureDialog(popupDetail))
+                safeThis->showGenerationFailureDialog(popupDetail);
             cancelCareyOperation();
         });
     });
