@@ -182,9 +182,11 @@ void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
 
     careyUI->setAvailableCompleteLoras(availableCareyLoras);
     careyUI->setCompleteSelectedLora(currentCareyCompleteLora);
+    careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
     careyUI->setCompleteUseLora(currentCareyCompleteUseLora);
     careyUI->setAvailableCoverLoras(availableCareyLoras);
     careyUI->setCoverSelectedLora(currentCoverLora);
+    careyUI->setCoverLoraScale(currentCoverLoraScale);
     careyUI->setCoverUseLora(currentCoverUseLora);
 }
 
@@ -1568,12 +1570,16 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const juce::String language = currentCareyLanguage;
     const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
     const juce::String selectedLora = getSelectedCareyCompleteLora();
+    const double loraScale = selectedLora.isNotEmpty()
+        ? juce::jlimit(0.0, 1.0, currentCareyCompleteLoraScale)
+        : -1.0;
     const bool useSrcAsRef = currentCompleteUseSrcAsRef;
 
     DBG("[carey-complete] request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
         + ", model=" + submitCompleteModel
         + ", lora=" + (selectedLora.isEmpty() ? juce::String("none") : selectedLora)
+        + ", lora_scale=" + (selectedLora.isEmpty() ? juce::String("default") : juce::String(loraScale, 2))
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
@@ -1618,7 +1624,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, useSrcAsRef, submitCompleteModel, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, loraScale, useSrcAsRef, submitCompleteModel, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
         auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
             return safeThis != nullptr
@@ -1669,7 +1675,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);
                 if (selectedLora.isNotEmpty())
+                {
                     submitPayload->setProperty("lora", selectedLora);
+                    submitPayload->setProperty("lora_scale", loraScale);
+                }
                 if (keyScale.isNotEmpty())
                     submitPayload->setProperty("key_scale", keyScale);
                 if (language.isNotEmpty() && language != "en")
@@ -1956,6 +1965,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         ? CareyUI::kFixedCoverSteps
         : juce::jlimit(8, 100, currentCoverSteps);
     const juce::String selectedLora = getSelectedCareyCoverLora();
+    const double loraScale = selectedLora.isNotEmpty()
+        ? juce::jlimit(0.0, 1.0, currentCoverLoraScale)
+        : -1.0;
     const bool useSrcAsRef = currentCoverUseSrcAsRef;
     const bool loopAssistEnabled = currentCoverLoopAssistEnabled;
     const bool trimToInputEnabled = currentCoverTrimToInputEnabled;
@@ -1964,6 +1976,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         + ", steps=" + juce::String(inferenceSteps)
         + ", model=" + (submitCoverModel.isEmpty() ? juce::String("default") : submitCoverModel)
         + ", lora=" + (selectedLora.isEmpty() ? juce::String("none") : selectedLora)
+        + ", lora_scale=" + (selectedLora.isEmpty() ? juce::String("default") : juce::String(loraScale, 2))
         + ", key_scale=" + (keyScale.isEmpty() ? "none" : keyScale)
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", noise_str=" + juce::String(coverNoiseStrength, 3)
@@ -2013,7 +2026,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const auto generationToken = beginGenerationAsyncWork();
 
     juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
-                          audioCoverStrength, guidanceScale, inferenceSteps, selectedLora, submitCoverModel, useSrcAsRef,
+                          audioCoverStrength, guidanceScale, inferenceSteps, selectedLora, loraScale, submitCoverModel, useSrcAsRef,
                           loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
         auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
@@ -2192,7 +2205,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 submitPayload->setProperty("caption", caption);
                 submitPayload->setProperty("lyrics", lyrics);
                 if (selectedLora.isNotEmpty())
+                {
                     submitPayload->setProperty("lora", selectedLora);
+                    submitPayload->setProperty("lora_scale", loraScale);
+                }
                 if (submitCoverModel.isNotEmpty())
                     submitPayload->setProperty("model", submitCoverModel);
                 if (keyScale.isNotEmpty())

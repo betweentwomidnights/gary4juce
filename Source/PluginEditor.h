@@ -300,6 +300,7 @@ private:
     double currentCompleteCfg = 7.0;
     int currentCareyCompleteDurationSeconds = 120;
     bool currentCareyCompleteUseLora = false;
+    double currentCareyCompleteLoraScale = 1.0;
     bool currentCompleteUseSrcAsRef = false;
     juce::StringArray availableCareyLoras;
     juce::String careyLoraFetchBackendUrl;
@@ -316,6 +317,7 @@ private:
     int currentCoverSteps = CareyUI::kFixedCoverSteps;
     double currentCoverCfg = CareyUI::kFixedCoverCfg;
     bool currentCoverUseLora = false;
+    double currentCoverLoraScale = 1.0;
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;

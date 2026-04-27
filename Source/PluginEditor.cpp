@@ -439,6 +439,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentCareyCompleteLora = loraName.trim();
     };
+    careyUI->onCompleteLoraScaleChanged = [this](double value)
+    {
+        currentCareyCompleteLoraScale = juce::jlimit(0.0, 1.0, value);
+    };
     careyUI->onCompleteModelChanged = [this](const juce::String& model)
     {
         currentCareyCompleteModel = model.trim().toLowerCase();
@@ -465,6 +469,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCoverLoraChanged = [this](const juce::String& loraName)
     {
         currentCoverLora = loraName.trim();
+    };
+    careyUI->onCoverLoraScaleChanged = [this](double value)
+    {
+        currentCoverLoraScale = juce::jlimit(0.0, 1.0, value);
     };
     careyUI->onCoverModelChanged = [this](const juce::String& model)
     {
@@ -499,6 +507,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteSteps(currentCareyCompleteSteps);
     careyUI->setCompleteCfg(currentCompleteCfg);
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+    careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
     careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
@@ -509,6 +518,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);
     careyUI->setCoverSteps(currentCoverSteps);
     careyUI->setCoverCfg(currentCoverCfg);
+    careyUI->setCoverLoraScale(currentCoverLoraScale);
     careyUI->setCoverUseLora(currentCoverUseLora);
     careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
     syncCareyLoraUi();

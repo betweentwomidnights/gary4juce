@@ -421,6 +421,26 @@ CareyUI::CareyUI()
     };
     addToContent(completeLoraComboBox);
 
+    completeLoraScaleLabel.setText("lora strength", juce::dontSendNotification);
+    completeLoraScaleLabel.setFont(juce::FontOptions(12.0f));
+    completeLoraScaleLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    completeLoraScaleLabel.setJustificationType(juce::Justification::centredLeft);
+    completeLoraScaleLabel.setTooltip("blend between the base model and the selected LoRA");
+    addToContent(completeLoraScaleLabel);
+
+    completeLoraScaleSlider.setRange(0.0, 1.0, 0.01);
+    completeLoraScaleSlider.setValue(1.0);
+    completeLoraScaleSlider.setNumDecimalPlacesToDisplay(2);
+    completeLoraScaleSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    completeLoraScaleSlider.setTooltip("LoRA strength: 0 = base model, 1 = full adapter");
+    completeLoraScaleSlider.setEnabled(false);
+    completeLoraScaleSlider.onValueChange = [this]()
+    {
+        if (onCompleteLoraScaleChanged)
+            onCompleteLoraScaleChanged(getCompleteLoraScale());
+    };
+    addToContent(completeLoraScaleSlider);
+
     completeAdvancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
     completeAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
     completeAdvancedToggle.setTooltip("show/hide advanced generation settings");
@@ -613,6 +633,26 @@ CareyUI::CareyUI()
             onCoverLoraChanged(getCoverSelectedLora());
     };
     addToContent(coverLoraComboBox);
+
+    coverLoraScaleLabel.setText("lora strength", juce::dontSendNotification);
+    coverLoraScaleLabel.setFont(juce::FontOptions(12.0f));
+    coverLoraScaleLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    coverLoraScaleLabel.setJustificationType(juce::Justification::centredLeft);
+    coverLoraScaleLabel.setTooltip("blend between the base model and the selected LoRA");
+    addToContent(coverLoraScaleLabel);
+
+    coverLoraScaleSlider.setRange(0.0, 1.0, 0.01);
+    coverLoraScaleSlider.setValue(1.0);
+    coverLoraScaleSlider.setNumDecimalPlacesToDisplay(2);
+    coverLoraScaleSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    coverLoraScaleSlider.setTooltip("LoRA strength: 0 = base model, 1 = full adapter");
+    coverLoraScaleSlider.setEnabled(false);
+    coverLoraScaleSlider.onValueChange = [this]()
+    {
+        if (onCoverLoraScaleChanged)
+            onCoverLoraScaleChanged(getCoverLoraScale());
+    };
+    addToContent(coverLoraScaleSlider);
 
     coverAdvancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
     coverAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
@@ -1248,6 +1288,11 @@ void CareyUI::updateContentLayout()
                 completeLoraLabel.setBounds(completeLoraRow.removeFromLeft(110));
                 completeLoraComboBox.setBounds(completeLoraRow);
                 y += 36;
+
+                auto completeLoraScaleRow = fullRow(28);
+                completeLoraScaleLabel.setBounds(completeLoraScaleRow.removeFromLeft(110));
+                completeLoraScaleSlider.setBounds(completeLoraScaleRow);
+                y += 36;
             }
 
             if (isStandalone)
@@ -1325,6 +1370,11 @@ void CareyUI::updateContentLayout()
                 auto coverLoraRow = fullRow(28);
                 coverLoraLabel.setBounds(coverLoraRow.removeFromLeft(110));
                 coverLoraComboBox.setBounds(coverLoraRow);
+                y += 36;
+
+                auto coverLoraScaleRow = fullRow(28);
+                coverLoraScaleLabel.setBounds(coverLoraScaleRow.removeFromLeft(110));
+                coverLoraScaleSlider.setBounds(coverLoraScaleRow);
                 y += 36;
             }
 
@@ -1450,6 +1500,8 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
     const bool showLoraSelector = showAdvanced && completeUseLoraToggle.getToggleState() && !completeLoraOptionValues.isEmpty();
     completeLoraLabel.setVisible(showLoraSelector);
     completeLoraComboBox.setVisible(showLoraSelector);
+    completeLoraScaleLabel.setVisible(showLoraSelector);
+    completeLoraScaleSlider.setVisible(showLoraSelector);
     completeAdvancedToggle.setVisible(shouldBeVisible);
     completeGenerateButton.setVisible(shouldBeVisible);
     completeInfoLabel.setVisible(shouldBeVisible);
@@ -1549,6 +1601,7 @@ void CareyUI::setAvailableCompleteLoras(const juce::StringArray& loraNames)
         ? "enable a backend LoRA adapter and use its caption pool for the dice button"
         : "no LoRA adapters are available on the current Carey backend");
     completeLoraComboBox.setEnabled(hasLoras);
+    completeLoraScaleSlider.setEnabled(hasLoras);
     completeLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
 
     if (hasLoras)
@@ -1597,6 +1650,7 @@ void CareyUI::setAvailableCoverLoras(const juce::StringArray& loraNames)
         ? "enable a backend LoRA adapter and use its caption pool for the dice button"
         : "no LoRA adapters are available on the current Carey backend");
     coverLoraComboBox.setEnabled(hasLoras);
+    coverLoraScaleSlider.setEnabled(hasLoras);
     coverLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
 
     if (hasLoras)
@@ -1634,6 +1688,8 @@ void CareyUI::setCoverControlsVisible(bool shouldBeVisible)
     const bool showLoraSelector = showAdvanced && coverUseLoraToggle.getToggleState() && !coverLoraOptionValues.isEmpty();
     coverLoraLabel.setVisible(showLoraSelector);
     coverLoraComboBox.setVisible(showLoraSelector);
+    coverLoraScaleLabel.setVisible(showLoraSelector);
+    coverLoraScaleSlider.setVisible(showLoraSelector);
     coverNoiseStrengthLabel.setVisible(showAdvanced);
     coverNoiseStrengthSlider.setVisible(showAdvanced);
     coverAudioStrengthLabel.setVisible(showAdvanced);
