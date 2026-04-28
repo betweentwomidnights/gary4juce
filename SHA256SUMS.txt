@@ -1,1 +1,1 @@
-9a78c16419f7ae677df61f12e6e626056148a7333ba09f055ccd2c64c41aed87  gary4juce-v3.0.5-win-vst3.zip
+ed01893d11a57fec7f47d81c15b38acdce4b7bdfc743b7e0204e32dcc67bdfee  gary4juce-v3.0.6-win-vst3.zip

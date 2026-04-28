@@ -7,6 +7,145 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+class Gary4juceAudioProcessor::BackendHealthChecker final : public juce::Thread
+{
+public:
+    struct Result
+    {
+        bool success = false;
+    };
+
+    using Callback = std::function<void(Result)>;
+
+    BackendHealthChecker()
+        : juce::Thread("gary4juce backend health checker")
+    {
+        startThread();
+    }
+
+    ~BackendHealthChecker() override
+    {
+        stop();
+    }
+
+    void startCheck(const juce::String& url, Callback callback)
+    {
+        const auto requestId = latestRequestId.fetch_add(1) + 1;
+
+        {
+            const juce::ScopedLock lock(stateLock);
+            pendingUrl = url;
+            pendingCallback = std::move(callback);
+            pendingRequestId = requestId;
+            hasPendingRequest = true;
+        }
+
+        wakeEvent.signal();
+    }
+
+    void cancelPending()
+    {
+        latestRequestId.fetch_add(1);
+
+        {
+            const juce::ScopedLock lock(stateLock);
+            hasPendingRequest = false;
+            pendingUrl.clear();
+            pendingCallback = {};
+            pendingRequestId = 0;
+        }
+
+        wakeEvent.signal();
+    }
+
+    void stop()
+    {
+        cancelPending();
+        signalThreadShouldExit();
+        wakeEvent.signal();
+        stopThread(4000);
+    }
+
+    void run() override
+    {
+        while (!threadShouldExit())
+        {
+            wakeEvent.wait(-1);
+
+            if (threadShouldExit())
+                break;
+
+            juce::String url;
+            Callback callback;
+            int requestId = 0;
+
+            {
+                const juce::ScopedLock lock(stateLock);
+                if (!hasPendingRequest)
+                    continue;
+
+                url = pendingUrl;
+                callback = pendingCallback;
+                requestId = pendingRequestId;
+                hasPendingRequest = false;
+            }
+
+            if (threadShouldExit() || url.isEmpty())
+                continue;
+
+            Result result;
+            juce::URL healthUrl(url);
+
+            std::unique_ptr<juce::InputStream> stream(
+                healthUrl.createInputStream(
+                    juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                        .withConnectionTimeoutMs(3000)
+                )
+            );
+
+            if (threadShouldExit())
+                continue;
+
+            if (stream != nullptr)
+            {
+                const auto responseText = stream->readEntireStreamAsString();
+
+                if (responseText.isNotEmpty())
+                {
+                    result.success = true;
+
+                    auto json = juce::JSON::parse(responseText);
+                    if (auto* jsonObj = json.getDynamicObject())
+                    {
+                        const auto status = jsonObj->getProperty("status").toString();
+                        result.success = (status == "live");
+                    }
+                }
+            }
+
+            if (threadShouldExit() || requestId != latestRequestId.load())
+                continue;
+
+            if (callback)
+            {
+                juce::MessageManager::callAsync([callback = std::move(callback), result]() mutable
+                {
+                    callback(result);
+                });
+            }
+        }
+    }
+
+private:
+    juce::CriticalSection stateLock;
+    juce::WaitableEvent wakeEvent;
+    juce::String pendingUrl;
+    Callback pendingCallback;
+    std::atomic<int> latestRequestId{ 0 };
+    int pendingRequestId = 0;
+    bool hasPendingRequest = false;
+};
+
 //==============================================================================
 Gary4juceAudioProcessor::Gary4juceAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -20,116 +159,67 @@ Gary4juceAudioProcessor::Gary4juceAudioProcessor()
     )
 #endif
 {
-    // Check backend health on startup
-    checkBackendHealth();
+    backendHealthCallbackToken = std::make_shared<std::atomic<bool>>(true);
+    backendHealthChecker = std::make_unique<BackendHealthChecker>();
 }
 
 Gary4juceAudioProcessor::~Gary4juceAudioProcessor()
 {
     DBG("=== STOPPING PROCESSOR BACKGROUND OPERATIONS ===");
-    stopHealthChecks();
+
+    if (backendHealthCallbackToken)
+    {
+        backendHealthCallbackToken->store(false);
+        backendHealthCallbackToken.reset();
+    }
+
+    if (backendHealthChecker != nullptr)
+    {
+        backendHealthChecker->cancelPending();
+        backendHealthChecker->stop();
+        backendHealthChecker.reset();
+    }
 }
 
 void Gary4juceAudioProcessor::stopHealthChecks()
 {
-    DBG("Stopping health checks - setting background operations flag");
-    shouldStopBackgroundOperations.store(true);
-    
-    // Wait briefly for any ongoing health check requests to notice the flag and abort
-    juce::Thread::sleep(100);
-    
-    DBG("Health checks stopped - ongoing requests should abort");
+    DBG("Stopping health checks - cancelling pending requests");
+
+    if (backendHealthChecker != nullptr)
+        backendHealthChecker->cancelPending();
 }
 
 void Gary4juceAudioProcessor::checkBackendHealth()
 {
-    // SAFETY: Don't start new health checks if stopping
-    if (shouldStopBackgroundOperations.load()) {
-        DBG("Health check aborted - background operations stopped");
+    if (backendHealthChecker == nullptr || backendHealthCallbackToken == nullptr)
+    {
+        DBG("Health check aborted - checker unavailable");
         return;
     }
 
+    const auto healthUrl = backendBaseUrl + "/health";
+    auto weakCallbackToken = std::weak_ptr<std::atomic<bool>>(backendHealthCallbackToken);
+
     DBG("Checking backend health at: " + backendBaseUrl);
 
-    // Create health check request in background thread
-    juce::Thread::launch([this]() {
-        // SAFETY: Exit if background operations stopped
-        if (shouldStopBackgroundOperations.load()) {
-            DBG("Health check thread aborted - background operations stopped");
+    backendHealthChecker->startCheck(healthUrl, [this, weakCallbackToken](BackendHealthChecker::Result result)
+    {
+        auto callbackToken = weakCallbackToken.lock();
+        if (callbackToken == nullptr || !callbackToken->load())
             return;
-        }
-        juce::URL healthUrl(backendBaseUrl + "/health");
 
-        // Create input stream for the URL
-        std::unique_ptr<juce::InputStream> stream(healthUrl.createInputStream(
-            juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-            .withConnectionTimeoutMs(5000)  // 5 second timeout
-        ));
-
-        if (stream != nullptr)
-        {
-            // Read the entire response
-            juce::String responseText = stream->readEntireStreamAsString();
-            DBG("Backend health response: " + responseText);
-
-            // Simple check - if we got any response, assume it's working
-            bool isHealthy = !responseText.isEmpty();
-
-            // Try to parse JSON for more detailed check
-            if (isHealthy)
-            {
-                try {
-                    auto json = juce::JSON::parse(responseText);
-                    if (auto* jsonObj = json.getDynamicObject())
-                    {
-                        auto status = jsonObj->getProperty("status").toString();
-                        isHealthy = (status == "live");
-                        DBG("Backend status: " + status);
-                    }
-                }
-                catch (...)
-                {
-                    DBG("Failed to parse health response JSON, but got response");
-                    // Keep isHealthy = true since we got a response
-                }
-            }
-
-            // Update connection status on message thread
-            juce::MessageManager::callAsync([this, isHealthy]() {
-                // SAFETY: Don't process if background operations stopped
-                if (shouldStopBackgroundOperations.load()) {
-                    DBG("Health check success callback aborted");
-                    return;
-                }
-                setBackendConnectionStatus(isHealthy);
-                });
-        }
-        else
-        {
-            DBG("Failed to create health check stream");
-            juce::MessageManager::callAsync([this]() {
-                // SAFETY: Don't process if background operations stopped
-                if (shouldStopBackgroundOperations.load()) {
-                    DBG("Health check failure callback aborted");
-                    return;
-                }
-                setBackendConnectionStatus(false);
-                });
-        }
-        });
+        setBackendConnectionStatus(result.success);
+    });
 }
 
 void Gary4juceAudioProcessor::setBackendConnectionStatus(bool connected)
 {
-    if (backendConnected != connected)
-    {
-        backendConnected = connected;
-        DBG("Backend connection status changed: " + juce::String(connected ? "Connected" : "Disconnected"));
+    const auto previous = backendConnected.exchange(connected);
 
-        // Notify editor of status change
-        if (auto* editor = getActiveEditor())
-            if (auto* myEditor = dynamic_cast<Gary4juceAudioProcessorEditor*>(editor))
-                myEditor->updateConnectionStatus(connected);
+    if (previous != connected)
+    {
+        DBG("Backend connection status changed: " + juce::String(connected ? "Connected" : "Disconnected"));
+        sendChangeMessage();
     }
 }
 
@@ -184,11 +274,8 @@ void Gary4juceAudioProcessor::setUsingLocalhost(bool useLocalhost)
         // FIRST: Reset connection state and notify editor immediately
         setBackendConnectionStatus(false);
 
-        // SAFETY: Only check health if not stopping
-        if (!shouldStopBackgroundOperations.load()) {
-            // THEN: Check health with new URL (this will update to true if backend is running)
-            checkBackendHealth();
-        }
+        // THEN: Check health with new URL (this will update to true if backend is running)
+        checkBackendHealth();
     }
 }
 
@@ -254,6 +341,8 @@ void Gary4juceAudioProcessor::startRecording()
     DBG("Starting recording...");
     juce::ScopedLock lock(bufferLock);
 
+    recordingStartPending.store(false);
+    recordingStopPending.store(false);
     bufferWritePosition = 0;
     recordedSamples = 0;
     atomicRecordedSamples = 0;
@@ -263,18 +352,81 @@ void Gary4juceAudioProcessor::startRecording()
 
 void Gary4juceAudioProcessor::stopRecording()
 {
-    DBG("Stopping recording. Recorded " + juce::String(recordedSamples) + " samples");
     juce::ScopedLock lock(bufferLock);
 
+    DBG("Stopping recording. Recorded " + juce::String(recordedSamples) + " samples");
+    recordingStartPending.store(false);
+    recordingStopPending.store(false);
     recording = false;
     atomicRecording = false;
     atomicRecordedSamples = recordedSamples;
+}
+
+void Gary4juceAudioProcessor::requestRecordingStartFromAudioThread() noexcept
+{
+    recordingStopPending.store(false, std::memory_order_release);
+    recordingStartPending.store(true, std::memory_order_release);
+}
+
+void Gary4juceAudioProcessor::requestRecordingStopFromAudioThread() noexcept
+{
+    recordingStartPending.store(false, std::memory_order_release);
+    recordingStopPending.store(true, std::memory_order_release);
+}
+
+void Gary4juceAudioProcessor::tryApplyPendingRecordingStateFromAudioThread() noexcept
+{
+    const auto shouldStart = recordingStartPending.load(std::memory_order_acquire);
+    const auto shouldStop = recordingStopPending.load(std::memory_order_acquire);
+
+    if (!shouldStart && !shouldStop)
+        return;
+
+    if (!bufferLock.tryEnter())
+        return;
+
+    if (recordingStopPending.exchange(false, std::memory_order_acq_rel))
+    {
+        DBG("Stopping recording. Recorded " + juce::String(recordedSamples) + " samples");
+        recording = false;
+        atomicRecording.store(false, std::memory_order_release);
+        atomicRecordedSamples.store(recordedSamples, std::memory_order_release);
+    }
+
+    if (recordingStartPending.exchange(false, std::memory_order_acq_rel))
+    {
+        DBG("Starting recording...");
+        bufferWritePosition = 0;
+        recordedSamples = 0;
+        atomicRecordedSamples.store(0, std::memory_order_release);
+        recording = true;
+        atomicRecording.store(true, std::memory_order_release);
+    }
+
+    bufferLock.exit();
+}
+
+void Gary4juceAudioProcessor::stopRecordingNonBlocking() noexcept
+{
+    requestRecordingStopFromAudioThread();
+    atomicRecording.store(false, std::memory_order_release);
+
+    if (bufferLock.tryEnter())
+    {
+        recordingStartPending.store(false, std::memory_order_release);
+        recordingStopPending.store(false, std::memory_order_release);
+        recording = false;
+        atomicRecordedSamples.store(recordedSamples, std::memory_order_release);
+        bufferLock.exit();
+    }
 }
 
 void Gary4juceAudioProcessor::clearRecordingBuffer()
 {
     juce::ScopedLock lock(bufferLock);
 
+    recordingStartPending = false;
+    recordingStopPending = false;
     recordingBuffer.clear();
     bufferWritePosition = 0;
     recordedSamples = 0;
@@ -393,6 +545,9 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
 void Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer)
 {
     juce::ScopedLock lock(bufferLock);
+
+    recordingStartPending = false;
+    recordingStopPending = false;
 
     // Clear existing recording state
     recordingBuffer.clear();
@@ -525,6 +680,9 @@ void Gary4juceAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
         // THREAD SAFETY: Use lock when modifying buffer and state
         juce::ScopedLock lock(bufferLock);
 
+        recordingStartPending = false;
+        recordingStopPending = false;
+
         // Only clear the buffer if we actually need to resize it
         recordingBuffer.setSize(numChannels, maxRecordingSamples);
         recordingBuffer.clear();
@@ -546,6 +704,9 @@ void Gary4juceAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
         // THREAD SAFETY: Use lock when modifying recording state
         juce::ScopedLock lock(bufferLock);
 
+        recordingStartPending = false;
+        recordingStopPending = false;
+
         // Just ensure we're not recording when transport stops, but preserve data
         recording = false;
         atomicRecording = false;    // ADD THIS
@@ -560,7 +721,8 @@ void Gary4juceAudioProcessor::releaseResources()
 {
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
-    stopRecording();
+    stopRecordingNonBlocking();
+    wasPlaying = false;
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -617,20 +779,20 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     // Detect when transport starts (transition from not playing to playing)
     if (isCurrentlyPlaying && !wasPlaying)
     {
-        startRecording();
+        requestRecordingStartFromAudioThread();
     }
     else if (!isCurrentlyPlaying && wasPlaying)
     {
-        stopRecording();
+        requestRecordingStopFromAudioThread();
     }
 
     wasPlaying = isCurrentlyPlaying;
 
-
+    tryApplyPendingRecordingStateFromAudioThread();
 
     // Record audio if we're recording and have space in buffer
     // Use atomic check first (fast path)
-    if (atomicRecording.load() && atomicRecordedSamples.load() < maxRecordingSamples)
+    if (atomicRecording.load(std::memory_order_acquire) && atomicRecordedSamples.load(std::memory_order_acquire) < maxRecordingSamples)
     {
         // Try to acquire lock without blocking (audio thread must not block)
         if (bufferLock.tryEnter())
@@ -658,10 +820,10 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                     recording = false;
                     atomicRecording = false;
                 }
-            }
+                }
 
-            bufferLock.exit();
-        }
+                bufferLock.exit();
+            }
         // If we can't get the lock, skip this block (better than blocking audio thread)
     }
 
@@ -669,29 +831,30 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // NEW: Mix output playback if active
-    if (isPlayingOutputAudio.load() && outputPlaybackBuffer.getNumSamples() > 0)
+    const auto playbackData = std::atomic_load(&outputPlaybackData);
+    if (isPlayingOutputAudio.load(std::memory_order_acquire) && playbackData != nullptr)
     {
-        if (playbackBufferLock.tryEnter())
+        const auto& playbackBuffer = playbackData->buffer;
+        const int totalPlaybackSamples = playbackBuffer.getNumSamples();
+        const int readPosition = outputPlaybackReadPosition.load(std::memory_order_acquire);
+
+        if (totalPlaybackSamples > 0 && readPosition >= 0 && readPosition < totalPlaybackSamples)
         {
-            const int numSamplesToMix = juce::jmin(
-                buffer.getNumSamples(),
-                outputPlaybackBuffer.getNumSamples() - outputPlaybackReadPosition
-            );
+            const int numSamplesToMix = juce::jmin(buffer.getNumSamples(), totalPlaybackSamples - readPosition);
 
             if (numSamplesToMix > 0)
             {
                 // FIXED: Handle mono → stereo conversion
-                if (outputPlaybackBuffer.getNumChannels() == 1)
+                if (playbackBuffer.getNumChannels() == 1)
                 {
                     // Mono source - duplicate to all output channels
                     for (int channel = 0; channel < totalNumOutputChannels; ++channel)
                     {
                         buffer.addFrom(
                             channel, 0,
-                            outputPlaybackBuffer,
+                            playbackBuffer,
                             0,  // Always read from channel 0 (mono)
-                            outputPlaybackReadPosition,
+                            readPosition,
                             numSamplesToMix
                         );
                     }
@@ -699,35 +862,39 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                 else
                 {
                     // Stereo/multi-channel source - normal channel mapping
-                    for (int channel = 0; channel < juce::jmin(totalNumOutputChannels, outputPlaybackBuffer.getNumChannels()); ++channel)
+                    for (int channel = 0; channel < juce::jmin(totalNumOutputChannels, playbackBuffer.getNumChannels()); ++channel)
                     {
                         buffer.addFrom(
                             channel, 0,
-                            outputPlaybackBuffer,
-                            channel, outputPlaybackReadPosition,
+                            playbackBuffer,
+                            channel, readPosition,
                             numSamplesToMix
                         );
                     }
                 }
 
-                // Update read position
-                outputPlaybackReadPosition += numSamplesToMix;
+                const int newReadPosition = readPosition + numSamplesToMix;
 
-                // Update playback position in seconds (for UI)
-                // NOTE: Use currentSampleRate (host rate) since buffer is now resampled
-                double newPosition = (double)outputPlaybackReadPosition / currentSampleRate;
-                outputPlaybackPosition.store(newPosition);
-
-                // Check if we've reached the end
-                if (outputPlaybackReadPosition >= outputPlaybackBuffer.getNumSamples())
+                if (newReadPosition >= totalPlaybackSamples)
                 {
-                    isPlayingOutputAudio.store(false);
-                    outputPlaybackReadPosition = 0;
-                    outputPlaybackPosition.store(0.0);
+                    isPlayingOutputAudio.store(false, std::memory_order_release);
+                    isPausedOutputAudio.store(false, std::memory_order_release);
+                    outputPlaybackReadPosition.store(0, std::memory_order_release);
+                    outputPlaybackPosition.store(0.0, std::memory_order_release);
+                }
+                else
+                {
+                    outputPlaybackReadPosition.store(newReadPosition, std::memory_order_release);
+                    outputPlaybackPosition.store((double)newReadPosition / playbackData->sampleRate, std::memory_order_release);
                 }
             }
-
-            playbackBufferLock.exit();
+        }
+        else if (readPosition >= totalPlaybackSamples)
+        {
+            isPlayingOutputAudio.store(false, std::memory_order_release);
+            isPausedOutputAudio.store(false, std::memory_order_release);
+            outputPlaybackReadPosition.store(0, std::memory_order_release);
+            outputPlaybackPosition.store(0.0, std::memory_order_release);
         }
     }
 
@@ -846,8 +1013,8 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
             DBG("Legacy session cleared");
         }
 
-        // Trigger a health check to restore connection status
-        checkBackendHealth();
+        // Restore as unknown until the editor or a manual check revalidates backend status.
+        setBackendConnectionStatus(false);
     }
 }
 
@@ -863,8 +1030,8 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
 
     if (reader != nullptr)
     {
-        juce::ScopedLock lock(playbackBufferLock);
-
+        auto newPlaybackData = std::make_shared<OutputPlaybackData>();
+        const double hostSampleRate = currentSampleRate;
         const double fileSampleRate = reader->sampleRate;
         const int fileNumChannels = (int)reader->numChannels;
         const int fileNumSamples = (int)reader->lengthInSamples;
@@ -873,21 +1040,21 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
             juce::String(fileSampleRate) + " Hz, " + juce::String(fileNumChannels) + " channels");
 
         // Check if we need sample rate conversion
-        const bool needsResampling = (fileSampleRate != currentSampleRate);
+        const bool needsResampling = (fileSampleRate != hostSampleRate);
 
         if (needsResampling)
         {
             DBG("Sample rate mismatch: file=" + juce::String(fileSampleRate) +
-                " Hz, host=" + juce::String(currentSampleRate) + " Hz - resampling...");
+                " Hz, host=" + juce::String(hostSampleRate) + " Hz - resampling...");
 
             // Calculate how many samples we'll need after resampling
-            const double sizeRatio = currentSampleRate / fileSampleRate;
+            const double sizeRatio = hostSampleRate / fileSampleRate;
             const int resampledNumSamples = (int)(fileNumSamples * sizeRatio);
 
             // Calculate speed ratio for interpolator (how fast to read input samples)
             // For upsampling (44.1→48kHz): speedRatio < 1.0 (read slower)
             // For downsampling (48→44.1kHz): speedRatio > 1.0 (read faster)
-            const double speedRatio = fileSampleRate / currentSampleRate;
+            const double speedRatio = fileSampleRate / hostSampleRate;
 
             DBG("Size ratio: " + juce::String(sizeRatio) + ", Speed ratio: " + juce::String(speedRatio));
 
@@ -896,7 +1063,7 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
             reader->read(&tempBuffer, 0, fileNumSamples, 0, true, true);
 
             // Create output buffer at host sample rate
-            outputPlaybackBuffer.setSize(fileNumChannels, resampledNumSamples);
+            newPlaybackData->buffer.setSize(fileNumChannels, resampledNumSamples);
 
             // Resample each channel using JUCE's Lagrange interpolator
             for (int channel = 0; channel < fileNumChannels; ++channel)
@@ -906,7 +1073,7 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
 
                 // Read pointer from temp buffer, write pointer to output buffer
                 const float* readPtr = tempBuffer.getReadPointer(channel);
-                float* writePtr = outputPlaybackBuffer.getWritePointer(channel);
+                float* writePtr = newPlaybackData->buffer.getWritePointer(channel);
 
                 // Perform resampling
                 interpolator.process(
@@ -920,27 +1087,34 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
             }
 
             // Store final properties (at host sample rate)
-            outputAudioSampleRate.store(currentSampleRate);
-            outputAudioDuration.store((double)resampledNumSamples / currentSampleRate);
+            newPlaybackData->sampleRate = hostSampleRate;
+            newPlaybackData->durationSeconds = (double)resampledNumSamples / hostSampleRate;
 
             DBG("Resampling complete: " + juce::String(resampledNumSamples) + " samples at " +
-                juce::String(currentSampleRate) + " Hz");
+                juce::String(hostSampleRate) + " Hz");
         }
         else
         {
             // No resampling needed - direct load
             DBG("Sample rates match - loading directly");
 
-            outputPlaybackBuffer.setSize(fileNumChannels, fileNumSamples);
-            reader->read(&outputPlaybackBuffer, 0, fileNumSamples, 0, true, true);
+            newPlaybackData->buffer.setSize(fileNumChannels, fileNumSamples);
+            reader->read(&newPlaybackData->buffer, 0, fileNumSamples, 0, true, true);
 
             // Store file properties
-            outputAudioSampleRate.store(fileSampleRate);
-            outputAudioDuration.store((double)fileNumSamples / fileSampleRate);
+            newPlaybackData->sampleRate = fileSampleRate;
+            newPlaybackData->durationSeconds = (double)fileNumSamples / fileSampleRate;
         }
 
+        std::shared_ptr<const OutputPlaybackData> immutablePlaybackData = newPlaybackData;
+        std::atomic_store(&outputPlaybackData, immutablePlaybackData);
+        outputAudioSampleRate.store(newPlaybackData->sampleRate);
+        outputAudioDuration.store(newPlaybackData->durationSeconds);
+
         // Reset playback state
-        outputPlaybackReadPosition = 0;
+        isPlayingOutputAudio.store(false);
+        isPausedOutputAudio.store(false);
+        outputPlaybackReadPosition.store(0);
         outputPlaybackPosition.store(0.0);
 
         DBG("Loaded output audio for playback successfully");
@@ -953,16 +1127,16 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
 
 void Gary4juceAudioProcessor::startOutputPlayback(double fromPosition)
 {
-    juce::ScopedLock lock(playbackBufferLock);
+    const auto playbackData = std::atomic_load(&outputPlaybackData);
 
-    if (outputPlaybackBuffer.getNumSamples() > 0)
+    if (playbackData != nullptr && playbackData->buffer.getNumSamples() > 0)
     {
         // Calculate sample position from time
-        int samplePosition = (int)(fromPosition * outputAudioSampleRate.load());
-        samplePosition = juce::jlimit(0, outputPlaybackBuffer.getNumSamples() - 1, samplePosition);
+        int samplePosition = (int)(fromPosition * playbackData->sampleRate);
+        samplePosition = juce::jlimit(0, playbackData->buffer.getNumSamples() - 1, samplePosition);
 
-        outputPlaybackReadPosition = samplePosition;
-        outputPlaybackPosition.store(fromPosition);
+        outputPlaybackReadPosition.store(samplePosition);
+        outputPlaybackPosition.store((double)samplePosition / playbackData->sampleRate);
         isPausedOutputAudio.store(false);
         isPlayingOutputAudio.store(true);
 
@@ -983,11 +1157,9 @@ void Gary4juceAudioProcessor::pauseOutputPlayback()
 
 void Gary4juceAudioProcessor::stopOutputPlayback()
 {
-    juce::ScopedLock lock(playbackBufferLock);
-
     isPlayingOutputAudio.store(false);
     isPausedOutputAudio.store(false);
-    outputPlaybackReadPosition = 0;
+    outputPlaybackReadPosition.store(0);
     outputPlaybackPosition.store(0.0);
 
     DBG("Stopped output playback");
@@ -995,19 +1167,19 @@ void Gary4juceAudioProcessor::stopOutputPlayback()
 
 void Gary4juceAudioProcessor::seekOutputPlayback(double positionInSeconds)
 {
-    juce::ScopedLock lock(playbackBufferLock);
+    const auto playbackData = std::atomic_load(&outputPlaybackData);
 
-    if (outputPlaybackBuffer.getNumSamples() > 0)
+    if (playbackData != nullptr && playbackData->buffer.getNumSamples() > 0)
     {
         // Clamp position to valid range
         positionInSeconds = juce::jlimit(0.0, outputAudioDuration.load(), positionInSeconds);
 
         // Calculate sample position
-        int samplePosition = (int)(positionInSeconds * outputAudioSampleRate.load());
-        samplePosition = juce::jlimit(0, outputPlaybackBuffer.getNumSamples() - 1, samplePosition);
+        int samplePosition = (int)(positionInSeconds * playbackData->sampleRate);
+        samplePosition = juce::jlimit(0, playbackData->buffer.getNumSamples() - 1, samplePosition);
 
-        outputPlaybackReadPosition = samplePosition;
-        outputPlaybackPosition.store(positionInSeconds);
+        outputPlaybackReadPosition.store(samplePosition);
+        outputPlaybackPosition.store((double)samplePosition / playbackData->sampleRate);
 
         DBG("Seeked to " + juce::String(positionInSeconds, 2) + "s");
     }

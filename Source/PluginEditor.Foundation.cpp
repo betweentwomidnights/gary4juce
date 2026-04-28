@@ -172,12 +172,13 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
         + "): " + jsonString.substring(0, 300));
 
     juce::String endpoint = isAudio2Audio ? "/audio2audio" : "/generate";
+    const auto requestUrl = getServiceUrl(ServiceType::Foundation, endpoint);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
-    juce::Thread::launch([this, jsonString, cancelOp, endpoint]()
+    juce::Thread::launch([asyncAlive, editor, jsonString, requestUrl]()
     {
-        if (!isGenerating) return;
-
-        juce::URL url(getServiceUrl(ServiceType::Foundation, endpoint));
+        juce::URL url(requestUrl);
         juce::URL postUrl = url.withPOSTData(jsonString);
 
         auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
@@ -198,14 +199,29 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
         }
         catch (...) {}
 
-        juce::MessageManager::callAsync([this, responseText, ok, cancelOp]()
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, ok]()
         {
-            if (!isGenerating) return;
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            auto cancelFoundationOperation = [editor]()
+            {
+                editor->isGenerating = false;
+                editor->isCurrentlyQueued = false;
+                editor->generationProgress = 0;
+                editor->smoothProgressAnimation = false;
+                editor->setActiveOp(ActiveOp::None);
+                editor->updateAllGenerationButtonStates();
+                editor->repaint();
+            };
+
+            if (!editor->isGenerating) return;
 
             if (!ok || responseText.isEmpty())
             {
-                showStatusMessage("foundation-1 backend not responding", 4000);
-                cancelOp();
+                editor->showStatusMessage("foundation-1 backend not responding", 4000);
+                cancelFoundationOperation();
                 return;
             }
 
@@ -213,8 +229,8 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
             auto* responseObj = responseVar.getDynamicObject();
             if (!responseObj)
             {
-                showStatusMessage("invalid response from foundation-1", 4000);
-                cancelOp();
+                editor->showStatusMessage("invalid response from foundation-1", 4000);
+                cancelFoundationOperation();
                 return;
             }
 
@@ -222,8 +238,8 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
             if (!success)
             {
                 juce::String error = responseObj->getProperty("error").toString();
-                showStatusMessage("foundation-1 error: " + error, 5000);
-                cancelOp();
+                editor->showStatusMessage("foundation-1 error: " + error, 5000);
+                cancelFoundationOperation();
                 return;
             }
 
@@ -234,11 +250,11 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
             DBG("[foundation] session=" + sessionId + " foundation_bpm=" + juce::String(foundationBpm));
             DBG("[foundation] prompt=" + prompt);
 
-            if (foundationUI)
-                foundationUI->setInfoText("generating at " + juce::String(foundationBpm) + " BPM...");
+            if (editor->foundationUI)
+                editor->foundationUI->setInfoText("generating at " + juce::String(foundationBpm) + " BPM...");
 
-            showStatusMessage("foundation-1 generating...", 2000);
-            startPollingForResults(sessionId);
+            editor->showStatusMessage("foundation-1 generating...", 2000);
+            editor->startPollingForResults(sessionId);
         });
     });
 }
@@ -268,7 +284,10 @@ void Gary4juceAudioProcessorEditor::randomizeFoundation()
     juce::URL url(getServiceUrl(ServiceType::Foundation, "/randomize"));
     juce::URL postUrl = url.withPOSTData(jsonString);
 
-    juce::Thread::launch([this, postUrl]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, postUrl]()
     {
         juce::String responseText;
         bool ok = false;
@@ -288,15 +307,19 @@ void Gary4juceAudioProcessorEditor::randomizeFoundation()
         }
         catch (...) {}
 
-        juce::MessageManager::callAsync([this, responseText, ok]()
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, ok]()
         {
-            if (foundationUI)
-                foundationUI->setRandomizeEnabled(true);
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            if (editor->foundationUI)
+                editor->foundationUI->setRandomizeEnabled(true);
 
             if (!ok || responseText.isEmpty())
             {
-                showStatusMessage("randomize failed — check connection", 3000);
-                if (foundationUI) foundationUI->setInfoText("");
+                editor->showStatusMessage("randomize failed — check connection", 3000);
+                if (editor->foundationUI) editor->foundationUI->setInfoText("");
                 return;
             }
 
@@ -304,8 +327,8 @@ void Gary4juceAudioProcessorEditor::randomizeFoundation()
             auto* responseObj = responseVar.getDynamicObject();
             if (responseObj == nullptr)
             {
-                showStatusMessage("randomize: invalid response", 3000);
-                if (foundationUI) foundationUI->setInfoText("");
+                editor->showStatusMessage("randomize: invalid response", 3000);
+                if (editor->foundationUI) editor->foundationUI->setInfoText("");
                 return;
             }
 
@@ -313,18 +336,18 @@ void Gary4juceAudioProcessorEditor::randomizeFoundation()
             if (!success)
             {
                 juce::String error = responseObj->getProperty("error").toString();
-                showStatusMessage("randomize: " + (error.isEmpty() ? "unknown error" : error), 3000);
-                if (foundationUI) foundationUI->setInfoText("");
+                editor->showStatusMessage("randomize: " + (error.isEmpty() ? "unknown error" : error), 3000);
+                if (editor->foundationUI) editor->foundationUI->setInfoText("");
                 return;
             }
 
             DBG("[foundation] randomize response: " + responseText);
 
-            if (foundationUI)
+            if (editor->foundationUI)
             {
-                foundationUI->applyRandomizeResponse(responseVar);
-                foundationUI->setInfoText("");
-                showStatusMessage("prompt randomized!", 1500);
+                editor->foundationUI->applyRandomizeResponse(responseVar);
+                editor->foundationUI->setInfoText("");
+                editor->showStatusMessage("prompt randomized!", 1500);
             }
         });
     });

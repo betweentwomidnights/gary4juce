@@ -109,6 +109,11 @@ public:
         return {};
     }
 
+    double getCompleteLoraScale() const
+    {
+        return completeLoraScaleSlider.getValue();
+    }
+
     juce::String getLyricsText() const
     {
         return lyricsText;
@@ -197,6 +202,11 @@ public:
         const int loraIndex = findTrackIndex(completeLoraOptionValues, loraName.trim());
         completeLoraComboBox.setSelectedId(loraIndex >= 0 ? loraIndex + 1 : 0, juce::dontSendNotification);
         updateContentLayout();
+    }
+
+    void setCompleteLoraScale(double value)
+    {
+        completeLoraScaleSlider.setValue(juce::jlimit(0.0, 1.0, value), juce::dontSendNotification);
     }
 
     void setLyricsText(const juce::String& text)
@@ -295,6 +305,7 @@ public:
             return coverLoraOptionValues[index];
         return {};
     }
+    double getCoverLoraScale() const { return coverLoraScaleSlider.getValue(); }
     juce::String getCoverLyricsText() const { return lyricsText; }
     double getCoverNoiseStrength() const { return coverNoiseStrengthSlider.getValue(); }
     double getCoverAudioStrength() const { return coverAudioStrengthSlider.getValue(); }
@@ -324,6 +335,7 @@ public:
         coverLoraComboBox.setSelectedId(loraIndex >= 0 ? loraIndex + 1 : 0, juce::dontSendNotification);
         updateContentLayout();
     }
+    void setCoverLoraScale(double value) { coverLoraScaleSlider.setValue(juce::jlimit(0.0, 1.0, value), juce::dontSendNotification); }
     void setCoverLyricsText(const juce::String& text) { setLyricsTextInternal(text, false); }
     void setCoverNoiseStrength(double val) { coverNoiseStrengthSlider.setValue(juce::jlimit(0.0, 1.0, val), juce::dontSendNotification); }
     void setCoverAudioStrength(double val) { coverAudioStrengthSlider.setValue(juce::jlimit(0.0, 1.0, val), juce::dontSendNotification); }
@@ -475,6 +487,7 @@ public:
     std::function<void()> onCompleteCaptionDiceRequested;
     std::function<void(bool)> onCompleteUseLoraChanged;
     std::function<void(const juce::String&)> onCompleteLoraChanged;
+    std::function<void(double)> onCompleteLoraScaleChanged;
     std::function<void(const juce::String&)> onCompleteModelChanged;
     std::function<void(int)> onCompleteBpmChanged;
     std::function<void(int)> onCompleteStepsChanged;
@@ -487,6 +500,7 @@ public:
     std::function<void()> onCoverCaptionDiceRequested;
     std::function<void(bool)> onCoverUseLoraChanged;
     std::function<void(const juce::String&)> onCoverLoraChanged;
+    std::function<void(double)> onCoverLoraScaleChanged;
     std::function<void(const juce::String&)> onCoverModelChanged;
     std::function<void(double)> onCoverNoiseStrengthChanged;
     std::function<void(double)> onCoverAudioStrengthChanged;
@@ -570,6 +584,8 @@ private:
     juce::ToggleButton completeUseLoraToggle;
     juce::Label completeLoraLabel;
     CustomComboBox completeLoraComboBox;
+    juce::Label completeLoraScaleLabel;
+    CustomSlider completeLoraScaleSlider;
     juce::StringArray completeLoraOptionValues;
     juce::Label completeModelLabel;
     juce::ToggleButton completeTurboModelToggle;
@@ -600,6 +616,8 @@ private:
     juce::ToggleButton coverUseLoraToggle;
     juce::Label coverLoraLabel;
     CustomComboBox coverLoraComboBox;
+    juce::Label coverLoraScaleLabel;
+    CustomSlider coverLoraScaleSlider;
     juce::StringArray coverLoraOptionValues;
     juce::Label coverModelLabel;
     juce::ToggleButton coverTurboModelToggle;

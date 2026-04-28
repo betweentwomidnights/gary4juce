@@ -181,11 +181,17 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     if (terryUI)
         terryUI->setTransformButtonText("transforming...");
     showStatusMessage("sending audio to terry for transformation...");
+    const float flowstep = currentTerryFlowstep;
+    const bool useMidpoint = useMidpointSolver;
+    const juce::String customPrompt = currentTerryCustomPrompt;
+    const int selectedVariation = currentTerryVariation;
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Terry, "/api/juce/transform_audio"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
-    juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt, cancelTerryOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, base64Audio, variationNames, hasVariation, hasCustomPrompt, flowstep, useMidpoint, customPrompt, selectedVariation, requestUrl]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Terry request aborted - generation stopped");
             return;
         }
@@ -195,22 +201,22 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
         // Create JSON payload
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("audio_data", base64Audio);
-        jsonRequest->setProperty("flowstep", currentTerryFlowstep);
-        jsonRequest->setProperty("solver", useMidpointSolver ? "midpoint" : "euler");
+        jsonRequest->setProperty("flowstep", flowstep);
+        jsonRequest->setProperty("solver", useMidpoint ? "midpoint" : "euler");
 
         // FIXED: Always send a variation (required by backend), custom_prompt overrides it
         if (hasCustomPrompt)
         {
             // Send default variation + custom_prompt (custom_prompt will override)
             jsonRequest->setProperty("variation", "accordion_folk");  // Default/neutral variation
-            jsonRequest->setProperty("custom_prompt", currentTerryCustomPrompt);
-            DBG("Terry using custom prompt: " + currentTerryCustomPrompt + " (with default variation)");
+            jsonRequest->setProperty("custom_prompt", customPrompt);
+            DBG("Terry using custom prompt: " + customPrompt + " (with default variation)");
         }
-        else if (hasVariation && currentTerryVariation < variationNames.size())
+        else if (hasVariation && selectedVariation < variationNames.size())
         {
             // Send selected variation only
-            jsonRequest->setProperty("variation", variationNames[currentTerryVariation]);
-            DBG("Terry using variation: " + variationNames[currentTerryVariation]);
+            jsonRequest->setProperty("variation", variationNames[selectedVariation]);
+            DBG("Terry using variation: " + variationNames[selectedVariation]);
         }
         else
         {
@@ -223,15 +229,13 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
 
         DBG("Terry JSON payload size: " + juce::String(jsonString.length()) + " characters");
 
-        juce::URL url(getServiceUrl(ServiceType::Terry, "/api/juce/transform_audio"));
-
         juce::String responseText;
         int statusCode = 0;
 
         try
         {
             // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions (same as Gary/Jerry)
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -273,12 +277,17 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
         }
 
         // Handle response on main thread (same pattern as Gary)
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, cancelTerryOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode, startTime]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Terry callback aborted");
                 return;
             }
+
+            auto cancelTerryOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total Terry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -295,33 +304,33 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                     if (success)
                     {
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
-                        showStatusMessage("sent to terry. processing...", 2000);
+                        safeThis->showStatusMessage("sent to terry. processing...", 2000);
                         DBG("Terry session ID: " + sessionId);
 
                         // START POLLING FOR RESULTS (same as Gary)
-                        startPollingForResults(sessionId);  // This sets currentSessionId = sessionId
+                        safeThis->startPollingForResults(sessionId);  // This sets currentSessionId = sessionId
 
                         // Disable undo button until transform completes
-                        updateTerryEnablementSnapshot();
+                        safeThis->updateTerryEnablementSnapshot();
                     }
                     else
                     {
                         juce::String error = responseObj->getProperty("error").toString();
-                        showStatusMessage("terry error: " + error, 5000);
+                        safeThis->showStatusMessage("terry error: " + error, 5000);
                         DBG("Terry server error: " + error);
 
-                        if (terryUI)
-                            terryUI->setTransformButtonText("transform with terry");
+                        if (safeThis->terryUI)
+                            safeThis->terryUI->setTransformButtonText("transform with terry");
                         cancelTerryOperation();
                     }
                 }
                 else
                 {
-                    showStatusMessage("invalid JSON response from terry", 4000);
+                    safeThis->showStatusMessage("invalid JSON response from terry", 4000);
                     DBG("Failed to parse Terry JSON response: " + responseText.substring(0, 100));
 
-                    if (terryUI)
-                        terryUI->setTransformButtonText("transform with terry");
+                    if (safeThis->terryUI)
+                        safeThis->terryUI->setTransformButtonText("transform with terry");
                     cancelTerryOperation();
                 }
             }
@@ -330,10 +339,10 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "cannot connect to terry on localhost - ensure terry is running in gary4local";
-                    markBackendDisconnectedFromRequestFailure("terry request");
+                    safeThis->markBackendDisconnectedFromRequestFailure("terry request");
                 }
                 else if (statusCode == 0)
                 {
@@ -348,33 +357,36 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 else
                     errorMsg = "empty response from terry";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Terry request failed: " + errorMsg);
 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Terry failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
 
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
 
-                if (terryUI)
-                    terryUI->setTransformButtonText("transform with terry");
+                if (safeThis->terryUI)
+                    safeThis->terryUI->setTransformButtonText("transform with terry");
 
                 cancelTerryOperation();
             }
 
             // Re-enable transform button (same pattern as Gary/Jerry)
-            updateTerryEnablementSnapshot();
+            safeThis->updateTerryEnablementSnapshot();
 
             });
         });
@@ -400,7 +412,8 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
         terryUI->setUndoButtonText("undoing...");
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, sessionId]() {
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis, sessionId]() {
         // REMOVED: Don't check isGenerating for undo operations!
         // Undo operations are not generation operations and should proceed regardless
         // if (!isGenerating) {
@@ -418,7 +431,13 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
         DBG("Terry undo JSON payload: " + jsonString);
 
-        juce::URL url(getServiceUrl(ServiceType::Terry, "/api/juce/undo_transform"));
+        if (safeThis == nullptr)
+        {
+            DBG("Undo Terry request aborted - editor destroyed");
+            return;
+        }
+
+        juce::URL url(safeThis->getServiceUrl(ServiceType::Terry, "/api/juce/undo_transform"));
 
         juce::String responseText;
         int statusCode = 0;
@@ -467,7 +486,13 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode]() {
+        juce::MessageManager::callAsync([safeThis, responseText, statusCode]() {
+            if (safeThis == nullptr)
+            {
+                DBG("Undo Terry callback aborted");
+                return;
+            }
+
             // REMOVED: Don't check isGenerating for undo callback either!
             // if (!isGenerating) {
             //     DBG("Undo Terry callback aborted");
@@ -490,57 +515,57 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                         if (audioData.isNotEmpty())
                         {
                             // Save the restored audio
-                            saveGeneratedAudio(audioData);
-                            showStatusMessage("transform undone - audio restored.", 3000);
+                            safeThis->saveGeneratedAudio(audioData);
+                            safeThis->showStatusMessage("transform undone - audio restored.", 3000);
                             DBG("Terry undo successful - audio restored");
 
                             // Clear session ID since undo is complete
-                            audioProcessor.clearCurrentSessionId();
-                            audioProcessor.setRetryAvailable(false);          // ADD THIS
-                            updateTerryEnablementSnapshot();
-                            if (terryUI)
-                                terryUI->setUndoButtonText("undo transform");
-                            updateRetryButtonState();
+                            safeThis->audioProcessor.clearCurrentSessionId();
+                            safeThis->audioProcessor.setRetryAvailable(false);          // ADD THIS
+                            safeThis->updateTerryEnablementSnapshot();
+                            if (safeThis->terryUI)
+                                safeThis->terryUI->setUndoButtonText("undo transform");
+                            safeThis->updateRetryButtonState();
                         }
                         else
                         {
-                            showStatusMessage("undo completed but no audio data received", 3000);
+                            safeThis->showStatusMessage("undo completed but no audio data received", 3000);
                             DBG("Terry undo success but missing audio data");
                             // Re-enable undo button since this is an error case
-                            audioProcessor.setUndoTransformAvailable(true);
-                            updateTerryEnablementSnapshot();
-                            if (terryUI)
-                                terryUI->setUndoButtonText("undo transform");
+                            safeThis->audioProcessor.setUndoTransformAvailable(true);
+                            safeThis->updateTerryEnablementSnapshot();
+                            if (safeThis->terryUI)
+                                safeThis->terryUI->setUndoButtonText("undo transform");
                         }
                     }
                     else
                     {
                         auto error = responseObj->getProperty("error").toString();
-                        showStatusMessage("undo failed: " + error, 4000);
+                        safeThis->showStatusMessage("undo failed: " + error, 4000);
                         DBG("Terry undo server error: " + error);
-                        audioProcessor.setUndoTransformAvailable(true);
-                        updateTerryEnablementSnapshot();
-                        if (terryUI)
-                            terryUI->setUndoButtonText("undo transform");
+                        safeThis->audioProcessor.setUndoTransformAvailable(true);
+                        safeThis->updateTerryEnablementSnapshot();
+                        if (safeThis->terryUI)
+                            safeThis->terryUI->setUndoButtonText("undo transform");
                     }
                 }
                 else
                 {
-                    showStatusMessage("invalid undo response format", 3000);
+                    safeThis->showStatusMessage("invalid undo response format", 3000);
                     DBG("Failed to parse Terry undo JSON response");
-                    audioProcessor.setUndoTransformAvailable(true);
-                    updateTerryEnablementSnapshot();
-                    if (terryUI)
-                        terryUI->setUndoButtonText("undo transform");
+                    safeThis->audioProcessor.setUndoTransformAvailable(true);
+                    safeThis->updateTerryEnablementSnapshot();
+                    if (safeThis->terryUI)
+                        safeThis->terryUI->setUndoButtonText("undo transform");
                 }
             }
             else
             {
                 juce::String errorMsg;
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "cannot connect for undo on localhost - ensure terry is running in gary4local";
-                    markBackendDisconnectedFromRequestFailure("terry undo request");
+                    safeThis->markBackendDisconnectedFromRequestFailure("terry undo request");
                 }
                 else if (statusCode == 0)
                     errorMsg = "failed to connect for undo on remote backend";
@@ -549,12 +574,12 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 else
                     errorMsg = "empty undo response";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Terry undo request failed: " + errorMsg);
-                audioProcessor.setUndoTransformAvailable(true);
-                updateTerryEnablementSnapshot();
-                if (terryUI)
-                    terryUI->setUndoButtonText("undo transform");
+                safeThis->audioProcessor.setUndoTransformAvailable(true);
+                safeThis->updateTerryEnablementSnapshot();
+                if (safeThis->terryUI)
+                    safeThis->terryUI->setUndoButtonText("undo transform");
             }
             });
         });

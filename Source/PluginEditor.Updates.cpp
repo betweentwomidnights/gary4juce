@@ -367,20 +367,22 @@ void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool incl
 
     const auto currentVersion = juce::String(ProjectInfo::versionString);
     const auto skippedVersion = includeSkippedVersion ? juce::String() : getSkippedUpdateVersion();
-    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
-    juce::Thread::launch([safeThis, currentVersion, skippedVersion, manual, includeSkippedVersion]()
+    juce::Thread::launch([asyncAlive, editor, currentVersion, skippedVersion, manual, includeSkippedVersion]()
     {
         const auto result = runPluginUpdateCheck(currentVersion, skippedVersion, includeSkippedVersion);
 
-        juce::MessageManager::callAsync([safeThis, result, manual]()
+        juce::MessageManager::callAsync([asyncAlive, editor, result, manual]()
         {
-            if (safeThis == nullptr)
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
 
-            safeThis->updateCheckInFlight.store(false);
-            safeThis->checkUpdatesButton.setEnabled(true);
-            safeThis->setLastUpdateCheckTimeMs(result.checkedAtMs > 0
+            editor->updateCheckInFlight.store(false);
+            editor->checkUpdatesButton.setEnabled(true);
+            editor->setLastUpdateCheckTimeMs(result.checkedAtMs > 0
                                                    ? result.checkedAtMs
                                                    : juce::Time::getCurrentTime().toMilliseconds());
 
@@ -388,7 +390,7 @@ void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool incl
             {
                 DBG("Plugin update check failed: " + result.error);
                 if (manual)
-                    safeThis->showStatusMessage("update check failed", 3500);
+                    editor->showStatusMessage("update check failed", 3500);
                 return;
             }
 
@@ -396,8 +398,8 @@ void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool incl
             {
                 if (manual)
                 {
-                    safeThis->setSkippedUpdateVersion({});
-                    safeThis->showStatusMessage("you're already on the latest gary4juce", 3000);
+                    editor->setSkippedUpdateVersion({});
+                    editor->showStatusMessage("you're already on the latest gary4juce", 3000);
                 }
                 return;
             }
@@ -405,24 +407,24 @@ void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool incl
             if (!result.shouldPrompt && !manual)
                 return;
 
-            if (safeThis->updatePromptVisible)
+            if (editor->updatePromptVisible)
             {
                 if (manual)
-                    safeThis->showStatusMessage("update prompt already open", 2500);
+                    editor->showStatusMessage("update prompt already open", 2500);
                 return;
             }
 
-            if (safeThis->isGenerating)
+            if (editor->isGenerating)
             {
-                safeThis->deferredUpdatePromptReady = true;
-                safeThis->deferredUpdateVersion = result.latestVersion;
-                safeThis->deferredUpdateDownloadUrl = result.downloadUrl;
-                safeThis->deferredUpdateChannel = result.channel;
-                safeThis->deferredUpdatePublishedAt = result.publishedAt;
-                safeThis->deferredUpdateNotes = result.notes;
+                editor->deferredUpdatePromptReady = true;
+                editor->deferredUpdateVersion = result.latestVersion;
+                editor->deferredUpdateDownloadUrl = result.downloadUrl;
+                editor->deferredUpdateChannel = result.channel;
+                editor->deferredUpdatePublishedAt = result.publishedAt;
+                editor->deferredUpdateNotes = result.notes;
 
                 if (manual)
-                    safeThis->showStatusMessage("update ready after this render", 3500);
+                    editor->showStatusMessage("update ready after this render", 3500);
 
                 return;
             }
@@ -431,25 +433,25 @@ void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool incl
             {
                 if (modalManager->getNumModalComponents() > 0)
                 {
-                    safeThis->deferredUpdatePromptReady = true;
-                    safeThis->deferredUpdateVersion = result.latestVersion;
-                    safeThis->deferredUpdateDownloadUrl = result.downloadUrl;
-                    safeThis->deferredUpdateChannel = result.channel;
-                    safeThis->deferredUpdatePublishedAt = result.publishedAt;
-                    safeThis->deferredUpdateNotes = result.notes;
+                    editor->deferredUpdatePromptReady = true;
+                    editor->deferredUpdateVersion = result.latestVersion;
+                    editor->deferredUpdateDownloadUrl = result.downloadUrl;
+                    editor->deferredUpdateChannel = result.channel;
+                    editor->deferredUpdatePublishedAt = result.publishedAt;
+                    editor->deferredUpdateNotes = result.notes;
 
                     if (manual)
-                        safeThis->showStatusMessage("update ready when this dialog closes", 3500);
+                        editor->showStatusMessage("update ready when this dialog closes", 3500);
 
                     return;
                 }
             }
 
-            safeThis->showPluginUpdatePrompt(result.latestVersion,
-                                             result.downloadUrl,
-                                             result.notes,
-                                             result.channel,
-                                             result.publishedAt);
+            editor->showPluginUpdatePrompt(result.latestVersion,
+                                           result.downloadUrl,
+                                           result.notes,
+                                           result.channel,
+                                           result.publishedAt);
         });
     });
 }

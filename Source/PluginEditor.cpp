@@ -19,6 +19,7 @@ using plugin_editor_detail::stripAnsiAndControlChars;
 
 namespace
 {
+    constexpr int kStartupNetworkGraceMs = 750;
 }
 
 //==============================================================================
@@ -34,11 +35,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton("Upload", juce::DrawableButton::ImageFitted)
 
 {
+    editorCreatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+
     setSize(400, 850);  // Made taller to accommodate controls
 
 #if JUCE_MAC
     applyStandaloneDockIconIfAvailable();
 #endif
+    audioProcessor.addChangeListener(this);
 
     // Check initial backend connection status
     isConnected = audioProcessor.isBackendConnected();
@@ -452,6 +456,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentCareyCompleteLora = loraName.trim();
     };
+    careyUI->onCompleteLoraScaleChanged = [this](double value)
+    {
+        currentCareyCompleteLoraScale = juce::jlimit(0.0, 1.0, value);
+    };
     careyUI->onCompleteModelChanged = [this](const juce::String& model)
     {
         currentCareyCompleteModel = model.trim().toLowerCase();
@@ -478,6 +486,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCoverLoraChanged = [this](const juce::String& loraName)
     {
         currentCoverLora = loraName.trim();
+    };
+    careyUI->onCoverLoraScaleChanged = [this](double value)
+    {
+        currentCoverLoraScale = juce::jlimit(0.0, 1.0, value);
     };
     careyUI->onCoverModelChanged = [this](const juce::String& model)
     {
@@ -512,6 +524,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteSteps(currentCareyCompleteSteps);
     careyUI->setCompleteCfg(currentCompleteCfg);
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+    careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
     careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
@@ -522,6 +535,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);
     careyUI->setCoverSteps(currentCoverSteps);
     careyUI->setCoverCfg(currentCoverCfg);
+    careyUI->setCoverLoraScale(currentCoverLoraScale);
     careyUI->setCoverUseLora(currentCoverUseLora);
     careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
     syncCareyLoraUi();
@@ -573,25 +587,29 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             triggerLocalServiceHealthPoll(true);
         checkConnectionButton.setEnabled(false);
 
-        juce::Timer::callAfterDelay(6000, [this]() {
-            checkConnectionButton.setEnabled(true);
+        juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+        juce::Timer::callAfterDelay(6000, [safeThis]() {
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->checkConnectionButton.setEnabled(true);
 
             // Show popup if remote backend check failed, but throttle it
-            if (!audioProcessor.isBackendConnected() && !audioProcessor.getIsUsingLocalhost())
+            if (!safeThis->audioProcessor.isBackendConnected() && !safeThis->audioProcessor.getIsUsingLocalhost())
             {
                 auto currentTime = juce::Time::getCurrentTime();
-                auto timeSinceLastPopup = currentTime - lastBackendDisconnectionPopupTime;
+                auto timeSinceLastPopup = currentTime - safeThis->lastBackendDisconnectionPopupTime;
 
                 // Only show popup if it hasn't been shown in the last 10 minutes
                 if (timeSinceLastPopup.inMinutes() >= 10)
                 {
-                    handleBackendDisconnection();
-                    lastBackendDisconnectionPopupTime = currentTime;
+                    safeThis->handleBackendDisconnection();
+                    safeThis->lastBackendDisconnectionPopupTime = currentTime;
                 }
                 else
                 {
                     // Just show a status message instead of the popup
-                    showStatusMessage("remote backend not responding", 4000);
+                    safeThis->showStatusMessage("remote backend not responding", 4000);
                     DBG("Manual check failed but popup throttled (last shown " +
                         juce::String(timeSinceLastPopup.inMinutes()) + " minutes ago)");
                 }
@@ -708,12 +726,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
             "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a");
 
+        const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+        auto* editor = this;
+
         chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this, chooser](const juce::FileChooser& fc)
+            [asyncAlive, editor, chooser](const juce::FileChooser& fc)
             {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
                 auto result = fc.getResult();
                 if (result.existsAsFile())
-                    loadAudioFileIntoBuffer(result);
+                    editor->loadAudioFileIntoBuffer(result);
             });
     };
     uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
@@ -869,12 +894,17 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     updateContinueButtonState();
     updateTerryEnablementSnapshot();
 
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+
     // 6. Double-check button states after connection stabilizes
-    juce::Timer::callAfterDelay(2000, [this]() {
-        updateRetryButtonState();
-        updateTerryEnablementSnapshot();
+    juce::Timer::callAfterDelay(2000, [safeThis]() {
+        if (safeThis == nullptr)
+            return;
+
+        safeThis->updateRetryButtonState();
+        safeThis->updateTerryEnablementSnapshot();
         DBG("Button states updated after connection check");
-        });
+    });
 
     DBG("All button states updated after restoration");
 
@@ -884,12 +914,39 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // Force initial layout now that help icons are created
     resized();
 
-    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     juce::Timer::callAfterDelay(1500, [safeThis]()
     {
         if (safeThis != nullptr)
             safeThis->maybeAutoCheckForUpdates();
     });
+
+juce::MessageManager::callAsync([safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->audioProcessor.checkBackendHealth();
+    });
+}
+
+Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::beginGenerationAsyncWork() noexcept
+{
+    return generationAsyncToken.fetch_add(1, std::memory_order_acq_rel) + 1;
+}
+
+Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::currentGenerationAsyncToken() const noexcept
+{
+    return generationAsyncToken.load(std::memory_order_acquire);
+}
+
+void Gary4juceAudioProcessorEditor::invalidateGenerationAsyncWork() noexcept
+{
+    generationAsyncToken.fetch_add(1, std::memory_order_acq_rel);
+    pollInFlight.store(false, std::memory_order_release);
+}
+
+bool Gary4juceAudioProcessorEditor::isGenerationAsyncWorkCurrent(GenerationAsyncToken token) const noexcept
+{
+    return isEditorValid.load(std::memory_order_acquire)
+        && generationAsyncToken.load(std::memory_order_acquire) == token;
 }
 
 void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
@@ -906,6 +963,7 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
     hasDetectedStall = false;
+    invalidateGenerationAsyncWork();
 
     // REMOVED: Don't clear session to prevent new requests
     // audioProcessor.clearCurrentSessionId();  // <-- REMOVE THIS LINE!
@@ -916,9 +974,6 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
     updatePromptVisible = false;
     clearDeferredUpdatePrompt();
 
-    // Wait for ongoing requests to notice the flags and abort
-    juce::Thread::sleep(150);
-
     DBG("Background operations stopped - threads should abort");
     DBG("Session ID preserved: '" + audioProcessor.getCurrentSessionId() + "'");
 
@@ -927,15 +982,19 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
-    isEditorValid.store(false);
-    // NEW: Stop all background operations FIRST
+    isEditorValid.store(false, std::memory_order_release);
+    if (editorAsyncAlive != nullptr)
+        editorAsyncAlive->store(false, std::memory_order_release);
+
+    // Stop timers before mutating teardown state so no periodic UI work can interleave.
+    stopTimer();
+
+    audioProcessor.removeChangeListener(this);
+
     stopAllBackgroundOperations();
 
     // Ensure tooltip window is cleaned up first
     tooltipWindow.reset();
-
-    // CRITICAL: Stop all timers first to prevent any callbacks during destruction
-    stopTimer();
 
     // Stop playback through processor (host audio)
     audioProcessor.stopOutputPlayback();
@@ -1115,6 +1174,9 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 // Updated timerCallback() with smooth progress animation:
 void Gary4juceAudioProcessorEditor::timerCallback()
 {
+    if (!isEditorValid.load(std::memory_order_acquire))
+        return;
+
     updateRecordingStatus();
 
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
@@ -1572,6 +1634,7 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
     audioProcessor.setCurrentSessionId(sessionId);
     isPolling = true;
     isGenerating = true;
+    pollInFlight.store(false, std::memory_order_release);
     generationProgress = 0;
     resetStallDetection();
     pollingStartTimeMs = juce::Time::getCurrentTime().toMilliseconds();
@@ -1583,9 +1646,7 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
 void Gary4juceAudioProcessorEditor::stopPolling()
 {
     isPolling = false;
-
-    // Wait briefly for any ongoing poll requests to notice the flag
-    juce::Thread::sleep(50);
+    invalidateGenerationAsyncWork();
 
     DBG("Stopped polling - ongoing requests should abort");
 }
@@ -1613,35 +1674,44 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     // Only trip �stall� when not warming up
     if (!withinWarmup && checkForGenerationStall())
     {
-        pollInFlight = false;
+        pollInFlight.store(false, std::memory_order_release);
         handleGenerationStall();
         return;
     }
 
-    juce::Thread::launch([this, sessionId]()
-        {
-            auto clearInFlight = [this]() { pollInFlight = false; };
+    const auto generationToken = currentGenerationAsyncToken();
+    const auto activeOperation = getActiveOp();
+    const bool warmupSnapshot = withinWarmup;
+    const bool queuedSnapshot = isCurrentlyQueued;
+    const bool generatingSnapshot = isGenerating;
+    const int connectionTimeoutMs = warmupSnapshot ? 4000 : 8000;
+    const juce::URL pollUrl = [&]() {
+        if (activeOperation == ActiveOp::FoundationGenerate)
+            return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::CareyGenerate)
+            return juce::URL(getServiceUrl(ServiceType::Carey, "/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::JerryGenerate)
+            return juce::URL(getServiceUrl(ServiceType::Jerry, "/api/juce/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::TerryTransform)
+            return juce::URL(getServiceUrl(ServiceType::Terry, "/api/juce/poll_status/" + sessionId));
+        return juce::URL(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+    }();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
 
-            // SAFETY: Exit if polling stopped
-            if (!isPolling || sessionId.isEmpty())
+    juce::Thread::launch([safeThis, generationToken, sessionId, pollUrl, connectionTimeoutMs, warmupSnapshot, queuedSnapshot, generatingSnapshot]()
+        {
+            auto clearInFlight = [safeThis]()
+                {
+                    if (safeThis != nullptr)
+                        safeThis->pollInFlight.store(false, std::memory_order_release);
+                };
+
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || sessionId.isEmpty())
             {
                 clearInFlight();
                 DBG("Polling aborted - no longer active");
                 return;
             }
-
-            // Select poll URL based on active operation
-            juce::URL pollUrl = [&]() {
-                if (activeOp == ActiveOp::FoundationGenerate)
-                    return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
-                if (activeOp == ActiveOp::CareyGenerate)
-                    return juce::URL(getServiceUrl(ServiceType::Carey, "/poll_status/" + sessionId));
-                if (activeOp == ActiveOp::JerryGenerate)
-                    return juce::URL(getServiceUrl(ServiceType::Jerry, "/api/juce/poll_status/" + sessionId));
-                if (activeOp == ActiveOp::TerryTransform)
-                    return juce::URL(getServiceUrl(ServiceType::Terry, "/api/juce/poll_status/" + sessionId));
-                return juce::URL(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
-            }();
 
             try
             {
@@ -1649,7 +1719,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 juce::StringPairArray responseHeaders;
 
                 auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                    .withConnectionTimeoutMs(withinWarmup ? 4000 : 8000) // shorter during warmup
+                    .withConnectionTimeoutMs(connectionTimeoutMs)
                     .withNumRedirectsToFollow(3)
                     .withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
                     .withResponseHeaders(&responseHeaders)
@@ -1659,10 +1729,9 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 std::unique_ptr<juce::InputStream> stream(pollUrl.createInputStream(options));
 
                 // If we didn�t get a stream while warming, quick retry once
-                if (stream == nullptr && (withinWarmup || isCurrentlyQueued || isGenerating))
+                if (stream == nullptr && (warmupSnapshot || queuedSnapshot || generatingSnapshot))
                 {
                     DBG("Polling: null stream during warmup/active; quick retry");
-                    juce::Thread::sleep(150);
 
                     // Move-assign the new unique_ptr result into our existing one
                     auto retryStream = pollUrl.createInputStream(options); // returns std::unique_ptr<InputStream>
@@ -1673,13 +1742,21 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 if (stream != nullptr)
                 {
                     const auto responseText = stream->readEntireStreamAsString();
-                    lastGoodPollMs = juce::Time::getCurrentTime().toMilliseconds();
+
+                    if (safeThis != nullptr)
+                        safeThis->lastGoodPollMs = juce::Time::getCurrentTime().toMilliseconds();
+
                     clearInFlight();
 
-                    juce::MessageManager::callAsync([this, responseText]()
+                    juce::MessageManager::callAsync([safeThis, generationToken, responseText]()
                         {
-                            if (!isPolling) { DBG("Polling callback aborted"); return; }
-                            handlePollingResponse(responseText);
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                            {
+                                DBG("Polling callback aborted");
+                                return;
+                            }
+
+                            safeThis->handlePollingResponse(responseText);
                         });
                     return;
                 }
@@ -1688,34 +1765,45 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 clearInFlight();
 
                 const bool treatAsTransient =
-                    withinWarmup || isCurrentlyQueued || isGenerating;
+                    warmupSnapshot || queuedSnapshot || generatingSnapshot;
 
                 if (treatAsTransient)
                 {
                     // Keep UI alive; don�t escalate to failure.
-                    juce::MessageManager::callAsync([this]()
+                    juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                return;
+
                             // keep user informed but gentle
-                            showStatusMessage("warming up... (network jitter)", 2500);
+                            safeThis->showStatusMessage("warming up... (network jitter)", 2500);
                             // also reset stall timer so we don�t trip
-                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                            safeThis->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
-                    return; // simply wait for next timer tick to poll again
+                    return;
                 }
 
                 // Not warming/queued and no stream: do your existing health check path
                 DBG("Polling failed - checking backend health (no stream; status unknown)");
-                juce::MessageManager::callAsync([this]()
+                juce::MessageManager::callAsync([safeThis, generationToken]()
                     {
-                        if (!isPolling) { DBG("Polling health check callback aborted"); return; }
-                        audioProcessor.checkBackendHealth();
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                        {
+                            DBG("Polling health check callback aborted");
+                            return;
+                        }
 
-                        juce::Timer::callAfterDelay(6000, [this]()
+                        safeThis->audioProcessor.checkBackendHealth();
+
+                        juce::Timer::callAfterDelay(6000, [safeThis, generationToken]()
                             {
-                                if (!audioProcessor.isBackendConnected())
-                                    handleBackendDisconnection();
+                                if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                    return;
+
+                                if (!safeThis->audioProcessor.isBackendConnected())
+                                    safeThis->handleBackendDisconnection();
                                 else
-                                    handleGenerationFailure("polling failed - try again");
+                                    safeThis->handleGenerationFailure("polling failed - try again");
                             });
                     });
             }
@@ -1725,18 +1813,24 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 DBG("Polling exception: " + juce::String(e.what()));
 
                 // During warmup, treat as transient
-                if (withinWarmup || isCurrentlyQueued || isGenerating)
+                if (warmupSnapshot || queuedSnapshot || generatingSnapshot)
                 {
-                    juce::MessageManager::callAsync([this]()
+                    juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
-                            showStatusMessage("warming up... (transient)", 2500);
-                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                return;
+
+                            safeThis->showStatusMessage("warming up... (transient)", 2500);
+                            safeThis->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
                 }
 
-                juce::MessageManager::callAsync([this]() {
-                    handleGenerationFailure("network error during generation");
+                juce::MessageManager::callAsync([safeThis, generationToken]() {
+                    if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                        return;
+
+                    safeThis->handleGenerationFailure("network error during generation");
                     });
             }
             catch (...)
@@ -1744,18 +1838,24 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 clearInFlight();
                 DBG("Unknown polling exception");
 
-                if (withinWarmup || isCurrentlyQueued || isGenerating)
+                if (warmupSnapshot || queuedSnapshot || generatingSnapshot)
                 {
-                    juce::MessageManager::callAsync([this]()
+                    juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
-                            showStatusMessage("warming up... (transient)", 2500);
-                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                return;
+
+                            safeThis->showStatusMessage("warming up... (transient)", 2500);
+                            safeThis->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
                 }
 
-                juce::MessageManager::callAsync([this]() {
-                    handleGenerationFailure("network error during generation");
+                juce::MessageManager::callAsync([safeThis, generationToken]() {
+                    if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                        return;
+
+                    safeThis->handleGenerationFailure("network error during generation");
                     });
             }
         });
@@ -1779,6 +1879,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
     {
         DBG("Empty polling response - backend likely down");
         stopPolling();
+        const auto stoppedToken = currentGenerationAsyncToken();
 
         if (isLocalTerryOp)
         {
@@ -1789,17 +1890,21 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
         // Empty response indicates backend failure - check health immediately
         audioProcessor.checkBackendHealth();
 
-        juce::Timer::callAfterDelay(3000, [this]() {
-            if (!audioProcessor.isBackendConnected())
-            {
-                handleBackendDisconnection();
-                lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-            }
-            else
-            {
-                showStatusMessage("backend reachable but no response; retry", 3000);
-            }
-            });
+        juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+        juce::Timer::callAfterDelay(3000, [safeThis, stoppedToken]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stoppedToken))
+                return;
+
+                if (!safeThis->audioProcessor.isBackendConnected())
+                {
+                    safeThis->handleBackendDisconnection();
+                    safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                }
+                else
+                {
+                    safeThis->showStatusMessage("backend reachable but no response; retry", 3000);
+                }
+        });
         resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
         return;
@@ -2123,6 +2228,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
         {
             DBG("Failed to parse polling response as JSON - backend likely down");
             stopPolling();
+            const auto stoppedToken = currentGenerationAsyncToken();
 
             if (isLocalTerryOp)
             {
@@ -2133,17 +2239,21 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             // JSON parsing failure indicates backend issues - check health
             audioProcessor.checkBackendHealth();
 
-            juce::Timer::callAfterDelay(3000, [this]() {
-                if (!audioProcessor.isBackendConnected())
+            juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+            juce::Timer::callAfterDelay(3000, [safeThis, stoppedToken]() {
+                if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stoppedToken))
+                    return;
+
+                if (!safeThis->audioProcessor.isBackendConnected())
                 {
-                    handleBackendDisconnection();
-                    lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                    safeThis->handleBackendDisconnection();
+                    safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                 }
                 else
                 {
-                    showStatusMessage("bad response; retry", 3000);
+                    safeThis->showStatusMessage("bad response; retry", 3000);
                 }
-                });
+            });
             resetJerryButtonIfNeeded();
             setActiveOp(ActiveOp::None);
         }
@@ -2152,6 +2262,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
     {
         DBG("Exception parsing polling response - backend likely down");
         stopPolling();
+        const auto stoppedToken = currentGenerationAsyncToken();
 
         if (isLocalTerryOp)
         {
@@ -2162,17 +2273,21 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
         // Exception indicates backend issues - check health
         audioProcessor.checkBackendHealth();
 
-        juce::Timer::callAfterDelay(3000, [this]() {
-            if (!audioProcessor.isBackendConnected())
+        juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+        juce::Timer::callAfterDelay(3000, [safeThis, stoppedToken]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stoppedToken))
+                return;
+
+            if (!safeThis->audioProcessor.isBackendConnected())
             {
-                handleBackendDisconnection();
-                lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                safeThis->handleBackendDisconnection();
+                safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
             }
             else
             {
-                showStatusMessage("parse error; retry", 3000);
+                safeThis->showStatusMessage("parse error; retry", 3000);
             }
-            });
+        });
         resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
     }
@@ -2349,10 +2464,15 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     updateAllGenerationButtonStates();
     repaint(); // Force immediate UI update
 
+    const int promptDuration = (int)currentPromptDuration;
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
+
     // Create HTTP request in background thread
-    juce::Thread::launch([this, selectedModel, base64Audio, isLocalhostRequest, capturedQuantizationMode, cancelGaryOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio,
+                          requestUrl, isLocalhostRequest, capturedQuantizationMode]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Gary request aborted - generation stopped");
             return;
         }
@@ -2362,7 +2482,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         // Create JSON payload - Clean construction without double encoding
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("model_name", selectedModel);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
+        jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("audio_data", base64Audio);
         jsonRequest->setProperty("top_k", 250);
         jsonRequest->setProperty("temperature", 1.0);
@@ -2377,8 +2497,6 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         DBG("JSON payload size: " + juce::String(jsonString.length()) + " characters");
         DBG("JSON preview: " + jsonString.substring(0, 100) + "...");
 
-        juce::URL url(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
-
         juce::String responseText;
         int statusCode = 0;
 
@@ -2386,7 +2504,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         {
             // JUCE 8.0.8 CORRECT HYBRID APPROACH:
             // Use URL.withPOSTData for POST body, InputStreamOptions for modern settings
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -2428,12 +2546,18 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, cancelGaryOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode, startTime]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Gary callback aborted");
                 return;
             }
+
+            auto cancelGaryOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->continueInProgress = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -2455,31 +2579,31 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                     if (success)
                     {
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
-                        showStatusMessage("sent to gary. processing...", 2000);
+                        safeThis->showStatusMessage("sent to gary. processing...", 2000);
                         DBG("Session ID: " + sessionId);
 
                         // START POLLING FOR RESULTS
-                        startPollingForResults(sessionId);
+                        safeThis->startPollingForResults(sessionId);
                     }
                     else
                     {
                         juce::String error = responseObj->getProperty("error").toString();
-                        showStatusMessage("Error: " + error, 5000);
+                        safeThis->showStatusMessage("Error: " + error, 5000);
                         DBG("Server error: " + error);
 
                         cancelGaryOperation();
-                        if (garyUI)
-                            garyUI->setSendButtonText("send to gary");
+                        if (safeThis->garyUI)
+                            safeThis->garyUI->setSendButtonText("send to gary");
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid JSON response from server", 4000);
+                    safeThis->showStatusMessage("Invalid JSON response from server", 4000);
                     DBG("Failed to parse JSON response: " + responseText.substring(0, 100));
 
                     cancelGaryOperation();
-                    if (garyUI)
-                        garyUI->setSendButtonText("send to gary");
+                    if (safeThis->garyUI)
+                        safeThis->garyUI->setSendButtonText("send to gary");
                 }
             }
             else
@@ -2487,10 +2611,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
-                    markBackendDisconnectedFromRequestFailure("gary request");
+                    safeThis->markBackendDisconnectedFromRequestFailure("gary request");
                 }
                 else if (statusCode == 0)
                 {
@@ -2505,28 +2629,31 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 else
                     errorMsg = "Empty response from server";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Gary request failed: " + errorMsg);
 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Gary failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
 
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
 
                 // Reset button text on error
-                if (garyUI)
-                    garyUI->setSendButtonText("send to gary");
+                if (safeThis->garyUI)
+                    safeThis->garyUI->setSendButtonText("send to gary");
 
                 cancelGaryOperation();
             }
@@ -2581,13 +2708,6 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
     showStatusMessage("requesting continuation...", 3000);
 
-    auto cancelContinueOperation = [this]() {
-        isGenerating = false;
-        continueInProgress = false;
-        setActiveOp(ActiveOp::None);
-        updateAllGenerationButtonStates();
-    };
-
     // Reset generation state immediately
     isGenerating = true;
     continueInProgress = true;  // Mark this as a continue operation
@@ -2608,11 +2728,15 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
     const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
     DBG("Captured model path for continue: " + capturedModelPath);
+    const int promptDuration = (int)currentPromptDuration;
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, audioData, capturedModelPath, isLocalhostRequest, capturedQuantizationMode, cancelContinueOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration,
+                          requestUrl, isLocalhostRequest, capturedQuantizationMode]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Continue request aborted - generation stopped");
             return;
         }
@@ -2624,7 +2748,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         // Create JSON payload - same structure as sendToGary
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("audio_data", audioData);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
+        jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("model_name", capturedModelPath); // Use captured model path
         jsonRequest->setProperty("top_k", 250);
         jsonRequest->setProperty("temperature", 1.0);
@@ -2637,15 +2761,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
 
         DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
 
-        juce::URL url(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
-
         juce::String responseText;
         int statusCode = 0;
 
         try
         {
             // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -2687,12 +2809,18 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, cancelContinueOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Continue callback aborted");
                 return;
             }
+
+            auto cancelContinueOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->continueInProgress = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
             if (statusCode == 200 && responseText.isNotEmpty())
             {
                 DBG("Continue response: " + responseText);
@@ -2706,26 +2834,26 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                     {
                         auto sessionId = obj->getProperty("session_id").toString();
                         DBG("Continue request queued, session ID: " + sessionId);
-                        showStatusMessage("continuation queued...", 2000);
+                        safeThis->showStatusMessage("continuation queued...", 2000);
 
                         // Start polling for results (will replace current output audio when complete)
-                        startPollingForResults(sessionId);
+                        safeThis->startPollingForResults(sessionId);
                     }
                     else
                     {
                         auto error = obj->getProperty("error").toString();
-                        showStatusMessage("continue failed: " + error, 5000);
-                        if (garyUI)
-                            garyUI->setContinueButtonText("continue");
+                        safeThis->showStatusMessage("continue failed: " + error, 5000);
+                        if (safeThis->garyUI)
+                            safeThis->garyUI->setContinueButtonText("continue");
 
                         cancelContinueOperation();
                     }
                 }
                 else
                 {
-                    showStatusMessage("invalid response format", 3000);
-                    if (garyUI)
-                        garyUI->setContinueButtonText("continue");
+                    safeThis->showStatusMessage("invalid response format", 3000);
+                    if (safeThis->garyUI)
+                        safeThis->garyUI->setContinueButtonText("continue");
 
                     cancelContinueOperation();
                 }
@@ -2735,10 +2863,10 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
-                    markBackendDisconnectedFromRequestFailure("continue request");
+                    safeThis->markBackendDisconnectedFromRequestFailure("continue request");
                 }
                 else if (statusCode == 0)
                 {
@@ -2753,27 +2881,29 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 else
                     errorMsg = "Empty response from server";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Continue request failed: " + errorMsg);
 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Continue failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
 
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
-
-                if (garyUI)
-                    garyUI->setContinueButtonText("continue");
+                if (safeThis->garyUI)
+                    safeThis->garyUI->setContinueButtonText("continue");
 
                 cancelContinueOperation();
             }
@@ -2812,8 +2942,6 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     if (isPolling) {
         DBG("Stopping existing polling before retry");
         stopPolling();
-        // Give it a moment to clean up
-        juce::Thread::sleep(50);
     }
 
 
@@ -2837,11 +2965,16 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     showStatusMessage("retrying last continuation...", 2000);
     const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
     const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
+    const int promptDuration = (int)currentPromptDuration;
+    const juce::String selectedModel = getSelectedGaryModelPath();
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([this, sessionId, isLocalhostRequest, capturedQuantizationMode, cancelRetryOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel,
+                          requestUrl, isLocalhostRequest, capturedQuantizationMode]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Retry request aborted - generation stopped");
             return;
         }
@@ -2851,10 +2984,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         // Create JSON payload with current UI parameters
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("session_id", sessionId);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
+        jsonRequest->setProperty("prompt_duration", promptDuration);
 
         // Get current model selection from dynamic list
-        jsonRequest->setProperty("model_name", getSelectedGaryModelPath());
+        jsonRequest->setProperty("model_name", selectedModel);
         jsonRequest->setProperty("top_k", 250);
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", 3.0);
@@ -2866,15 +2999,13 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
         DBG("Retry JSON payload: " + jsonString);
 
-        juce::URL url(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
-
         juce::String responseText;
         int statusCode = 0;
 
         try
         {
             // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -2901,12 +3032,18 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, cancelRetryOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Retry callback aborted");
                 return;
             }
+
+            auto cancelRetryOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->continueInProgress = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
             if (statusCode == 200 && responseText.isNotEmpty())
             {
                 // Parse response JSON
@@ -2918,28 +3055,28 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                     {
                         auto newSessionId = obj->getProperty("session_id").toString();
                         DBG("Retry request queued, session ID: " + newSessionId);
-                        showStatusMessage("retry queued...", 2000);
+                        safeThis->showStatusMessage("retry queued...", 2000);
 
                         // Start polling for results (will replace current output when complete)
-                        startPollingForResults(newSessionId);
+                        safeThis->startPollingForResults(newSessionId);
                     }
                     else
                     {
                         auto error = obj->getProperty("error").toString();
-                        showStatusMessage("retry failed: " + error, 5000);
-                        updateRetryButtonState();
-                        if (garyUI)
-                            garyUI->setRetryButtonText("retry");
+                        safeThis->showStatusMessage("retry failed: " + error, 5000);
+                        safeThis->updateRetryButtonState();
+                        if (safeThis->garyUI)
+                            safeThis->garyUI->setRetryButtonText("retry");
 
                         cancelRetryOperation();
                     }
                 }
                 else
                 {
-                    showStatusMessage("invalid retry response format", 3000);
-                    updateRetryButtonState();
-                    if (garyUI)
-                        garyUI->setRetryButtonText("retry");
+                    safeThis->showStatusMessage("invalid retry response format", 3000);
+                    safeThis->updateRetryButtonState();
+                    if (safeThis->garyUI)
+                        safeThis->garyUI->setRetryButtonText("retry");
 
                     cancelRetryOperation();
                 }
@@ -2949,10 +3086,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
-                    markBackendDisconnectedFromRequestFailure("retry request");
+                    safeThis->markBackendDisconnectedFromRequestFailure("retry request");
                 }
                 else if (statusCode == 0)
                 {
@@ -2967,28 +3104,31 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 else
                     errorMsg = "Empty response from server";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Retry request failed: " + errorMsg);
 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Retry failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
 
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
 
-                updateRetryButtonState();
-                if (garyUI)
-                    garyUI->setRetryButtonText("retry");
+                safeThis->updateRetryButtonState();
+                if (safeThis->garyUI)
+                    safeThis->garyUI->setRetryButtonText("retry");
 
                 cancelRetryOperation();
             }
@@ -3010,18 +3150,49 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
 void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
 {
+    if (!isEditorValid.load(std::memory_order_acquire))
+        return;
+
     if (!isServiceReachable(ServiceType::Gary))
     {
         DBG("Gary not reachable - skipping model fetch");
         return;
     }
 
-    juce::Thread::launch([this]()
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    const auto editorAgeMs = nowMs - editorCreatedAtMs;
+    if (editorAgeMs < kStartupNetworkGraceMs)
+    {
+        if (!garyModelFetchScheduled.exchange(true, std::memory_order_acq_rel))
         {
-            // Both localhost and remote use the same endpoint for Gary models
-            juce::String endpoint = "/api/models";
+            const auto delayMs = static_cast<int>(kStartupNetworkGraceMs - editorAgeMs);
+            const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+            auto* editor = this;
 
-            juce::URL url(getServiceUrl(ServiceType::Gary, endpoint));
+            juce::Timer::callAfterDelay(delayMs, [asyncAlive, editor]()
+            {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                editor->garyModelFetchScheduled.store(false, std::memory_order_release);
+                editor->fetchGaryAvailableModels();
+            });
+        }
+
+        return;
+    }
+
+    if (garyModelFetchInFlight.exchange(true, std::memory_order_acq_rel))
+        return;
+
+    const auto modelsUrl = getServiceUrl(ServiceType::Gary, "/api/models");
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, modelsUrl]()
+        {
+            juce::URL url(modelsUrl);
 
             std::unique_ptr<juce::InputStream> stream(url.createInputStream(
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
@@ -3032,9 +3203,14 @@ void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
             if (stream != nullptr)
                 responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText]()
                 {
-                    handleGaryModelsResponse(responseText);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->garyModelFetchInFlight.store(false, std::memory_order_release);
+                    editor->handleGaryModelsResponse(responseText);
                 });
         });
 }
@@ -3399,13 +3575,16 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
         dariusUI->setConnectionStatus("checking connection...", juce::Colours::yellow);
     }
 
-    // Create health check request in background thread
-    juce::Thread::launch([this]() {
-        juce::String healthUrl = dariusBackendUrl.trim();
-        if (!healthUrl.endsWith("/"))
-            healthUrl += "/";
-        healthUrl += "health";
+    juce::String healthUrl = dariusBackendUrl.trim();
+    if (!healthUrl.endsWith("/"))
+        healthUrl += "/";
+    healthUrl += "health";
 
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    // Create health check request in background thread
+    juce::Thread::launch([asyncAlive, editor, healthUrl]() {
         juce::URL url(healthUrl);
 
         std::unique_ptr<juce::InputStream> stream(url.createInputStream(
@@ -3423,8 +3602,12 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, connectionSucceeded]() {
-            handleDariusHealthResponse(responseText, connectionSucceeded);
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, connectionSucceeded]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->handleDariusHealthResponse(responseText, connectionSucceeded);
             });
         });
 }
@@ -3529,15 +3712,16 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
         return;
     }
 
-    // Launch background fetch (same pattern as health)
-    juce::Thread::launch([this]()
-        {
-            // Build URL exactly like checkDariusHealth(), but for /model/config
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String full = base + "model/config";
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String full = base + "model/config";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    // Launch background fetch (same pattern as health)
+    juce::Thread::launch([asyncAlive, editor, full]()
+        {
             juce::URL url(full);
 
             std::unique_ptr<juce::InputStream> stream(url.createInputStream(
@@ -3558,9 +3742,13 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
                 responseText = stream->readEntireStreamAsString();
 
             // Bounce back to main thread
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusConfigResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusConfigResponse(responseText, statusCode);
                 });
         });
 }
@@ -3639,13 +3827,15 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
         return;
     }
 
-    juce::Thread::launch([this, repo, revision]()
-        {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String endpoint = base + "model/checkpoints";
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String endpoint = base + "model/checkpoints";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    juce::Thread::launch([asyncAlive, editor, repo, revision, endpoint]()
+        {
             juce::URL url(endpoint);
             // Add query parameters like the Swift service (repo_id, revision)
             url = url.withParameter("repo_id", repo)
@@ -3664,9 +3854,13 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
             if (stream != nullptr)
                 responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusCheckpointsResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusCheckpointsResponse(responseText, statusCode);
                 });
         });
 }
@@ -3820,16 +4014,16 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
         return;
     }
 
-    juce::Thread::launch([this, requestObj]()
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String endpoint = base + "model/select";
+    const juce::String jsonString = juce::JSON::toString(requestObj);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, endpoint, jsonString]()
         {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String endpoint = base + "model/select";
-
-            // Build JSON body (follow your existing POST pattern)
-            const juce::String jsonString = juce::JSON::toString(requestObj);
-
             juce::URL url(endpoint);
             juce::URL postUrl = url.withPOSTData(jsonString);
 
@@ -3855,9 +4049,13 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
                 DBG("select exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusSelectResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusSelectResponse(responseText, statusCode);
                 });
         });
 }
@@ -3973,22 +4171,26 @@ void Gary4juceAudioProcessorEditor::startDariusWarmPolling(int attempt)
     fetchDariusConfig();
 
     // Inspect the latest snapshot after a short delay (let network return)
-    juce::Timer::callAfterDelay(300, [this, attempt]()
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(300, [safeThis, attempt]()
         {
+            if (safeThis == nullptr)
+                return;
+
             bool warmed = false;
-            if (lastDariusConfig.isObject())
+            if (safeThis->lastDariusConfig.isObject())
             {
-                if (auto* o = lastDariusConfig.getDynamicObject())
+                if (auto* o = safeThis->lastDariusConfig.getDynamicObject())
                     warmed = (bool)o->getProperty("warmup_done");
             }
 
             if (warmed)
             {
-                dariusIsWarming = false;
-                stopWarmDots();
-                updateDariusModelControlsEnabled();
-                showStatusMessage("Model ready (prewarmed)", 2200);
-                updateDariusModelConfigUI();
+                safeThis->dariusIsWarming = false;
+                safeThis->stopWarmDots();
+                safeThis->updateDariusModelControlsEnabled();
+                safeThis->showStatusMessage("Model ready (prewarmed)", 2200);
+                safeThis->updateDariusModelConfigUI();
                 return;
             }
 
@@ -3996,15 +4198,18 @@ void Gary4juceAudioProcessorEditor::startDariusWarmPolling(int attempt)
             if (attempt >= 40)
             {
                 // Give up gracefully but leave UI enabled
-                dariusIsWarming = false;
-                stopWarmDots();
-                updateDariusModelControlsEnabled();
-                showStatusMessage("Still warming... try again or check backend logs", 3000);
+                safeThis->dariusIsWarming = false;
+                safeThis->stopWarmDots();
+                safeThis->updateDariusModelControlsEnabled();
+                safeThis->showStatusMessage("Still warming... try again or check backend logs", 3000);
                 return;
             }
 
             // Schedule another tick
-            juce::Timer::callAfterDelay(500, [this, attempt]() { startDariusWarmPolling(attempt + 1); });
+            juce::Timer::callAfterDelay(500, [safeThis, attempt]() {
+                if (safeThis != nullptr)
+                    safeThis->startDariusWarmPolling(attempt + 1);
+            });
         });
 }
 
@@ -4218,7 +4423,10 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
     juce::URL url = makeGenerateURL(reqId);
 
     // Fire the POST on a worker thread
-    juce::Thread::launch([this, url]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, url]()
         {
             juce::String responseText;
             int statusCode = 0;
@@ -4242,9 +4450,13 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
                 DBG("generate exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusGenerateResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusGenerateResponse(responseText, statusCode);
                 });
         });
 }
@@ -4334,9 +4546,14 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
 
     auto url = makeDariusProgressURL(dariusProgressRequestId);
 
-    std::async(std::launch::async, [this, url]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, url]()
         {
-            std::unique_ptr<juce::InputStream> s(url.createInputStream(false, nullptr, nullptr, {}, 10000));
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000);
+            std::unique_ptr<juce::InputStream> s(url.createInputStream(options));
             if (!s) return;
 
             auto jsonText = s->readEntireStreamAsString();
@@ -4352,19 +4569,23 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
                 const int pct = pctVar.isVoid() ? 0 : (int)pctVar;
                 const juce::String stage = stageVar.toString();
 
-                juce::MessageManager::callAsync([this, pct, stage]()
+                juce::MessageManager::callAsync([asyncAlive, editor, pct, stage]()
                     {
-                        if (!dariusIsPollingProgress) return;
+                        const auto alive = asyncAlive.lock();
+                        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                            return;
+
+                        if (!editor->dariusIsPollingProgress) return;
 
                         // feed your smoothing fields
-                        lastKnownProgress = generationProgress;
-                        targetProgress = juce::jlimit(0, 100, pct);
-                        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                        smoothProgressAnimation = true;
+                        editor->lastKnownProgress = editor->generationProgress;
+                        editor->targetProgress = juce::jlimit(0, 100, pct);
+                        editor->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        editor->smoothProgressAnimation = true;
 
                         if (stage == "done" || stage == "error" || pct >= 100)
                         {
-                            stopDariusProgressPoll();
+                            editor->stopDariusProgressPoll();
                             // leave isGenerating changes to the POST response handler
                         }
                     });
@@ -4383,11 +4604,15 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
     if (dariusBackendUrl.trim().isEmpty())
         return;
 
-    juce::Thread::launch([this]()
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/")) base += "/";
+    const juce::String assetsStatusUrl = base + "model/assets/status";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, assetsStatusUrl]()
         {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/")) base += "/";
-            juce::URL url(base + "model/assets/status");
+            juce::URL url(assetsStatusUrl);
 
             juce::String responseText;
             int statusCode = 0;
@@ -4400,8 +4625,12 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
                 statusCode = web->getStatusCode();
             if (stream) responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]() {
-                handleDariusAssetsStatusResponse(responseText, statusCode);
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]() {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                editor->handleDariusAssetsStatusResponse(responseText, statusCode);
                 });
         });
 }
@@ -4488,6 +4717,14 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
     updateRecordingStatus();
+}
+
+void Gary4juceAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source != &audioProcessor || !isEditorValid.load())
+        return;
+
+    updateConnectionStatus(audioProcessor.isBackendConnected());
 }
 
 // ========== UPDATED CONNECTION STATUS METHOD ==========
@@ -5327,16 +5564,23 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         // Launch the dialog and capture the window reference
         auto dialogWindow = options.launchAsync();
 
+        const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+        auto* editor = this;
+
         // Set up the confirm callback to process the selected segment and close the dialog
-        dialog->onConfirm = [this, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
+        dialog->onConfirm = [asyncAlive, editor, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
                                                               double sourceSampleRate,
                                                               double selectionStartTime) mutable
         {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
             DBG("Processing selected segment from " + filename + " starting at " + juce::String(selectionStartTime, 2) + "s");
             DBG("Source sample rate: " + juce::String(sourceSampleRate) + " Hz");
 
             // Store the selection start time for future reopening
-            lastSelectionStartTime = selectionStartTime;
+            editor->lastSelectionStartTime = selectionStartTime;
 
             // Make a copy of the selected buffer
             juce::AudioBuffer<float> tempBuffer(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
@@ -5346,7 +5590,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
 
             // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
-            double hostSampleRate = audioProcessor.getCurrentSampleRate();
+            double hostSampleRate = editor->audioProcessor.getCurrentSampleRate();
             DBG("Host sample rate: " + juce::String(hostSampleRate) + " Hz");
 
             if (std::abs(sourceSampleRate - hostSampleRate) > 1.0)  // Different sample rates
@@ -5395,7 +5639,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
 
             // Load into processor's recording buffer (now at correct host rate)
-            audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
+            editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
             // Save to myBuffer.wav (reuse existing save pattern)
             auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
@@ -5407,7 +5651,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
                 auto result = garyDir.createDirectory();
                 if (!result.wasOk())
                 {
-                    showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
+                    editor->showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
                     DBG("ERROR: Could not create gary4juce directory: " + result.getErrorMessage());
                     return;
                 }
@@ -5417,17 +5661,17 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             auto bufferFile = garyDir.getChildFile("myBuffer.wav");
 
             // Use the processor's existing saveRecordingToFile method
-            audioProcessor.saveRecordingToFile(bufferFile);
+            editor->audioProcessor.saveRecordingToFile(bufferFile);
 
             // Update savedSamples and UI state
-            savedSamples = audioProcessor.getSavedSamples();
+            editor->savedSamples = editor->audioProcessor.getSavedSamples();
 
             // Calculate actual duration from the final buffer
             double finalDuration = (double)tempBuffer.getNumSamples() / hostSampleRate;
-            showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
+            editor->showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
 
-            updateAllGenerationButtonStates();
-            repaint();
+            editor->updateAllGenerationButtonStates();
+            editor->repaint();
 
             // Close the dialog
             if (dialogWindow != nullptr)
@@ -5584,14 +5828,17 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
     filesToDrag.add(uniqueDragFile.getFullPathName());
     DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
 
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
     // SAFETY: Enhanced callback with multiple safety checks
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [this, uniqueDragFile]()
+    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [asyncAlive, editor, uniqueDragFile]()
         {
             // SAFETY CHECK 1: Component validity
-            if (!isEditorValid.load())
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
             {
                 DBG("Drag callback ignored - editor no longer valid");
-                isDragInProgress.store(false);
                 // Still try to clean up the file
                 if (uniqueDragFile.existsAsFile())
                 {
@@ -5601,13 +5848,13 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             }
 
             // SAFETY CHECK 2: Use MessageManager to ensure main thread execution
-            juce::MessageManager::callAsync([this, uniqueDragFile]()
+            juce::MessageManager::callAsync([asyncAlive, editor, uniqueDragFile]()
                 {
                     // SAFETY CHECK 3: Double-check component validity on main thread
-                    if (!isEditorValid.load())
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
                     {
                         DBG("Drag callback ignored on main thread - editor no longer valid");
-                        isDragInProgress.store(false);
                         if (uniqueDragFile.existsAsFile())
                         {
                             uniqueDragFile.deleteFile();
@@ -5616,8 +5863,8 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
                     }
 
                     DBG("Drag operation completed successfully");
-                    showStatusMessage("audio dragged successfully!", 2000);
-                    isDragInProgress.store(false);
+                    editor->showStatusMessage("audio dragged successfully!", 2000);
+                    editor->isDragInProgress.store(false);
 
                     // Clean up with delay and additional safety
                     juce::Timer::callAfterDelay(3000, [uniqueDragFile]()
@@ -5659,6 +5906,20 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
 
 std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 {
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    auto postDragFailure = [asyncAlive, editor](const juce::String& message)
+    {
+        juce::MessageManager::callAsync([asyncAlive, editor, message]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->showStatusMessage(message, 2000);
+        });
+    };
+
     try
     {
         // Create dragged_audio folder
@@ -5672,9 +5933,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
             if (!result.wasOk())
             {
                 DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
-                juce::MessageManager::callAsync([this]() {
-                    showStatusMessage("drag failed - folder creation error", 2000);
-                    });
+                postDragFailure("drag failed - folder creation error");
                 return { false, juce::File{} };
             }
         }
@@ -5689,9 +5948,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         if (!sourceStream.openedOk())
         {
             DBG("Failed to open source file for reading");
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - source file locked", 2000);
-                });
+            postDragFailure("drag failed - source file locked");
             return { false, juce::File{} };
         }
 
@@ -5699,9 +5956,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         if (!destStream.openedOk())
         {
             DBG("Failed to open destination file for writing");
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - destination error", 2000);
-                });
+            postDragFailure("drag failed - destination error");
             return { false, juce::File{} };
         }
 
@@ -5725,9 +5980,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - copy verification failed", 2000);
-                });
+            postDragFailure("drag failed - copy verification failed");
             return { false, juce::File{} };
         }
 
@@ -5737,9 +5990,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
     catch (const std::exception& e)
     {
         DBG("Exception in prepareFileForDrag: " + juce::String(e.what()));
-        juce::MessageManager::callAsync([this]() {
-            showStatusMessage("drag failed - exception occurred", 2000);
-            });
+        postDragFailure("drag failed - exception occurred");
         return { false, juce::File{} };
     }
 }

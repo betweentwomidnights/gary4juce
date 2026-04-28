@@ -186,8 +186,10 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         return;
     localHealthLastPollMs = nowMs;
 
-    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-    juce::Thread::launch([safeThis]() {
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor]() {
         auto probeHealth = [](const juce::String& urlText) -> bool
         {
             try
@@ -216,46 +218,47 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         const bool careyOnline      = probeHealth("http://127.0.0.1:8003/health");
         const bool foundationOnline = probeHealth("http://127.0.0.1:8015/health");
 
-        juce::MessageManager::callAsync([safeThis, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline]() {
-            if (safeThis == nullptr)
+        juce::MessageManager::callAsync([asyncAlive, editor, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
 
-            safeThis->localHealthPollInFlight.store(false);
+            editor->localHealthPollInFlight.store(false);
 
-            const bool careyStatusChanged = safeThis->localCareyOnline != careyOnline;
+            const bool careyStatusChanged = editor->localCareyOnline != careyOnline;
 
             const bool changed =
-                safeThis->localGaryOnline != garyOnline ||
-                safeThis->localTerryOnline != terryOnline ||
-                safeThis->localJerryOnline != jerryOnline ||
-                safeThis->localCareyOnline != careyOnline ||
-                safeThis->localFoundationOnline != foundationOnline;
+                editor->localGaryOnline != garyOnline ||
+                editor->localTerryOnline != terryOnline ||
+                editor->localJerryOnline != jerryOnline ||
+                editor->localCareyOnline != careyOnline ||
+                editor->localFoundationOnline != foundationOnline;
 
-            safeThis->localGaryOnline = garyOnline;
-            safeThis->localTerryOnline = terryOnline;
-            safeThis->localJerryOnline = jerryOnline;
-            safeThis->localCareyOnline = careyOnline;
-            safeThis->localFoundationOnline = foundationOnline;
-            safeThis->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
+            editor->localGaryOnline = garyOnline;
+            editor->localTerryOnline = terryOnline;
+            editor->localJerryOnline = jerryOnline;
+            editor->localCareyOnline = careyOnline;
+            editor->localFoundationOnline = foundationOnline;
+            editor->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
                 + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0);
 
-            safeThis->updateAllGenerationButtonStates();
+            editor->updateAllGenerationButtonStates();
 
-            if (!jerryOnline && safeThis->jerryUI)
-                safeThis->jerryUI->setLoadingModel(false);
+            if (!jerryOnline && editor->jerryUI)
+                editor->jerryUI->setLoadingModel(false);
 
             // Keep Jerry model dropdown fresh while Jerry tab is active on localhost
-            if (jerryOnline && safeThis->currentTab == ModelTab::Jerry)
-                safeThis->fetchJerryAvailableModels();
+            if (jerryOnline && editor->currentTab == ModelTab::Jerry)
+                editor->fetchJerryAvailableModels();
 
-            if (safeThis->currentTab == ModelTab::Carey && (careyStatusChanged || careyOnline))
+            if (editor->currentTab == ModelTab::Carey && (careyStatusChanged || careyOnline))
             {
-                safeThis->refreshCareyAvailableLoras(careyStatusChanged);
-                safeThis->updateCareyEnablementSnapshot();
+                editor->refreshCareyAvailableLoras(careyStatusChanged);
+                editor->updateCareyEnablementSnapshot();
             }
 
             if (changed)
-                safeThis->repaint();
+                editor->repaint();
         });
     });
 }
@@ -329,6 +332,7 @@ void Gary4juceAudioProcessorEditor::handleGenerationStall()
 
     // Stop polling immediately
     stopPolling();
+    const auto stalledToken = currentGenerationAsyncToken();
 
     // Show immediate feedback
     showStatusMessage("checking backend connection...", 3000);
@@ -337,16 +341,20 @@ void Gary4juceAudioProcessorEditor::handleGenerationStall()
     audioProcessor.checkBackendHealth();
 
     // Give health check time to complete, then handle result
-    juce::Timer::callAfterDelay(6000, [this]() {
-        if (!audioProcessor.isBackendConnected())
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(6000, [safeThis, stalledToken]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stalledToken))
+            return;
+
+        if (!safeThis->audioProcessor.isBackendConnected())
         {
             // Backend is confirmed down
-            handleBackendDisconnection();
+            safeThis->handleBackendDisconnection();
         }
         else
         {
             // Backend is up but generation failed for other reasons
-            handleGenerationFailure("generation timed out - try again or check backend logs");
+            safeThis->handleGenerationFailure("generation timed out - try again or check backend logs");
         }
     });
 }
@@ -358,6 +366,7 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
     // Clean up generation state
     isGenerating = false;
     isPolling = false;
+    invalidateGenerationAsyncWork();
     generationProgress = 0;
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
@@ -387,6 +396,7 @@ void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& 
     // Clean up generation state (same as disconnection)
     isGenerating = false;
     isPolling = false;
+    invalidateGenerationAsyncWork();
     generationProgress = 0;
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;

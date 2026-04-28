@@ -1,13 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "3.0.5",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.5",
+  "latest_version": "3.0.6",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.6",
   "sha256": null,
-  "published_at": "2026-04-24T23:20:44Z",
+  "published_at": "2026-04-27T13:16:05Z",
   "notes": [
-    "Carey LoRA selection and caption dice now work on localhost too when paired with gary4local v0.1.6.",
-    "The Carey UI now refreshes local LoRA availability while the service is running, so adapters added or removed in gary4local show up without a tab switch.",
-    "Complete and cover continue to support LoRAs on the remote backend as well.",
+    "Carey complete and cover now include a LoRA strength slider when Use LoRA is enabled, letting you blend selected adapters from 0.00 to 1.00.",
+    "The slider sends lora_scale to both the remote Carey backend and supported gary4local v0.1.6 backends, defaulting to full strength so existing LoRA results are unchanged.",
+    "Additional editor lifecycle hardening improves stability when rapidly opening and closing the plugin UI, including during in-flight backend requests.",
     "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.6",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]

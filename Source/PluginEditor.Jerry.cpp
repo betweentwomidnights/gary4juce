@@ -68,49 +68,42 @@ void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
         return;
     }
 
-    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-    juce::Thread::launch([safeThis]()
+    const juce::String endpoint = audioProcessor.getIsUsingLocalhost()
+        ? "/models/status"
+        : "/audio/models/status";
+    const auto modelsUrl = getServiceUrl(ServiceType::Jerry, endpoint);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, modelsUrl]()
         {
-            if (safeThis == nullptr)
-                return;
+            juce::String responseText;
 
             try
             {
-                juce::String endpoint = safeThis->audioProcessor.getIsUsingLocalhost()
-                    ? "/models/status"
-                    : "/audio/models/status";
-
-                juce::URL url(safeThis->getServiceUrl(ServiceType::Jerry, endpoint));
+                juce::URL url(modelsUrl);
 
                 std::unique_ptr<juce::InputStream> stream(url.createInputStream(
                     juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                     .withConnectionTimeoutMs(10000)
                 ));
 
-                juce::String responseText;
                 if (stream != nullptr)
                     responseText = stream->readEntireStreamAsString();
-
-                juce::MessageManager::callAsync([safeThis, responseText]()
-                    {
-                        if (safeThis == nullptr)
-                            return;
-
-                        safeThis->jerryModelsFetchInFlight.store(false);
-                        safeThis->handleJerryModelsResponse(responseText);
-                    });
             }
             catch (...)
             {
-                juce::MessageManager::callAsync([safeThis]()
-                    {
-                        if (safeThis == nullptr)
-                            return;
-
-                        safeThis->jerryModelsFetchInFlight.store(false);
-                        safeThis->handleJerryModelsResponse({});
-                    });
             }
+
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText]()
+                {
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->jerryModelsFetchInFlight.store(false);
+                    editor->handleJerryModelsResponse(responseText);
+                });
         });
 }
 
@@ -309,14 +302,15 @@ void Gary4juceAudioProcessorEditor::fetchJerryCheckpoints(const juce::String& re
     if (jerryUI)
         jerryUI->setFetchingCheckpoints(true);
 
-    juce::Thread::launch([this, repo]() {
-        juce::String endpoint = "/models/checkpoints";  // No /audio prefix on localhost
-        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("finetune_repo", repo);
+    const auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+    const auto checkpointsUrl = getServiceUrl(ServiceType::Jerry, "/models/checkpoints");
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("finetune_repo", repo);
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
+    juce::Thread::launch([asyncAlive, editor, checkpointsUrl, jsonString]() {
+        juce::URL url(checkpointsUrl);
         juce::URL postUrl = url.withPOSTData(jsonString);
 
         auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
@@ -329,8 +323,12 @@ void Gary4juceAudioProcessorEditor::fetchJerryCheckpoints(const juce::String& re
         if (stream != nullptr)
             responseText = stream->readEntireStreamAsString();
 
-        juce::MessageManager::callAsync([this, responseText]() {
-            handleJerryCheckpointsResponse(responseText);
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->handleJerryCheckpointsResponse(responseText);
         });
     });
 }
@@ -399,9 +397,13 @@ void Gary4juceAudioProcessorEditor::fetchJerryPrompts(const juce::String& repo,
         return;
     }
 
-    juce::Thread::launch([this, repo, checkpoint]()
+    const auto promptsUrl = buildPromptsUrl(repo, checkpoint);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, repo, checkpoint, promptsUrl]()
         {
-            juce::URL url = buildPromptsUrl(repo, checkpoint);
+            juce::URL url = promptsUrl;
 
             int statusCode = 0;
             juce::StringPairArray responseHeaders;
@@ -422,9 +424,13 @@ void Gary4juceAudioProcessorEditor::fetchJerryPrompts(const juce::String& repo,
             if (statusCode < 200 || statusCode >= 300)
                 DBG("[prompts] non-2xx - first512: " + responseText.substring(0, 512));
 
-            juce::MessageManager::callAsync([this, repo, checkpoint, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, repo, checkpoint, responseText, statusCode]()
                 {
-                    applyJerryPromptsToUI(repo, checkpoint, responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->applyJerryPromptsToUI(repo, checkpoint, responseText, statusCode);
                 });
         });
 }
@@ -459,22 +465,28 @@ void Gary4juceAudioProcessorEditor::maybeFetchRemoteJerryPrompts()
 
     promptsFetchInFlight = true;
 
-    juce::Thread::launch([this]()
-        {
-            juce::URL url(getServiceUrl(ServiceType::Jerry, "/audio/models/prompts"));
-            url = url.withParameter("prefer", "finetune");
+    juce::URL promptsUrl(getServiceUrl(ServiceType::Jerry, "/audio/models/prompts"));
+    promptsUrl = promptsUrl.withParameter("prefer", "finetune");
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    juce::Thread::launch([asyncAlive, editor, promptsUrl]()
+        {
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(8000);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(options));
+            std::unique_ptr<juce::InputStream> stream(promptsUrl.createInputStream(options));
             juce::String responseText;
             if (stream) responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText]()
                 {
-                    promptsFetchInFlight = false;
-                    lastPromptsFetchMs = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->promptsFetchInFlight = false;
+                    editor->lastPromptsFetchMs = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
                     if (responseText.isEmpty()) return;
 
                     auto parsed = juce::JSON::parse(responseText);
@@ -489,10 +501,10 @@ void Gary4juceAudioProcessorEditor::maybeFetchRemoteJerryPrompts()
                         if (promptsVar.isObject() && repo.isNotEmpty() && ckpt.isNotEmpty())
                         {
                             const auto cacheKey = repo + "|" + ckpt;
-                            promptsCache.set(cacheKey, responseText);
+                            editor->promptsCache.set(cacheKey, responseText);
 
-                            if (jerryUI)
-                                jerryUI->setFinetunePromptBank(repo, ckpt, promptsVar);
+                            if (editor->jerryUI)
+                                editor->jerryUI->setFinetunePromptBank(repo, ckpt, promptsVar);
                         }
                     }
                 });
@@ -565,16 +577,17 @@ void Gary4juceAudioProcessorEditor::addCustomJerryModel(const juce::String& repo
     if (jerryUI)
         jerryUI->setLoadingModel(true, checkpointInfo);
 
-    juce::Thread::launch([this, repo, checkpoint]() {
-        juce::String endpoint = "/models/switch";
-        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("model_type", "finetune");
+    jsonRequest->setProperty("finetune_repo", repo);
+    jsonRequest->setProperty("finetune_checkpoint", checkpoint);
+    const auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+    const auto switchUrl = getServiceUrl(ServiceType::Jerry, "/models/switch");
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("model_type", "finetune");
-        jsonRequest->setProperty("finetune_repo", repo);
-        jsonRequest->setProperty("finetune_checkpoint", checkpoint);
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
+    juce::Thread::launch([asyncAlive, editor, repo, checkpoint, switchUrl, jsonString]() {
+        juce::URL url(switchUrl);
         juce::URL postUrl = url.withPOSTData(jsonString);
 
         auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
@@ -587,8 +600,12 @@ void Gary4juceAudioProcessorEditor::addCustomJerryModel(const juce::String& repo
         if (stream != nullptr)
             responseText = stream->readEntireStreamAsString();
 
-        juce::MessageManager::callAsync([this, responseText, repo, checkpoint]() {
-            handleAddCustomModelResponse(responseText, repo, checkpoint);
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, repo, checkpoint]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->handleAddCustomModelResponse(responseText, repo, checkpoint);
         });
     });
 }
@@ -621,12 +638,18 @@ void Gary4juceAudioProcessorEditor::handleAddCustomModelResponse(const juce::Str
                 DBG("Model switch successful - refreshing model list");
                 fetchJerryAvailableModels();
 
-                juce::Timer::callAfterDelay(500, [this, repo, checkpoint]() {
-                    if (jerryUI)
+                const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+                auto* editor = this;
+                juce::Timer::callAfterDelay(500, [asyncAlive, editor, repo, checkpoint]() {
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    if (editor->jerryUI)
                     {
-                        jerryUI->setLoadingModel(false);
-                        jerryUI->selectModelByRepo(repo);
-                        fetchJerryPrompts(repo, checkpoint);
+                        editor->jerryUI->setLoadingModel(false);
+                        editor->jerryUI->selectModelByRepo(repo);
+                        editor->fetchJerryPrompts(repo, checkpoint);
                     }
                     });
             } else {
@@ -768,25 +791,41 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     if (useLocalAsyncPolling)
         requestId = juce::Uuid().toString();
 
-    juce::Thread::launch([this, fullPrompt, endpoint, useLocalAsyncPolling, requestId, cancelJerryOperation]() {
+    const int jerrySteps = currentJerrySteps;
+    const float jerryCfg = currentJerryCfg;
+    const juce::String modelType = currentJerryModelType;
+    const bool isFinetune = currentJerryIsFinetune;
+    const juce::String finetuneRepo = currentJerryFinetuneRepo;
+    const juce::String finetuneCheckpoint = currentJerryFinetuneCheckpoint;
+    const juce::String samplerType = currentJerrySamplerType;
+    const bool requestGenerateAsLoop = generateAsLoop;
+    const juce::String requestLoopType = currentLoopType;
+    const auto requestUrl = getServiceUrl(ServiceType::Jerry, endpoint);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, fullPrompt, requestUrl, jerrySteps, jerryCfg, modelType,
+                          isFinetune, finetuneRepo, finetuneCheckpoint, samplerType,
+                          requestGenerateAsLoop, requestLoopType, useLocalAsyncPolling,
+                          requestId, cancelJerryOperation]() {
         auto startTime = juce::Time::getCurrentTime();
 
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("prompt", fullPrompt);
-        jsonRequest->setProperty("steps", currentJerrySteps);
-        jsonRequest->setProperty("cfg_scale", currentJerryCfg);
+        jsonRequest->setProperty("steps", jerrySteps);
+        jsonRequest->setProperty("cfg_scale", jerryCfg);
         jsonRequest->setProperty("return_format", "base64");
         jsonRequest->setProperty("seed", -1);
-        jsonRequest->setProperty("model_type", currentJerryModelType);
-        if (currentJerryIsFinetune)
+        jsonRequest->setProperty("model_type", modelType);
+        if (isFinetune)
         {
-            jsonRequest->setProperty("finetune_repo", currentJerryFinetuneRepo);
-            jsonRequest->setProperty("finetune_checkpoint", currentJerryFinetuneCheckpoint);
+            jsonRequest->setProperty("finetune_repo", finetuneRepo);
+            jsonRequest->setProperty("finetune_checkpoint", finetuneCheckpoint);
         }
-        jsonRequest->setProperty("sampler_type", currentJerrySamplerType);
+        jsonRequest->setProperty("sampler_type", samplerType);
 
-        if (generateAsLoop)
-            jsonRequest->setProperty("loop_type", currentLoopType);
+        if (requestGenerateAsLoop)
+            jsonRequest->setProperty("loop_type", requestLoopType);
 
         if (useLocalAsyncPolling)
             jsonRequest->setProperty("request_id", requestId);
@@ -795,7 +834,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
         DBG("Jerry JSON payload: " + jsonString);
 
-        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+        juce::URL url(requestUrl);
 
         juce::String responseText;
         int statusCode = 0;
@@ -843,7 +882,11 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             statusCode = 0;
         }
 
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, useLocalAsyncPolling, requestId, cancelJerryOperation]() {
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode, startTime,
+                                         useLocalAsyncPolling, requestId, cancelJerryOperation]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total Jerry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
 
@@ -865,13 +908,13 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                             if (sessionId.isEmpty())
                             {
-                                showStatusMessage("jerry async request missing session id", 5000);
+                                editor->showStatusMessage("jerry async request missing session id", 5000);
                                 cancelJerryOperation();
                                 return;
                             }
 
-                            showStatusMessage("sent to jerry. processing...", 2000);
-                            startPollingForResults(sessionId);
+                            editor->showStatusMessage("sent to jerry. processing...", 2000);
+                            editor->startPollingForResults(sessionId);
                             return;
                         }
 
@@ -879,51 +922,51 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                         if (audioBase64.isNotEmpty())
                         {
-                            if (jerryUI)
-                                jerryUI->setGenerateButtonText("generate with jerry");
+                            if (editor->jerryUI)
+                                editor->jerryUI->setGenerateButtonText("generate with jerry");
 
-                            saveGeneratedAudio(audioBase64);
+                            editor->saveGeneratedAudio(audioBase64);
 
-                            audioProcessor.clearCurrentSessionId();
-                            audioProcessor.setUndoTransformAvailable(false);
-                            audioProcessor.setRetryAvailable(false);
+                            editor->audioProcessor.clearCurrentSessionId();
+                            editor->audioProcessor.setUndoTransformAvailable(false);
+                            editor->audioProcessor.setRetryAvailable(false);
 
                             if (auto* metadata = responseObj->getProperty("metadata").getDynamicObject())
                             {
                                 auto genTime = metadata->getProperty("generation_time").toString();
                                 auto rtFactor = metadata->getProperty("realtime_factor").toString();
 
-                                if (generateAsLoop) {
+                                if (editor->generateAsLoop) {
                                     auto bars = (int)metadata->getProperty("bars");
                                     auto loopDuration = (double)metadata->getProperty("loop_duration_seconds");
-                                    showStatusMessage("smart loop rdy " + juce::String(bars) + " bars (" +
+                                    editor->showStatusMessage("smart loop rdy " + juce::String(bars) + " bars (" +
                                         juce::String(loopDuration, 1) + "s) " + genTime + "s", 5000);
                                     DBG("Jerry loop metadata - Bars: " + juce::String(bars) +
                                         ", Duration: " + juce::String(loopDuration, 1) + "s");
                                 }
                                 else {
-                                    showStatusMessage("jerry's done already " + genTime + "s (" + rtFactor + "x RT)", 4000);
+                                    editor->showStatusMessage("jerry's done already " + genTime + "s (" + rtFactor + "x RT)", 4000);
                                 }
 
                                 DBG("Jerry metadata - Generation time: " + genTime + "s, RT factor: " + rtFactor + "x");
                             }
                             else
                             {
-                                juce::String successMsg = generateAsLoop ?
+                                juce::String successMsg = editor->generateAsLoop ?
                                     "smart loop rdy" : "jerry's done already";
-                                showStatusMessage(successMsg, 3000);
+                                editor->showStatusMessage(successMsg, 3000);
                             }
                         }
                         else
                         {
-                            showStatusMessage("jerry finished but no audio received", 3000);
+                            editor->showStatusMessage("jerry finished but no audio received", 3000);
                             DBG("Jerry success but missing audio_base64");
                         }
                     }
                     else
                     {
                         auto error = responseObj->getProperty("error").toString();
-                        showStatusMessage("jerry error: " + error, 5000);
+                        editor->showStatusMessage("jerry error: " + error, 5000);
                         DBG("Jerry server error: " + error);
                         if (useLocalAsyncPolling)
                             cancelJerryOperation();
@@ -931,15 +974,19 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 }
                 else
                 {
-                    showStatusMessage("invalid JSON response from jerry", 4000);
+                    editor->showStatusMessage("invalid JSON response from jerry", 4000);
                     DBG("Failed to parse Jerry JSON response");
 
                     DBG("Jerry JSON parsing failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    editor->audioProcessor.checkBackendHealth();
 
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
-                            handleBackendDisconnection();
+                    juce::Timer::callAfterDelay(6000, [asyncAlive, editor]() {
+                        const auto alive = asyncAlive.lock();
+                        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                            return;
+
+                        if (!editor->audioProcessor.isBackendConnected())
+                            editor->handleBackendDisconnection();
                     });
 
                     if (useLocalAsyncPolling)
@@ -951,10 +998,10 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && editor->audioProcessor.getIsUsingLocalhost())
                 {
                     errorMsg = "cannot connect to jerry on localhost - ensure jerry is running in gary4local";
-                    markBackendDisconnectedFromRequestFailure("jerry request");
+                    editor->markBackendDisconnectedFromRequestFailure("jerry request");
                 }
                 else if (statusCode == 0)
                 {
@@ -969,7 +1016,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 else
                     errorMsg = "empty response from jerry";
 
-                showStatusMessage(errorMsg, 4000);
+                editor->showStatusMessage(errorMsg, 4000);
                 DBG("Jerry request failed: " + errorMsg);
 
                 if (useLocalAsyncPolling)
@@ -978,20 +1025,24 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 if (shouldCheckHealth)
                 {
                     DBG("Jerry failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    editor->audioProcessor.checkBackendHealth();
 
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [asyncAlive, editor]() {
+                        const auto alive = asyncAlive.lock();
+                        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                            return;
+
+                        if (!editor->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            editor->handleBackendDisconnection();
+                            editor->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
             }
 
-            if (!useLocalAsyncPolling && jerryUI)
-                jerryUI->setGenerateButtonText("generate with jerry");
+            if (!useLocalAsyncPolling && editor->jerryUI)
+                editor->jerryUI->setGenerateButtonText("generate with jerry");
             });
         });
 }

@@ -4,6 +4,8 @@ a VST3/AU plugin for musicians who want AI to meet them where they actually live
 
 https://thepatch.gumroad.com/l/gary4juce
 
+**latest release:** [gary4juce v3.0.6 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.6)
+
 localhost backends:
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) - foundation-1 now works there on apple silicon
@@ -29,7 +31,7 @@ gary4juce gives you six AI music models directly in your DAW:
 
 put it on your master, press play, record some audio, and start iterating.
 
-> note: carey LoRA selection and LoRA-specific dice caption pools currently work on the remote backend only. localhost carey still runs without those LoRA features for now, but gary4local support for carey loras on windows and macOS is in progress.
+> note: carey LoRA selection, LoRA-specific dice caption pools, and the LoRA strength slider work on the remote backend and on supported gary4local v0.1.6 carey backends.
 
 ---
 
@@ -37,26 +39,39 @@ put it on your master, press play, record some audio, and start iterating.
 
 - [x] add foundation-1 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) for apple silicon
 - [ ] finish assimilating the mac branch of gary4juce
-- [x] release gary4juce v3.0.2 mac AU/VST3
 - [x] add carey extract mode
 - [x] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
-- [ ] release gary4juce v3.0.4 mac AU/VST3
+- [ ] release gary4juce v3.0.6 mac AU/VST3
 - [ ] produce better carey dice captions
 - [x] introduce time signature option to the carey UI
+- [x] add carey LoRA strength slider for complete and cover mode
+- [x] harden the plugin editor against rapid open/close crashes
 
 ---
 
 ## what's new in v3
 
+### v3.0.6 - lora strength and editor hardening
+
+carey complete and cover now include a **lora strength** slider whenever "use lora" is enabled. the slider sends `lora_scale` to the backend from `0.00` to `1.00`, so you can pull a selected lora back toward the base model's training distribution instead of always running it at full blast. this should open up more genre blends as more niche artist loras show up.
+
+the default is `1.00`, so old lora behavior stays the same unless you touch the slider.
+
+this release also includes a serious thread-safety and editor-lifecycle hardening pass. rapid plugin editor open/close, in-flight backend requests, and output audio synchronization paths should all be much harder to upset now. gary should never produce a crash again. probably. hopefully. let's not anger the ASIO spirits.
+
+gary4juce v3.0.6 still pairs with [gary4local v0.1.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.6).
+
+### v3.0.5 - local carey loras
+
+carey lora selection and lora-specific dice caption pools now work on localhost too when paired with gary4local v0.1.6. the UI refreshes local lora availability while the service is running, so adapters added or removed in gary4local show up without a full restart.
+
 ### v3.0.4 - carey loras, extract mode, and a reliability pass
 
-carey now supports lora selection in complete and cover mode on the remote backend. kev has trained three loras for remote use so far, and each one can drive its own dice-caption pool. loras trained on xl-base can also be used on xl-turbo.
+carey added lora selection in complete and cover mode on the remote backend. kev had trained three loras for remote use at launch, and each one can drive its own dice-caption pool. loras trained on xl-base can also be used on xl-turbo.
 
 carey also now includes extract mode. results vary wildly depending on what you want to extract, but vocals, drums, and sometimes bass can already be genuinely useful.
 
 complete and cover mode are much more reliable now that the backend uses the repainting branch of ACE-Step. complete is less unhinged than the older workflow, and cover has become a practical way to polish noisy xl-base complete outputs with xl-turbo.
-
-localhost carey lora support is the next step and is currently being added to gary4local on both windows and macOS.
 
 ### foundation-1 on apple silicon macOS
 
@@ -77,7 +92,7 @@ the biggest addition to gary4juce yet. four modes powered by the [ACE-Step 1.5](
 - **cover** - remix/restyle your audio with a text caption. chain with lego for a gibberish-to-lyrics workflow.
 - **extract** - try to pull out a target stem from your recording buffer. best bets so far are vocals, drums, and sometimes bass.
 
-plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, inference step tuning, and remote-only lora selection in complete/cover mode.
+plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, inference step tuning, and lora selection in complete/cover mode.
 
 **[detailed carey guide](CAREY.md)** - tips, parameter explanations, and workflow tricks.
 
@@ -270,7 +285,7 @@ shared lyrics editor, 50-language support, key/scale selection, and per-tab cfg 
 
 on the remote backend, complete mode defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) from advanced settings.
 
-lora selection is currently available for complete and cover on the remote backend only.
+complete and cover support lora selection, lora-specific dice captions, and lora strength control on the remote backend and supported gary4local v0.1.6 carey backends.
 
 **[full guide with tips and workflows](CAREY.md)**
 
@@ -383,7 +398,7 @@ steps:
 - **terry occasionally weird:** melodyflow is still experimental, results vary
 - **carey cover mode:** progress display uses time-based estimation (ace-step doesn't report step counts for cover tasks)
 - **carey complete mode:** much more reliable now, but it still prefers fuller/denser input audio for best results
-- **carey loras on localhost:** still rolling out in gary4local for windows and macOS
+- **carey loras:** available on the remote backend and supported gary4local v0.1.6 carey backends
 
 ---
 
