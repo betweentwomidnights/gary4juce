@@ -1,14 +1,15 @@
 {
   "channel": "stable-mac",
-  "latest_version": "3.0.5-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.5-mac",
+  "latest_version": "3.0.6-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.6-mac",
   "sha256": null,
-  "published_at": "2026-04-26T04:49:10Z",
+  "published_at": "2026-04-28T23:24:51Z",
   "notes": [
-    "Mac build of gary4juce v3.0.5-mac.",
-    "Carey LoRA selection and caption dice now work on localhost too when paired with gary4local macOS v0.1.6.",
-    "The Carey UI now refreshes local LoRA availability while the service is running, so adapters added or removed in gary4local show up without a tab switch.",
-    "Complete and cover continue to support LoRAs on the remote backend as well.",
+    "Mac build of gary4juce v3.0.6-mac.",
+    "Thread-safety hardening around editor startup, teardown, and async UI handoffs has been validated on Intel and M4 Macs.",
+    "Carey LoRA selection, LoRA-specific dice caption pools, and the LoRA strength slider work on the remote backend and on supported gary4local macOS v0.1.6 Carey backends.",
+    "Notarized VST3, AU, and Standalone DMGs are included.",
+    "Standalone is included, but gary4juce is still designed primarily around DAW workflows.",
     "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.6",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
