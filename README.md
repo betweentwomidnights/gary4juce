@@ -6,6 +6,8 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest release:** [gary4juce v3.0.6 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.6)
 
+![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
+
 localhost backends:
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) - foundation-1 now works there on apple silicon
