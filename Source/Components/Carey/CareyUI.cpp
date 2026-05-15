@@ -131,6 +131,84 @@ private:
     CustomButton cancelButton;
     CustomButton saveButton;
 };
+
+class CareyCaptionPopoutContent : public juce::Component
+{
+public:
+    CareyCaptionPopoutContent(const juce::String& initialText,
+                              const juce::String& placeholderText,
+                              std::function<void(const juce::String&)> onTextChangedCallback,
+                              std::function<void()> onDiceRequestedCallback,
+                              std::function<void(juce::Graphics&, juce::Rectangle<int>, bool, bool)> drawDiceCallback)
+        : onTextChanged(std::move(onTextChangedCallback)),
+          onDiceRequested(std::move(onDiceRequestedCallback)),
+          drawDice(std::move(drawDiceCallback))
+    {
+        captionLabel.setText("caption", juce::dontSendNotification);
+        captionLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        captionLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+        captionLabel.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(captionLabel);
+
+        hintLabel.setText("full carey caption", juce::dontSendNotification);
+        hintLabel.setFont(juce::FontOptions(11.0f));
+        hintLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+        hintLabel.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(hintLabel);
+
+        editor.setMultiLine(true);
+        editor.setReturnKeyStartsNewLine(true);
+        editor.setScrollbarsShown(true);
+        editor.setPopupMenuEnabled(true);
+        editor.setTextToShowWhenEmpty(placeholderText, juce::Colour(0xff666666));
+        editor.setText(initialText, juce::dontSendNotification);
+        editor.onTextChange = [this]()
+        {
+            if (onTextChanged)
+                onTextChanged(editor.getText());
+        };
+        addAndMakeVisible(editor);
+
+        diceButton.setButtonText("");
+        diceButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+        diceButton.setTooltip("generate a caption");
+        diceButton.onClick = [this]()
+        {
+            if (onDiceRequested)
+                onDiceRequested();
+        };
+        diceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+        {
+            if (drawDice)
+                drawDice(g, bounds, diceButton.isMouseOver(), diceButton.isDown());
+        };
+        addAndMakeVisible(diceButton);
+    }
+
+    CustomTextEditor& getEditor() { return editor; }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(10);
+        auto topRow = area.removeFromTop(24);
+        captionLabel.setBounds(topRow.removeFromLeft(120));
+        const auto diceBounds = topRow.removeFromRight(22).withHeight(22).withY(topRow.getY() + 1);
+        diceButton.setBounds(diceBounds);
+
+        hintLabel.setBounds(area.removeFromTop(16));
+        area.removeFromTop(8);
+        editor.setBounds(area);
+    }
+
+private:
+    std::function<void(const juce::String&)> onTextChanged;
+    std::function<void()> onDiceRequested;
+    std::function<void(juce::Graphics&, juce::Rectangle<int>, bool, bool)> drawDice;
+    juce::Label captionLabel;
+    juce::Label hintLabel;
+    CustomTextEditor editor;
+    CustomButton diceButton;
+};
 }
 
 CareyUI::CareyUI()
@@ -149,11 +227,11 @@ CareyUI::CareyUI()
         addAndMakeVisible(button);
     };
 
-    prepareSubTabButton(legoSubTabButton, "lego", SubTab::Lego);
-    prepareSubTabButton(completeSubTabButton, juce::String::fromUTF8("complete \xe2\x9a\xa0"), SubTab::Complete);
-    completeSubTabButton.setTooltip("this mode is pretty unhinged...expect to chop out the samples amongst the madness");
+    prepareSubTabButton(legoSubTabButton, juce::String::fromUTF8("lego \xe2\x9a\xa0"), SubTab::Lego);
+    legoSubTabButton.setTooltip("it seems lego mode doesn't work well with xl models, which sucks if you want the model to adhere to lyrics well. we default to ace-step-v15-base");
+    prepareSubTabButton(completeSubTabButton, "complete", SubTab::Complete);
     prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
-    coverSubTabButton.setTooltip("experimental - results may vary. use at your own risk");
+    coverSubTabButton.setTooltip("works best with xl models, and is the most fun when using a lora");
     prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
     extractSubTabButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
 
@@ -214,12 +292,29 @@ CareyUI::CareyUI()
     captionLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(captionLabel);
 
+    captionPopoutButton.setButtonText("");
+    captionPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    captionPopoutButton.setTooltip("open full caption editor");
+    captionPopoutButton.onClick = [this]()
+    {
+        openCaptionPopout(CaptionPopoutTarget::Lego,
+                          captionEditor,
+                          "describe the vocal or drum stem...",
+                          [this]() { applyRandomLegoCaption(); });
+    };
+    captionPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), captionPopoutButton.isMouseOver(), captionPopoutButton.isDown());
+    };
+    addToContent(captionPopoutButton);
+
     captionEditor.setTextToShowWhenEmpty("describe the vocal or drum stem...", juce::Colour(0xff666666));
     captionEditor.setMultiLine(false);
     captionEditor.setReturnKeyStartsNewLine(false);
     captionEditor.setScrollbarsShown(false);
     captionEditor.onTextChange = [this]()
     {
+        syncActiveCaptionPopout(CaptionPopoutTarget::Lego, captionEditor.getText());
         if (onCaptionChanged)
             onCaptionChanged(captionEditor.getText());
     };
@@ -360,12 +455,33 @@ CareyUI::CareyUI()
     completeCaptionLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(completeCaptionLabel);
 
+    completeCaptionPopoutButton.setButtonText("");
+    completeCaptionPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    completeCaptionPopoutButton.setTooltip("open full caption editor");
+    completeCaptionPopoutButton.onClick = [this]()
+    {
+        openCaptionPopout(CaptionPopoutTarget::Complete,
+                          completeCaptionEditor,
+                          "describe the continuation style...",
+                          [this]()
+                          {
+                              if (onCompleteCaptionDiceRequested)
+                                  onCompleteCaptionDiceRequested();
+                          });
+    };
+    completeCaptionPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), completeCaptionPopoutButton.isMouseOver(), completeCaptionPopoutButton.isDown());
+    };
+    addToContent(completeCaptionPopoutButton);
+
     completeCaptionEditor.setTextToShowWhenEmpty("describe the continuation style...", juce::Colour(0xff666666));
     completeCaptionEditor.setMultiLine(false);
     completeCaptionEditor.setReturnKeyStartsNewLine(false);
     completeCaptionEditor.setScrollbarsShown(false);
     completeCaptionEditor.onTextChange = [this]()
     {
+        syncActiveCaptionPopout(CaptionPopoutTarget::Complete, completeCaptionEditor.getText());
         if (onCompleteCaptionChanged)
             onCompleteCaptionChanged(completeCaptionEditor.getText());
     };
@@ -573,12 +689,33 @@ CareyUI::CareyUI()
     coverCaptionLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(coverCaptionLabel);
 
+    coverCaptionPopoutButton.setButtonText("");
+    coverCaptionPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    coverCaptionPopoutButton.setTooltip("open full caption editor");
+    coverCaptionPopoutButton.onClick = [this]()
+    {
+        openCaptionPopout(CaptionPopoutTarget::Cover,
+                          coverCaptionEditor,
+                          "describe the remix style...",
+                          [this]()
+                          {
+                              if (onCoverCaptionDiceRequested)
+                                  onCoverCaptionDiceRequested();
+                          });
+    };
+    coverCaptionPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), coverCaptionPopoutButton.isMouseOver(), coverCaptionPopoutButton.isDown());
+    };
+    addToContent(coverCaptionPopoutButton);
+
     coverCaptionEditor.setTextToShowWhenEmpty("describe the remix style...", juce::Colour(0xff666666));
     coverCaptionEditor.setMultiLine(false);
     coverCaptionEditor.setReturnKeyStartsNewLine(false);
     coverCaptionEditor.setScrollbarsShown(false);
     coverCaptionEditor.onTextChange = [this]()
     {
+        syncActiveCaptionPopout(CaptionPopoutTarget::Cover, coverCaptionEditor.getText());
         if (onCoverCaptionChanged)
             onCoverCaptionChanged(coverCaptionEditor.getText());
     };
@@ -1196,7 +1333,11 @@ void CareyUI::updateContentLayout()
         captionRow.removeFromRight(4);
         auto diceBounds = captionRow.removeFromRight(22);
         captionRow.removeFromRight(4);
+        auto popoutBounds = captionRow.removeFromLeft(22);
+        captionRow.removeFromLeft(4);
         captionEditor.setBounds(captionRow);
+        const auto popoutSquare = popoutBounds.withHeight(22).withY(popoutBounds.getY() + 3);
+        captionPopoutButton.setBounds(popoutSquare);
         const auto diceSquare = diceBounds.withHeight(22).withY(diceBounds.getY() + 3);
         captionDiceButton.setBounds(diceSquare);
         legoLyricsButton.setBounds(lyricsBounds.withHeight(24).withY(lyricsBounds.getY() + 2));
@@ -1252,7 +1393,11 @@ void CareyUI::updateContentLayout()
         completeCaptionRow.removeFromRight(4);
         auto completeDiceBounds = completeCaptionRow.removeFromRight(22);
         completeCaptionRow.removeFromRight(4);
+        auto completePopoutBounds = completeCaptionRow.removeFromLeft(22);
+        completeCaptionRow.removeFromLeft(4);
         completeCaptionEditor.setBounds(completeCaptionRow);
+        const auto completePopoutSquare = completePopoutBounds.withHeight(22).withY(completePopoutBounds.getY() + 3);
+        completeCaptionPopoutButton.setBounds(completePopoutSquare);
         const auto completeDiceSquare = completeDiceBounds.withHeight(22).withY(completeDiceBounds.getY() + 3);
         completeCaptionDiceButton.setBounds(completeDiceSquare);
         completeLyricsButton.setBounds(completeLyricsBounds.withHeight(24).withY(completeLyricsBounds.getY() + 2));
@@ -1339,7 +1484,11 @@ void CareyUI::updateContentLayout()
         coverCaptionRow.removeFromRight(4);
         auto coverDiceBounds = coverCaptionRow.removeFromRight(22);
         coverCaptionRow.removeFromRight(4);
+        auto coverPopoutBounds = coverCaptionRow.removeFromLeft(22);
+        coverCaptionRow.removeFromLeft(4);
         coverCaptionEditor.setBounds(coverCaptionRow);
+        const auto coverPopoutSquare = coverPopoutBounds.withHeight(22).withY(coverPopoutBounds.getY() + 3);
+        coverCaptionPopoutButton.setBounds(coverPopoutSquare);
         const auto coverDiceSquare = coverDiceBounds.withHeight(22).withY(coverDiceBounds.getY() + 3);
         coverCaptionDiceButton.setBounds(coverDiceSquare);
         coverLyricsButton.setBounds(coverLyricsBounds.withHeight(24).withY(coverLyricsBounds.getY() + 2));
@@ -1467,6 +1616,7 @@ void CareyUI::updateContentLayout()
 void CareyUI::setLegoControlsVisible(bool shouldBeVisible)
 {
     captionLabel.setVisible(shouldBeVisible);
+    captionPopoutButton.setVisible(shouldBeVisible);
     captionEditor.setVisible(shouldBeVisible);
     captionDiceButton.setVisible(shouldBeVisible);
     legoLyricsButton.setVisible(shouldBeVisible);
@@ -1493,6 +1643,7 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
     const bool showAdvanced = shouldBeVisible && completeAdvancedOpen;
 
     completeCaptionLabel.setVisible(shouldBeVisible);
+    completeCaptionPopoutButton.setVisible(shouldBeVisible);
     completeCaptionEditor.setVisible(shouldBeVisible);
     completeCaptionDiceButton.setVisible(shouldBeVisible);
     completeLyricsButton.setVisible(shouldBeVisible);
@@ -1672,6 +1823,7 @@ void CareyUI::setAvailableCoverLoras(const juce::StringArray& loraNames)
 void CareyUI::setCoverControlsVisible(bool shouldBeVisible)
 {
     coverCaptionLabel.setVisible(shouldBeVisible);
+    coverCaptionPopoutButton.setVisible(shouldBeVisible);
     coverCaptionEditor.setVisible(shouldBeVisible);
     coverCaptionDiceButton.setVisible(shouldBeVisible);
     coverLyricsButton.setVisible(shouldBeVisible);
@@ -1866,6 +2018,100 @@ void CareyUI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, boo
     drawPip(cx + offset, cy + offset);
 }
 
+void CareyUI::drawPopoutIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed)
+{
+    juce::Colour bgColour = Theme::Colors::Terry.withAlpha(0.9f);
+    if (isPressed)
+        bgColour = Theme::Colors::Terry.brighter(0.2f);
+    else if (isHovered)
+        bgColour = Theme::Colors::Terry.brighter(0.3f);
+
+    g.setColour(bgColour);
+    g.fillRoundedRectangle(bounds, 2.0f);
+
+    g.setColour(juce::Colours::white);
+    const auto inner = bounds.reduced(5.0f);
+    const auto box = inner.withTrimmedTop(inner.getHeight() * 0.28f)
+                          .withTrimmedRight(inner.getWidth() * 0.28f);
+    g.drawRect(box, 1.4f);
+
+    juce::Path arrow;
+    const auto start = inner.getBottomLeft() + juce::Point<float>(inner.getWidth() * 0.38f, -inner.getHeight() * 0.38f);
+    const auto end = inner.getTopRight();
+    arrow.startNewSubPath(start);
+    arrow.lineTo(end);
+    arrow.lineTo(end.translated(-inner.getWidth() * 0.34f, 0.0f));
+    arrow.startNewSubPath(end);
+    arrow.lineTo(end.translated(0.0f, inner.getHeight() * 0.34f));
+    g.strokePath(arrow, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+void CareyUI::openCaptionPopout(CaptionPopoutTarget target,
+                                CustomTextEditor& sourceEditor,
+                                const juce::String& placeholderText,
+                                std::function<void()> diceCallback)
+{
+    juce::Component::SafePointer<CareyUI> safeThis(this);
+
+    auto* dialogContent = new CareyCaptionPopoutContent(
+        sourceEditor.getText(),
+        placeholderText,
+        [safeThis, target](const juce::String& text)
+        {
+            if (safeThis == nullptr)
+                return;
+
+            auto updateEditor = [&text](CustomTextEditor& editor)
+            {
+                if (editor.getText() != text)
+                    editor.setText(text, juce::sendNotification);
+            };
+
+            if (target == CaptionPopoutTarget::Lego)
+                updateEditor(safeThis->captionEditor);
+            else if (target == CaptionPopoutTarget::Complete)
+                updateEditor(safeThis->completeCaptionEditor);
+            else if (target == CaptionPopoutTarget::Cover)
+                updateEditor(safeThis->coverCaptionEditor);
+        },
+        [safeThis, diceCallback = std::move(diceCallback)]()
+        {
+            if (safeThis != nullptr && diceCallback)
+                diceCallback();
+        },
+        [safeThis](juce::Graphics& g, juce::Rectangle<int> bounds, bool isHovered, bool isPressed)
+        {
+            if (safeThis != nullptr)
+                safeThis->drawDiceIcon(g, bounds.toFloat().reduced(2.0f), isHovered, isPressed);
+        });
+
+    activeCaptionPopoutEditor = &dialogContent->getEditor();
+    activeCaptionPopoutTarget = target;
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(dialogContent);
+    options.content->setSize(520, 230);
+    options.dialogTitle = "carey caption";
+    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.useBottomRightCornerResizer = true;
+    options.componentToCentreAround = this;
+
+    if (auto* window = options.launchAsync())
+        window->setResizeLimits(360, 180, 900, 520);
+}
+
+void CareyUI::syncActiveCaptionPopout(CaptionPopoutTarget target, const juce::String& text)
+{
+    if (activeCaptionPopoutTarget != target || activeCaptionPopoutEditor == nullptr)
+        return;
+
+    if (activeCaptionPopoutEditor->getText() != text)
+        activeCaptionPopoutEditor->setText(text, juce::dontSendNotification);
+}
+
 juce::String CareyUI::pickRandomCaption(const juce::StringArray& prompts, const juce::String& fallback)
 {
     if (prompts.isEmpty())
@@ -1880,51 +2126,51 @@ juce::StringArray CareyUI::getLegoPromptBankForTrack(const juce::String& trackNa
     if (track == "vocals")
     {
         return {
-            "soulful lead vocal, intimate phrasing, warm tone, wordless melodic hooks, centered dry mix",
-            "airy indie lead vocal, expressive falsetto moments, soft breath texture, emotional ad-libs, modern pop clarity",
-            "neo-soul lead vocal, smooth runs, conversational delivery, layered doubles in chorus, mellow character",
-            "cinematic lead voice, haunting vowel-driven melody, evolving intensity, focused mono center image"
+            "soulful rnb vocal",
+            "airy indie vocal hook",
+            "dream pop vocal oohs",
+            "gospel vocal adlibs"
         };
     }
 
     if (track == "backing_vocals")
     {
         return {
-            "lush backing vocal stack, soft ooh and ahh harmonies, stereo spread, gentle movement",
-            "tight backing harmonies, supportive thirds and fifths, smooth blend, no lead phrasing",
-            "ethereal backing choir texture, airy pads of voices, restrained dynamics, warm ambience",
-            "rhythmic backing vocal accents, call-and-response style layers, clean articulation, subtle width"
+            "gospel backing harmonies",
+            "dream pop vocal pads",
+            "doo wop backing vocals",
+            "rnb harmony stack"
         };
     }
 
     if (track == "drums")
     {
         return {
-            "punchy acoustic drum kit, tight kick and snare, controlled room tone, dynamic ghost notes",
-            "lo-fi drum groove, dusty hats, soft transient shaping, pocket-focused swing feel",
-            "modern pop drums, clean transient snap, crisp hi-hats, balanced low-end and punch",
-            "live drum performance, humanized timing, expressive cymbal work, natural kit resonance"
+            "lo-fi hiphop drums",
+            "funk breakbeat drums",
+            "indie rock drum groove",
+            "disco four-on-floor drums"
         };
     }
 
     if (track == "bass")
-        return { "melodic electric bass line, warm low mids, pocket-locked groove, rounded transient attack" };
+        return { "synthwave bass line", "funk slap bass", "dub reggae bass", "motown bass groove" };
     if (track == "guitar")
-        return { "supporting electric guitar layer, clean articulation, rhythmic chord stabs, tasteful ambience" };
+        return { "funk rhythm guitar", "surf rock guitar riff", "shoegaze guitar wash", "folk acoustic guitar" };
     if (track == "piano")
-        return { "supporting piano stem, clear voicings, gentle dynamics, natural room response" };
+        return { "jazzy piano chords", "gospel piano vamp", "neo-soul rhodes chords", "classical piano arpeggios" };
     if (track == "strings")
-        return { "cinematic string arrangement, smooth legato motion, supportive harmonic bed, warm texture" };
+        return { "cinematic string swell", "disco string stabs", "baroque violin line", "romantic cello melody" };
     if (track == "synth")
-        return { "analog-style synth layer, controlled harmonics, expressive filter motion, supportive energy" };
+        return { "retro synthwave lead", "ambient synth pad", "acid synth line", "electro arpeggio synth" };
     if (track == "keyboard")
-        return { "keyboard comping layer, tight rhythmic placement, warm tone, supportive harmonic movement" };
+        return { "smooth rhodes chords", "funk organ comping", "warm wurlitzer riff", "jazzy keyboard chords" };
     if (track == "percussion")
-        return { "percussion layer with shakers and hand drums, controlled transients, groove-focused accents" };
+        return { "afrobeat shaker groove", "latin conga loop", "disco tambourine hits", "bossa percussion accents" };
     if (track == "brass")
-        return { "brass section stabs, tight ensemble articulation, punchy attacks, musical phrasing" };
+        return { "jazzy trumpet solo", "funky horn stabs", "soul brass section", "muted trumpet melody" };
     if (track == "woodwinds")
-        return { "woodwind harmony layer, smooth breath phrasing, lyrical movement, natural ensemble blend" };
+        return { "bossa flute melody", "swing clarinet line", "jazzy saxophone solo", "folk woodwind harmony" };
 
     return {
         "supporting stem with clear articulation, musical phrasing, controlled dynamics, and cohesive mix balance"

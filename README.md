@@ -44,7 +44,7 @@ put it on your master, press play, record some audio, and start iterating.
 - [x] add carey extract mode
 - [x] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
 - [ ] release gary4juce v3.0.6 mac AU/VST3
-- [ ] produce better carey dice captions
+- [x] produce better carey dice captions
 - [x] introduce time signature option to the carey UI
 - [x] add carey LoRA strength slider for complete and cover mode
 - [x] harden the plugin editor against rapid open/close crashes
@@ -52,6 +52,10 @@ put it on your master, press play, record some audio, and start iterating.
 ---
 
 ## what's new in v3
+
+### unreleased - carey caption polish
+
+carey got a small workflow pass: lego's local dice button now uses the simpler caption pool that has been working better for stem-generation tasks, and the long caption fields in lego, complete, and cover have a compact popout editor so ace-step paragraph prompts are actually readable while you keep rolling dice captions.
 
 ### v3.0.6 - lora strength and editor hardening
 
@@ -284,6 +288,8 @@ four modes for stem generation, extraction, continuation, and remix:
 - **extract** - attempt target stem extraction from your recording buffer
 
 shared lyrics editor, 50-language support, key/scale selection, and per-tab cfg control.
+
+long Carey captions can be opened in a smaller popout editor from lego, complete, and cover, with the same dice caption button available inside the popup.
 
 on the remote backend, complete mode defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) from advanced settings.
 
