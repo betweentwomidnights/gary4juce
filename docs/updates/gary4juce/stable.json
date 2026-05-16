@@ -1,14 +1,14 @@
 {
   "channel": "stable",
-  "latest_version": "3.0.6",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.6",
+  "latest_version": "3.0.7",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7",
   "sha256": null,
-  "published_at": "2026-04-27T13:16:05Z",
+  "published_at": "2026-05-16T01:02:23Z",
   "notes": [
-    "Carey complete and cover now include a LoRA strength slider when Use LoRA is enabled, letting you blend selected adapters from 0.00 to 1.00.",
-    "The slider sends lora_scale to both the remote Carey backend and supported gary4local v0.1.6 backends, defaulting to full strength so existing LoRA results are unchanged.",
-    "Additional editor lifecycle hardening improves stability when rapidly opening and closing the plugin UI, including during in-flight backend requests.",
-    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.6",
+    "Carey lego's local dice button now uses the simpler stem-focused caption pool that has been working better for lego tasks.",
+    "Long Carey captions in lego, complete, and cover can pop out into a compact editor so ACE-Step paragraph prompts are readable while you keep rolling dice captions.",
+    "Carey guidance now calls out the current lego xl-model regression and the cover-nofsq backend behavior.",
+    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.7",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

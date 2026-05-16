@@ -4,7 +4,7 @@ a VST3/AU plugin for musicians who want AI to meet them where they actually live
 
 https://thepatch.gumroad.com/l/gary4juce
 
-**latest release:** [gary4juce v3.0.6 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.6)
+**latest release:** [gary4juce v3.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -33,7 +33,7 @@ gary4juce gives you six AI music models directly in your DAW:
 
 put it on your master, press play, record some audio, and start iterating.
 
-> note: carey LoRA selection, LoRA-specific dice caption pools, and the LoRA strength slider work on the remote backend and on supported gary4local v0.1.6 carey backends.
+> note: carey LoRA selection, LoRA-specific dice caption pools, and the LoRA strength slider work on the remote backend and on supported gary4local v0.1.7 carey backends.
 
 ---
 
@@ -53,9 +53,11 @@ put it on your master, press play, record some audio, and start iterating.
 
 ## what's new in v3
 
-### unreleased - carey caption polish
+### v3.0.7 - carey caption polish
 
 carey got a small workflow pass: lego's local dice button now uses the simpler caption pool that has been working better for stem-generation tasks, and the long caption fields in lego, complete, and cover have a compact popout editor so ace-step paragraph prompts are actually readable while you keep rolling dice captions.
+
+gary4juce v3.0.7 pairs with [gary4local v0.1.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.7).
 
 ### v3.0.6 - lora strength and editor hardening
 
@@ -293,7 +295,7 @@ long Carey captions can be opened in a smaller popout editor from lego, complete
 
 on the remote backend, complete mode defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) from advanced settings.
 
-complete and cover support lora selection, lora-specific dice captions, and lora strength control on the remote backend and supported gary4local v0.1.6 carey backends.
+complete and cover support lora selection, lora-specific dice captions, and lora strength control on the remote backend and supported gary4local v0.1.7 carey backends.
 
 **[full guide with tips and workflows](CAREY.md)**
 
@@ -406,7 +408,7 @@ steps:
 - **terry occasionally weird:** melodyflow is still experimental, results vary
 - **carey cover mode:** progress display uses time-based estimation (ace-step doesn't report step counts for cover tasks)
 - **carey complete mode:** much more reliable now, but it still prefers fuller/denser input audio for best results
-- **carey loras:** available on the remote backend and supported gary4local v0.1.6 carey backends
+- **carey loras:** available on the remote backend and supported gary4local v0.1.7 carey backends
 
 ---
 
