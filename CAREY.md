@@ -20,9 +20,9 @@ backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
 ### backend notes
 
-- on the remote backend, we moved away from a blanket xl-base lego path for now. xl-base was often singing poorly over our instrumentals and sometimes produced garbled outputs.
-- for lego tasks other than vocals, xl-base can still be more reliable in some cases, but we still don't think those outputs are especially amazing yet.
-- on localhost, lego just uses whichever ace-step backend you currently have loaded, whether that's regular base or xl-base.
+- lego mode seems to regress with the xl models. common failure modes include instrumentation bleed into the requested stem, less stable separation, and, when vocals do work, weaker singing/lyric adherence than we'd expect from xl.
+- for now, lego defaults to `ace-step-v15-base`. this is a compromise: base appears to be better behaved for the lego stem workflow, even though xl models are usually better at following lyrics in the other modes.
+- if you specifically need strong lyric adherence, complete or cover mode with an xl model is usually a better place to work than lego.
 
 ### loop assist & trim to input
 
@@ -56,6 +56,8 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 
 **what it does:** remixes/restyles your input audio, similar to a melodyflow (terry) transformation but with different strengths and characteristics.
 
+**best with:** xl models, especially when vocals and lyrics are present. cover is also the most fun Carey mode to use with a LoRA.
+
 ### key parameters
 
 - **noise strength** (0.0-1.0): lower values = more creative departure from source. higher = stays closer to the original structure. default 0.2 works well.
@@ -66,10 +68,17 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 ### tips
 
 - **vocals make everything better.** the model produces noticeably higher quality cover outputs when vocals are present in the input audio.
+- **vocal replacement is the magic trick.** if you have a human vocal take, put the same lyrics into Carey and use a LoRA in cover mode. the LoRA can effectively replace the vocalist while preserving the phrasing and musical context from the source.
 - **the gibberish-to-lyrics workflow:** generate wordless vocals in lego mode (no lyrics set), then switch to cover mode and type actual lyrics. the model will fill in the vocal melody with real words. this gets powerful with iteration.
 - **loop assist is less reliable here.** cover mode has the same loop assist/trim-to-input functionality as lego, but the results are less consistent with looped short audio. if possible, give it a full minute+ of source material.
-- **as of april 22, 2026, cover mode is much more reliable than it used to be, but it's still hard to fully nail down.** one very practical use is cleaning up a noisy xl-base complete result. running that through cover mode with xl-turbo and a fairly high `cover_noise_strength` can make it feel much shinier.
+- **as of may 2026, cover mode is much more reliable than it used to be.** one very practical use is cleaning up a noisy xl-base complete result. running that through cover mode with xl-turbo and a fairly high `cover_noise_strength` can make it feel much shinier.
 - **if you're chasing melodyflow-style flow matching, be careful.** dropping `cover_noise_strength` low enough to transform the audio more aggressively can also change your chords quite a bit.
+
+### backend notes
+
+- cover mode now uses the upstream ACE-Step `cover-nofsq` path.
+- previously, the cover path pushed source audio through the FSQ semantic-code route, which effectively collapsed source guidance down to about 5 Hz. that made for poor init noise and mushier source conditioning.
+- `cover-nofsq` keeps the source audio useful for the repaint/cover workflow, which is a big part of why current cover results feel more musical and controllable.
 
 ---
 

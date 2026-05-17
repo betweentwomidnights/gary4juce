@@ -13,6 +13,15 @@
 
 class CareyUI : public juce::Component
 {
+private:
+    enum class CaptionPopoutTarget
+    {
+        None = 0,
+        Lego,
+        Complete,
+        Cover
+    };
+
 public:
     static constexpr int kFixedCoverSteps = 8;
     static constexpr double kFixedCoverCfg = 1.0;
@@ -144,6 +153,7 @@ public:
     void setCaptionText(const juce::String& text)
     {
         captionEditor.setText(text, juce::dontSendNotification);
+        syncActiveCaptionPopout(CaptionPopoutTarget::Lego, text);
     }
 
     void setTrackName(const juce::String& trackName)
@@ -184,6 +194,7 @@ public:
     void setCompleteCaptionText(const juce::String& text)
     {
         completeCaptionEditor.setText(text, juce::dontSendNotification);
+        syncActiveCaptionPopout(CaptionPopoutTarget::Complete, text);
     }
 
     void setCompleteUseLora(bool enabled)
@@ -316,7 +327,11 @@ public:
     bool getCoverLoopAssistEnabled() const { return coverLoopAssistToggle.getToggleState(); }
     bool getCoverTrimToInputEnabled() const { return coverTrimToInputToggle.getToggleState(); }
 
-    void setCoverCaptionText(const juce::String& text) { coverCaptionEditor.setText(text, juce::dontSendNotification); }
+    void setCoverCaptionText(const juce::String& text)
+    {
+        coverCaptionEditor.setText(text, juce::dontSendNotification);
+        syncActiveCaptionPopout(CaptionPopoutTarget::Cover, text);
+    }
     void setCoverUseLora(bool enabled)
     {
         const bool shouldEnable = enabled && !coverLoraOptionValues.isEmpty();
@@ -536,6 +551,12 @@ private:
                         const juce::String& value);
     int findTrackIndex(const juce::StringArray& optionValues, const juce::String& normalizedTrackName) const;
     void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
+    void drawPopoutIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
+    void openCaptionPopout(CaptionPopoutTarget target,
+                           CustomTextEditor& sourceEditor,
+                           const juce::String& placeholderText,
+                           std::function<void()> diceCallback);
+    void syncActiveCaptionPopout(CaptionPopoutTarget target, const juce::String& text);
     juce::String pickRandomCaption(const juce::StringArray& prompts, const juce::String& fallback);
     juce::StringArray getLegoPromptBankForTrack(const juce::String& trackName) const;
     juce::StringArray getCompletePromptBank() const;
@@ -558,6 +579,7 @@ private:
     std::unique_ptr<juce::Component> contentComponent;
 
     juce::Label captionLabel;
+    CustomButton captionPopoutButton;
     CustomTextEditor captionEditor;
     CustomButton captionDiceButton;
     CustomButton legoLyricsButton;
@@ -578,6 +600,7 @@ private:
     juce::String lyricsLanguage = "en";
 
     juce::Label completeCaptionLabel;
+    CustomButton completeCaptionPopoutButton;
     CustomTextEditor completeCaptionEditor;
     CustomButton completeCaptionDiceButton;
     CustomButton completeLyricsButton;
@@ -610,6 +633,7 @@ private:
     CustomComboBox keyModeComboBox;
 
     juce::Label coverCaptionLabel;
+    CustomButton coverCaptionPopoutButton;
     CustomTextEditor coverCaptionEditor;
     CustomButton coverCaptionDiceButton;
     CustomButton coverLyricsButton;
@@ -662,6 +686,8 @@ private:
     bool coverModelSelectionEnabled = true;
     bool coverRemoteModelSelectionEnabled = true;
     bool extractRemoteGenerationEnabled = true;
+    juce::Component::SafePointer<juce::TextEditor> activeCaptionPopoutEditor;
+    CaptionPopoutTarget activeCaptionPopoutTarget = CaptionPopoutTarget::None;
 
     juce::Rectangle<int> titleBounds;
 };
