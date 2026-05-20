@@ -104,6 +104,10 @@ Carey guide: [CAREY.md](CAREY.md)
 3. Copy the entire folder to `C:\Program Files\Common Files\VST3\`.
 4. Reopen your DAW and rescan plugins if needed.
 
+You can put the VST3 literally anywhere as long as your DAW scans that
+location. `C:\Program Files\Common Files\VST3\` is just the default path most
+DAWs already check.
+
 If permission errors appear, run Command Prompt as admin:
 
 ```bat
