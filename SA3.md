@@ -1,7 +1,7 @@
 # SA3 Guide
 
-SA3 is the Stable Audio 3 beta workflow inside gary4juce v4. It lives in the
-Jerry tab, to the left of the original SAOS tab.
+SA3 is the Stable Audio 3 workflow inside gary4juce v4. It lives in the Jerry
+tab, to the left of the original SAOS tab.
 
 Upstream repo: https://github.com/stability-ai/stable-audio-3
 
@@ -9,8 +9,7 @@ Status:
 
 - Remote backend only for now.
 - Local gary4local support is planned.
-- The model is beta, so output loudness, continuation tails, and LoRA behavior
-  are still being tuned.
+- Output loudness, continuation tails, and LoRA behavior are still being tuned.
 
 ---
 
@@ -101,7 +100,7 @@ Important: the continue duration is the final total length. If the source is
 21 seconds and the slider is set to 100 seconds, the backend receives a request
 for roughly 79 seconds of new continuation.
 
-Current beta note:
+Current launch note:
 
 Some long continuations fade or become quiet before the final samples. Until the
 backend behavior is fully audited, use the waveform crop tools to continue from
@@ -216,9 +215,9 @@ settings.
 
 ---
 
-## Known Beta Notes
+## Known Launch Notes
 
-- SA3 is remote-only in gary4juce v4 pre-release builds.
+- SA3 is remote-only in gary4juce v4 builds.
 - Some outputs are loud or may clip. Backend normalization/limiting is under review.
 - Long continuation tails may fade or go quiet before the final duration.
 - The second SA3 continuation mode is not exposed yet.
@@ -226,9 +225,9 @@ settings.
 
 ---
 
-## Release Flow Notes
+## Follow-Up Notes
 
-Before calling SA3 generally available:
+Release/backend follow-ups:
 
 - add SA3 to gary4local
 - confirm base-model behavior with `loras: []`

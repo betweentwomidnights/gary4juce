@@ -5,7 +5,7 @@
   "sha256": null,
   "published_at": "2026-05-20T00:00:00Z",
   "notes": [
-    "gary v4 preview: Stable Audio 3 beta is now available in the Jerry tab on the remote backend.",
+    "gary v4 preview: Stable Audio 3 is now available in the Jerry tab on the remote backend.",
     "SA3 includes generate, loop, transform, continue, seed recall, key/scale prompting, LoRA sliders, and smart dice.",
     "SA3 is remote-only while gary4local support is still in progress.",
     "Override GARY4JUCE_UPDATE_MANIFEST_URL to point a local build at this feed.",

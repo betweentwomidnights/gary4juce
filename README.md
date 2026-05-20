@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable release:** [gary4juce v3.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7)
 
-**next release line:** `v4.0.0` / `v4.0.0-pre` - stable-audio-3 beta, remote-only while we test the water.
+**latest release line:** `v4.0.0` - stable-audio-3 has entered the DAW.
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -30,7 +30,7 @@ project exists for people who want AI to sit inside the session with them.
 
 gary4juce now gives you **seven AI music models** directly in your DAW:
 
-- **sa3** ([stable-audio-3](https://github.com/stability-ai/stable-audio-3)) - beta text-to-audio, loops, transforms, continuations, LoRA blending, seed recall, key/BPM-aware prompting
+- **sa3** ([stable-audio-3](https://github.com/stability-ai/stable-audio-3)) - text-to-audio, loops, transforms, continuations, LoRA blending, seed recall, key/BPM-aware prompting
 - **gary** ([musicgen](https://github.com/facebookresearch/audiocraft)) - continuation/anti-looper. Extends your audio in creative directions
 - **jerry** ([stable-audio-open-small](https://huggingface.co/stabilityai/stable-audio-open-small)) - BPM-aware 12-second loop generation in under a second
 - **rc-jerry** ([foundation-1](https://huggingface.co/RoyalCities/Foundation-1)) - BPM and key-aware 4/8-bar loop generation with structured prompt assembly
@@ -40,14 +40,14 @@ gary4juce now gives you **seven AI music models** directly in your DAW:
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> SA3 is beta and remote-only for now. Localhost support belongs in the next
+> SA3 is remote-only for now. Localhost support belongs in the next
 > gary4local pass.
 
 ---
 
 ## What's New In V4
 
-### v4.0.0-pre - stable-audio-3
+### v4.0.0 - stable-audio-3
 
 gary4juce has entered v4 with a new **sa3** sub-tab inside Jerry, positioned
 alongside the original SAOS and Foundation-1 workflows.
@@ -64,7 +64,7 @@ SA3 currently includes:
 
 Read the practical guide: [SA3.md](SA3.md)
 
-Known beta notes:
+Launch notes:
 
 - SA3 outputs can be hot, especially with LoRAs. Treat gain staging like part of the instrument for now.
 - Continue results can leave a quiet/fading tail near the end of longer continuations. This is being audited against the upstream SA3 UI.
@@ -155,8 +155,8 @@ SA3 currently runs only on the remote backend through:
 
 `https://g4l.thecollabagepatch.com/sa3`
 
-It uses the private beta Stable Audio 3 backend we have been testing. Public
-upstream repo: https://github.com/stability-ai/stable-audio-3
+It uses the remote Stable Audio 3 backend we have been testing. Public upstream
+repo: https://github.com/stability-ai/stable-audio-3
 
 ### Darius Backend
 
@@ -294,9 +294,9 @@ Jerry localhost finetune picker.
 
 ### Stable Audio 3
 
-SA3 LoRA workflows are still beta. The v4 plugin UI is already shaped around
-multi-LoRA strength sliders and LoRA-aware dice pools so the backend can grow
-into that workflow cleanly.
+SA3 LoRA workflows are new and still settling. The v4 plugin UI is already
+shaped around multi-LoRA strength sliders and LoRA-aware dice pools so the
+backend can grow into that workflow cleanly.
 
 Upstream repo: https://github.com/stability-ai/stable-audio-3
 
@@ -354,7 +354,7 @@ Steps:
 
 ## Known Issues
 
-- **SA3 is beta:** remote-only, output loudness and continuation tails are still being tuned.
+- **SA3 launch notes:** remote-only, output loudness and continuation tails are still being tuned.
 - **SA3 local backend:** not in gary4local yet.
 - **Windows Defender:** not codesigned, so Windows may complain.
 - **Darius hardware:** 24 GB+ VRAM is strongly recommended.
@@ -386,6 +386,9 @@ Steps:
 - **magenta-realtime:** Google Magenta team
 - **JUCE:** JUCE framework
 - **community finetunes:** lyra, vanya, hoenn, CZ-84, and everyone contributing models
+
+Special thanks to Zach and the guys at Stability for letting me be part of the
+Stable Audio 3 beta while this integration came together.
 
 ---
 
