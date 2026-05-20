@@ -1,13 +1,11 @@
 {
   "channel": "preview",
-  "latest_version": "4.0.0-pre",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-pre",
+  "latest_version": "3.0.1",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.1",
   "sha256": null,
-  "published_at": "2026-05-20T00:00:00Z",
+  "published_at": "2026-04-06T00:00:00Z",
   "notes": [
-    "gary v4 preview: Stable Audio 3 is now available in the Jerry tab on the remote backend.",
-    "SA3 includes generate, loop, transform, continue, seed recall, key/scale prompting, LoRA sliders, and smart dice.",
-    "SA3 is remote-only while gary4local support is still in progress.",
+    "Preview lane for validating the in-plugin update prompt before changing stable.json.",
     "Override GARY4JUCE_UPDATE_MANIFEST_URL to point a local build at this feed.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]

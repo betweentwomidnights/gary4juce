@@ -1,378 +1,422 @@
-# gary4juce
+﻿# gary4juce
 
-**gary v4 has begun: stable-audio-3 is now inside the DAW.**
-
-gary4juce is a VST3/AU plugin for musicians who want AI models to react to
-their timing, chords, phrasing, stems, loops, and experiments directly inside a
-DAW.
+a VST3/AU plugin for musicians who want AI to meet them where they actually live. for me, that's ableton. for you, it might be fl studio or, if you're insane, reaper lol
 
 https://thepatch.gumroad.com/l/gary4juce
 
-**latest stable release:** [gary4juce v3.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7)
-
-**v4 pre-release:** [gary4juce v4.0.0-pre (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-pre) - stable-audio-3 has entered the DAW.
+**latest release:** [gary4juce v3.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
 localhost backends:
-
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
-- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
+- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) - foundation-1 now works there on apple silicon
 
 videos about it here when i can: https://youtube.com/@thepatch_dev
 
 ---
 
-## Built For Musicians
+## built for musicians
 
-If you just want pure text-to-music, you probably do not need a VST. This
-project exists for people who want AI to sit inside the session with them.
+this is about using AI models as collab partners inside your DAW.
 
-gary4juce now gives you **seven AI music models** directly in your DAW:
+if you just want pure text-to-music, you probably don't need a VST. this project exists for people who want AI to react to their timing, chords, phrasing, stems and loops, rather than build an entire song from scratch for you.
 
-- **sa3** ([stable-audio-3](https://github.com/stability-ai/stable-audio-3)) - text-to-audio, loops, transforms, continuations, LoRA blending, seed recall, key/BPM-aware prompting
-- **gary** ([musicgen](https://github.com/facebookresearch/audiocraft)) - continuation/anti-looper. Extends your audio in creative directions
+gary4juce gives you six AI music models directly in your DAW:
+
+- **gary** ([musicgen](https://github.com/facebookresearch/audiocraft)) - continuation/anti-looper. extends your audio in creative directions
 - **jerry** ([stable-audio-open-small](https://huggingface.co/stabilityai/stable-audio-open-small)) - BPM-aware 12-second loop generation in under a second
 - **rc-jerry** ([foundation-1](https://huggingface.co/RoyalCities/Foundation-1)) - BPM and key-aware 4/8-bar loop generation with structured prompt assembly
-- **carey** ([ace-step](https://github.com/ace-step/ACE-Step-1.5)) - stem generation, extraction, audio continuation, and remix/cover with lyrics and multilingual support
-- **terry** ([melodyflow](https://huggingface.co/spaces/facebook/melodyflow)) - audio transformation. Turn your guitar into an orchestra
-- **darius** ([magenta-realtime](https://github.com/magenta/magenta-realtime)) - high-quality 48 kHz continuations with style control
+- **carey** ([ace-step](https://github.com/ace-step/ACE-Step-1.5)) - stem generation, extraction, audio continuation, and remix/cover with lyrics + multilingual support
+- **terry** ([melodyflow](https://huggingface.co/spaces/facebook/melodyflow)) - audio transformation. turn your guitar into an orchestra
+- **darius** ([magenta-realtime](https://github.com/magenta/magenta-realtime)) - high-quality 48kHz continuations with style control
 
-Put it on your master, press play, record some audio, and start iterating.
+put it on your master, press play, record some audio, and start iterating.
 
-> SA3 is remote-only for now. Localhost support belongs in the next
-> gary4local pass.
-
----
-
-## What's New In V4
-
-### v4.0.0 - stable-audio-3
-
-gary4juce has entered v4 with a new **sa3** sub-tab inside Jerry, positioned
-alongside the original SAOS and Foundation-1 workflows.
-
-SA3 currently includes:
-
-- **generate** - text-to-audio up to 300 seconds, plus 4/8/16-bar loop mode
-- **transform** - restyle the recording buffer or current output audio
-- **continue** - continue the recording buffer or current output audio to a target total duration
-- **seed recall** - random generations show the backend-returned seed so a take can be reproduced
-- **key/scale prompting** - optional Carey-style key and mode dropdown appended to the final prompt
-- **LoRA sliders** - one strength slider per available remote LoRA, defaulting to 0
-- **smart dice** - prompt rolls come from the default pool or from every LoRA whose slider is above 0
-
-Read the practical guide: [SA3.md](SA3.md)
-
-Launch notes:
-
-- SA3 outputs can be hot, especially with LoRAs. Treat gain staging like part of the instrument for now.
-- Continue results can leave a quiet/fading tail near the end of longer continuations. This is being audited against the upstream SA3 UI.
-- Local SA3 in gary4local is not enabled yet.
-
-### V3 Highlights
-
-v3 brought Carey, Foundation-1, and the first pass at the modern multi-model
-workflow:
-
-- Carey joined with lego, complete, cover, extract, lyrics, language, key/scale, time signature, LoRA selection, LoRA dice captions, and caption popouts.
-- Foundation-1 became `rc-jerry`, a structured BPM/key-aware loop generator inside the Jerry tab.
-- Foundation-1 landed in gary4local mac on Apple silicon.
-- Plugin-safe update checks and editor lifecycle hardening made the app much harder to crash during in-flight requests.
-
-Carey guide: [CAREY.md](CAREY.md)
+> note: carey LoRA selection, LoRA-specific dice caption pools, and the LoRA strength slider work on the remote backend and on supported gary4local v0.1.7 carey backends.
 
 ---
 
-## Roadmap
+## TODO
 
-- [ ] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
-- [ ] release the mac AU/VST3 build
-- [x] add the first SA3 usage guide: [SA3.md](SA3.md)
-- [ ] add SA3's second continuation mode once the backend path is ready
-- [ ] improve SA3 LoRA loudness handling on the backend and build a custom training script for the pre-encoding step
-- [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
-- [ ] enable the Carey `xl-sft` model on the remote backend
+- [x] add foundation-1 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) for apple silicon
+- [ ] finish assimilating the mac branch of gary4juce
+- [x] add carey extract mode
+- [x] release official gary4juce v3 on github and [gumroad](https://thepatch.gumroad.com/l/gary4juce)
+- [ ] release gary4juce v3.0.6 mac AU/VST3
+- [x] produce better carey dice captions
+- [x] introduce time signature option to the carey UI
+- [x] add carey LoRA strength slider for complete and cover mode
+- [x] harden the plugin editor against rapid open/close crashes
 
 ---
 
-## Installation
+## what's new in v3
 
-### Windows
+### v3.0.7 - carey caption polish
 
-1. Close your DAW.
-2. Extract the `gary4juce.vst3` folder from the ZIP.
-3. Copy the entire folder to `C:\Program Files\Common Files\VST3\`.
-4. Reopen your DAW and rescan plugins if needed.
+carey got a small workflow pass: lego's local dice button now uses the simpler caption pool that has been working better for stem-generation tasks, and the long caption fields in lego, complete, and cover have a compact popout editor so ace-step paragraph prompts are actually readable while you keep rolling dice captions.
 
-You can put the VST3 literally anywhere as long as your DAW scans that
-location. `C:\Program Files\Common Files\VST3\` is just the default path most
-DAWs already check.
+gary4juce v3.0.7 pairs with [gary4local v0.1.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.7).
 
-If permission errors appear, run Command Prompt as admin:
+### v3.0.6 - lora strength and editor hardening
 
-```bat
+carey complete and cover now include a **lora strength** slider whenever "use lora" is enabled. the slider sends `lora_scale` to the backend from `0.00` to `1.00`, so you can pull a selected lora back toward the base model's training distribution instead of always running it at full blast. this should open up more genre blends as more niche artist loras show up.
+
+the default is `1.00`, so old lora behavior stays the same unless you touch the slider.
+
+this release also includes a serious thread-safety and editor-lifecycle hardening pass. rapid plugin editor open/close, in-flight backend requests, and output audio synchronization paths should all be much harder to upset now. gary should never produce a crash again. probably. hopefully. let's not anger the ASIO spirits.
+
+gary4juce v3.0.6 still pairs with [gary4local v0.1.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.6).
+
+### v3.0.5 - local carey loras
+
+carey lora selection and lora-specific dice caption pools now work on localhost too when paired with gary4local v0.1.6. the UI refreshes local lora availability while the service is running, so adapters added or removed in gary4local show up without a full restart.
+
+### v3.0.4 - carey loras, extract mode, and a reliability pass
+
+carey added lora selection in complete and cover mode on the remote backend. kev had trained three loras for remote use at launch, and each one can drive its own dice-caption pool. loras trained on xl-base can also be used on xl-turbo.
+
+carey also now includes extract mode. results vary wildly depending on what you want to extract, but vocals, drums, and sometimes bass can already be genuinely useful.
+
+complete and cover mode are much more reliable now that the backend uses the repainting branch of ACE-Step. complete is less unhinged than the older workflow, and cover has become a practical way to polish noisy xl-base complete outputs with xl-turbo.
+
+### foundation-1 on apple silicon macOS
+
+[Foundation-1](https://huggingface.co/RoyalCities/Foundation-1) is now available in gary4local mac on apple silicon, so rc-jerry is no longer a windows-only localhost feature.
+
+### still worth mentioning from the v3 cycle
+
+- plugin-safe updates let the UI check the GitHub release feed and open the download page without trying to self-replace files while a DAW is running.
+- rc-jerry / foundation-1 added structured BPM and key-aware loop generation as a second jerry sub-tab.
+- carey's remote complete mode gained ACE-Step XL model selection between [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base).
+
+### carey (ace-step) joined the party
+
+the biggest addition to gary4juce yet. four modes powered by the [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) diffusion transformer:
+
+- **lego** - generate vocals or backing vocals over your existing audio. loop assist handles short clips automatically.
+- **complete** - extend any audio into a full continuation.
+- **cover** - remix/restyle your audio with a text caption. chain with lego for a gibberish-to-lyrics workflow.
+- **extract** - try to pull out a target stem from your recording buffer. best bets so far are vocals, drums, and sometimes bass.
+
+plus: shared lyrics editor with 50-language support, key/scale/time signature selection, per-tab cfg control, inference step tuning, and lora selection in complete/cover mode.
+
+**[detailed carey guide](CAREY.md)** - tips, parameter explanations, and workflow tricks.
+
+backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
+
+---
+
+## installation
+
+### windows
+
+1. close your DAW
+2. extract `gary4juce.vst3` folder from the ZIP
+3. copy entire folder to: `C:\Program Files\Common Files\VST3\`
+4. reopen DAW and rescan plugins if needed
+
+**notes:**
+- most DAWs auto-detect this location (Ableton, Bitwig, Cubase, Reaper, etc.)
+- admin rights may be required. if permission errors, run cmd as admin:
+```
 xcopy "path\to\extracted\gary4juce.vst3" "C:\Program Files\Common Files\VST3\gary4juce.vst3" /E /I /Y
 ```
 
-### macOS AU/VST3
+### mac (AU/VST3)
 
-1. Quit your DAW.
-2. Open the DMG.
-3. Drag to the matching folder:
+1. quit your DAW
+2. open the DMG
+3. drag to matching folder:
    - `Gary4Juce.component` -> Components (Audio Unit)
    - `Gary4Juce.vst3` -> VST3
-4. Reopen your DAW and rescan.
+4. reopen DAW and rescan
 
-GarageBand and Logic use AU. Ableton, FL, Reaper, Cubase, and Bitwig can use
-VST3.
+**notes:**
+- garageband/logic: use AU (.component)
+- ableton/FL: either works
+- reaper/cubase/bitwig: use VST3
 
 ---
 
-## Backends
+## backends
 
-The plugin can use either:
+the plugin can use either:
+- **remote backend** (my server, free, on a spot VM so @ me if it's down)
+- **localhost** (your machine, requires GPU, full control)
 
-- **remote backend** - my server, free, on a spot VM, limited to the models I have loaded
-- **localhost** - your machine, requires GPU, full control
+### remote backend (default)
 
-Remote base URL: `https://g4l.thecollabagepatch.com`
+just works. no setup. limited to whatever models i have loaded at the moment.
 
-### gary4local
+backend runs at: `https://g4l.thecollabagepatch.com`
 
-Use the dedicated apps for localhost:
+### localhost backend
 
-- windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
-- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
+requires:
+- 10GB+ GPU VRAM minimum (16GB+ recommended for melodyflow/hoenn_lofi)
+- enough disk space for model weights + python envs
 
-They manage local envs for gary, terry, jerry, carey, and foundation-1. SA3 is
-remote-only until the v4 local backend work lands.
+**windows:**
 
-Recommended hardware:
+use [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer).
 
-- 10 GB+ GPU VRAM minimum
-- 16 GB+ recommended for heavier local models
-- 24 GB+ recommended for Darius-style separate backends
+**heads up:** not codesigned (i'm just one underfunded guy lol), so windows defender will be mean. repo is public so you can verify/build yourself.
 
-### SA3 Backend
+it manages local envs for gary, terry, jerry, carey, and foundation-1 and lives in the system tray for easy start/stop.
 
-SA3 currently runs only on the remote backend through:
+**macOS:**
 
-`https://g4l.thecollabagepatch.com/sa3`
+use [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac).
 
-It uses the remote Stable Audio 3 backend we have been testing. Public upstream
-repo: https://github.com/stability-ai/stable-audio-3
+same idea, same plugin workflow. foundation-1 is now available there on apple silicon.
 
-### Darius Backend
+for most people, the dedicated gary4local apps are the right localhost path now.
 
-Darius is too heavy to run alongside the other gary4local services.
+### foundation-1 backend (rc-jerry)
 
-Easiest path: duplicate this Hugging Face Space:
+rc-jerry uses the [RC-stable-audio-tools](https://github.com/RoyalCities/RC-stable-audio-tools) fork running in a docker container.
 
-https://huggingface.co/spaces/thecollabagepatch/magenta-retry
+**remote:** already set up on the remote backend (DGX Spark). just switch to the foundation-1 sub-tab inside jerry.
 
-Use an L40s or A100-class runtime. Enter the duplicated Space URL in the Darius
-tab.
+**localhost (windows):** available through [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer).
 
-Local Docker option:
+**localhost (macOS):** available on apple silicon through [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac).
+
+### carey backend (ace-step)
+
+carey runs on a separate backend from the other models.
+
+**remote:** already set up on the remote backend. just use it.
+
+**localhost:** available through gary4local. if you want to run the backend directly or hack on the API patches, see [ace-lego](https://github.com/betweentwomidnights/ace-lego).
+
+### darius backend (magenta-realtime)
+
+darius is too chonky to run alongside the other models. separate backend required.
+
+**option 1: hugging face space (easiest)**
+
+duplicate this space: https://huggingface.co/spaces/thecollabagepatch/magenta-retry
+
+requirements:
+- L40s or A100-class GPU runtime
+- 24GB+ VRAM (48GB recommended)
+
+once duplicated, enter the space URL in darius tab.
+
+**option 2: localhost docker**
+
+clone: https://github.com/betweentwomidnights/magenta-rt
 
 ```bash
-git clone https://github.com/betweentwomidnights/magenta-rt
-cd magenta-rt
+# x86_64 CUDA
 docker build -f Dockerfile.cuda -t magenta-rt .
 docker run --gpus all -p 7860:7860 magenta-rt
+
+# arm64 CUDA (jetson, etc.)
+docker build -f Dockerfile.arm64 -t magenta-rt .
+docker run --runtime nvidia -p 7860:7860 magenta-rt
 ```
+
+**darius needs serious hardware.** if you don't have 24GB+ VRAM, use the hugging face space option.
 
 ---
 
-## How To Use
+## how to use
 
-1. Put gary4juce on your master track, a bus, or any track you want to listen to.
-2. Press play in your DAW.
-3. Save the recording buffer when you have audio you want a model to react to.
-4. Generate, transform, continue, crop, drag, and repeat.
+1. **put it on your master track** (or anywhere, really)
+2. **press play in your DAW** (solo specific tracks if you want - i do this a lot with percussion)
+3. **save your recording buffer** when you have something you like
 
-### Jerry Tab
+### gary tab (musicgen continuations)
 
-The Jerry tab now has three sub-tabs:
+- uses first X seconds of your recording buffer
+- click "send to gary" to generate a continuation
+- once in output waveform, you can:
+  - **crop** at playback position
+  - **continue** from the end
+  - **retry** last continuation with different settings
 
-#### sa3 - stable-audio-3
+models available:
+- model lists are fetched dynamically from the backend, so the exact menu depends on what you've got loaded locally/remotely
+- common examples: `thepatch/vanya_ai_dnb_0.1`, `thepatch/bleeps-medium`, `thepatch/gary_orchestra_2`, `thepatch/keygen-gary-v2-small-*`, `thepatch/keygen-gary-v2-large-*`
+- `thepatch/hoenn_lofi` is still a heavier localhost-only favorite and likes 16GB+ VRAM
+- naming scheme note: in names like `thepatch/bleeps-large-6`, the trailing number is the checkpoint export epoch. lower can generalize better; higher can get more overfit to the training set
+- kev's current personal favorites are the `keygen-gary-v2-` checkpoints, both small and large. musicgen is older architecture at this point, but it's still ridiculously fun to finetune
 
-- Generate text-to-audio up to 300 seconds.
-- Toggle loop mode for 4/8/16-bar loop generation.
-- Transform either the saved recording buffer or the current output audio.
-- Continue either the saved recording buffer or the current output audio.
-- Use optional key/scale and automatic DAW BPM prompting.
-- Use seed recall for reproducible takes.
-- Use LoRA sliders in advanced settings. Sliders default to 0.
-- Use dice prompts from the default pool, or from selected LoRA pools when one or more LoRA sliders are above 0.
+learn more: https://github.com/facebookresearch/audiocraft
 
-Full guide: [SA3.md](SA3.md)
+### jerry tab (two sub-tabs)
 
-#### jerry - stable-audio-open-small
+the jerry tab contains two models that complement each other:
 
-- Generates short loops aligned to your DAW BPM.
-- Smart loop mode can bias toward drums or instruments.
-- Localhost supports custom finetunes through the model picker.
+#### jerry (SAOS) - stable-audio-open-small
 
-Learn more: https://huggingface.co/stabilityai/stable-audio-open-small
+- generates 12-second loops aligned to your DAW's BPM
+- text prompt based generation
+- **smart loop mode** with type selection (auto/drums/instruments)
+- drag output directly to timeline
+- excels at drum loops and percussive patterns
 
-#### rc-jerry - foundation-1
+**finetune support (localhost only):**
+- click "+" button to add custom finetunes
+- enter hugging face repo (e.g., `thepatch/jerry_grunge`)
+- fetch checkpoints, select one, add to models
+- notable finetunes: `thepatch/jerry_grunge` from kev, and [S3Sound/kickbass](https://huggingface.co/S3Sound/kickbass) by CZ-84 if you want nasty good bass loops
+- we train these in discord with help from zach at stable audio, so if you want in on the chaos, come hang
 
-- Generates 4 or 8 bar loops synced to BPM and key.
-- Uses structured prompt assembly through knobs, toggles, and tag controls.
-- Randomize builds coherent presets through the backend prompt engine.
-- Presets can be saved/loaded as `.f1preset` files.
-- Available on remote, gary4local windows, and gary4local mac on Apple silicon.
+learn more: https://huggingface.co/stabilityai/stable-audio-open-small
 
-Learn more: https://huggingface.co/RoyalCities/Foundation-1
+#### rc-jerry (foundation-1)
 
-### Gary Tab
+- generates 4 or 8 bar loops synced to DAW BPM and key
+- structured prompt assembly via knobs, toggles, and tag controls
+- randomize button generates musically coherent presets via backend weighted prompt engine
+- save/load presets as `.f1preset` files
+- excels at synth, bass, keys, mallet, and brass loops
+- available on remote, in the windows build of gary4local, and in gary4local mac on apple silicon
 
-Gary uses MusicGen continuation models.
+learn more: https://huggingface.co/RoyalCities/Foundation-1
 
-- Uses the first selected seconds of your recording buffer.
-- Generates continuation audio.
-- Output can be cropped, continued, retried, or dragged to the DAW timeline.
+### carey tab (ace-step)
 
-Model lists are fetched dynamically from the backend, so the menu depends on
-what is loaded locally or remotely.
-
-Learn more: https://github.com/facebookresearch/audiocraft
-
-### Carey Tab
-
-Carey uses ACE-Step.
+four modes for stem generation, extraction, continuation, and remix:
 
 - **lego** - generate vocals/backing vocals over your audio
 - **complete** - extend audio into a full continuation
 - **cover** - remix/restyle with caption guidance
 - **extract** - attempt target stem extraction from your recording buffer
 
-Shared lyrics editor, 50-language support, key/scale/time signature selection,
-caption popouts, and LoRA support live here.
+shared lyrics editor, 50-language support, key/scale selection, and per-tab cfg control.
 
-Full guide: [CAREY.md](CAREY.md)
+long Carey captions can be opened in a smaller popout editor from lego, complete, and cover, with the same dice caption button available inside the popup.
 
-Learn more: https://github.com/ace-step/ACE-Step-1.5
+on the remote backend, complete mode defaults to [acestep-v15-xl-turbo](https://huggingface.co/ACE-Step/acestep-v15-xl-turbo) and can switch to [acestep-v15-xl-base](https://huggingface.co/ACE-Step/acestep-v15-xl-base) from advanced settings.
 
-### Terry Tab
+complete and cover support lora selection, lora-specific dice captions, and lora strength control on the remote backend and supported gary4local v0.1.7 carey backends.
 
-- Transforms audio with style presets or custom prompts.
-- Can use either the recording buffer or current output audio.
-- Undo is available after transforms.
+**[full guide with tips and workflows](CAREY.md)**
 
-Learn more: https://huggingface.co/spaces/facebook/Melodyflow
+learn more: https://github.com/ace-step/ACE-Step-1.5
 
-### Darius Tab
+### terry tab (melodyflow)
 
-- High-quality 48 kHz continuations.
-- Style steering with prompts, base model, or custom weights.
-- Works on the recording buffer or current output audio.
-- Requires a separate backend.
+- transforms audio with style presets or custom prompts
+- works on either recording buffer OR output audio
+- presets like: accordion_folk, piano_classical, trap_808, orchestral_glitch, etc.
+- **undo** button available after transforms
 
-Learn more: https://github.com/magenta/magenta-realtime
+learn more: https://huggingface.co/spaces/facebook/Melodyflow
 
----
+### darius tab (magenta-realtime)
 
-## Finetuning
+- high-quality 48kHz continuations
+- style steering with prompts using base model or custom weights
+- centroid-based control (when assets loaded)
+- works on recording buffer OR output audio
+- **note:** requires separate backend (see backends section)
 
-gary4juce gets better as more finetunes exist.
-
-### MusicGen
-
-Train through Audiocraft:
-
-https://github.com/facebookresearch/audiocraft
-
-As of late 2025, Google Colab is painful for Audiocraft training due to
-dependency conflicts. Local training is the practical path.
-
-### Stable Audio Open Small
-
-Train with stable-audio-tools:
-
-https://github.com/Stability-AI/stable-audio-tools
-
-Encode, train, select checkpoints, upload to Hugging Face, then load through the
-Jerry localhost finetune picker.
-
-### Stable Audio 3
-
-SA3 LoRA workflows are new and still settling. The v4 plugin UI is already
-shaped around multi-LoRA strength sliders and LoRA-aware dice pools so the
-backend can grow into that workflow cleanly.
-
-Upstream repo: https://github.com/stability-ai/stable-audio-3
-
-### Magenta Realtime
-
-Magenta Realtime is one of the friendlier finetuning paths:
-
-https://github.com/magenta/magenta-realtime
-
-Upload weights to a Hugging Face Space and point the Darius tab at it.
+learn more: https://github.com/magenta/magenta-realtime
 
 ---
 
-## Project Structure
+## finetuning
+
+this plugin gets better the more finetunes we create.
+
+### musicgen (gary)
+
+**important:** as of november 2025, google colab no longer supports audiocraft training runs due to dependency conflicts. you'll need to train locally.
+
+training locally:
+- clone audiocraft: https://github.com/facebookresearch/audiocraft
+- follow their training guide
+- 80-100 tracks minimum, 30-second chunks
+- consistency in style matters more than quantity
+
+### stable-audio-open-small (jerry)
+
+training is multi-step (more involved than musicgen):
+- requires stable-audio-tools: https://github.com/Stability-AI/stable-audio-tools
+- encode -> train -> checkpoint selection
+
+once trained:
+- upload to hugging face
+- use custom finetune loader in plugin (localhost mode)
+- repo should contain checkpoint files
+
+### melodyflow (terry)
+
+no official training code available yet (model hasn't been released in audiocraft repo). this might end up being the most fun one to finetune when it becomes available.
+
+### magenta-realtime (darius)
+
+easiest to finetune of the bunch.
+
+google colab notebook: https://github.com/magenta/magenta-realtime
+
+once trained:
+- upload to hugging face following space setup guide
+- point darius tab to your space URL
+
+---
+
+## project structure
 
 ```text
 gary4juce/
 +-- Source/
-|   +-- PluginProcessor.cpp/h
-|   +-- PluginEditor.cpp/h
+|   +-- PluginProcessor.cpp/h     # audio processing, host audio playback
+|   +-- PluginEditor.cpp/h        # UI, tab management, network requests
 |   +-- Components/
-|   |   +-- Gary/GaryUI.cpp/h
-|   |   +-- Jerry/JerryUI.cpp/h
-|   |   +-- Jerry/SA3UI.cpp/h
-|   |   +-- Foundation/FoundationUI.cpp/h
-|   |   +-- Carey/CareyUI.cpp/h
-|   |   +-- Terry/TerryUI.cpp/h
-|   |   \-- Darius/DariusUI.cpp/h
+|   |   +-- Gary/GaryUI.cpp/h         # musicgen interface
+|   |   +-- Jerry/JerryUI.cpp/h       # stable-audio interface
+|   |   +-- Foundation/FoundationUI.h # foundation-1 interface (jerry sub-tab)
+|   |   +-- Carey/CareyUI.h           # ace-step interface (lego/complete/cover/extract)
+|   |   +-- Terry/TerryUI.cpp/h       # melodyflow interface
+|   |   \-- Darius/DariusUI.cpp/h     # magenta interface
 |   \-- Utils/
-|       +-- Theme.h
-|       +-- IconFactory.cpp/h
-|       \-- BarTrim.cpp/h
-+-- CAREY.md
-+-- SA3.md
-+-- docs/
-\-- gary4juce.jucer
+|       +-- Theme.h               # color scheme
+|       +-- IconFactory.cpp/h     # SVG icons
+|       \-- BarTrim.cpp/h         # audio quantization utilities
+|-- CAREY.md                      # detailed ace-step guide
+\-- gary4juce.jucer               # projucer project file
 ```
 
-### Building From Source
+### building from source
 
-Requirements:
+requirements:
+- JUCE 8.0.8 (download from juce.com)
+- visual studio 2022 (windows) or xcode (mac)
 
-- JUCE 8.0.8
-- Visual Studio 2022 on Windows
-- Xcode on macOS
-
-Steps:
-
-1. Open `gary4juce.jucer` in Projucer.
-2. Save the project to regenerate build files.
-3. Open the generated IDE project.
-4. Build release configuration.
-
----
-
-## Known Issues
-
-- **SA3 launch notes:** remote-only, output loudness and continuation tails are still being tuned.
-- **SA3 local backend:** not in gary4local yet.
-- **Windows Defender:** not codesigned, so Windows may complain.
-- **Darius hardware:** 24 GB+ VRAM is strongly recommended.
-- **Terry variability:** Melodyflow is experimental and can be wonderfully strange.
-- **Carey complete mode:** useful, but the upstream-style accompaniment workflow still needs a proper UI/backend pass.
+steps:
+1. open `gary4juce.jucer` in projucer
+2. save project (generates build files)
+3. open in IDE:
+   - windows: open `.sln` in visual studio (the purple one)
+   - mac: open `.xcodeproj` in xcode
+4. build release configuration
 
 ---
 
-## Community
+## known issues
 
-**discord:** https://discord.gg/VECkyXEnAd
+- **windows defender flags control center:** not codesigned (building yourself recommended if paranoid)
+- **darius needs beefy hardware:** 24GB+ VRAM or use hugging face space
+- **terry occasionally weird:** melodyflow is still experimental, results vary
+- **carey cover mode:** progress display uses time-based estimation (ace-step doesn't report step counts for cover tasks)
+- **carey complete mode:** much more reliable now, but it still prefers fuller/denser input audio for best results
+- **carey loras:** available on the remote backend and supported gary4local v0.1.7 carey backends
 
-**musicgen community:** https://discord.gg/Mxd3nYQre9
+---
+
+## community
+
+**discord:** https://discord.gg/VECkyXEnAd (@ kev if you need something)
+
+**musicgen community:** https://discord.gg/Mxd3nYQre9 (where this all started - shoutout to lyra, vanya, hoenn, and baltigor for getting me hooked on audio models)
 
 **email:** kev@thecollabagepatch.com
 
@@ -380,45 +424,37 @@ Steps:
 
 ---
 
-## Credits
+## credits
 
-- **stable-audio-3:** Stability AI ([repo](https://github.com/stability-ai/stable-audio-3))
-- **musicgen:** Meta AI / Audiocraft team
-- **stable-audio-open-small:** Stability AI
+- **musicgen:** meta AI / audiocraft team
+- **stable-audio-open-small:** stability AI
 - **foundation-1:** RoyalCities ([model](https://huggingface.co/RoyalCities/Foundation-1), [tools](https://github.com/RoyalCities/RC-stable-audio-tools))
 - **ace-step:** ACE-Step team ([repo](https://github.com/ace-step/ACE-Step-1.5))
-- **melodyflow:** Meta AI / Audiocraft team
-- **magenta-realtime:** Google Magenta team
-- **JUCE:** JUCE framework
-- **community finetunes:** lyra, vanya, hoenn, CZ-84, and everyone contributing models
-
-Special thanks to Zach and the guys at Stability for letting me be part of the
-Stable Audio 3 beta while this integration came together.
+- **melodyflow:** meta AI / audiocraft team
+- **magenta-realtime:** google magenta team
+- **JUCE:** JUCE framework (juce.com)
+- **community finetunes:** lyra, vanya, hoenn, CZ-84 and everyone contributing models
 
 ---
 
-## License
+## license
 
-gary4juce is free to use. Model licenses vary:
-
-- stable-audio-3: check the Stability AI repo/license
-- musicgen: check Audiocraft
-- stable-audio-open-small: Stability AI license
+this plugin is free to use. model licenses vary:
+- musicgen: MIT-ish (check audiocraft repo)
+- stable-audio-open-small: stability AI license
 - foundation-1: check [RoyalCities/Foundation-1](https://huggingface.co/RoyalCities/Foundation-1)
-- ace-step: Apache 2.0
-- melodyflow: Meta research license
-- magenta-realtime: Apache 2.0
+- ace-step: apache 2.0
+- melodyflow: meta research license
+- magenta-realtime: apache 2.0
 
 ---
 
-## Support The Project
+## support the project
 
-If gary4juce is useful to you:
-
-- share your creations and tag `@thepatch_kev`
+this is a passion project. if it's useful to you:
+- share your creations (tag @thepatch_kev)
 - contribute finetunes to the community
-- help improve docs
-- Gumroad: https://thepatch.gumroad.com/l/gary4juce
+- help with documentation
+- gumroad: https://thepatch.gumroad.com/l/gary4juce (pay what you want)
 
-No pressure. I mostly build this because I want these models to feel like
-instruments.
+no pressure though. i just iterate on this for myself and hope that you'll have as much fun with it as i do.
