@@ -11,6 +11,7 @@
 #include "Components/Darius/DariusUI.h"
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
+#include "Components/Jerry/SA3UI.h"
 #include "Components/Carey/CareyUI.h"
 #include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
@@ -99,7 +100,7 @@ private:
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -141,8 +142,8 @@ private:
         Darius    // magenta
     };
 
-    // Jerry has two sub-tabs: the original SAOS model and Foundation-1
-    enum class JerrySubTab { SAOS = 0, Foundation };
+    // Jerry sub-tabs: Stable Audio 3 beta, the original SAOS model, and Foundation-1
+    enum class JerrySubTab { SA3 = 0, SAOS, Foundation };
     JerrySubTab jerrySubTab = JerrySubTab::SAOS;
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
@@ -156,7 +157,10 @@ private:
         JerryGenerate,
         CareyGenerate,
         DariusGenerate,
-        FoundationGenerate
+        FoundationGenerate,
+        SA3Generate,
+        SA3Transform,
+        SA3Continue
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -167,6 +171,7 @@ private:
 
     // Jerry sub-tab buttons (replace the title area when Jerry tab is active)
     CustomButton jerrySubTabSAOS;      // "jerry (SAOS)"
+    CustomButton jerrySubTabSA3;       // "sa3"
     CustomButton jerrySubTabFoundation; // "foundation-1"
     void switchJerrySubTab(JerrySubTab sub);
     void updateJerrySubTabStates();
@@ -196,6 +201,7 @@ private:
     int currentModelIndex = 0;
 
     std::unique_ptr<JerryUI> jerryUI;
+    std::unique_ptr<SA3UI> sa3UI;
 
     // Add Darius tab button (with other tab buttons)
     CustomButton dariusTabButton;
@@ -352,6 +358,33 @@ private:
     void sendToFoundation();
     void randomizeFoundation();
     void updateFoundationEnablementSnapshot();
+
+    // ========== SA3 ==========
+    juce::String currentSA3Prompt = "";
+    int currentSA3DurationSeconds = 30;
+    bool currentSA3LoopEnabled = false;
+    int currentSA3Bars = 8;
+    int currentSA3Steps = 8;
+    double currentSA3Cfg = 1.0;
+    juce::String currentSA3Shift = "full";
+    juce::String currentSA3KeyScale = "";
+    juce::String currentSA3TransformPrompt = "";
+    double currentSA3TransformStrength = 0.9;
+    juce::String currentSA3ContinuePrompt = "";
+    int currentSA3ContinueTotalSeconds = 30;
+    juce::StringArray availableSA3Loras;
+    juce::String sa3LoraFetchBackendUrl;
+    juce::int64 sa3LoraLastFetchMs = 0;
+    std::atomic<bool> sa3LoraFetchInFlight { false };
+    std::atomic<int> sa3LoraFetchNonce { 0 };
+    std::atomic<int> sa3PromptRequestNonce { 0 };
+    void sendToSA3();
+    void sendSA3Transform();
+    void sendSA3Continue();
+    void requestSA3DicePrompt(SA3UI::SubTab targetTab);
+    void updateSA3EnablementSnapshot();
+    void refreshSA3AvailableLoras(bool force = false);
+    void syncSA3LoraUi();
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
@@ -613,7 +646,7 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton, sa3HelpButton;
     // foundationHelpButton is reused — visible when Jerry sub-tab is Foundation
 
     // Allow an extended grace period when we're at 0% but still receiving polls

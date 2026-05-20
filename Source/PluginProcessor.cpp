@@ -242,6 +242,8 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
                 return "http://localhost:8003" + endpoint;
             case ServiceType::Foundation:
                 return "http://localhost:8015" + endpoint;
+            case ServiceType::SA3:
+                return "http://localhost:8016" + endpoint;
             default:
                 return "http://localhost:8000" + endpoint;
         }
@@ -254,6 +256,8 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
             return "https://g4l.thecollabagepatch.com/carey" + endpoint;
         case ServiceType::Foundation:
             return "https://g4l.thecollabagepatch.com/foundation" + endpoint;
+        case ServiceType::SA3:
+            return "https://g4l.thecollabagepatch.com/sa3" + endpoint;
         default:
             return "https://g4l.thecollabagepatch.com" + endpoint;
     }

@@ -18,6 +18,7 @@ juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, c
         case ServiceType::Terry:      processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
         case ServiceType::Carey:      processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
         case ServiceType::Foundation: processorService = Gary4juceAudioProcessor::ServiceType::Foundation; break;
+        case ServiceType::SA3:        processorService = Gary4juceAudioProcessor::ServiceType::SA3; break;
         default: processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
     }
 
@@ -47,11 +48,39 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
         jerryUI->setUsingLocalhost(isUsingLocalhost);
     }
 
+    if (sa3UI)
+        sa3UI->setRemoteAvailable(!isUsingLocalhost);
+    if (isUsingLocalhost)
+    {
+        availableSA3Loras.clear();
+        sa3LoraFetchBackendUrl.clear();
+        sa3LoraLastFetchMs = 0;
+        syncSA3LoraUi();
+    }
+
     // Update carey tab availability (now available on both backends)
     updateCareyTabAvailability();
 
-    // Update Foundation sub-tab states (now available on both backends)
+    // Update Jerry sub-tab states after backend mode changes.
+    if (isUsingLocalhost && jerrySubTab == JerrySubTab::SA3)
+        jerrySubTab = JerrySubTab::SAOS;
     updateJerrySubTabStates();
+
+    if (currentTab == ModelTab::Jerry)
+    {
+        const bool showSA3 = (jerrySubTab == JerrySubTab::SA3);
+        const bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
+        if (sa3UI) sa3UI->setVisibleForTab(showSA3);
+        if (showSA3) refreshSA3AvailableLoras(true);
+        if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+        if (foundationUI) foundationUI->setVisibleForTab(jerrySubTab == JerrySubTab::Foundation);
+        if (helpIcon)
+        {
+            sa3HelpButton.setVisible(showSA3);
+            jerryHelpButton.setVisible(showSAOS);
+            foundationHelpButton.setVisible(jerrySubTab == JerrySubTab::Foundation);
+        }
+    }
 
     // Reset local health snapshot and trigger fresh poll if switching to localhost
     resetLocalServiceHealthSnapshot();
@@ -70,7 +99,7 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 carey:8003 foundation:8015) - click to switch to remote");
+        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 carey:8003 foundation:8015; sa3 remote-only) - click to switch to remote");
     }
     else
     {
@@ -112,6 +141,7 @@ bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) co
     case ServiceType::Jerry:      return localJerryOnline;
     case ServiceType::Carey:      return localCareyOnline;
     case ServiceType::Foundation: return localFoundationOnline;
+    case ServiceType::SA3:        return false;
     }
     return false;
 }
@@ -121,7 +151,11 @@ Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getAct
     switch (currentTab)
     {
     case ModelTab::Jerry:
-        return (jerrySubTab == JerrySubTab::Foundation) ? ServiceType::Foundation : ServiceType::Jerry;
+        if (jerrySubTab == JerrySubTab::Foundation)
+            return ServiceType::Foundation;
+        if (jerrySubTab == JerrySubTab::SA3)
+            return ServiceType::SA3;
+        return ServiceType::Jerry;
     case ModelTab::Terry:  return ServiceType::Terry;
     case ModelTab::Carey:  return ServiceType::Carey;
     case ModelTab::Gary:

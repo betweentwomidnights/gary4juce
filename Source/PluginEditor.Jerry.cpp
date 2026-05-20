@@ -6,9 +6,139 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    juce::String getSA3PromptErrorMessage(const juce::var& responseVar)
+    {
+        if (auto* responseObj = responseVar.getDynamicObject())
+        {
+            for (const auto& key : { "detail", "error", "message" })
+            {
+                const juce::String value = responseObj->getProperty(key).toString().trim();
+                if (value.isNotEmpty())
+                    return value;
+            }
+
+            if (auto* errors = responseObj->getProperty("errors").getArray())
+            {
+                juce::StringArray parts;
+                for (const auto& item : *errors)
+                    if (item.toString().trim().isNotEmpty())
+                        parts.add(item.toString().trim());
+
+                if (!parts.isEmpty())
+                    return parts.joinIntoString(", ");
+            }
+        }
+
+        return {};
+    }
+
+    void addSA3PromptBucket(const juce::DynamicObject& diceObj,
+                            const juce::String& bucketName,
+                            juce::StringArray& promptPool)
+    {
+        if (bucketName.trim().isEmpty())
+            return;
+
+        const auto bucketVar = diceObj.getProperty(juce::Identifier(bucketName));
+        if (auto* prompts = bucketVar.getArray())
+        {
+            for (const auto& item : *prompts)
+            {
+                const juce::String prompt = item.toString().trim();
+                if (prompt.isNotEmpty() && !promptPool.contains(prompt))
+                    promptPool.add(prompt);
+            }
+        }
+    }
+
+    juce::String pickSA3DicePrompt(const juce::String& responseText,
+                                   juce::StringArray& missingLoras,
+                                   juce::String& errorMessage)
+    {
+        juce::var responseVar;
+        try
+        {
+            responseVar = juce::JSON::parse(responseText);
+        }
+        catch (...)
+        {
+            errorMessage = "invalid sa3 prompt response";
+            return {};
+        }
+
+        auto* responseObj = responseVar.getDynamicObject();
+        if (responseObj == nullptr)
+        {
+            errorMessage = "invalid sa3 prompt response";
+            return {};
+        }
+
+        if (!responseObj->getProperty("success"))
+        {
+            errorMessage = getSA3PromptErrorMessage(responseVar);
+            if (errorMessage.isEmpty())
+                errorMessage = "sa3 prompt request failed";
+            return {};
+        }
+
+        if (auto* missingArray = responseObj->getProperty("missing_loras").getArray())
+            for (const auto& item : *missingArray)
+                if (item.toString().trim().isNotEmpty())
+                    missingLoras.addIfNotAlreadyThere(item.toString().trim());
+
+        auto promptsVar = responseObj->getProperty("prompts");
+        auto* promptsObj = promptsVar.getDynamicObject();
+        if (promptsObj == nullptr)
+        {
+            errorMessage = "sa3 prompt response missing prompts";
+            return {};
+        }
+
+        auto diceVar = promptsObj->getProperty("dice");
+        auto* diceObj = diceVar.getDynamicObject();
+        if (diceObj == nullptr)
+        {
+            errorMessage = "sa3 prompt response missing dice pool";
+            return {};
+        }
+
+        juce::StringArray promptPool;
+        juce::StringArray preferredBuckets;
+        preferredBuckets.add("generic");
+        preferredBuckets.add("instrumental");
+        preferredBuckets.add("drums");
+
+        for (const auto& bucket : preferredBuckets)
+            addSA3PromptBucket(*diceObj, bucket, promptPool);
+
+        for (const auto& entry : diceObj->getProperties())
+        {
+            const juce::String bucket = entry.name.toString();
+            if (!preferredBuckets.contains(bucket))
+                addSA3PromptBucket(*diceObj, bucket, promptPool);
+        }
+
+        if (promptPool.isEmpty())
+        {
+            errorMessage = "sa3 dice returned no prompts";
+            return {};
+        }
+
+        auto& random = juce::Random::getSystemRandom();
+        return promptPool[random.nextInt(promptPool.size())];
+    }
+}
+
 void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 {
-    // Foundation sub-tab now available on both localhost and remote
+    if (sub == JerrySubTab::SA3 && audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("sa3 is remote-only for now", 3000);
+        return;
+    }
+
     if (jerrySubTab == sub && currentTab == ModelTab::Jerry) return;
 
     jerrySubTab = sub;
@@ -22,19 +152,31 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 
     updateJerrySubTabStates();
 
+    bool showSA3 = (sub == JerrySubTab::SA3);
     bool showSAOS = (sub == JerrySubTab::SAOS);
+    if (sa3UI)
+    {
+        sa3UI->setRemoteAvailable(!audioProcessor.getIsUsingLocalhost());
+        sa3UI->setVisibleForTab(showSA3);
+        if (showSA3)
+        {
+            refreshSA3AvailableLoras(false);
+            updateSA3EnablementSnapshot();
+        }
+    }
     if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
     if (foundationUI)
     {
-        foundationUI->setVisibleForTab(!showSAOS);
-        if (!showSAOS) updateFoundationEnablementSnapshot();
+        foundationUI->setVisibleForTab(sub == JerrySubTab::Foundation);
+        if (sub == JerrySubTab::Foundation) updateFoundationEnablementSnapshot();
     }
 
     // Update help button visibility
     if (helpIcon)
     {
+        sa3HelpButton.setVisible(showSA3);
         jerryHelpButton.setVisible(showSAOS);
-        foundationHelpButton.setVisible(!showSAOS);
+        foundationHelpButton.setVisible(sub == JerrySubTab::Foundation);
     }
 
     resized();
@@ -43,6 +185,12 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 
 void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
 {
+    const bool sa3Available = !audioProcessor.getIsUsingLocalhost();
+    jerrySubTabSA3.setEnabled(sa3Available);
+    jerrySubTabSA3.setButtonStyle(jerrySubTab == JerrySubTab::SA3 && sa3Available
+        ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+    jerrySubTabSA3.setTooltip(sa3Available ? "" : "sa3 is remote-only for now");
+
     jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
 
@@ -915,4 +1063,1008 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 editor->jerryUI->setGenerateButtonText("generate with jerry");
             });
         });
+}
+
+void Gary4juceAudioProcessorEditor::updateSA3EnablementSnapshot()
+{
+    if (!sa3UI)
+        return;
+
+    const bool remoteMode = !audioProcessor.getIsUsingLocalhost();
+    sa3UI->setRemoteAvailable(remoteMode);
+    sa3UI->setTransformAudioSourceRecording(transformRecording);
+    sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
+    sa3UI->setContinueAudioSourceRecording(transformRecording);
+    sa3UI->setContinueAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
+
+    const bool serviceReady = remoteMode && isServiceReachable(ServiceType::SA3);
+    bool canSubmit = false;
+    if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Generate)
+    {
+        canSubmit = serviceReady;
+    }
+    else if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Transform)
+    {
+        const bool selectedAudioAvailable = transformRecording ? savedSamples > 0 : hasOutputAudio;
+        canSubmit = serviceReady
+            && selectedAudioAvailable;
+    }
+    else if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Continue)
+    {
+        const bool selectedAudioAvailable = transformRecording ? savedSamples > 0 : hasOutputAudio;
+        canSubmit = serviceReady
+            && selectedAudioAvailable;
+    }
+
+    sa3UI->setGenerateButtonEnabled(canSubmit, isGenerating);
+    sa3UI->setDiceButtonsEnabled(serviceReady && !isGenerating);
+
+    if (!isGenerating)
+    {
+        if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Continue)
+            sa3UI->setGenerateButtonText("continue with sa3");
+        else
+            sa3UI->setGenerateButtonText(sa3UI->getCurrentSubTab() == SA3UI::SubTab::Transform
+                ? "transform with sa3" : "generate with sa3");
+    }
+
+    const double bpm = audioProcessor.getCurrentBPM();
+    if (bpm > 0.0)
+        sa3UI->setBpm(bpm);
+}
+
+void Gary4juceAudioProcessorEditor::syncSA3LoraUi()
+{
+    if (!sa3UI)
+        return;
+
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        juce::StringArray empty;
+        sa3UI->setAvailableLoras(empty);
+    }
+    else
+        sa3UI->setAvailableLoras(availableSA3Loras);
+}
+
+void Gary4juceAudioProcessorEditor::refreshSA3AvailableLoras(bool force)
+{
+    if (!sa3UI)
+        return;
+
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        availableSA3Loras.clear();
+        syncSA3LoraUi();
+        return;
+    }
+
+    const juce::String loraUrl = getServiceUrl(ServiceType::SA3, "/loras");
+    const auto now = juce::Time::getCurrentTime().toMilliseconds();
+    constexpr juce::int64 remoteLoraTtlMs = 60 * 60 * 1000;
+
+    if (!force
+        && loraUrl == sa3LoraFetchBackendUrl
+        && sa3LoraLastFetchMs > 0
+        && now - sa3LoraLastFetchMs < remoteLoraTtlMs)
+    {
+        syncSA3LoraUi();
+        return;
+    }
+
+    if (sa3LoraFetchInFlight.exchange(true))
+        return;
+
+    const int nonce = ++sa3LoraFetchNonce;
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, loraUrl, nonce]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            juce::URL url(loraUrl);
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(8000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+
+            auto stream = url.createInputStream(options);
+            if (stream)
+                responseText = stream->readEntireStreamAsString();
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, loraUrl, nonce, responseText, statusCode]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->sa3LoraFetchInFlight.store(false);
+
+            if (nonce != editor->sa3LoraFetchNonce.load())
+                return;
+
+            if (editor->getServiceUrl(ServiceType::SA3, "/loras") != loraUrl)
+                return;
+
+            bool responseOk = false;
+            juce::StringArray loraNames;
+            if (statusCode >= 200 && statusCode < 300 && responseText.isNotEmpty())
+            {
+                auto parsed = juce::JSON::parse(responseText);
+                if (auto* obj = parsed.getDynamicObject())
+                {
+                    if (auto* loras = obj->getProperty("loras").getArray())
+                    {
+                        for (auto& item : *loras)
+                        {
+                            juce::String name;
+                            if (auto* loraObj = item.getDynamicObject())
+                                name = loraObj->getProperty("name").toString().trim();
+                            else
+                                name = item.toString().trim();
+
+                            if (name.isNotEmpty())
+                                loraNames.addIfNotAlreadyThere(name);
+                        }
+                        responseOk = true;
+                    }
+                }
+            }
+            else
+            {
+                DBG("[sa3] lora fetch failed status=" + juce::String(statusCode)
+                    + " body=" + responseText.substring(0, 256));
+            }
+
+            if (responseOk)
+            {
+                editor->availableSA3Loras = loraNames;
+                editor->sa3LoraFetchBackendUrl = loraUrl;
+                editor->sa3LoraLastFetchMs = juce::Time::getCurrentTime().toMilliseconds();
+            }
+            editor->syncSA3LoraUi();
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::requestSA3DicePrompt(SA3UI::SubTab targetTab)
+{
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("sa3 is remote-only for now", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    if (!isServiceReachable(ServiceType::SA3))
+    {
+        showStatusMessage("sa3 not reachable - check connection first", 3000);
+        return;
+    }
+
+    if (!sa3UI)
+        return;
+
+    juce::StringArray activeLoraNames;
+    for (const auto& lora : sa3UI->getActiveLoras())
+    {
+        const auto name = lora.name.trim();
+        if (name.isNotEmpty())
+            activeLoraNames.addIfNotAlreadyThere(name);
+    }
+
+    const juce::String promptsBaseUrl = getServiceUrl(ServiceType::SA3, "/prompts");
+    juce::URL promptsUrl(promptsBaseUrl);
+    if (!activeLoraNames.isEmpty())
+        promptsUrl = promptsUrl.withParameter("lora", activeLoraNames.joinIntoString(","));
+
+    const int requestNonce = sa3PromptRequestNonce.fetch_add(1) + 1;
+    const int activeLoraCount = activeLoraNames.size();
+
+    showStatusMessage(activeLoraCount > 0 ? "rolling sa3 lora prompt..." : "rolling sa3 prompt...", 1500);
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, requestNonce, targetTab, promptsBaseUrl, promptsUrl, activeLoraCount]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withHttpRequestCmd("GET")
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+
+            auto stream = promptsUrl.createInputStream(options);
+            if (stream)
+                responseText = stream->readEntireStreamAsString();
+        }
+        catch (const std::exception& e)
+        {
+            DBG("[sa3] prompt roll failed: " + juce::String(e.what()));
+        }
+        catch (...)
+        {
+            DBG("[sa3] prompt roll failed");
+        }
+
+        juce::MessageManager::callAsync([asyncAlive, editor, requestNonce, targetTab,
+                                         promptsBaseUrl, responseText, statusCode, activeLoraCount]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            if (editor->sa3PromptRequestNonce.load() != requestNonce)
+                return;
+
+            if (editor->getServiceUrl(ServiceType::SA3, "/prompts") != promptsBaseUrl)
+                return;
+
+            if (statusCode < 200 || statusCode >= 300 || responseText.isEmpty())
+            {
+                juce::String error = "failed to roll sa3 prompt";
+                if (responseText.isNotEmpty())
+                {
+                    try
+                    {
+                        const auto responseVar = juce::JSON::parse(responseText);
+                        const auto serverMessage = getSA3PromptErrorMessage(responseVar);
+                        if (serverMessage.isNotEmpty())
+                            error = serverMessage;
+                    }
+                    catch (...) {}
+                }
+
+                editor->showStatusMessage(error, 3500);
+                DBG("[sa3] prompt roll failed status=" + juce::String(statusCode)
+                    + " body=" + responseText.substring(0, 512));
+                return;
+            }
+
+            juce::StringArray missingLoras;
+            juce::String errorMessage;
+            const auto prompt = pickSA3DicePrompt(responseText, missingLoras, errorMessage);
+            if (prompt.isEmpty())
+            {
+                editor->showStatusMessage(errorMessage.isNotEmpty() ? errorMessage : "failed to roll sa3 prompt", 3500);
+                DBG("[sa3] prompt roll parse failed body=" + responseText.substring(0, 512));
+                return;
+            }
+
+            if (editor->sa3UI)
+            {
+                if (targetTab == SA3UI::SubTab::Transform)
+                {
+                    editor->currentSA3TransformPrompt = prompt;
+                    editor->sa3UI->setTransformPromptText(prompt);
+                }
+                else if (targetTab == SA3UI::SubTab::Continue)
+                {
+                    editor->currentSA3ContinuePrompt = prompt;
+                    editor->sa3UI->setContinuePromptText(prompt);
+                }
+                else
+                {
+                    editor->currentSA3Prompt = prompt;
+                    editor->sa3UI->setPromptText(prompt);
+                }
+            }
+
+            if (!missingLoras.isEmpty())
+                editor->showStatusMessage("rolled sa3 prompt (missing " + juce::String(missingLoras.size()) + " lora pool)", 2500);
+            else
+                editor->showStatusMessage(activeLoraCount > 0 ? "rolled sa3 prompt from loras" : "rolled sa3 prompt", 1500);
+
+            editor->updateSA3EnablementSnapshot();
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::sendToSA3()
+{
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("sa3 is remote-only for now", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    if (!isServiceReachable(ServiceType::SA3))
+    {
+        showStatusMessage("sa3 not reachable - check connection first", 3000);
+        return;
+    }
+
+    if (!sa3UI)
+        return;
+
+    const juce::String prompt = currentSA3Prompt.trim();
+
+    currentSA3DurationSeconds = sa3UI->getDurationSeconds();
+    currentSA3LoopEnabled = sa3UI->getLoopEnabled();
+    currentSA3Bars = sa3UI->getBars();
+    currentSA3Steps = sa3UI->getSteps();
+    currentSA3Cfg = sa3UI->getCfgScale();
+    currentSA3Shift = sa3UI->getShift();
+    currentSA3KeyScale = sa3UI->getKeyScale();
+    const juce::int64 requestSeed = sa3UI->getSeed();
+
+    auto cancelOp = [this]()
+    {
+        isGenerating = false;
+        isCurrentlyQueued = false;
+        generationProgress = 0;
+        smoothProgressAnimation = false;
+        setActiveOp(ActiveOp::None);
+        updateAllGenerationButtonStates();
+        repaint();
+    };
+
+    double bpm = audioProcessor.getCurrentBPM();
+    if (bpm <= 0.0)
+        bpm = 120.0;
+
+    juce::String fullPrompt = prompt;
+    if (fullPrompt.isNotEmpty())
+        fullPrompt += ", ";
+    fullPrompt += juce::String(juce::roundToInt(bpm)) + " bpm";
+    if (currentSA3KeyScale.trim().isNotEmpty())
+        fullPrompt += ", " + currentSA3KeyScale.trim();
+
+    const bool requestLoop = currentSA3LoopEnabled;
+    const juce::String endpoint = requestLoop ? "/generate/loop" : "/generate";
+    const juce::String requestUrl = getServiceUrl(ServiceType::SA3, endpoint);
+
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("prompt", fullPrompt);
+    jsonRequest->setProperty("negative_prompt", "low quality");
+    jsonRequest->setProperty("steps", currentSA3Steps);
+    jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
+    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
+    jsonRequest->setProperty("seed", requestSeed);
+
+    juce::Array<juce::var> loraEntries;
+    for (const auto& lora : sa3UI->getActiveLoras())
+    {
+        juce::DynamicObject::Ptr loraObj = new juce::DynamicObject();
+        loraObj->setProperty("name", lora.name);
+        loraObj->setProperty("strength", lora.strength);
+        loraObj->setProperty("interval_min", 0.0);
+        loraObj->setProperty("interval_max", 1.0);
+        loraEntries.add(juce::var(loraObj.get()));
+    }
+    jsonRequest->setProperty("loras", loraEntries);
+
+    if (requestLoop)
+        jsonRequest->setProperty("bars", currentSA3Bars);
+    else
+        jsonRequest->setProperty("duration", currentSA3DurationSeconds);
+
+    const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+
+    DBG("[sa3] submit " + endpoint + ": " + jsonString);
+
+    setActiveOp(ActiveOp::SA3Generate);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    if (sa3UI)
+        sa3UI->setGenerateButtonText("generating");
+    repaint();
+
+    showStatusMessage(requestLoop ? "submitting sa3 loop..." : "submitting sa3 request...", 2500);
+
+    const auto generationToken = beginGenerationAsyncWork();
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, generationToken, requestUrl, jsonString, requestLoop]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        bool ok = false;
+
+        try
+        {
+            juce::URL url(requestUrl);
+            juce::URL postUrl = url.withPOSTData(jsonString);
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = statusCode >= 200 && statusCode < 300;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, statusCode, ok, requestLoop]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            if (!editor->isGenerationAsyncWorkCurrent(generationToken) || !editor->isGenerating)
+                return;
+
+            auto cancelSA3Operation = [editor]()
+            {
+                editor->isGenerating = false;
+                editor->isCurrentlyQueued = false;
+                editor->generationProgress = 0;
+                editor->smoothProgressAnimation = false;
+                editor->setActiveOp(ActiveOp::None);
+                editor->updateAllGenerationButtonStates();
+                editor->repaint();
+            };
+
+            if (!ok || responseText.isEmpty())
+            {
+                juce::String message = statusCode > 0
+                    ? "sa3 submit failed (HTTP " + juce::String(statusCode) + ")"
+                    : "sa3 backend not responding";
+                editor->showStatusMessage(message, 4000);
+                DBG("[sa3] submit failed: " + message + " body=" + responseText.substring(0, 512));
+                cancelSA3Operation();
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (!responseObj)
+            {
+                editor->showStatusMessage("invalid response from sa3", 4000);
+                cancelSA3Operation();
+                return;
+            }
+
+            const bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                if (error.isEmpty())
+                {
+                    if (auto* errors = responseObj->getProperty("errors").getArray())
+                    {
+                        juce::StringArray parts;
+                        for (auto& item : *errors)
+                            parts.add(item.toString());
+                        error = parts.joinIntoString(", ");
+                    }
+                }
+                editor->showStatusMessage("sa3 error: " + (error.isEmpty() ? "unknown error" : error), 5000);
+                DBG("[sa3] submit error: " + responseText.substring(0, 512));
+                cancelSA3Operation();
+                return;
+            }
+
+            const juce::String sessionId = responseObj->getProperty("session_id").toString();
+            if (sessionId.isEmpty())
+            {
+                editor->showStatusMessage("sa3 response missing session id", 4000);
+                cancelSA3Operation();
+                return;
+            }
+
+            const juce::String usedSeed = responseObj->getProperty("seed").toString();
+            if (usedSeed.isNotEmpty() && editor->sa3UI)
+                editor->sa3UI->setLastSeed(usedSeed);
+
+            DBG("[sa3] session=" + sessionId);
+            editor->showStatusMessage(requestLoop ? "sa3 loop generating..." : "sa3 generating...", 2000);
+            editor->startPollingForResults(sessionId);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::sendSA3Transform()
+{
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("sa3 is remote-only for now", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    if (!isServiceReachable(ServiceType::SA3))
+    {
+        showStatusMessage("sa3 not reachable - check connection first", 3000);
+        return;
+    }
+
+    if (!sa3UI)
+        return;
+
+    const juce::String prompt = sa3UI->getTransformPromptText().trim();
+
+    currentSA3TransformPrompt = prompt;
+    currentSA3TransformStrength = juce::jlimit(0.01, 1.0, sa3UI->getTransformStrength());
+    transformRecording = sa3UI->getTransformAudioSourceRecording();
+    audioProcessor.setTransformRecording(transformRecording);
+    currentSA3Steps = sa3UI->getSteps();
+    currentSA3Cfg = sa3UI->getCfgScale();
+    currentSA3Shift = sa3UI->getShift();
+    currentSA3KeyScale = sa3UI->getKeyScale();
+    const juce::int64 requestSeed = sa3UI->getSeed();
+
+    if (transformRecording)
+    {
+        if (savedSamples <= 0)
+        {
+            showStatusMessage("no recording available - save your recording first", 3000);
+            updateSA3EnablementSnapshot();
+            return;
+        }
+    }
+    else if (!hasOutputAudio)
+    {
+        showStatusMessage("no output audio available - generate audio first", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    const juce::File audioFile = transformRecording
+        ? garyDir.getChildFile("myBuffer.wav")
+        : garyDir.getChildFile("myOutput.wav");
+
+    if (!audioFile.existsAsFile())
+    {
+        showStatusMessage("audio file not found - " + audioFile.getFileName(), 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    juce::MemoryBlock audioData;
+    if (!audioFile.loadFileAsData(audioData) || audioData.getSize() == 0)
+    {
+        showStatusMessage("failed to read audio file", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    const auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+
+    double bpm = audioProcessor.getCurrentBPM();
+    if (bpm <= 0.0)
+        bpm = 120.0;
+
+    juce::String fullPrompt = prompt;
+    if (fullPrompt.isNotEmpty())
+        fullPrompt += ", ";
+    fullPrompt += juce::String(juce::roundToInt(bpm)) + " bpm";
+    if (currentSA3KeyScale.trim().isNotEmpty())
+        fullPrompt += ", " + currentSA3KeyScale.trim();
+
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("prompt", fullPrompt);
+    jsonRequest->setProperty("negative_prompt", "low quality");
+    jsonRequest->setProperty("steps", currentSA3Steps);
+    jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
+    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
+    jsonRequest->setProperty("seed", requestSeed);
+    jsonRequest->setProperty("audio_data", base64Audio);
+    jsonRequest->setProperty("strength", currentSA3TransformStrength);
+
+    juce::Array<juce::var> loraEntries;
+    for (const auto& lora : sa3UI->getActiveLoras())
+    {
+        juce::DynamicObject::Ptr loraObj = new juce::DynamicObject();
+        loraObj->setProperty("name", lora.name);
+        loraObj->setProperty("strength", lora.strength);
+        loraObj->setProperty("interval_min", 0.0);
+        loraObj->setProperty("interval_max", 1.0);
+        loraEntries.add(juce::var(loraObj.get()));
+    }
+    jsonRequest->setProperty("loras", loraEntries);
+
+    const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+    const juce::String requestUrl = getServiceUrl(ServiceType::SA3, "/transform");
+
+    DBG("[sa3] submit /transform from " + juce::String(transformRecording ? "recording" : "output")
+        + " bytes=" + juce::String((int)audioData.getSize()));
+
+    setActiveOp(ActiveOp::SA3Transform);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.clearCurrentSessionId();
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    if (sa3UI)
+        sa3UI->setGenerateButtonText("transforming");
+    repaint();
+
+    showStatusMessage("submitting sa3 transform...", 2500);
+
+    const auto generationToken = beginGenerationAsyncWork();
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, generationToken, requestUrl, jsonString]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        bool ok = false;
+
+        try
+        {
+            juce::URL url(requestUrl);
+            juce::URL postUrl = url.withPOSTData(jsonString);
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = statusCode >= 200 && statusCode < 300;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, statusCode, ok]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            if (!editor->isGenerationAsyncWorkCurrent(generationToken) || !editor->isGenerating)
+                return;
+
+            auto cancelSA3Operation = [editor]()
+            {
+                editor->isGenerating = false;
+                editor->isCurrentlyQueued = false;
+                editor->generationProgress = 0;
+                editor->smoothProgressAnimation = false;
+                editor->setActiveOp(ActiveOp::None);
+                editor->updateAllGenerationButtonStates();
+                editor->repaint();
+            };
+
+            if (!ok || responseText.isEmpty())
+            {
+                juce::String message = statusCode > 0
+                    ? "sa3 transform failed (HTTP " + juce::String(statusCode) + ")"
+                    : "sa3 backend not responding";
+                editor->showStatusMessage(message, 4000);
+                DBG("[sa3] transform submit failed: " + message + " body=" + responseText.substring(0, 512));
+                cancelSA3Operation();
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (!responseObj)
+            {
+                editor->showStatusMessage("invalid response from sa3 transform", 4000);
+                cancelSA3Operation();
+                return;
+            }
+
+            const bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                if (error.isEmpty())
+                {
+                    if (auto* errors = responseObj->getProperty("errors").getArray())
+                    {
+                        juce::StringArray parts;
+                        for (auto& item : *errors)
+                            parts.add(item.toString());
+                        error = parts.joinIntoString(", ");
+                    }
+                }
+                editor->showStatusMessage("sa3 transform error: " + (error.isEmpty() ? "unknown error" : error), 5000);
+                DBG("[sa3] transform submit error: " + responseText.substring(0, 512));
+                cancelSA3Operation();
+                return;
+            }
+
+            const juce::String sessionId = responseObj->getProperty("session_id").toString();
+            if (sessionId.isEmpty())
+            {
+                editor->showStatusMessage("sa3 transform response missing session id", 4000);
+                cancelSA3Operation();
+                return;
+            }
+
+            const juce::String usedSeed = responseObj->getProperty("seed").toString();
+            if (usedSeed.isNotEmpty() && editor->sa3UI)
+                editor->sa3UI->setLastSeed(usedSeed);
+
+            DBG("[sa3] transform session=" + sessionId);
+            editor->showStatusMessage("sa3 transforming...", 2000);
+            editor->startPollingForResults(sessionId);
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::sendSA3Continue()
+{
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        showStatusMessage("sa3 is remote-only for now", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    if (!isServiceReachable(ServiceType::SA3))
+    {
+        showStatusMessage("sa3 not reachable - check connection first", 3000);
+        return;
+    }
+
+    if (!sa3UI)
+        return;
+
+    const juce::String prompt = sa3UI->getContinuePromptText().trim();
+
+    currentSA3ContinuePrompt = prompt;
+    currentSA3ContinueTotalSeconds = juce::jlimit(1, 300, sa3UI->getContinueTotalSeconds());
+    transformRecording = sa3UI->getContinueAudioSourceRecording();
+    audioProcessor.setTransformRecording(transformRecording);
+    currentSA3Steps = sa3UI->getSteps();
+    currentSA3Cfg = sa3UI->getCfgScale();
+    currentSA3Shift = sa3UI->getShift();
+    currentSA3KeyScale = sa3UI->getKeyScale();
+    const juce::int64 requestSeed = sa3UI->getSeed();
+
+    if (transformRecording)
+    {
+        if (savedSamples <= 0)
+        {
+            showStatusMessage("no recording available - save your recording first", 3000);
+            updateSA3EnablementSnapshot();
+            return;
+        }
+    }
+    else if (!hasOutputAudio)
+    {
+        showStatusMessage("no output audio available - generate audio first", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    const double sourceSeconds = transformRecording
+        ? (double)savedSamples / juce::jmax(1.0, audioProcessor.getCurrentSampleRate())
+        : totalAudioDuration;
+    const double requestedTotalSeconds = (double)currentSA3ContinueTotalSeconds;
+    const double continuationSecondsForRequest = requestedTotalSeconds - sourceSeconds;
+    if (sourceSeconds <= 0.0 || continuationSecondsForRequest <= 0.0)
+    {
+        showStatusMessage("duration must be longer than the source audio", 4000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+    if (requestedTotalSeconds > 300.0)
+    {
+        showStatusMessage("total continuation output must stay under 300 seconds", 4000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    auto garyDir = documentsDir.getChildFile("gary4juce");
+    const juce::File audioFile = transformRecording
+        ? garyDir.getChildFile("myBuffer.wav")
+        : garyDir.getChildFile("myOutput.wav");
+
+    if (!audioFile.existsAsFile())
+    {
+        showStatusMessage("audio file not found - " + audioFile.getFileName(), 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    juce::MemoryBlock audioData;
+    if (!audioFile.loadFileAsData(audioData) || audioData.getSize() == 0)
+    {
+        showStatusMessage("failed to read audio file", 3000);
+        updateSA3EnablementSnapshot();
+        return;
+    }
+
+    const auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+
+    double bpm = audioProcessor.getCurrentBPM();
+    if (bpm <= 0.0)
+        bpm = 120.0;
+
+    juce::String fullPrompt = prompt;
+    if (fullPrompt.isNotEmpty())
+        fullPrompt += ", ";
+    fullPrompt += juce::String(juce::roundToInt(bpm)) + " bpm";
+    if (currentSA3KeyScale.trim().isNotEmpty())
+        fullPrompt += ", " + currentSA3KeyScale.trim();
+
+    juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
+    jsonRequest->setProperty("prompt", fullPrompt);
+    jsonRequest->setProperty("negative_prompt", "low quality");
+    jsonRequest->setProperty("steps", currentSA3Steps);
+    jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
+    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
+    jsonRequest->setProperty("seed", requestSeed);
+    jsonRequest->setProperty("audio_data", base64Audio);
+    jsonRequest->setProperty("continuation_seconds", continuationSecondsForRequest);
+    jsonRequest->setProperty("continuation_mode", "inpaint");
+
+    juce::Array<juce::var> loraEntries;
+    for (const auto& lora : sa3UI->getActiveLoras())
+    {
+        juce::DynamicObject::Ptr loraObj = new juce::DynamicObject();
+        loraObj->setProperty("name", lora.name);
+        loraObj->setProperty("strength", lora.strength);
+        loraObj->setProperty("interval_min", 0.0);
+        loraObj->setProperty("interval_max", 1.0);
+        loraEntries.add(juce::var(loraObj.get()));
+    }
+    jsonRequest->setProperty("loras", loraEntries);
+
+    const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+    const juce::String requestUrl = getServiceUrl(ServiceType::SA3, "/continue");
+
+    DBG("[sa3] submit /continue from " + juce::String(transformRecording ? "recording" : "output")
+        + " bytes=" + juce::String((int)audioData.getSize())
+        + " target=" + juce::String(requestedTotalSeconds, 2) + "s"
+        + " continuation=" + juce::String(continuationSecondsForRequest, 2) + "s");
+
+    setActiveOp(ActiveOp::SA3Continue);
+    isGenerating = true;
+    isCurrentlyQueued = true;
+    generationProgress = 0;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    audioProcessor.clearCurrentSessionId();
+    audioProcessor.setUndoTransformAvailable(false);
+    audioProcessor.setRetryAvailable(false);
+    updateRetryButtonState();
+    updateContinueButtonState();
+    updateAllGenerationButtonStates();
+    if (sa3UI)
+        sa3UI->setGenerateButtonText("continuing");
+    repaint();
+
+    showStatusMessage("submitting sa3 continuation...", 2500);
+
+    const auto generationToken = beginGenerationAsyncWork();
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, generationToken, requestUrl, jsonString]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        bool ok = false;
+
+        try
+        {
+            juce::URL url(requestUrl);
+            juce::URL postUrl = url.withPOSTData(jsonString);
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Content-Type: application/json");
+
+            auto stream = postUrl.createInputStream(options);
+            if (stream != nullptr)
+            {
+                responseText = stream->readEntireStreamAsString();
+                ok = statusCode >= 200 && statusCode < 300;
+            }
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, statusCode, ok]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            if (!editor->isGenerationAsyncWorkCurrent(generationToken) || !editor->isGenerating)
+                return;
+
+            auto cancelSA3Operation = [editor]()
+            {
+                editor->isGenerating = false;
+                editor->isCurrentlyQueued = false;
+                editor->generationProgress = 0;
+                editor->smoothProgressAnimation = false;
+                editor->setActiveOp(ActiveOp::None);
+                editor->updateAllGenerationButtonStates();
+                editor->repaint();
+            };
+
+            if (!ok || responseText.isEmpty())
+            {
+                juce::String message = statusCode > 0
+                    ? "sa3 continue failed (HTTP " + juce::String(statusCode) + ")"
+                    : "sa3 backend not responding";
+                editor->showStatusMessage(message, 4000);
+                DBG("[sa3] continue submit failed: " + message + " body=" + responseText.substring(0, 512));
+                cancelSA3Operation();
+                return;
+            }
+
+            auto responseVar = juce::JSON::parse(responseText);
+            auto* responseObj = responseVar.getDynamicObject();
+            if (!responseObj)
+            {
+                editor->showStatusMessage("invalid response from sa3 continue", 4000);
+                cancelSA3Operation();
+                return;
+            }
+
+            const bool success = responseObj->getProperty("success");
+            if (!success)
+            {
+                juce::String error = responseObj->getProperty("error").toString();
+                if (error.isEmpty())
+                {
+                    if (auto* errors = responseObj->getProperty("errors").getArray())
+                    {
+                        juce::StringArray parts;
+                        for (auto& item : *errors)
+                            parts.add(item.toString());
+                        error = parts.joinIntoString(", ");
+                    }
+                }
+                editor->showStatusMessage("sa3 continue error: " + (error.isEmpty() ? "unknown error" : error), 5000);
+                DBG("[sa3] continue submit error: " + responseText.substring(0, 512));
+                cancelSA3Operation();
+                return;
+            }
+
+            const juce::String sessionId = responseObj->getProperty("session_id").toString();
+            if (sessionId.isEmpty())
+            {
+                editor->showStatusMessage("sa3 continue response missing session id", 4000);
+                cancelSA3Operation();
+                return;
+            }
+
+            const juce::String usedSeed = responseObj->getProperty("seed").toString();
+            if (usedSeed.isNotEmpty() && editor->sa3UI)
+                editor->sa3UI->setLastSeed(usedSeed);
+
+            DBG("[sa3] continue session=" + sessionId);
+            editor->showStatusMessage("sa3 continuing...", 2000);
+            editor->startPollingForResults(sessionId);
+        });
+    });
 }

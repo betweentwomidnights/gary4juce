@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="3.0.7"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="4.0.0"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE">
@@ -59,6 +59,8 @@
               file="Source/Components/Jerry/InstrumentPrompts.cpp"/>
         <FILE id="InPr0h" name="InstrumentPrompts.h" compile="0" resource="0"
               file="Source/Components/Jerry/InstrumentPrompts.h"/>
+        <FILE id="SA3UI1" name="SA3UI.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3UI.cpp"/>
+        <FILE id="SA3UI0" name="SA3UI.h" compile="0" resource="0" file="Source/Components/Jerry/SA3UI.h"/>
         <FILE id="YwJazQ" name="JerryUI.cpp" compile="1" resource="0" file="Source/Components/Jerry/JerryUI.cpp"/>
         <FILE id="SHFQj0" name="JerryUI.h" compile="0" resource="0" file="Source/Components/Jerry/JerryUI.h"/>
         <FILE id="PrHlpr" name="PromptHelpers.h" compile="0" resource="0" file="Source/Components/Jerry/PromptHelpers.h"/>
@@ -127,8 +129,7 @@
   </MODULES>
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
-    <VS2022 targetFolder="Builds/VisualStudio2022" smallIcon="G4Ic0n"
-            bigIcon="G4Ic0n">
+    <VS2022 targetFolder="Builds/VisualStudio2022" smallIcon="G4Ic0n" bigIcon="G4Ic0n">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="gary4juce" defines="ASIO_STANDALONE"/>
         <CONFIGURATION isDebug="0" name="Release" targetName="gary4juce" defines="ASIO_STANDALONE"/>
