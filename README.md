@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable release:** [gary4juce v3.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7)
 
-**latest release line:** `v4.0.0` - stable-audio-3 has entered the DAW.
+**v4 pre-release:** [gary4juce v4.0.0-pre (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-pre) - stable-audio-3 has entered the DAW.
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
