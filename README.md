@@ -2,9 +2,9 @@
 
 **gary v4 has begun: stable-audio-3 is now inside the DAW.**
 
-gary4juce is a VST3/AU plugin for musicians who want AI models to react to
-their timing, chords, phrasing, stems, loops, and experiments directly inside a
-DAW.
+a VST3/AU plugin for musicians who want AI to meet them where they actually
+live. for me, that's ableton. for you, it might be fl studio or, if you're
+insane, reaper lol
 
 https://thepatch.gumroad.com/l/gary4juce
 
