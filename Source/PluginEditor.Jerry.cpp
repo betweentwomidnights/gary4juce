@@ -1398,6 +1398,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
     currentSA3Cfg = sa3UI->getCfgScale();
     currentSA3Shift = sa3UI->getShift();
     currentSA3KeyScale = sa3UI->getKeyScale();
+    currentSA3NegativePrompt = sa3UI->getNegativePromptText();
     const juce::int64 requestSeed = sa3UI->getSeed();
 
     auto cancelOp = [this]()
@@ -1428,7 +1429,8 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
 
     juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
     jsonRequest->setProperty("prompt", fullPrompt);
-    jsonRequest->setProperty("negative_prompt", "low quality");
+    if (currentSA3NegativePrompt.isNotEmpty())
+        jsonRequest->setProperty("negative_prompt", currentSA3NegativePrompt);
     jsonRequest->setProperty("steps", currentSA3Steps);
     jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
     jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
@@ -1608,6 +1610,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
     currentSA3Cfg = sa3UI->getCfgScale();
     currentSA3Shift = sa3UI->getShift();
     currentSA3KeyScale = sa3UI->getKeyScale();
+    currentSA3NegativePrompt = sa3UI->getNegativePromptText();
     const juce::int64 requestSeed = sa3UI->getSeed();
 
     if (transformRecording)
@@ -1662,7 +1665,8 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
 
     juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
     jsonRequest->setProperty("prompt", fullPrompt);
-    jsonRequest->setProperty("negative_prompt", "low quality");
+    if (currentSA3NegativePrompt.isNotEmpty())
+        jsonRequest->setProperty("negative_prompt", currentSA3NegativePrompt);
     jsonRequest->setProperty("steps", currentSA3Steps);
     jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
     jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
@@ -1842,6 +1846,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     currentSA3Cfg = sa3UI->getCfgScale();
     currentSA3Shift = sa3UI->getShift();
     currentSA3KeyScale = sa3UI->getKeyScale();
+    currentSA3NegativePrompt = sa3UI->getNegativePromptText();
     const juce::int64 requestSeed = sa3UI->getSeed();
 
     if (transformRecording)
@@ -1914,7 +1919,8 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
 
     juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
     jsonRequest->setProperty("prompt", fullPrompt);
-    jsonRequest->setProperty("negative_prompt", "low quality");
+    if (currentSA3NegativePrompt.isNotEmpty())
+        jsonRequest->setProperty("negative_prompt", currentSA3NegativePrompt);
     jsonRequest->setProperty("steps", currentSA3Steps);
     jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
     jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");

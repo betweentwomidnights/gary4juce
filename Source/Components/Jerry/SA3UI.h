@@ -47,6 +47,9 @@ public:
     juce::String getPromptText() const { return promptEditor.getText().trim(); }
     void setPromptText(const juce::String& text);
 
+    juce::String getNegativePromptText() const { return negativePromptEditor.getText().trim(); }
+    void setNegativePromptText(const juce::String& text);
+
     juce::String getTransformPromptText() const { return transformPromptEditor.getText().trim(); }
     void setTransformPromptText(const juce::String& text);
     double getTransformStrength() const { return transformStrengthSlider.getValue(); }
@@ -89,6 +92,7 @@ public:
     void setCurrentSubTab(SubTab tab);
 
     std::function<void(const juce::String&)> onPromptChanged;
+    std::function<void(const juce::String&)> onNegativePromptChanged;
     std::function<void(int)> onDurationChanged;
     std::function<void(bool)> onLoopChanged;
     std::function<void(int)> onBarsChanged;
@@ -184,6 +188,8 @@ private:
     CustomSlider stepsSlider;
     juce::Label cfgLabel;
     CustomSlider cfgSlider;
+    juce::Label negativePromptLabel;
+    CustomTextEditor negativePromptEditor;
     juce::ToggleButton useSeedToggle;
     CustomTextEditor seedEditor;
     juce::Label lastSeedLabel;

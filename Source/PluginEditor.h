@@ -368,6 +368,7 @@ private:
     double currentSA3Cfg = 1.0;
     juce::String currentSA3Shift = "full";
     juce::String currentSA3KeyScale = "";
+    juce::String currentSA3NegativePrompt = "";
     juce::String currentSA3TransformPrompt = "";
     double currentSA3TransformStrength = 0.9;
     juce::String currentSA3ContinuePrompt = "";

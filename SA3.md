@@ -119,6 +119,16 @@ The defaults are intentionally conservative:
 These values matter for SA3. Treat them like model-native defaults rather than
 normal "more is better" controls.
 
+### Negative Prompt
+
+The `negative` field is shared across generate, transform, and continue. Leave
+it blank to use the backend default of `low quality`.
+
+Early testing suggests active LoRAs can make negative prompting much weaker, and
+in some cases it may feel like the model is not listening to the negative prompt
+at all. Treat this as a gentle steering control, not a hard exclusion system,
+especially when one or more LoRA sliders are above `0`.
+
 ### Seed
 
 Enable `use seed` to submit a fixed seed.
@@ -220,6 +230,7 @@ settings.
 - SA3 is remote-only in gary4juce v4 builds.
 - Some outputs are loud or may clip. Backend normalization/limiting is under review.
 - Long continuation tails may fade or go quiet before the final duration.
+- Negative prompting may be weak or ineffective with active LoRAs.
 - The second SA3 continuation mode is not exposed yet.
 - Layer filter and per-LoRA interval controls are backend concepts but not yet exposed in the plugin UI.
 

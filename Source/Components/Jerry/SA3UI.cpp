@@ -384,6 +384,25 @@ SA3UI::SA3UI()
     };
     addToContent(cfgSlider);
 
+    negativePromptLabel.setText("negative", juce::dontSendNotification);
+    negativePromptLabel.setFont(juce::FontOptions(12.0f));
+    negativePromptLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    negativePromptLabel.setJustificationType(juce::Justification::centredLeft);
+    negativePromptLabel.setTooltip("blank uses backend default 'low quality'; active LoRAs may weaken or ignore negative prompting");
+    addToContent(negativePromptLabel);
+
+    negativePromptEditor.setTextToShowWhenEmpty("low quality", juce::Colour(0xff666666));
+    negativePromptEditor.setMultiLine(false);
+    negativePromptEditor.setReturnKeyStartsNewLine(false);
+    negativePromptEditor.setScrollbarsShown(false);
+    negativePromptEditor.setBorder(juce::BorderSize<int>(2));
+    negativePromptEditor.onTextChange = [this]()
+    {
+        if (onNegativePromptChanged)
+            onNegativePromptChanged(getNegativePromptText());
+    };
+    addToContent(negativePromptEditor);
+
     useSeedToggle.setButtonText("use seed");
     useSeedToggle.setToggleState(false, juce::dontSendNotification);
     useSeedToggle.setTooltip("when enabled, submit the seed value below instead of asking the backend for a random seed");
@@ -584,6 +603,11 @@ void SA3UI::setGenerateButtonText(const juce::String& text)
 void SA3UI::setPromptText(const juce::String& text)
 {
     promptEditor.setText(text, false);
+}
+
+void SA3UI::setNegativePromptText(const juce::String& text)
+{
+    negativePromptEditor.setText(text, false);
 }
 
 void SA3UI::setTransformPromptText(const juce::String& text)
@@ -965,6 +989,8 @@ void SA3UI::updateContentLayout()
     stepsSlider.setVisible(showAdvancedControls);
     cfgLabel.setVisible(showAdvancedControls);
     cfgSlider.setVisible(showAdvancedControls);
+    negativePromptLabel.setVisible(showAdvancedControls);
+    negativePromptEditor.setVisible(showAdvancedControls);
     useSeedToggle.setVisible(showAdvancedControls);
     seedEditor.setVisible(showAdvancedControls);
     useLoraToggle.setVisible(showAdvancedControls);
@@ -1000,6 +1026,11 @@ void SA3UI::updateContentLayout()
         cfgLabel.setBounds(cfgRow.removeFromLeft(kLabelWidth));
         cfgSlider.setBounds(cfgRow);
         y += kRowHeight + kGap;
+
+        auto negativeRow = fullRow(26);
+        negativePromptLabel.setBounds(negativeRow.removeFromLeft(kLabelWidth));
+        negativePromptEditor.setBounds(negativeRow);
+        y += 30;
 
         auto shiftRow = fullRow(kRowHeight);
         shiftLabel.setBounds(shiftRow.removeFromLeft(kLabelWidth));

@@ -295,6 +295,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentSA3KeyScale = keyScale.trim();
     };
+    sa3UI->onNegativePromptChanged = [this](const juce::String& text)
+    {
+        currentSA3NegativePrompt = text.trim();
+    };
     sa3UI->onSubTabChanged = [this](SA3UI::SubTab)
     {
         updateSA3EnablementSnapshot();
@@ -372,6 +376,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setCfgScale(currentSA3Cfg);
     sa3UI->setShift(currentSA3Shift);
     sa3UI->setKeyScale(currentSA3KeyScale);
+    sa3UI->setNegativePromptText(currentSA3NegativePrompt);
     sa3UI->setRemoteAvailable(!audioProcessor.getIsUsingLocalhost());
     sa3UI->setGenerateButtonEnabled(false, false);
     sa3UI->setDiceButtonsEnabled(false);
