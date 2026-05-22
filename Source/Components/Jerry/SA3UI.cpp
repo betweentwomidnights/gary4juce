@@ -354,7 +354,7 @@ SA3UI::SA3UI()
     stepsLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(stepsLabel);
 
-    stepsSlider.setRange(1.0, 50.0, 1.0);
+    stepsSlider.setRange(1.0, 16.0, 1.0);
     stepsSlider.setValue(8.0, juce::dontSendNotification);
     stepsSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     stepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
@@ -605,7 +605,7 @@ void SA3UI::setBpm(double bpm)
 void SA3UI::setRemoteAvailable(bool available)
 {
     remoteAvailable = available;
-    infoLabel.setText(remoteAvailable ? "" : "remote only", juce::dontSendNotification);
+    infoLabel.setText(remoteAvailable ? "" : "sa3 offline", juce::dontSendNotification);
     setGenerateButtonEnabled(lastCanGenerate, lastIsGenerating);
     setDiceButtonsEnabled(lastDiceButtonsEnabled);
 }
@@ -722,7 +722,7 @@ void SA3UI::setBars(int bars)
 
 void SA3UI::setSteps(int steps)
 {
-    stepsSlider.setValue(juce::jlimit(1, 50, steps), juce::dontSendNotification);
+    stepsSlider.setValue(juce::jlimit(1, 16, steps), juce::dontSendNotification);
 }
 
 void SA3UI::setCfgScale(double value)
@@ -1135,7 +1135,7 @@ void SA3UI::updateContentLayout()
         generateButton.setBounds(generateRow.withWidth(220).withCentre(generateRow.getCentre()));
         y += 38;
 
-        infoLabel.setText(remoteAvailable ? "" : "remote only", juce::dontSendNotification);
+        infoLabel.setText(remoteAvailable ? "" : "sa3 offline", juce::dontSendNotification);
         infoLabel.setBounds(fullRow(16));
         y += 22;
     };

@@ -90,6 +90,7 @@ private:
     bool localJerryOnline = false;
     bool localCareyOnline = false;
     bool localFoundationOnline = false;
+    bool localSA3Online = false;
     int localOnlineCount = 0;
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;

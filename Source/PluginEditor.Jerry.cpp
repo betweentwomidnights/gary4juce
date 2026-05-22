@@ -133,12 +133,6 @@ namespace
 
 void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 {
-    if (sub == JerrySubTab::SA3 && audioProcessor.getIsUsingLocalhost())
-    {
-        showStatusMessage("sa3 is remote-only for now", 3000);
-        return;
-    }
-
     if (jerrySubTab == sub && currentTab == ModelTab::Jerry) return;
 
     jerrySubTab = sub;
@@ -156,11 +150,11 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
     bool showSAOS = (sub == JerrySubTab::SAOS);
     if (sa3UI)
     {
-        sa3UI->setRemoteAvailable(!audioProcessor.getIsUsingLocalhost());
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
         sa3UI->setVisibleForTab(showSA3);
         if (showSA3)
         {
-            refreshSA3AvailableLoras(false);
+            refreshSA3AvailableLoras(true);
             updateSA3EnablementSnapshot();
         }
     }
@@ -185,11 +179,12 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 
 void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
 {
-    const bool sa3Available = !audioProcessor.getIsUsingLocalhost();
-    jerrySubTabSA3.setEnabled(sa3Available);
-    jerrySubTabSA3.setButtonStyle(jerrySubTab == JerrySubTab::SA3 && sa3Available
+    const bool sa3Selected = jerrySubTab == JerrySubTab::SA3;
+    jerrySubTabSA3.setEnabled(true);
+    jerrySubTabSA3.setButtonStyle(sa3Selected
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
-    jerrySubTabSA3.setTooltip(sa3Available ? "" : "sa3 is remote-only for now");
+    jerrySubTabSA3.setTooltip(audioProcessor.getIsUsingLocalhost() && !isLocalServiceOnline(ServiceType::SA3)
+        ? "sa3 localhost:8006 offline" : "");
 
     jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
@@ -1070,14 +1065,13 @@ void Gary4juceAudioProcessorEditor::updateSA3EnablementSnapshot()
     if (!sa3UI)
         return;
 
-    const bool remoteMode = !audioProcessor.getIsUsingLocalhost();
-    sa3UI->setRemoteAvailable(remoteMode);
+    const bool serviceReady = isServiceReachable(ServiceType::SA3);
+    sa3UI->setRemoteAvailable(serviceReady);
     sa3UI->setTransformAudioSourceRecording(transformRecording);
     sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
     sa3UI->setContinueAudioSourceRecording(transformRecording);
     sa3UI->setContinueAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
 
-    const bool serviceReady = remoteMode && isServiceReachable(ServiceType::SA3);
     bool canSubmit = false;
     if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Generate)
     {
@@ -1118,13 +1112,7 @@ void Gary4juceAudioProcessorEditor::syncSA3LoraUi()
     if (!sa3UI)
         return;
 
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        juce::StringArray empty;
-        sa3UI->setAvailableLoras(empty);
-    }
-    else
-        sa3UI->setAvailableLoras(availableSA3Loras);
+    sa3UI->setAvailableLoras(availableSA3Loras);
 }
 
 void Gary4juceAudioProcessorEditor::refreshSA3AvailableLoras(bool force)
@@ -1132,21 +1120,26 @@ void Gary4juceAudioProcessorEditor::refreshSA3AvailableLoras(bool force)
     if (!sa3UI)
         return;
 
-    if (audioProcessor.getIsUsingLocalhost())
+    if (!isServiceReachable(ServiceType::SA3))
     {
-        availableSA3Loras.clear();
-        syncSA3LoraUi();
+        if (audioProcessor.getIsUsingLocalhost())
+        {
+            availableSA3Loras.clear();
+            syncSA3LoraUi();
+        }
         return;
     }
 
     const juce::String loraUrl = getServiceUrl(ServiceType::SA3, "/loras");
     const auto now = juce::Time::getCurrentTime().toMilliseconds();
     constexpr juce::int64 remoteLoraTtlMs = 60 * 60 * 1000;
+    constexpr juce::int64 localLoraTtlMs = 5 * 1000;
+    const auto ttlMs = audioProcessor.getIsUsingLocalhost() ? localLoraTtlMs : remoteLoraTtlMs;
 
     if (!force
         && loraUrl == sa3LoraFetchBackendUrl
         && sa3LoraLastFetchMs > 0
-        && now - sa3LoraLastFetchMs < remoteLoraTtlMs)
+        && now - sa3LoraLastFetchMs < ttlMs)
     {
         syncSA3LoraUi();
         return;
@@ -1235,13 +1228,6 @@ void Gary4juceAudioProcessorEditor::refreshSA3AvailableLoras(bool force)
 
 void Gary4juceAudioProcessorEditor::requestSA3DicePrompt(SA3UI::SubTab targetTab)
 {
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        showStatusMessage("sa3 is remote-only for now", 3000);
-        updateSA3EnablementSnapshot();
-        return;
-    }
-
     if (!isServiceReachable(ServiceType::SA3))
     {
         showStatusMessage("sa3 not reachable - check connection first", 3000);
@@ -1373,13 +1359,6 @@ void Gary4juceAudioProcessorEditor::requestSA3DicePrompt(SA3UI::SubTab targetTab
 
 void Gary4juceAudioProcessorEditor::sendToSA3()
 {
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        showStatusMessage("sa3 is remote-only for now", 3000);
-        updateSA3EnablementSnapshot();
-        return;
-    }
-
     if (!isServiceReachable(ServiceType::SA3))
     {
         showStatusMessage("sa3 not reachable - check connection first", 3000);
@@ -1584,13 +1563,6 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
 
 void Gary4juceAudioProcessorEditor::sendSA3Transform()
 {
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        showStatusMessage("sa3 is remote-only for now", 3000);
-        updateSA3EnablementSnapshot();
-        return;
-    }
-
     if (!isServiceReachable(ServiceType::SA3))
     {
         showStatusMessage("sa3 not reachable - check connection first", 3000);
@@ -1820,13 +1792,6 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
 
 void Gary4juceAudioProcessorEditor::sendSA3Continue()
 {
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        showStatusMessage("sa3 is remote-only for now", 3000);
-        updateSA3EnablementSnapshot();
-        return;
-    }
-
     if (!isServiceReachable(ServiceType::SA3))
     {
         showStatusMessage("sa3 not reachable - check connection first", 3000);
@@ -1906,6 +1871,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     }
 
     const auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
+    const juce::String continuationMode = currentSA3ContinueLatentPrefix ? "latent_prefix" : "inpaint";
 
     double bpm = audioProcessor.getCurrentBPM();
     if (bpm <= 0.0)
@@ -1928,7 +1894,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     jsonRequest->setProperty("seed", requestSeed);
     jsonRequest->setProperty("audio_data", base64Audio);
     jsonRequest->setProperty("continuation_seconds", continuationSecondsForRequest);
-    jsonRequest->setProperty("continuation_mode", currentSA3ContinueLatentPrefix ? "latent_prefix" : "inpaint");
+    jsonRequest->setProperty("continuation_mode", continuationMode);
 
     juce::Array<juce::var> loraEntries;
     for (const auto& lora : sa3UI->getActiveLoras())
@@ -1949,7 +1915,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
         + " bytes=" + juce::String((int)audioData.getSize())
         + " target=" + juce::String(requestedTotalSeconds, 2) + "s"
         + " continuation=" + juce::String(continuationSecondsForRequest, 2) + "s"
-        + " mode=" + juce::String(currentSA3ContinueLatentPrefix ? "latent_prefix" : "inpaint"));
+        + " mode=" + continuationMode);
 
     setActiveOp(ActiveOp::SA3Continue);
     isGenerating = true;

@@ -58,7 +58,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             const bool wasJerry = (currentTab == ModelTab::Jerry);
             switchToTab(ModelTab::Jerry);
 
-            // If we were already on Jerry, still allow a fetch (remote-only, TTL’d)
+            // If we were already on Jerry, still allow remote SAOS prompt refresh.
             if (wasJerry && !audioProcessor.getIsUsingLocalhost())
                 maybeFetchRemoteJerryPrompts();
         };
@@ -382,7 +382,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setShift(currentSA3Shift);
     sa3UI->setKeyScale(currentSA3KeyScale);
     sa3UI->setNegativePromptText(currentSA3NegativePrompt);
-    sa3UI->setRemoteAvailable(!audioProcessor.getIsUsingLocalhost());
+    sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
     sa3UI->setGenerateButtonEnabled(false, false);
     sa3UI->setDiceButtonsEnabled(false);
     sa3UI->setVisibleForTab(false);
@@ -1145,9 +1145,6 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showGary = (tab == ModelTab::Gary);
     bool showJerry = (tab == ModelTab::Jerry);
 
-    if (showJerry && audioProcessor.getIsUsingLocalhost() && jerrySubTab == JerrySubTab::SA3)
-        jerrySubTab = JerrySubTab::SAOS;
-
     if (garyUI)
         garyUI->setVisibleForTab(showGary);
 
@@ -1166,11 +1163,11 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 
     if (sa3UI)
     {
-        sa3UI->setRemoteAvailable(!audioProcessor.getIsUsingLocalhost());
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
         sa3UI->setVisibleForTab(showJerry && jerrySubTab == JerrySubTab::SA3);
         if (showJerry && jerrySubTab == JerrySubTab::SA3)
         {
-            refreshSA3AvailableLoras(false);
+            refreshSA3AvailableLoras(true);
             updateSA3EnablementSnapshot();
         }
     }
@@ -1214,7 +1211,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         bool showSA3 = (jerrySubTab == JerrySubTab::SA3);
         bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
         if (sa3UI) sa3UI->setVisibleForTab(showSA3);
-        if (showSA3) refreshSA3AvailableLoras(false);
+        if (showSA3) refreshSA3AvailableLoras(true);
         if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
         if (foundationUI)
         {
@@ -6445,7 +6442,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     {
         g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
         const auto lineOne = getLocalConnectionLineOne();
-        const auto lineTwo = juce::String(localOnlineCount) + "/5 online";
+        const auto lineTwo = juce::String(localOnlineCount) + "/6 online";
         const bool anyOnline = localOnlineCount > 0;
         const bool activeOnline = isActiveLocalServiceOnline();
 

@@ -40,8 +40,8 @@ gary4juce now gives you **seven AI music models** directly in your DAW:
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> SA3 is remote-only for now. Localhost support belongs in the next
-> gary4local pass.
+> SA3 now runs on the remote backend and the Windows gary4local SA3 service.
+> macOS local SA3 support is still a future pass.
 
 ---
 
@@ -59,7 +59,7 @@ SA3 currently includes:
 - **continue** - continue the recording buffer or current output audio to a target total duration
 - **seed recall** - random generations show the backend-returned seed so a take can be reproduced
 - **key/scale prompting** - optional Carey-style key and mode dropdown appended to the final prompt
-- **LoRA sliders** - one strength slider per available remote LoRA, defaulting to 0
+- **LoRA sliders** - one strength slider per available SA3 LoRA, defaulting to 0
 - **smart dice** - prompt rolls come from the default pool or from every LoRA whose slider is above 0
 
 Read the practical guide: [SA3.md](SA3.md)
@@ -68,7 +68,7 @@ Launch notes:
 
 - SA3 outputs can be hot, especially with LoRAs. Treat gain staging like part of the instrument for now.
 - Continue results can leave a quiet/fading tail near the end of longer continuations. This is being audited against the upstream SA3 UI.
-- Local SA3 in gary4local is not enabled yet.
+- Local SA3 is available in gary4local on Windows, including LoRAs and both continuation modes.
 
 ### V3 Highlights
 
@@ -86,7 +86,8 @@ Carey guide: [CAREY.md](CAREY.md)
 
 ## Roadmap
 
-- [ ] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
+- [x] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) on Windows
+- [ ] add SA3 to gary4local mac
 - [ ] release the mac AU/VST3 build
 - [x] add the first SA3 usage guide: [SA3.md](SA3.md)
 - [x] add SA3's experimental `latent_prefix` continuation mode
@@ -149,8 +150,8 @@ Use the dedicated apps for localhost:
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
 
-They manage local envs for gary, terry, jerry, carey, and foundation-1. SA3 is
-remote-only until the v4 local backend work lands.
+They manage local envs for gary, terry, jerry, carey, foundation-1, and SA3 on
+Windows. SA3 for gary4local mac is still planned.
 
 Recommended hardware:
 
@@ -160,12 +161,15 @@ Recommended hardware:
 
 ### SA3 Backend
 
-SA3 currently runs only on the remote backend through:
+SA3 can run on the remote backend:
 
 `https://g4l.thecollabagepatch.com/sa3`
 
-It uses the remote Stable Audio 3 backend we have been testing. Public upstream
-repo: https://github.com/stability-ai/stable-audio-3
+or the Windows gary4local service:
+
+`http://localhost:8006`
+
+Public upstream repo: https://github.com/stability-ai/stable-audio-3
 
 ### Darius Backend
 
@@ -315,7 +319,7 @@ Magenta Realtime is one of the friendlier finetuning paths:
 
 https://github.com/magenta/magenta-realtime
 
-Upload weights to a Hugging Face Space and point the Darius tab at it.
+Upload weights to a Hugging Face model repo and point the Darius tab at it.
 
 ---
 
@@ -363,8 +367,8 @@ Steps:
 
 ## Known Issues
 
-- **SA3 launch notes:** remote-only, output loudness and continuation tails are still being tuned.
-- **SA3 local backend:** not in gary4local yet.
+- **SA3 launch notes:** output loudness and continuation tails are still being tuned.
+- **SA3 local backend:** available in gary4local on Windows; macOS local support is still pending.
 - **Windows Defender:** not codesigned, so Windows may complain.
 - **Darius hardware:** 24 GB+ VRAM is strongly recommended.
 - **Terry variability:** Melodyflow is experimental and can be wonderfully strange.

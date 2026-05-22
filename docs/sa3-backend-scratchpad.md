@@ -30,8 +30,8 @@ Date: 2026-05-19
 - Advanced disclosure now matches Foundation's arrow treatment.
 - The SA3 advanced `negative` label tooltip warns that blank uses backend default `low quality`, and active LoRAs may weaken or ignore negative prompting. The textbox itself intentionally has no hover tooltip so it stays easy to edit.
 - When LoRA sliders are added, send an explicit `loras: []` array when all strengths are 0. The current API's legacy path applies the default LoRA when `loras` is omitted.
-- Remote SA3 LoRA registry can be fetched/cached when the SA3 subtab becomes active. Localhost SA3 is disabled for now; when local support lands, reuse the SAOS/Carey-style refresh model because local LoRA files can change while the VST is open.
+- Remote SA3 LoRA registry can be fetched/cached when the SA3 subtab becomes active. Localhost SA3 now uses the same `/loras` contract and refreshes while the SA3 subtab is active, with a short TTL so registry changes after backend reload/restart appear during a VST session.
 - Transform is now its own SA3 nested tab. It sends the selected recording/output WAV as `audio_data`, omits duration, and uses the shared seed/shift/LoRA advanced controls plus a transform-specific init noise strength.
-- Continue is now its own SA3 nested tab. It sends selected recording/output WAV as `audio_data`, sets `continuation_seconds`, hard-codes `continuation_mode` to `inpaint`, and intentionally omits loop controls.
+- Continue is now its own SA3 nested tab. It sends selected recording/output WAV as `audio_data`, sets `continuation_seconds`, and intentionally omits loop controls. Remote and local can send `continuation_mode` as `inpaint` or `latent_prefix`.
 - Continue's visible duration slider is DAW-facing total output duration. The frontend subtracts the source audio duration before sending backend `continuation_seconds`, because the backend derives `total_duration = source_duration + continuation_seconds` and masks from source end to total end.
 - SA3 prompt text is optional in the UI. Empty user prompts still submit because the frontend appends DAW BPM, enabling near-unconditional LoRA tests from the VST.

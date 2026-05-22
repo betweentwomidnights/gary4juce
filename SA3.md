@@ -7,15 +7,15 @@ Upstream repo: https://github.com/stability-ai/stable-audio-3
 
 Status:
 
-- Remote backend only for now.
-- Local gary4local support is planned.
+- Remote backend and Windows gary4local are supported.
+- Local gary4local mac support is planned.
 - Output loudness, continuation tails, and LoRA behavior are still being tuned.
 
 ---
 
 ## Quick Start
 
-1. Switch the backend button to `remote`.
+1. Switch the backend button to `remote` or `local` on Windows gary4local.
 2. Open `jerry`.
 3. Select the `sa3` sub-tab.
 4. Choose `generate`, `transform`, or `continue`.
@@ -113,7 +113,7 @@ the strongest musical endpoint when needed.
 
 The defaults are intentionally conservative:
 
-- `steps` defaults to `8`
+- `steps` defaults to `8` and caps at `16`
 - `cfg` defaults to `1`
 - `shift` defaults to `full`
 
@@ -162,7 +162,7 @@ tool.
 
 ### LoRA Sliders
 
-Enable `use lora` to reveal one strength slider per available remote LoRA.
+Enable `use lora` to reveal one strength slider per available SA3 LoRA.
 
 Behavior:
 
@@ -238,7 +238,7 @@ settings.
 
 ## Known Launch Notes
 
-- SA3 is remote-only in gary4juce v4 builds.
+- SA3 runs on the remote backend and the Windows gary4local SA3 service.
 - Some outputs are loud or may clip. Backend normalization/limiting is under review.
 - Long continuation tails may fade or go quiet before the final duration.
 - `latent_prefix` continuation mode is experimental and may or may not improve a given source.
@@ -251,7 +251,7 @@ settings.
 
 Release/backend follow-ups:
 
-- add SA3 to gary4local
+- add SA3 to gary4local mac
 - confirm base-model behavior with `loras: []`
 - compare continue behavior against the upstream SA3 UI
 - A/B test `standard` and `latent_prefix` continuation modes on fixed seeds and source audio
