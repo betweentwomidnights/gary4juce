@@ -115,6 +115,10 @@ If permission errors appear, run Command Prompt as admin:
 xcopy "path\to\extracted\gary4juce.vst3" "C:\Program Files\Common Files\VST3\gary4juce.vst3" /E /I /Y
 ```
 
+LMMS support is not working yet. We did an initial VST2/LV2 compatibility pass
+and documented the exact Windows alpha environment here:
+[LMMS compatibility notes](docs/lmms-compatibility.md).
+
 ### macOS AU/VST3
 
 1. Quit your DAW.
