@@ -62,6 +62,8 @@ public:
     void setContinuePromptText(const juce::String& text);
     int getContinueTotalSeconds() const { return juce::roundToInt(continuationSlider.getValue()); }
     void setContinueTotalSeconds(int seconds);
+    bool getContinueLatentPrefixEnabled() const { return continueModeLatentPrefixButton.getToggleState(); }
+    void setContinueLatentPrefixEnabled(bool enabled);
     bool getContinueAudioSourceRecording() const { return transformAudioSourceRecording; }
     void setContinueAudioSourceRecording(bool useRecording);
     void setContinueAudioSourceAvailability(bool recordingAvailable, bool outputAvailable);
@@ -110,6 +112,7 @@ public:
     std::function<void()> onTransformDiceRequested;
     std::function<void(const juce::String&)> onContinuePromptChanged;
     std::function<void(int)> onContinueTotalSecondsChanged;
+    std::function<void(bool)> onContinueLatentPrefixChanged;
     std::function<void(bool)> onContinueAudioSourceChanged; // true=recording, false=output
     std::function<void()> onContinue;
     std::function<void()> onContinueDiceRequested;
@@ -193,6 +196,9 @@ private:
     juce::ToggleButton useSeedToggle;
     CustomTextEditor seedEditor;
     juce::Label lastSeedLabel;
+    juce::Label continueModeLabel;
+    juce::ToggleButton continueModeStandardButton;
+    juce::ToggleButton continueModeLatentPrefixButton;
     juce::ToggleButton useLoraToggle;
     juce::Label loraStatusLabel;
     struct LoraRow

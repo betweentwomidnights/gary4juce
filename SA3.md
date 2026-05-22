@@ -94,6 +94,7 @@ Controls:
 - `recording` - continue the saved recording buffer.
 - `output` - continue the current output waveform.
 - `duration` - total target output length, including the source audio.
+- `continuation mode` - advanced `standard` / `latent_prefix` selector.
 - prompt/dice/key/advanced controls work the same as generate.
 
 Important: the continue duration is the final total length. If the source is
@@ -128,6 +129,16 @@ Early testing suggests active LoRAs can make negative prompting much weaker, and
 in some cases it may feel like the model is not listening to the negative prompt
 at all. Treat this as a gentle steering control, not a hard exclusion system,
 especially when one or more LoRA sliders are above `0`.
+
+### Continue Mode
+
+The continue tab has an experimental `continuation mode` selector in advanced
+settings. `standard` uses the default `inpaint` mode. `latent_prefix` asks the
+backend to pin the encoded source as a fixed latent prefix, which may make the
+continuation inherit the source tempo and timbre more strongly.
+
+Use the same source and seed when A/B testing this mode. It may be useful, it
+may be strange, and it may barely change a take.
 
 ### Seed
 
@@ -230,8 +241,8 @@ settings.
 - SA3 is remote-only in gary4juce v4 builds.
 - Some outputs are loud or may clip. Backend normalization/limiting is under review.
 - Long continuation tails may fade or go quiet before the final duration.
+- `latent_prefix` continuation mode is experimental and may or may not improve a given source.
 - Negative prompting may be weak or ineffective with active LoRAs.
-- The second SA3 continuation mode is not exposed yet.
 - Layer filter and per-LoRA interval controls are backend concepts but not yet exposed in the plugin UI.
 
 ---
@@ -243,5 +254,6 @@ Release/backend follow-ups:
 - add SA3 to gary4local
 - confirm base-model behavior with `loras: []`
 - compare continue behavior against the upstream SA3 UI
+- A/B test `standard` and `latent_prefix` continuation modes on fixed seeds and source audio
 - decide whether smart dice should mix default fallback buckets with LoRA buckets
 - tune loudness or add backend gain management

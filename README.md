@@ -89,7 +89,7 @@ Carey guide: [CAREY.md](CAREY.md)
 - [ ] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - [ ] release the mac AU/VST3 build
 - [x] add the first SA3 usage guide: [SA3.md](SA3.md)
-- [ ] add SA3's second continuation mode once the backend path is ready
+- [x] add SA3's experimental `latent_prefix` continuation mode
 - [ ] improve SA3 LoRA loudness handling on the backend and build a custom training script for the pre-encoding step
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
 - [ ] enable the Carey `xl-sft` model on the remote backend

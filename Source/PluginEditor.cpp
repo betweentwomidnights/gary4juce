@@ -338,6 +338,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentSA3ContinueTotalSeconds = juce::jlimit(1, 300, seconds);
     };
+    sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
+    {
+        currentSA3ContinueLatentPrefix = enabled;
+    };
     sa3UI->onContinueAudioSourceChanged = [this](bool useRecording)
     {
         transformRecording = useRecording;
@@ -365,6 +369,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setTransformStrength(currentSA3TransformStrength);
     sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
     sa3UI->setContinueTotalSeconds(currentSA3ContinueTotalSeconds);
+    sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
     sa3UI->setTransformAudioSourceRecording(transformRecording);
     sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
     sa3UI->setContinueAudioSourceRecording(transformRecording);
@@ -914,7 +919,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         sa3HelpButton.setImages(helpIcon.get());
         sa3HelpButton.setTooltip("learn more about stable audio 3");
         sa3HelpButton.onClick = [this]() {
-            juce::URL("https://stability-ai/stable-audio-3").launchInDefaultBrowser();
+            juce::URL("https://github.com/stability-ai/stable-audio-3").launchInDefaultBrowser();
         };
         addAndMakeVisible(sa3HelpButton);
         

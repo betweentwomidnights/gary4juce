@@ -1847,6 +1847,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     currentSA3Shift = sa3UI->getShift();
     currentSA3KeyScale = sa3UI->getKeyScale();
     currentSA3NegativePrompt = sa3UI->getNegativePromptText();
+    currentSA3ContinueLatentPrefix = sa3UI->getContinueLatentPrefixEnabled();
     const juce::int64 requestSeed = sa3UI->getSeed();
 
     if (transformRecording)
@@ -1927,7 +1928,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     jsonRequest->setProperty("seed", requestSeed);
     jsonRequest->setProperty("audio_data", base64Audio);
     jsonRequest->setProperty("continuation_seconds", continuationSecondsForRequest);
-    jsonRequest->setProperty("continuation_mode", "inpaint");
+    jsonRequest->setProperty("continuation_mode", currentSA3ContinueLatentPrefix ? "latent_prefix" : "inpaint");
 
     juce::Array<juce::var> loraEntries;
     for (const auto& lora : sa3UI->getActiveLoras())
@@ -1947,7 +1948,8 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     DBG("[sa3] submit /continue from " + juce::String(transformRecording ? "recording" : "output")
         + " bytes=" + juce::String((int)audioData.getSize())
         + " target=" + juce::String(requestedTotalSeconds, 2) + "s"
-        + " continuation=" + juce::String(continuationSecondsForRequest, 2) + "s");
+        + " continuation=" + juce::String(continuationSecondsForRequest, 2) + "s"
+        + " mode=" + juce::String(currentSA3ContinueLatentPrefix ? "latent_prefix" : "inpaint"));
 
     setActiveOp(ActiveOp::SA3Continue);
     isGenerating = true;

@@ -373,6 +373,7 @@ private:
     double currentSA3TransformStrength = 0.9;
     juce::String currentSA3ContinuePrompt = "";
     int currentSA3ContinueTotalSeconds = 30;
+    bool currentSA3ContinueLatentPrefix = false;
     juce::StringArray availableSA3Loras;
     juce::String sa3LoraFetchBackendUrl;
     juce::int64 sa3LoraLastFetchMs = 0;

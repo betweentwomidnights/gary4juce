@@ -430,6 +430,40 @@ SA3UI::SA3UI()
     lastSeedLabel.setJustificationType(juce::Justification::centred);
     addToContent(lastSeedLabel);
 
+    continueModeLabel.setText("continuation mode", juce::dontSendNotification);
+    continueModeLabel.setFont(juce::FontOptions(12.0f));
+    continueModeLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    continueModeLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(continueModeLabel);
+
+    continueModeStandardButton.setButtonText("standard");
+    continueModeStandardButton.setRadioGroupId(3005);
+    continueModeStandardButton.setToggleState(true, juce::dontSendNotification);
+    continueModeStandardButton.setTooltip("standard inpaint continuation mode");
+    continueModeStandardButton.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    continueModeStandardButton.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Jerry);
+    continueModeStandardButton.onClick = [this]()
+    {
+        setContinueLatentPrefixEnabled(false);
+        if (onContinueLatentPrefixChanged)
+            onContinueLatentPrefixChanged(false);
+    };
+    addToContent(continueModeStandardButton);
+
+    continueModeLatentPrefixButton.setButtonText("latent_prefix");
+    continueModeLatentPrefixButton.setRadioGroupId(3005);
+    continueModeLatentPrefixButton.setToggleState(false, juce::dontSendNotification);
+    continueModeLatentPrefixButton.setTooltip("we will have to find out in realtime whether it's useful, stupid or doesn't change much");
+    continueModeLatentPrefixButton.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    continueModeLatentPrefixButton.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Jerry);
+    continueModeLatentPrefixButton.onClick = [this]()
+    {
+        setContinueLatentPrefixEnabled(true);
+        if (onContinueLatentPrefixChanged)
+            onContinueLatentPrefixChanged(true);
+    };
+    addToContent(continueModeLatentPrefixButton);
+
     useLoraToggle.setButtonText("use lora");
     useLoraToggle.setToggleState(false, juce::dontSendNotification);
     useLoraToggle.setTooltip("reveal SA3 LoRA strength sliders");
@@ -647,6 +681,12 @@ void SA3UI::setContinuePromptText(const juce::String& text)
 void SA3UI::setContinueTotalSeconds(int seconds)
 {
     continuationSlider.setValue(juce::jlimit(1, 300, seconds), juce::dontSendNotification);
+}
+
+void SA3UI::setContinueLatentPrefixEnabled(bool enabled)
+{
+    continueModeStandardButton.setToggleState(!enabled, juce::dontSendNotification);
+    continueModeLatentPrefixButton.setToggleState(enabled, juce::dontSendNotification);
 }
 
 void SA3UI::setContinueAudioSourceRecording(bool useRecording)
@@ -993,6 +1033,9 @@ void SA3UI::updateContentLayout()
     negativePromptEditor.setVisible(showAdvancedControls);
     useSeedToggle.setVisible(showAdvancedControls);
     seedEditor.setVisible(showAdvancedControls);
+    continueModeLabel.setVisible(showAdvancedControls && showContinue);
+    continueModeStandardButton.setVisible(showAdvancedControls && showContinue);
+    continueModeLatentPrefixButton.setVisible(showAdvancedControls && showContinue);
     useLoraToggle.setVisible(showAdvancedControls);
     loraStatusLabel.setVisible(showAdvancedControls);
     shiftLabel.setVisible(showAdvancedControls);
@@ -1042,6 +1085,18 @@ void SA3UI::updateContentLayout()
         seedRow.removeFromLeft(kGap);
         seedEditor.setBounds(seedRow.removeFromLeft(120));
         y += 26;
+
+        if (showContinue)
+        {
+            continueModeLabel.setBounds(fullRow(kLabelHeight));
+            y += kLabelHeight + 2;
+
+            auto continueModeRow = fullRow(24);
+            continueModeStandardButton.setBounds(continueModeRow.removeFromLeft(juce::jmin(86, continueModeRow.getWidth() / 2)));
+            continueModeRow.removeFromLeft(kGap);
+            continueModeLatentPrefixButton.setBounds(continueModeRow);
+            y += 28;
+        }
 
         useLoraToggle.setBounds(fullRow(22));
         y += 24;

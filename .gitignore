@@ -27,6 +27,7 @@ DerivedData/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+*.lnk
 
 # Linux
 *~
@@ -35,6 +36,7 @@ Desktop.ini
 *.tmp
 *.temp
 *.log
+.release/
 
 # IDE files
 .vscode/
