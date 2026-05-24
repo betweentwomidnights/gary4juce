@@ -27,6 +27,7 @@ DerivedData/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+*.lnk
 
 # Linux
 *~
@@ -35,6 +36,7 @@ Desktop.ini
 *.tmp
 *.temp
 *.log
+.release/
 
 # IDE files
 .vscode/
@@ -47,6 +49,9 @@ Desktop.ini
 *.flac
 
 third_party/
+
+# Local/reference handoff notes
+SA3_API_HANDOFF.md
 
 # Claude.md (keep this if you want Claude to ignore it)
 CLAUDE.md

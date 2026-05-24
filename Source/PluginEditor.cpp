@@ -28,6 +28,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton("Crop", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
+    sa3HelpButton("sa3 help", juce::DrawableButton::ImageFitted),
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
     dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
     careyHelpButton("carey help", juce::DrawableButton::ImageFitted),
@@ -61,7 +62,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             const bool wasJerry = (currentTab == ModelTab::Jerry);
             switchToTab(ModelTab::Jerry);
 
-            // If we were already on Jerry, still allow a fetch (remote-only, TTL’d)
+            // If we were already on Jerry, still allow remote SAOS prompt refresh.
             if (wasJerry && !audioProcessor.getIsUsingLocalhost())
                 maybeFetchRemoteJerryPrompts();
         };
@@ -84,6 +85,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(dariusTabButton);
 
     // Jerry sub-tab buttons (shown when Jerry main tab is active)
+    jerrySubTabSA3.setButtonText("sa3");
+    jerrySubTabSA3.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    jerrySubTabSA3.onClick = [this]() { switchJerrySubTab(JerrySubTab::SA3); };
+    addAndMakeVisible(jerrySubTabSA3);
+    jerrySubTabSA3.setVisible(false);
+
     jerrySubTabSAOS.setButtonText("jerry (SAOS)");
     jerrySubTabSAOS.setButtonStyle(CustomButton::ButtonStyle::Jerry);
     jerrySubTabSAOS.onClick = [this]() { switchJerrySubTab(JerrySubTab::SAOS); };
@@ -264,6 +271,138 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Update localhost status
     jerryUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
+
+    // ========== SA3 CONTROLS SETUP ==========
+    sa3UI = std::make_unique<SA3UI>();
+    addAndMakeVisible(*sa3UI);
+
+    sa3UI->onPromptChanged = [this](const juce::String& text)
+    {
+        currentSA3Prompt = text;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onDurationChanged = [this](int seconds)
+    {
+        currentSA3DurationSeconds = juce::jlimit(1, 300, seconds);
+    };
+    sa3UI->onLoopChanged = [this](bool enabled)
+    {
+        currentSA3LoopEnabled = enabled;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onBarsChanged = [this](int bars)
+    {
+        currentSA3Bars = bars;
+    };
+    sa3UI->onStepsChanged = [this](int steps)
+    {
+        currentSA3Steps = juce::jlimit(1, 50, steps);
+    };
+    sa3UI->onCfgChanged = [this](double value)
+    {
+        currentSA3Cfg = juce::jlimit(0.5, 2.0, value);
+    };
+    sa3UI->onShiftChanged = [this](const juce::String& shift)
+    {
+        currentSA3Shift = shift.trim().toLowerCase();
+        if (currentSA3Shift.isEmpty())
+            currentSA3Shift = "full";
+    };
+    sa3UI->onKeyScaleChanged = [this](const juce::String& keyScale)
+    {
+        currentSA3KeyScale = keyScale.trim();
+    };
+    sa3UI->onNegativePromptChanged = [this](const juce::String& text)
+    {
+        currentSA3NegativePrompt = text.trim();
+    };
+    sa3UI->onSubTabChanged = [this](SA3UI::SubTab)
+    {
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onGenerate = [this]() { sendToSA3(); };
+    sa3UI->onGenerateDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Generate); };
+    sa3UI->onTransformPromptChanged = [this](const juce::String& text)
+    {
+        currentSA3TransformPrompt = text;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onTransformStrengthChanged = [this](double value)
+    {
+        currentSA3TransformStrength = juce::jlimit(0.01, 1.0, value);
+    };
+    sa3UI->onTransformAudioSourceChanged = [this](bool useRecording)
+    {
+        transformRecording = useRecording;
+        audioProcessor.setTransformRecording(useRecording);
+        if (terryUI)
+            terryUI->setAudioSourceRecording(useRecording);
+        if (dariusUI)
+            dariusUI->setAudioSourceRecording(useRecording);
+        if (sa3UI)
+            sa3UI->setTransformAudioSourceRecording(useRecording);
+        updateSA3EnablementSnapshot();
+        updateTerryEnablementSnapshot();
+    };
+    sa3UI->onTransform = [this]() { sendSA3Transform(); };
+    sa3UI->onTransformDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Transform); };
+    sa3UI->onContinuePromptChanged = [this](const juce::String& text)
+    {
+        currentSA3ContinuePrompt = text;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onContinueTotalSecondsChanged = [this](int seconds)
+    {
+        currentSA3ContinueTotalSeconds = juce::jlimit(1, 300, seconds);
+    };
+    sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
+    {
+        currentSA3ContinueLatentPrefix = enabled;
+    };
+    sa3UI->onContinueAudioSourceChanged = [this](bool useRecording)
+    {
+        transformRecording = useRecording;
+        audioProcessor.setTransformRecording(useRecording);
+        if (terryUI)
+            terryUI->setAudioSourceRecording(useRecording);
+        if (dariusUI)
+            dariusUI->setAudioSourceRecording(useRecording);
+        if (sa3UI)
+            sa3UI->setContinueAudioSourceRecording(useRecording);
+        updateSA3EnablementSnapshot();
+        updateTerryEnablementSnapshot();
+    };
+    sa3UI->onContinue = [this]() { sendSA3Continue(); };
+    sa3UI->onContinueDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Continue); };
+    sa3UI->onLoraSelectionChanged = [this]()
+    {
+        sa3PromptRequestNonce.fetch_add(1);
+        updateSA3EnablementSnapshot();
+    };
+
+    sa3UI->setBpm(audioProcessor.getCurrentBPM());
+    sa3UI->setPromptText(currentSA3Prompt);
+    sa3UI->setTransformPromptText(currentSA3TransformPrompt);
+    sa3UI->setTransformStrength(currentSA3TransformStrength);
+    sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
+    sa3UI->setContinueTotalSeconds(currentSA3ContinueTotalSeconds);
+    sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+    sa3UI->setTransformAudioSourceRecording(transformRecording);
+    sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
+    sa3UI->setContinueAudioSourceRecording(transformRecording);
+    sa3UI->setContinueAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
+    sa3UI->setDurationSeconds(currentSA3DurationSeconds);
+    sa3UI->setLoopEnabled(currentSA3LoopEnabled);
+    sa3UI->setBars(currentSA3Bars);
+    sa3UI->setSteps(currentSA3Steps);
+    sa3UI->setCfgScale(currentSA3Cfg);
+    sa3UI->setShift(currentSA3Shift);
+    sa3UI->setKeyScale(currentSA3KeyScale);
+    sa3UI->setNegativePromptText(currentSA3NegativePrompt);
+    sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+    sa3UI->setGenerateButtonEnabled(false, false);
+    sa3UI->setDiceButtonsEnabled(false);
+    sa3UI->setVisibleForTab(false);
 
     // ========== TERRY UI SETUP ==========
     terryUI = std::make_unique<TerryUI>();
@@ -793,6 +932,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         };
         addAndMakeVisible(jerryHelpButton);
 
+        // sa3 help button
+        sa3HelpButton.setImages(helpIcon.get());
+        sa3HelpButton.setTooltip("learn more about stable audio 3");
+        sa3HelpButton.onClick = [this]() {
+            juce::URL("https://github.com/stability-ai/stable-audio-3").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(sa3HelpButton);
+
         // terry help button
         terryHelpButton.setImages(helpIcon.get());
         terryHelpButton.setTooltip("learn more about melodyflow");
@@ -1020,16 +1167,25 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 
     if (jerryUI)
     {
-        jerryUI->setVisibleForTab(showJerry);
+        jerryUI->setVisibleForTab(showJerry && jerrySubTab == JerrySubTab::SAOS);
 
-        // NEW: Fetch available models when switching to Jerry tab
-        if (showJerry)
+        if (showJerry && jerrySubTab == JerrySubTab::SAOS)
         {
             fetchJerryAvailableModels();
 
-            // NEW: Only for remote backend, fetch prompts once (TTL’d) for the active finetune
             if (!audioProcessor.getIsUsingLocalhost())
                 maybeFetchRemoteJerryPrompts();
+        }
+    }
+
+    if (sa3UI)
+    {
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+        sa3UI->setVisibleForTab(showJerry && jerrySubTab == JerrySubTab::SA3);
+        if (showJerry && jerrySubTab == JerrySubTab::SA3)
+        {
+            refreshSA3AvailableLoras(true);
+            updateSA3EnablementSnapshot();
         }
     }
 
@@ -1062,23 +1218,28 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     }
 
     // Jerry sub-tab buttons visibility (only when Jerry main tab is active)
+    jerrySubTabSA3.setVisible(showJerry);
     jerrySubTabSAOS.setVisible(showJerry);
     jerrySubTabFoundation.setVisible(showJerry);
 
     // Jerry sub-tab components: show the right one
     if (showJerry)
     {
+        bool showSA3 = (jerrySubTab == JerrySubTab::SA3);
         bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
+        if (sa3UI) sa3UI->setVisibleForTab(showSA3);
+        if (showSA3) refreshSA3AvailableLoras(true);
         if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
         if (foundationUI)
         {
-            foundationUI->setVisibleForTab(!showSAOS);
-            if (!showSAOS) updateFoundationEnablementSnapshot();
+            foundationUI->setVisibleForTab(jerrySubTab == JerrySubTab::Foundation);
+            if (jerrySubTab == JerrySubTab::Foundation) updateFoundationEnablementSnapshot();
         }
     }
     else
     {
         // Jerry tab not active — hide both sub-components
+        if (sa3UI) sa3UI->setVisibleForTab(false);
         if (foundationUI) foundationUI->setVisibleForTab(false);
     }
 
@@ -1086,6 +1247,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     if (helpIcon)
     {
         garyHelpButton.setVisible(showGary);
+        sa3HelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::SA3);
         // Jerry help: show SAOS help when Jerry tab + SAOS sub-tab
         jerryHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::SAOS);
         // Foundation help: show when Jerry tab + Foundation sub-tab
@@ -1145,6 +1307,7 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
     updateTerryEnablementSnapshot();
     updateCareyEnablementSnapshot();
     updateFoundationEnablementSnapshot();
+    updateSA3EnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
@@ -1183,6 +1346,9 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     double currentBPM = audioProcessor.getCurrentBPM();
     if (jerryUI && !juce::JUCEApplicationBase::isStandaloneApp())
         jerryUI->setBpm(juce::roundToInt(currentBPM));
+
+    if (sa3UI)
+        sa3UI->setBpm(currentBPM);
 
     if (terryUI)
         terryUI->setBpm(currentBPM);
@@ -1686,6 +1852,10 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     const bool generatingSnapshot = isGenerating;
     const int connectionTimeoutMs = warmupSnapshot ? 4000 : 8000;
     const juce::URL pollUrl = [&]() {
+        if (activeOperation == ActiveOp::SA3Generate
+            || activeOperation == ActiveOp::SA3Transform
+            || activeOperation == ActiveOp::SA3Continue)
+            return juce::URL(getServiceUrl(ServiceType::SA3, "/poll_status/" + sessionId));
         if (activeOperation == ActiveOp::FoundationGenerate)
             return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
         if (activeOperation == ActiveOp::CareyGenerate)
@@ -2086,8 +2256,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 else
                 {
                     // Fallback message when we have no specific queue info but task is in progress
-                    if (getActiveOp() == ActiveOp::TerryTransform || transformInProgress)
+                    if (getActiveOp() == ActiveOp::TerryTransform
+                        || getActiveOp() == ActiveOp::SA3Transform
+                        || transformInProgress)
                         showStatusMessage("processing transform...", 5000);
+                    else if (getActiveOp() == ActiveOp::SA3Continue)
+                        showStatusMessage("processing continuation...", 5000);
                     else
                         showStatusMessage("processing audio...", 5000);
                 }
@@ -2099,7 +2273,11 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
             const auto activeOp = getActiveOp();
-            const bool isTransformOp = transformInProgress || activeOp == ActiveOp::TerryTransform;
+            const bool isSA3TransformOp = activeOp == ActiveOp::SA3Transform;
+            const bool isSA3ContinueOp = activeOp == ActiveOp::SA3Continue;
+            const bool isTerryTransformOp = activeOp == ActiveOp::TerryTransform
+                || (transformInProgress && !isSA3TransformOp && !isSA3ContinueOp);
+            const bool isTransformOp = isTerryTransformOp || isSA3TransformOp;
 
             withinWarmup = false; // completed/terminal statuses should clear warmup
 
@@ -2119,7 +2297,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 isGenerating = false;
 
                 // DIFFERENTIATE: Check if we're completing a transform vs generation
-                if (isTransformOp)
+                if (isTerryTransformOp)
                 {
                     // TRANSFORM COMPLETION - Keep session ID for undo
                     if (terryUI)
@@ -2138,12 +2316,17 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else
                 {
-                    // GENERATION COMPLETION (Gary/Jerry)
-                    showStatusMessage("audio generation complete!", 3000);
+                    // GENERATION COMPLETION (Gary/Jerry) or SA3 mode completion
+                    showStatusMessage(isSA3ContinueOp ? "sa3 continuation complete!"
+                                      : isSA3TransformOp ? "sa3 transform complete!"
+                                      : "audio generation complete!", 3000);
                     audioProcessor.setUndoTransformAvailable(false);
                     audioProcessor.setRetryAvailable(true);
                     saveGeneratedAudio(audioData);
-                    DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
+                    DBG(juce::String(isSA3TransformOp ? "Successfully received SA3 transformed audio: "
+                                                       : isSA3ContinueOp ? "Successfully received SA3 continuation audio: "
+                                                       : "Successfully received generated audio: ")
+                        + juce::String(audioData.length()) + " chars");
 
                     // Check if this was a continue operation using our flag
                     if (continueInProgress)
@@ -2154,6 +2337,20 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                             garyUI->setRetryButtonText("retry");  // Reset retry button text
                         updateRetryButtonState();
                         DBG("Continue operation completed - retry button enabled");
+                    }
+                    else if (isSA3TransformOp)
+                    {
+                        audioProcessor.setRetryAvailable(false);
+                        audioProcessor.clearCurrentSessionId();
+                        updateRetryButtonState();
+                        DBG("SA3 transform completed - retry disabled");
+                    }
+                    else if (isSA3ContinueOp)
+                    {
+                        audioProcessor.setRetryAvailable(false);
+                        audioProcessor.clearCurrentSessionId();
+                        updateRetryButtonState();
+                        DBG("SA3 continuation completed - retry disabled");
                     }
                     else
                     {
@@ -2184,6 +2381,15 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                         showStatusMessage("transform failed: " + error, 5000);
                         audioProcessor.setUndoTransformAvailable(false);
                         audioProcessor.setRetryAvailable(false);
+                        if (isSA3TransformOp)
+                            audioProcessor.clearCurrentSessionId();
+                        updateRetryButtonState();
+                    }
+                    else if (isSA3ContinueOp)
+                    {
+                        showStatusMessage("continue failed: " + error, 5000);
+                        audioProcessor.setRetryAvailable(false);
+                        audioProcessor.clearCurrentSessionId();
                         updateRetryButtonState();
                     }
                     else
@@ -2208,6 +2414,13 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     if (isTransformOp)
                     {
                         showStatusMessage("transform completed but no audio received", 3000);
+                        if (isSA3TransformOp)
+                            audioProcessor.clearCurrentSessionId();
+                    }
+                    else if (isSA3ContinueOp)
+                    {
+                        showStatusMessage("continuation completed but no audio received", 3000);
+                        audioProcessor.clearCurrentSessionId();
                     }
                     else
                     {
@@ -4819,7 +5032,10 @@ juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
     switch (getActiveOp())
     {
         case ActiveOp::TerryTransform:
+        case ActiveOp::SA3Transform:
             return "transforming";
+        case ActiveOp::SA3Continue:
+            return "continuing";
         case ActiveOp::GaryGenerate:
         case ActiveOp::GaryContinue:
         case ActiveOp::GaryRetry:
@@ -4827,6 +5043,7 @@ juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
             return "cooking";
         case ActiveOp::CareyGenerate:
         case ActiveOp::FoundationGenerate:
+        case ActiveOp::SA3Generate:
             return "generating";
         default:
             return "processing";
@@ -4899,12 +5116,18 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             switch (getActiveOp())
             {
                 case ActiveOp::TerryTransform:
+                case ActiveOp::SA3Transform:
                     displayText = "queued for transform";
+                    break;
+                case ActiveOp::SA3Continue:
+                    displayText = "queued for continuation";
                     break;
                 case ActiveOp::GaryGenerate:
                 case ActiveOp::GaryContinue:
                 case ActiveOp::GaryRetry:
                 case ActiveOp::JerryGenerate:
+                case ActiveOp::FoundationGenerate:
+                case ActiveOp::SA3Generate:
                     displayText = "queued for generation";
                     break;
                 default:
@@ -4918,10 +5141,14 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             switch (getActiveOp())
             {
                 case ActiveOp::TerryTransform:
+                case ActiveOp::SA3Transform:
                     if (displayedProgress <= 0)
                         displayText = "transforming...";
                     else
-                        displayText = "transforming: " + juce::String(displayedProgress) + "%";
+                    displayText = "transforming: " + juce::String(displayedProgress) + "%";
+                    break;
+                case ActiveOp::SA3Continue:
+                    displayText = "continuing: " + juce::String(displayedProgress) + "%";
                     break;
                 case ActiveOp::GaryGenerate:
                 case ActiveOp::GaryContinue:
@@ -4942,6 +5169,10 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
                     {
                         displayText = "cooking: " + juce::String(displayedProgress) + "%";
                     }
+                    break;
+                case ActiveOp::FoundationGenerate:
+                case ActiveOp::SA3Generate:
+                    displayText = "generating: " + juce::String(displayedProgress) + "%";
                     break;
                 default:
                     if (displayedProgress <= 0)
@@ -6358,7 +6589,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     {
         g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
         const auto lineOne = getLocalConnectionLineOne();
-        const auto lineTwo = juce::String(localOnlineCount) + "/5 online";
+        const auto lineTwo = juce::String(localOnlineCount) + "/6 online";
         const bool anyOnline = localOnlineCount > 0;
         const bool activeOnline = isActiveLocalServiceOnline();
 
@@ -6720,28 +6951,38 @@ void Gary4juceAudioProcessorEditor::resized()
         constexpr int helpSize = 20;
         constexpr int helpInset = 2;
 
-        int btnW = (subArea.getWidth() - 4) / 2;
-        auto leftBtn = subArea.withWidth(btnW);
-        auto rightBtn = subArea.withLeft(subArea.getX() + btnW + 4).withWidth(btnW);
+        int btnW = (subArea.getWidth() - 8) / 3;
+        auto sa3Btn = subArea.withWidth(btnW);
+        auto saosBtn = subArea.withLeft(subArea.getX() + btnW + 4).withWidth(btnW);
+        auto foundationBtn = subArea.withLeft(subArea.getX() + (btnW + 4) * 2).withWidth(btnW);
 
-        jerrySubTabSAOS.setBounds(leftBtn);
-        jerrySubTabFoundation.setBounds(rightBtn);
+        jerrySubTabSA3.setBounds(sa3Btn);
+        jerrySubTabSAOS.setBounds(saosBtn);
+        jerrySubTabFoundation.setBounds(foundationBtn);
+        jerrySubTabSA3.toFront(false);
         jerrySubTabSAOS.toFront(false);
         jerrySubTabFoundation.toFront(false);
 
         if (helpIcon)
         {
-            if (jerrySubTab == JerrySubTab::SAOS)
+            if (jerrySubTab == JerrySubTab::SA3)
             {
-                jerryHelpButton.setBounds(leftBtn.getRight() - helpSize - helpInset,
-                                           leftBtn.getCentreY() - helpSize / 2,
+                sa3HelpButton.setBounds(sa3Btn.getRight() - helpSize - helpInset,
+                                        sa3Btn.getCentreY() - helpSize / 2,
+                                        helpSize, helpSize);
+                sa3HelpButton.toFront(false);
+            }
+            else if (jerrySubTab == JerrySubTab::SAOS)
+            {
+                jerryHelpButton.setBounds(saosBtn.getRight() - helpSize - helpInset,
+                                           saosBtn.getCentreY() - helpSize / 2,
                                            helpSize, helpSize);
                 jerryHelpButton.toFront(false);
             }
             else
             {
-                foundationHelpButton.setBounds(rightBtn.getRight() - helpSize - helpInset,
-                                                rightBtn.getCentreY() - helpSize / 2,
+                foundationHelpButton.setBounds(foundationBtn.getRight() - helpSize - helpInset,
+                                                foundationBtn.getCentreY() - helpSize / 2,
                                                 helpSize, helpSize);
                 foundationHelpButton.toFront(false);
             }
@@ -6776,14 +7017,19 @@ void Gary4juceAudioProcessorEditor::resized()
     // When on Jerry tab, hide the title labels since sub-tab buttons serve as headers
     if (currentTab == ModelTab::Jerry)
     {
+        if (sa3UI) sa3UI->setTitleVisible(false);
         if (jerryUI) jerryUI->setTitleVisible(false);
         if (foundationUI) foundationUI->setTitleVisible(false);
     }
     else
     {
+        if (sa3UI) sa3UI->setTitleVisible(true);
         if (jerryUI) jerryUI->setTitleVisible(true);
         if (foundationUI) foundationUI->setTitleVisible(true);
     }
+
+    if (sa3UI)
+        sa3UI->setBounds(modelControlsArea);
 
     if (careyUI)
         careyUI->setBounds(modelControlsArea);

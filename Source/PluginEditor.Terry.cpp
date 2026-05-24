@@ -19,8 +19,11 @@ void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
     DBG("Terry audio source set to: " + juce::String(useRecording ? "Recording" : "Output"));
     if (terryUI)
         terryUI->setAudioSourceRecording(useRecording);
+    if (sa3UI)
+        sa3UI->setTransformAudioSourceRecording(useRecording);
 
     updateTerryEnablementSnapshot();
+    updateSA3EnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()

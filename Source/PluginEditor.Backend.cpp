@@ -18,6 +18,7 @@ juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, c
         case ServiceType::Terry:      processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
         case ServiceType::Carey:      processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
         case ServiceType::Foundation: processorService = Gary4juceAudioProcessor::ServiceType::Foundation; break;
+        case ServiceType::SA3:        processorService = Gary4juceAudioProcessor::ServiceType::SA3; break;
         default: processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
     }
 
@@ -54,11 +55,36 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
             applyGaryQuantizationDefaultForCurrentModel();
     }
 
+    if (sa3UI)
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+
+    // Local and remote SA3 can expose different LoRA registries.
+    availableSA3Loras.clear();
+    sa3LoraFetchBackendUrl.clear();
+    sa3LoraLastFetchMs = 0;
+    syncSA3LoraUi();
+
     // Update carey tab availability (now available on both backends)
     updateCareyTabAvailability();
 
-    // Update Foundation sub-tab states (now available on both backends)
+    // Update Jerry sub-tab states after backend mode changes.
     updateJerrySubTabStates();
+
+    if (currentTab == ModelTab::Jerry)
+    {
+        const bool showSA3 = (jerrySubTab == JerrySubTab::SA3);
+        const bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
+        if (sa3UI) sa3UI->setVisibleForTab(showSA3);
+        if (showSA3) refreshSA3AvailableLoras(true);
+        if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+        if (foundationUI) foundationUI->setVisibleForTab(jerrySubTab == JerrySubTab::Foundation);
+        if (helpIcon)
+        {
+            sa3HelpButton.setVisible(showSA3);
+            jerryHelpButton.setVisible(showSAOS);
+            foundationHelpButton.setVisible(jerrySubTab == JerrySubTab::Foundation);
+        }
+    }
 
     // Reset local health snapshot and trigger fresh poll if switching to localhost
     resetLocalServiceHealthSnapshot();
@@ -77,7 +103,7 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 carey:8003 foundation:8015) - click to switch to remote");
+        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 sa3:8006 carey:8003 foundation:8015) - click to switch to remote");
     }
     else
     {
@@ -119,6 +145,7 @@ bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) co
     case ServiceType::Jerry:      return localJerryOnline;
     case ServiceType::Carey:      return localCareyOnline;
     case ServiceType::Foundation: return localFoundationOnline;
+    case ServiceType::SA3:        return localSA3Online;
     }
     return false;
 }
@@ -128,7 +155,11 @@ Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getAct
     switch (currentTab)
     {
     case ModelTab::Jerry:
-        return (jerrySubTab == JerrySubTab::Foundation) ? ServiceType::Foundation : ServiceType::Jerry;
+        if (jerrySubTab == JerrySubTab::Foundation)
+            return ServiceType::Foundation;
+        if (jerrySubTab == JerrySubTab::SA3)
+            return ServiceType::SA3;
+        return ServiceType::Jerry;
     case ModelTab::Terry:  return ServiceType::Terry;
     case ModelTab::Carey:  return ServiceType::Carey;
     case ModelTab::Gary:
@@ -168,6 +199,7 @@ void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
     localJerryOnline = false;
     localCareyOnline = false;
     localFoundationOnline = false;
+    localSA3Online = false;
     localOnlineCount = 0;
     localHealthLastPollMs = 0;
     localHealthPollCounter = 0;
@@ -217,8 +249,9 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         const bool jerryOnline      = probeHealth("http://127.0.0.1:8005/health");
         const bool careyOnline      = probeHealth("http://127.0.0.1:8003/health");
         const bool foundationOnline = probeHealth("http://127.0.0.1:8015/health");
+        const bool sa3Online        = probeHealth("http://127.0.0.1:8006/health");
 
-        juce::MessageManager::callAsync([asyncAlive, editor, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline]() {
+        juce::MessageManager::callAsync([asyncAlive, editor, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline, sa3Online]() {
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
@@ -226,23 +259,28 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             editor->localHealthPollInFlight.store(false);
 
             const bool careyStatusChanged = editor->localCareyOnline != careyOnline;
+            const bool sa3StatusChanged = editor->localSA3Online != sa3Online;
 
             const bool changed =
                 editor->localGaryOnline != garyOnline ||
                 editor->localTerryOnline != terryOnline ||
                 editor->localJerryOnline != jerryOnline ||
                 editor->localCareyOnline != careyOnline ||
-                editor->localFoundationOnline != foundationOnline;
+                editor->localFoundationOnline != foundationOnline ||
+                editor->localSA3Online != sa3Online;
 
             editor->localGaryOnline = garyOnline;
             editor->localTerryOnline = terryOnline;
             editor->localJerryOnline = jerryOnline;
             editor->localCareyOnline = careyOnline;
             editor->localFoundationOnline = foundationOnline;
+            editor->localSA3Online = sa3Online;
             editor->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
-                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0);
+                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0)
+                + (sa3Online ? 1 : 0);
 
             editor->updateAllGenerationButtonStates();
+            editor->updateJerrySubTabStates();
 
             if (!jerryOnline && editor->jerryUI)
                 editor->jerryUI->setLoadingModel(false);
@@ -255,6 +293,18 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             {
                 editor->refreshCareyAvailableLoras(careyStatusChanged);
                 editor->updateCareyEnablementSnapshot();
+            }
+
+            if (editor->currentTab == ModelTab::Jerry && editor->jerrySubTab == JerrySubTab::SA3)
+            {
+                if (sa3Online)
+                    editor->refreshSA3AvailableLoras(sa3StatusChanged);
+                else
+                {
+                    editor->availableSA3Loras.clear();
+                    editor->syncSA3LoraUi();
+                }
+                editor->updateSA3EnablementSnapshot();
             }
 
             if (changed)

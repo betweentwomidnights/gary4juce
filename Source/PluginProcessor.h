@@ -26,7 +26,7 @@ public:
     void stopHealthChecks();
 
     // Service type enum for different ports
-    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
     
     // Backend URL management methods
     void setUsingLocalhost(bool useLocalhost);
