@@ -1,6 +1,6 @@
 # gary4juce
 
-**gary v4 has begun: stable-audio-3 is now inside the DAW.**
+**gary v4 is stable: stable-audio-3 is now inside the DAW.**
 
 a VST3/AU plugin for musicians who want AI to meet them where they actually
 live. for me, that's ableton. for you, it might be fl studio or, if you're
@@ -8,9 +8,9 @@ insane, reaper lol
 
 https://thepatch.gumroad.com/l/gary4juce
 
-**latest stable release:** [gary4juce v3.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7)
+**latest stable release:** [gary4juce v4.0.0 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0)
 
-**v4 pre-release:** [gary4juce v4.0.0-pre (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-pre) - stable-audio-3 has entered the DAW.
+**recommended local companion:** [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 

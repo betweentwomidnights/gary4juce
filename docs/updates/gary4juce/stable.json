@@ -1,14 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "3.0.7",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7",
-  "sha256": null,
-  "published_at": "2026-05-16T01:02:23Z",
+  "latest_version": "4.0.0",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0",
+  "sha256": "b42856c3703280a6ae044a95334e658f4d30e35b564bae9dad6aa21955fd6b6e",
+  "published_at": "2026-05-26T04:46:28Z",
   "notes": [
-    "Carey lego's local dice button now uses the simpler stem-focused caption pool that has been working better for lego tasks.",
-    "Long Carey captions in lego, complete, and cover can pop out into a compact editor so ACE-Step paragraph prompts are readable while you keep rolling dice captions.",
-    "Carey guidance now calls out the current lego xl-model regression and the cover-nofsq backend behavior.",
-    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.7",
+    "gary v4 is stable: SA3 is now in the Jerry tab with generate, loop, transform, continue, LoRAs, seed recall, key/scale prompting, and smart dice.",
+    "Local SA3 on Windows needs gary4local v0.1.11.",
+    "DAW-play recording is less likely to miss the first host buffer if the UI is busy.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
