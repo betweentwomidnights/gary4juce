@@ -146,14 +146,19 @@ private:
 
     // Recording buffer state
     juce::AudioBuffer<float> recordingBuffer;
+    juce::AudioBuffer<float> deferredRecordingBuffer;
     int bufferWritePosition = 0;
     int recordedSamples = 0;
+    int deferredRecordingSamples = 0;
+    int maxDeferredRecordingSamples = 0;
+    bool deferredRecordingOverflowed = false;
     bool recording = false;
     bool wasPlaying = false;  // To detect transport state changes
     double currentSampleRate = 44100.0;  // Default fallback, updated in prepareToPlay()
 
     // Recording settings
     static constexpr double recordingLengthSeconds = 180.0;  // Extended for full-song Carey conditioning
+    static constexpr double deferredRecordingLengthSeconds = 2.0;
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
 
     std::atomic<double> currentBPM{ 120.0 };  // Thread-safe BPM storage
@@ -197,6 +202,13 @@ private:
     void stopRecording();
     void requestRecordingStartFromAudioThread() noexcept;
     void requestRecordingStopFromAudioThread() noexcept;
-    void tryApplyPendingRecordingStateFromAudioThread() noexcept;
+    void applyPendingRecordingStateFromAudioThread(int totalNumInputChannels, bool& stoppedThisBlock);
+    void copyInputBlockToRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer,
+                                         int totalNumInputChannels,
+                                         int numSamples);
+    void appendDeferredRecordingBlock(const juce::AudioBuffer<float>& sourceBuffer,
+                                      int totalNumInputChannels,
+                                      int numSamples);
+    void flushDeferredRecordingBlocks(int totalNumInputChannels);
     void stopRecordingNonBlocking() noexcept;
 };
