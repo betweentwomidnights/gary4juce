@@ -1,0 +1,2 @@
+c9ef722a8f2678cee092f6eb8fbc00a548c1466ca84f4233e47db88de8cd63dc  gary4juce-v4.0.0-AU.dmg
+80f02cc7a695a589e559a24a09bb4df367e5d2c0f4e7798f3f9af24f5a677082  gary4juce-v4.0.0-VST3.dmg
