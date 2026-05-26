@@ -349,6 +349,8 @@ void Gary4juceAudioProcessor::startRecording()
     recordingStopPending.store(false);
     bufferWritePosition = 0;
     recordedSamples = 0;
+    deferredRecordingSamples = 0;
+    deferredRecordingOverflowed = false;
     atomicRecordedSamples = 0;
     recording = true;
     atomicRecording = true;
@@ -378,21 +380,15 @@ void Gary4juceAudioProcessor::requestRecordingStopFromAudioThread() noexcept
     recordingStopPending.store(true, std::memory_order_release);
 }
 
-void Gary4juceAudioProcessor::tryApplyPendingRecordingStateFromAudioThread() noexcept
+void Gary4juceAudioProcessor::applyPendingRecordingStateFromAudioThread(int totalNumInputChannels,
+                                                                        bool& stoppedThisBlock)
 {
-    const auto shouldStart = recordingStartPending.load(std::memory_order_acquire);
-    const auto shouldStop = recordingStopPending.load(std::memory_order_acquire);
-
-    if (!shouldStart && !shouldStop)
-        return;
-
-    if (!bufferLock.tryEnter())
-        return;
-
     if (recordingStopPending.exchange(false, std::memory_order_acq_rel))
     {
+        flushDeferredRecordingBlocks(totalNumInputChannels);
         DBG("Stopping recording. Recorded " + juce::String(recordedSamples) + " samples");
         recording = false;
+        stoppedThisBlock = true;
         atomicRecording.store(false, std::memory_order_release);
         atomicRecordedSamples.store(recordedSamples, std::memory_order_release);
     }
@@ -406,8 +402,102 @@ void Gary4juceAudioProcessor::tryApplyPendingRecordingStateFromAudioThread() noe
         recording = true;
         atomicRecording.store(true, std::memory_order_release);
     }
+}
 
-    bufferLock.exit();
+void Gary4juceAudioProcessor::copyInputBlockToRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer,
+                                                              int totalNumInputChannels,
+                                                              int numSamples)
+{
+    if (!recording || recordedSamples >= maxRecordingSamples || numSamples <= 0)
+        return;
+
+    const int samplesToRecord = juce::jmin(numSamples, maxRecordingSamples - recordedSamples);
+    if (samplesToRecord <= 0)
+        return;
+
+    for (int channel = 0; channel < juce::jmin(totalNumInputChannels, recordingBuffer.getNumChannels()); ++channel)
+        recordingBuffer.copyFrom(channel, bufferWritePosition, sourceBuffer, channel, 0, samplesToRecord);
+
+    bufferWritePosition += samplesToRecord;
+    recordedSamples += samplesToRecord;
+    atomicRecordedSamples.store(recordedSamples, std::memory_order_release);
+
+    if (recordedSamples >= maxRecordingSamples)
+    {
+        DBG("Recording buffer full - stopped recording");
+        recording = false;
+        atomicRecording.store(false, std::memory_order_release);
+    }
+}
+
+void Gary4juceAudioProcessor::appendDeferredRecordingBlock(const juce::AudioBuffer<float>& sourceBuffer,
+                                                           int totalNumInputChannels,
+                                                           int numSamples)
+{
+    if (numSamples <= 0 || maxDeferredRecordingSamples <= 0)
+        return;
+
+    const int availableSamples = maxDeferredRecordingSamples - deferredRecordingSamples;
+    const int samplesToDefer = juce::jmin(numSamples, availableSamples);
+
+    if (samplesToDefer <= 0)
+    {
+        if (!deferredRecordingOverflowed)
+        {
+            DBG("Deferred recording buffer full - dropping input while waiting for recording lock");
+            deferredRecordingOverflowed = true;
+        }
+        return;
+    }
+
+    deferredRecordingBuffer.clear(deferredRecordingSamples, samplesToDefer);
+
+    for (int channel = 0; channel < juce::jmin(totalNumInputChannels, deferredRecordingBuffer.getNumChannels()); ++channel)
+        deferredRecordingBuffer.copyFrom(channel, deferredRecordingSamples, sourceBuffer, channel, 0, samplesToDefer);
+
+    deferredRecordingSamples += samplesToDefer;
+
+    if (samplesToDefer < numSamples && !deferredRecordingOverflowed)
+    {
+        DBG("Deferred recording buffer overflowed - dropping " + juce::String(numSamples - samplesToDefer) + " samples");
+        deferredRecordingOverflowed = true;
+    }
+}
+
+void Gary4juceAudioProcessor::flushDeferredRecordingBlocks(int totalNumInputChannels)
+{
+    if (deferredRecordingSamples <= 0)
+        return;
+
+    if (!recording || recordedSamples >= maxRecordingSamples)
+    {
+        deferredRecordingSamples = 0;
+        deferredRecordingOverflowed = false;
+        return;
+    }
+
+    const int samplesToFlush = juce::jmin(deferredRecordingSamples, maxRecordingSamples - recordedSamples);
+    if (samplesToFlush > 0)
+    {
+        const int channelsToFlush = juce::jmin(totalNumInputChannels,
+            juce::jmin(recordingBuffer.getNumChannels(), deferredRecordingBuffer.getNumChannels()));
+        for (int channel = 0; channel < channelsToFlush; ++channel)
+            recordingBuffer.copyFrom(channel, bufferWritePosition, deferredRecordingBuffer, channel, 0, samplesToFlush);
+
+        bufferWritePosition += samplesToFlush;
+        recordedSamples += samplesToFlush;
+        atomicRecordedSamples.store(recordedSamples, std::memory_order_release);
+    }
+
+    deferredRecordingSamples = 0;
+    deferredRecordingOverflowed = false;
+
+    if (recordedSamples >= maxRecordingSamples)
+    {
+        DBG("Recording buffer full - stopped recording");
+        recording = false;
+        atomicRecording.store(false, std::memory_order_release);
+    }
 }
 
 void Gary4juceAudioProcessor::stopRecordingNonBlocking() noexcept
@@ -434,6 +524,8 @@ void Gary4juceAudioProcessor::clearRecordingBuffer()
     recordingBuffer.clear();
     bufferWritePosition = 0;
     recordedSamples = 0;
+    deferredRecordingSamples = 0;
+    deferredRecordingOverflowed = false;
     atomicRecordedSamples = 0;
     recording = false;
     atomicRecording = false;
@@ -556,6 +648,8 @@ void Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuff
     // Clear existing recording state
     recordingBuffer.clear();
     bufferWritePosition = 0;
+    deferredRecordingSamples = 0;
+    deferredRecordingOverflowed = false;
     recording = false;
     atomicRecording = false;
 
@@ -667,14 +761,19 @@ void Gary4juceAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
 {
     currentSampleRate = sampleRate;
 
-    // Calculate buffer size for 30 seconds of audio
+    // Calculate buffer size for recorded audio plus a short spill buffer used
+    // when the main recording buffer is momentarily locked by the UI thread.
     int newMaxRecordingSamples = (int)(recordingLengthSeconds * sampleRate);
+    int newMaxDeferredRecordingSamples = juce::jmax(samplesPerBlock,
+        (int)(deferredRecordingLengthSeconds * sampleRate));
 
     // Only reset recording state if sample rate changed or buffer needs resize
     bool needsBufferResize = (maxRecordingSamples != newMaxRecordingSamples) ||
+        (maxDeferredRecordingSamples != newMaxDeferredRecordingSamples) ||
         (recordingBuffer.getNumChannels() != juce::jmax(getTotalNumInputChannels(), getTotalNumOutputChannels()));
 
     maxRecordingSamples = newMaxRecordingSamples;
+    maxDeferredRecordingSamples = newMaxDeferredRecordingSamples;
 
     // Set up recording buffer - use same channel configuration as the plugin
     int numChannels = juce::jmax(getTotalNumInputChannels(), getTotalNumOutputChannels());
@@ -690,10 +789,14 @@ void Gary4juceAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
         // Only clear the buffer if we actually need to resize it
         recordingBuffer.setSize(numChannels, maxRecordingSamples);
         recordingBuffer.clear();
+        deferredRecordingBuffer.setSize(numChannels, maxDeferredRecordingSamples);
+        deferredRecordingBuffer.clear();
 
         // Reset recording state only when buffer changes - UPDATE ATOMICS TOO
         bufferWritePosition = 0;
         recordedSamples = 0;
+        deferredRecordingSamples = 0;
+        deferredRecordingOverflowed = false;
         atomicRecordedSamples = 0;  // ADD THIS
         recording = false;
         atomicRecording = false;    // ADD THIS
@@ -713,6 +816,8 @@ void Gary4juceAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlo
 
         // Just ensure we're not recording when transport stops, but preserve data
         recording = false;
+        deferredRecordingSamples = 0;
+        deferredRecordingOverflowed = false;
         atomicRecording = false;    // ADD THIS
 
         DBG("PrepareToPlay called - preserving " + juce::String(recordedSamples) + " recorded samples");
@@ -783,6 +888,8 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
     // Detect when transport starts (transition from not playing to playing)
     if (isCurrentlyPlaying && !wasPlaying)
     {
+        deferredRecordingSamples = 0;
+        deferredRecordingOverflowed = false;
         requestRecordingStartFromAudioThread();
     }
     else if (!isCurrentlyPlaying && wasPlaying)
@@ -792,43 +899,44 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
 
     wasPlaying = isCurrentlyPlaying;
 
-    tryApplyPendingRecordingStateFromAudioThread();
+    const bool hasPendingRecordingState =
+        recordingStartPending.load(std::memory_order_acquire) ||
+        recordingStopPending.load(std::memory_order_acquire);
 
-    // Record audio if we're recording and have space in buffer
-    // Use atomic check first (fast path)
-    if (atomicRecording.load(std::memory_order_acquire) && atomicRecordedSamples.load(std::memory_order_acquire) < maxRecordingSamples)
+    const bool shouldHandleRecording =
+        hasPendingRecordingState ||
+        atomicRecording.load(std::memory_order_acquire) ||
+        deferredRecordingSamples > 0;
+
+    if (shouldHandleRecording)
     {
-        // Try to acquire lock without blocking (audio thread must not block)
         if (bufferLock.tryEnter())
         {
-            // Double-check conditions under lock
-            if (recording && recordedSamples < maxRecordingSamples)
+            bool stoppedThisBlock = false;
+            applyPendingRecordingStateFromAudioThread(totalNumInputChannels, stoppedThisBlock);
+
+            if (recording && !stoppedThisBlock && recordedSamples < maxRecordingSamples)
             {
-                int samplesToRecord = juce::jmin(buffer.getNumSamples(),
-                    maxRecordingSamples - recordedSamples);
+                flushDeferredRecordingBlocks(totalNumInputChannels);
 
-                // Copy input audio to recording buffer
-                for (int channel = 0; channel < juce::jmin(totalNumInputChannels, recordingBuffer.getNumChannels()); ++channel)
-                {
-                    recordingBuffer.copyFrom(channel, bufferWritePosition, buffer, channel, 0, samplesToRecord);
-                }
-
-                bufferWritePosition += samplesToRecord;
-                recordedSamples += samplesToRecord;
-                atomicRecordedSamples = recordedSamples; // Update atomic version
-
-                // Stop recording if we've reached the maximum
-                if (recordedSamples >= maxRecordingSamples)
-                {
-                    DBG("Recording buffer full - stopped recording");
-                    recording = false;
-                    atomicRecording = false;
-                }
-                }
-
-                bufferLock.exit();
+                if (isCurrentlyPlaying && recording)
+                    copyInputBlockToRecordingBuffer(buffer, totalNumInputChannels, buffer.getNumSamples());
             }
-        // If we can't get the lock, skip this block (better than blocking audio thread)
+            else if (!recording)
+            {
+                deferredRecordingSamples = 0;
+                deferredRecordingOverflowed = false;
+            }
+
+            bufferLock.exit();
+        }
+        else if (isCurrentlyPlaying
+                 && !recordingStopPending.load(std::memory_order_acquire)
+                 && (recordingStartPending.load(std::memory_order_acquire)
+                     || atomicRecording.load(std::memory_order_acquire)))
+        {
+            appendDeferredRecordingBlock(buffer, totalNumInputChannels, buffer.getNumSamples());
+        }
     }
 
     // Clear unused output channels
