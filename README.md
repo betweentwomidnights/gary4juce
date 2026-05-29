@@ -432,7 +432,4 @@ If gary4juce is useful to you:
 - share your creations and tag `@thepatch_kev`
 - contribute finetunes to the community
 - help improve docs
-- Gumroad: https://thepatch.gumroad.com/l/gary4juce
-
-No pressure. I mostly build this because I want these models to feel like
-instruments.
+- Gumroad: https://thepatch.gumroad.com/l/gary4juce (this is one of the only ways to support the project monetarily rn...working on some easier paths like github sponsors)
