@@ -13,11 +13,14 @@ https://thepatch.gumroad.com/l/gary4juce
 - [gary4juce v4.0.0 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0)
 - [gary4juce v4.0.0-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-mac)
 
-**recommended local companion:** [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
+**recommended local companions:**
+
+- windows: [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
+- macOS: [gary4local mac v0.1.9](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.9)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
-localhost backends:
+localhost backend source repos:
 
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
