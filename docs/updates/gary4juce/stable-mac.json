@@ -1,17 +1,16 @@
 {
   "channel": "stable-mac",
-  "latest_version": "3.0.7-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v3.0.7-mac",
+  "latest_version": "4.0.0-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-mac",
   "sha256": null,
-  "published_at": "2026-05-17T08:55:45Z",
+  "published_at": "2026-05-26T06:53:57Z",
   "notes": [
-    "Mac build of gary4juce v3.0.7-mac.",
-    "Carey got a small caption workflow polish pass, and lego's local dice button now uses the simpler stem-focused caption pool that has been working better for lego tasks.",
-    "Lego, complete, and cover captions can now pop out into a compact editor so long ACE-Step prompts are readable while you keep rolling dice captions.",
-    "Complete no longer wears the warning badge, and the Carey guide now calls out the current lego xl-model findings plus the cover-nofsq backend notes.",
-    "Notarized VST3, AU, and Standalone DMGs are included.",
-    "Standalone is included, but gary4juce is still designed primarily around DAW workflows.",
-    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.7",
+    "Mac build of gary4juce v4.0.0-mac.",
+    "This release brings the v4.0.0 plugin feature set to macOS AU and VST3.",
+    "Included DMGs: AU and VST3.",
+    "Standalone is intentionally omitted from this release while we continue stabilizing it.",
+    "Includes the final recording-buffer startup safety fix to avoid dropped blocks when recording begins.",
+    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.9",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

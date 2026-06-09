@@ -19,7 +19,6 @@
 #include "Utils/IconFactory.h"
 
 #include <atomic>
-#include <future>
 #include <memory>
 #include <vector>
 #include <cstdint>
@@ -95,6 +94,7 @@ private:
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;
     std::atomic<bool> localHealthPollInFlight{ false };
+    std::atomic<int> localHealthPollNonce{ 0 };
 
     // Backend toggle system
     bool isUsingLocalhost = false; // Local cache synced with processor
@@ -180,6 +180,11 @@ private:
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
     juce::Rectangle<int> fullTabAreaRect;  // Store the calculated tab area
+    ModelTab initialTab = ModelTab::Gary;
+
+    juce::String serializePersistentState() const;
+    void restorePersistentState(const juce::String& json);
+    void persistEditorState();
 
     void setActiveOp(ActiveOp op) { activeOp = op; }
     ActiveOp getActiveOp() const { return activeOp; }
@@ -201,6 +206,7 @@ private:
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
     juce::String currentGaryQuantizationMode = "q4_decoder_linears";
+    juce::String preferredGaryModelPath;
 
     std::unique_ptr<JerryUI> jerryUI;
     std::unique_ptr<SA3UI> sa3UI;
@@ -291,6 +297,11 @@ private:
 
     // ========== CAREY ==========
     std::unique_ptr<CareyUI> careyUI;
+    CareyUI::SubTab currentCareySubTab = CareyUI::SubTab::Lego;
+    bool currentCareyLegoAdvancedOpen = false;
+    bool currentCareyCompleteAdvancedOpen = false;
+    bool currentCareyCoverAdvancedOpen = false;
+    bool currentCareyExtractAdvancedOpen = false;
     juce::String currentCareyCaption = "";
     juce::String currentCareyTrackName = "vocals";
     int currentCareySteps = 50;
@@ -376,6 +387,13 @@ private:
     juce::String currentSA3ContinuePrompt = "";
     int currentSA3ContinueTotalSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;
+    SA3UI::SubTab currentSA3SubTab = SA3UI::SubTab::Generate;
+    bool currentSA3AdvancedOpen = false;
+    juce::String currentSA3LastSeed;
+    bool currentSA3UseSeed = false;
+    juce::String currentSA3SeedText;
+    bool currentSA3UseLora = false;
+    std::vector<SA3UI::LoraSelection> currentSA3LoraSelections;
     juce::StringArray availableSA3Loras;
     juce::String sa3LoraFetchBackendUrl;
     juce::int64 sa3LoraLastFetchMs = 0;
@@ -394,6 +412,7 @@ private:
     juce::String currentJerryPrompt = "";
     float currentJerryCfg = 1.0f;
     int currentJerrySteps = 8;
+    int currentJerryManualBpm = 120;
     bool generateAsLoop = false;
     juce::String currentLoopType = "auto";
 
@@ -405,6 +424,12 @@ private:
     juce::String currentJerryFinetuneCheckpoint = "";     // NEW: e.g., 'jerry_encoded_epoch=33-step=100.ckpt'
     bool currentJerryIsFinetune = false;
     juce::String currentJerrySamplerType = "pingpong";
+    juce::String preferredJerryModelKey;
+    juce::String preferredJerryFinetuneRepo;
+    juce::String preferredJerryFinetuneCheckpoint;
+    bool currentJerryCustomFinetuneOpen = false;
+    juce::String currentJerryCustomFinetuneRepo;
+    juce::String currentJerryCustomFinetuneCheckpoint;
 
     // Gary model API methods
     void fetchGaryAvailableModels();
@@ -458,6 +483,7 @@ private:
     float currentTerryFlowstep = 0.130f;
     bool useMidpointSolver = false;  // false = euler, true = midpoint
     bool transformRecording = false; // false = transform output, true = transform recording
+    juce::String pendingDariusState;
 
     // Terry helper methods
     void updateTerryEnablementSnapshot();
@@ -470,7 +496,9 @@ private:
     void toggleBackend();
     void updateBackendToggleButton();
     void triggerLocalServiceHealthPoll(bool force);
+    void applyLocalServiceHealthResult(ServiceType service, bool online, bool pollComplete);
     void resetLocalServiceHealthSnapshot();
+    void restoreLocalServiceHealthSnapshot();
     bool isLocalServiceOnline(ServiceType service) const;
     ServiceType getActiveLocalService() const;
     bool isActiveLocalServiceOnline() const;
@@ -675,6 +703,7 @@ private:
     juce::int64 editorCreatedAtMs = 0;
     std::atomic<bool> garyModelFetchScheduled{ false };
     std::atomic<bool> garyModelFetchInFlight{ false };
+    int persistentStateTimerTicks = 0;
 
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);

@@ -371,6 +371,7 @@ public:
             updateContentLayout();
         }
     }
+    bool getLegoAdvancedOpen() const { return legoAdvancedOpen; }
 
     void setCompleteAdvancedOpen(bool open)
     {
@@ -383,6 +384,7 @@ public:
             updateContentLayout();
         }
     }
+    bool getCompleteAdvancedOpen() const { return completeAdvancedOpen; }
 
     void setCoverAdvancedOpen(bool open)
     {
@@ -395,6 +397,7 @@ public:
             updateContentLayout();
         }
     }
+    bool getCoverAdvancedOpen() const { return coverAdvancedOpen; }
 
     void setExtractAdvancedOpen(bool open)
     {
@@ -407,6 +410,7 @@ public:
             updateContentLayout();
         }
     }
+    bool getExtractAdvancedOpen() const { return extractAdvancedOpen; }
 
     juce::String getKeyScale() const
     {

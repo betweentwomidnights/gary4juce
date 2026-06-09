@@ -8,13 +8,19 @@ insane, reaper lol
 
 https://thepatch.gumroad.com/l/gary4juce
 
-**latest stable release:** [gary4juce v4.0.0 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0)
+**latest stable releases:**
 
-**recommended local companion:** [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
+- [gary4juce v4.0.1 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1)
+- [gary4juce v4.0.0-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-mac)
+
+**recommended local companions:**
+
+- windows: [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
+- macOS: [gary4local mac v0.1.9](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.9)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
-localhost backends:
+localhost backend source repos:
 
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
@@ -40,12 +46,28 @@ gary4juce now gives you **seven AI music models** directly in your DAW:
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> SA3 now runs on the remote backend and the Windows gary4local SA3 service.
-> macOS local SA3 support is still a future pass.
+> SA3 now runs on the remote backend, the Windows gary4local SA3 service, and gary4local mac.
 
 ---
 
 ## What's New In V4
+
+### v4.0.1 - UI persistence and localhost responsiveness
+
+v4.0.1 is a focused maintenance release. It does not add or change any music
+models. Its purpose is to make the plugin remember its UI settings when the
+editor is closed and reopened, including when a DAW temporarily removes the
+editor while navigating between plugins.
+
+Settings now persist across editor reopens throughout Gary, Jerry, SA3, Terry,
+Carey, Darius, and Foundation-1. This includes prompts, generation controls,
+selected tabs and models, advanced sections, SA3 seeds and LoRAs, and the shared
+recording/output source selector.
+
+The local service status also survives editor recreation. On Windows, local
+health checks now update per service and bypass the slower shared HTTP path, so
+a running Gary, Terry, Jerry, Carey, Foundation-1, or SA3 service is reflected
+in the UI immediately instead of waiting for every offline port to time out.
 
 ### v4.0.0 - stable-audio-3
 
@@ -68,7 +90,7 @@ Launch notes:
 
 - SA3 outputs can be hot, especially with LoRAs. Treat gain staging like part of the instrument for now.
 - Continue results can leave a quiet/fading tail near the end of longer continuations. This is being audited against the upstream SA3 UI.
-- Local SA3 is available in gary4local on Windows, including LoRAs and both continuation modes.
+- Local SA3 is available in gary4local on Windows and macOS, including LoRAs and both continuation modes.
 
 ### V3 Highlights
 
@@ -87,10 +109,11 @@ Carey guide: [CAREY.md](CAREY.md)
 ## Roadmap
 
 - [x] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) on Windows
-- [ ] add SA3 to gary4local mac
-- [ ] release the mac AU/VST3 build
+- [x] add SA3 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) on macOS
+- [x] release the mac AU/VST3 build
 - [x] add the first SA3 usage guide: [SA3.md](SA3.md)
 - [x] add SA3's experimental `latent_prefix` continuation mode
+- [ ] clean up and release a proper standalone app
 - [ ] improve SA3 LoRA loudness handling on the backend and build a custom training script for the pre-encoding step
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
 - [ ] enable the Carey `xl-sft` model on the remote backend
@@ -150,8 +173,8 @@ Use the dedicated apps for localhost:
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
 
-They manage local envs for gary, terry, jerry, carey, foundation-1, and SA3 on
-Windows. SA3 for gary4local mac is still planned.
+They manage local envs for gary, terry, jerry, carey, foundation-1, and SA3.
+Model coverage varies by platform, but SA3 is available in both companion apps.
 
 Recommended hardware:
 
@@ -165,7 +188,7 @@ SA3 can run on the remote backend:
 
 `https://g4l.thecollabagepatch.com/sa3`
 
-or the Windows gary4local service:
+or the local gary4local service on Windows/macOS:
 
 `http://localhost:8006`
 
@@ -368,7 +391,7 @@ Steps:
 ## Known Issues
 
 - **SA3 launch notes:** output loudness and continuation tails are still being tuned.
-- **SA3 local backend:** available in gary4local on Windows; macOS local support is still pending.
+- **SA3 local backend:** available through gary4local on Windows and gary4local mac.
 - **Windows Defender:** not codesigned, so Windows may complain.
 - **Darius hardware:** 24 GB+ VRAM is strongly recommended.
 - **Terry variability:** Melodyflow is experimental and can be wonderfully strange.
@@ -426,7 +449,4 @@ If gary4juce is useful to you:
 - share your creations and tag `@thepatch_kev`
 - contribute finetunes to the community
 - help improve docs
-- Gumroad: https://thepatch.gumroad.com/l/gary4juce
-
-No pressure. I mostly build this because I want these models to feel like
-instruments.
+- Gumroad: https://thepatch.gumroad.com/l/gary4juce (this is one of the only ways to support the project monetarily rn...working on some easier paths like github sponsors)

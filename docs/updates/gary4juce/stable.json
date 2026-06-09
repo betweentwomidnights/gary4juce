@@ -1,13 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.0",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0",
-  "sha256": "b42856c3703280a6ae044a95334e658f4d30e35b564bae9dad6aa21955fd6b6e",
-  "published_at": "2026-05-26T04:46:28Z",
+  "latest_version": "4.0.1",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1",
+  "sha256": "7df06622d095e7d0c2158a67f8aef03a7d030a3ce26c806a894cc5ce01646d95",
+  "published_at": "2026-06-09T07:26:12Z",
   "notes": [
-    "gary v4 is stable: SA3 is now in the Jerry tab with generate, loop, transform, continue, LoRAs, seed recall, key/scale prompting, and smart dice.",
-    "Local SA3 on Windows needs gary4local v0.1.11.",
-    "DAW-play recording is less likely to miss the first host buffer if the UI is busy.",
+    "UI settings now survive window close/reopen and switching between plug-ins.",
+    "Local service status is restored across reopens and detects running Windows services immediately.",
+    "No music-model or backend update is required.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

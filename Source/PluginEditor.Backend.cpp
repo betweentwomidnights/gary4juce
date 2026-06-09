@@ -136,6 +136,146 @@ static bool localhostHealthResponseLooksOnline(const juce::String& responseText)
     return true;
 }
 
+#if JUCE_WINDOWS
+static bool rawHealthResponseLooksOnline(
+    const juce::String& responseText, bool allowUnframedBody)
+{
+    const auto headerEnd = responseText.indexOf("\r\n\r\n");
+    if (headerEnd < 0)
+        return false;
+
+    const auto statusLine = responseText.upToFirstOccurrenceOf("\r\n", false, false);
+    juce::StringArray statusParts;
+    statusParts.addTokens(statusLine, " ", "");
+    if (statusParts.size() < 2)
+        return false;
+
+    const int statusCode = statusParts[1].getIntValue();
+    if (statusCode < 200 || statusCode >= 300)
+        return false;
+
+    const auto responseHeaders = responseText.substring(0, headerEnd);
+    auto responseBody = responseText.substring(headerEnd + 4);
+    if (responseHeaders.containsIgnoreCase("Transfer-Encoding: chunked"))
+    {
+        const auto chunkSizeEnd = responseBody.indexOf("\r\n");
+        if (chunkSizeEnd < 0)
+            return false;
+
+        const int chunkSize = responseBody.substring(0, chunkSizeEnd).getHexValue32();
+        if (responseBody.substring(chunkSizeEnd + 2).getNumBytesAsUTF8() < chunkSize)
+            return false;
+
+        responseBody = responseBody.substring(chunkSizeEnd + 2, chunkSizeEnd + 2 + chunkSize);
+    }
+    else
+    {
+        int contentLength = -1;
+        juce::StringArray headerLines;
+        headerLines.addLines(responseHeaders);
+        for (const auto& headerLine : headerLines)
+        {
+            if (headerLine.startsWithIgnoreCase("Content-Length:"))
+            {
+                contentLength = headerLine.fromFirstOccurrenceOf(":", false, false)
+                    .trim().getIntValue();
+                break;
+            }
+        }
+
+        if (contentLength >= 0
+            && responseBody.getNumBytesAsUTF8() < contentLength)
+            return false;
+        if (contentLength < 0 && !allowUnframedBody)
+            return false;
+    }
+
+    return localhostHealthResponseLooksOnline(responseBody);
+}
+#endif
+
+static bool probeLocalhostHealth(int port)
+{
+    const auto startedAtMs = juce::Time::getMillisecondCounterHiRes();
+    juce::ignoreUnused(startedAtMs);
+
+    try
+    {
+       #if JUCE_WINDOWS
+        constexpr int connectTimeoutMs = 400;
+        constexpr int responseTimeoutMs = 1000;
+        juce::StreamingSocket socket;
+        if (!socket.connect("127.0.0.1", port, connectTimeoutMs))
+        {
+            DBG("[local health] port " + juce::String(port) + " offline after "
+                + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
+            return false;
+        }
+
+        const juce::String request =
+            "GET /health HTTP/1.1\r\n"
+            "Host: 127.0.0.1:" + juce::String(port) + "\r\n"
+            "Accept: application/json\r\n"
+            "Connection: close\r\n\r\n";
+        const auto requestUtf8 = request.toRawUTF8();
+        const int requestBytes = static_cast<int>(request.getNumBytesAsUTF8());
+
+        if (socket.waitUntilReady(false, connectTimeoutMs) != 1
+            || socket.write(requestUtf8, requestBytes) != requestBytes)
+            return false;
+
+        juce::MemoryOutputStream response;
+        const auto readDeadlineMs = juce::Time::getMillisecondCounterHiRes() + responseTimeoutMs;
+        char buffer[4096];
+
+        while (juce::Time::getMillisecondCounterHiRes() < readDeadlineMs
+            && response.getDataSize() < 1024 * 1024)
+        {
+            const auto remainingMs = juce::jmax(
+                1, static_cast<int>(readDeadlineMs - juce::Time::getMillisecondCounterHiRes()));
+            const int ready = socket.waitUntilReady(true, remainingMs);
+            if (ready <= 0)
+                break;
+
+            const int bytesRead = socket.read(buffer, static_cast<int>(sizeof(buffer)), false);
+            if (bytesRead <= 0)
+                break;
+
+            response.write(buffer, static_cast<size_t>(bytesRead));
+
+            if (rawHealthResponseLooksOnline(response.toString(), false))
+            {
+                DBG("[local health] port " + juce::String(port) + " online after "
+                    + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
+                return true;
+            }
+        }
+
+        const bool online = rawHealthResponseLooksOnline(response.toString(), true);
+        DBG("[local health] port " + juce::String(port) + " "
+            + (online ? "online" : "offline") + " after "
+            + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
+        return online;
+       #else
+        juce::URL healthUrl("http://127.0.0.1:" + juce::String(port) + "/health");
+        int statusCode = 0;
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(1500)
+            .withStatusCode(&statusCode)
+            .withExtraHeaders("Accept: application/json");
+        auto stream = healthUrl.createInputStream(options);
+        if (stream == nullptr || statusCode >= 400)
+            return false;
+
+        return localhostHealthResponseLooksOnline(stream->readEntireStreamAsString());
+       #endif
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) const
 {
     switch (service)
@@ -203,7 +343,97 @@ void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
     localOnlineCount = 0;
     localHealthLastPollMs = 0;
     localHealthPollCounter = 0;
+    localHealthPollNonce.fetch_add(1);
     localHealthPollInFlight.store(false);
+    audioProcessor.clearLocalServiceHealthSnapshot();
+}
+
+void Gary4juceAudioProcessorEditor::restoreLocalServiceHealthSnapshot()
+{
+    const auto snapshot = audioProcessor.getLocalServiceHealthSnapshot();
+    if (!snapshot.valid)
+        return;
+
+    localGaryOnline = snapshot.garyOnline;
+    localTerryOnline = snapshot.terryOnline;
+    localJerryOnline = snapshot.jerryOnline;
+    localCareyOnline = snapshot.careyOnline;
+    localFoundationOnline = snapshot.foundationOnline;
+    localSA3Online = snapshot.sa3Online;
+    localOnlineCount = snapshot.getOnlineCount();
+    localHealthLastPollMs = snapshot.updatedAtMs;
+}
+
+void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
+    ServiceType service, bool online, bool pollComplete)
+{
+    const bool statusChanged = isLocalServiceOnline(service) != online;
+
+    switch (service)
+    {
+    case ServiceType::Gary:       localGaryOnline = online; break;
+    case ServiceType::Terry:      localTerryOnline = online; break;
+    case ServiceType::Jerry:      localJerryOnline = online; break;
+    case ServiceType::Carey:      localCareyOnline = online; break;
+    case ServiceType::Foundation: localFoundationOnline = online; break;
+    case ServiceType::SA3:        localSA3Online = online; break;
+    }
+
+    localOnlineCount = (localGaryOnline ? 1 : 0) + (localTerryOnline ? 1 : 0)
+        + (localJerryOnline ? 1 : 0) + (localCareyOnline ? 1 : 0)
+        + (localFoundationOnline ? 1 : 0) + (localSA3Online ? 1 : 0);
+
+    Gary4juceAudioProcessor::LocalServiceHealthSnapshot snapshot;
+    snapshot.valid = true;
+    snapshot.garyOnline = localGaryOnline;
+    snapshot.terryOnline = localTerryOnline;
+    snapshot.jerryOnline = localJerryOnline;
+    snapshot.careyOnline = localCareyOnline;
+    snapshot.foundationOnline = localFoundationOnline;
+    snapshot.sa3Online = localSA3Online;
+    snapshot.updatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+    audioProcessor.setLocalServiceHealthSnapshot(snapshot);
+
+    updateAllGenerationButtonStates();
+    updateJerrySubTabStates();
+
+    if (service == ServiceType::Jerry)
+    {
+        if (!online && jerryUI)
+            jerryUI->setLoadingModel(false);
+        else if (online && currentTab == ModelTab::Jerry)
+            fetchJerryAvailableModels();
+    }
+
+    if (service == ServiceType::Carey && currentTab == ModelTab::Carey
+        && (statusChanged || online))
+    {
+        refreshCareyAvailableLoras(statusChanged);
+        updateCareyEnablementSnapshot();
+    }
+
+    if (service == ServiceType::SA3
+        && currentTab == ModelTab::Jerry
+        && jerrySubTab == JerrySubTab::SA3)
+    {
+        if (online)
+            refreshSA3AvailableLoras(statusChanged);
+        else
+        {
+            availableSA3Loras.clear();
+            syncSA3LoraUi();
+        }
+        updateSA3EnablementSnapshot();
+    }
+
+    if (pollComplete)
+    {
+        localHealthPollInFlight.store(false);
+        checkConnectionButton.setEnabled(true);
+    }
+
+    if (statusChanged)
+        repaint();
 }
 
 void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
@@ -217,100 +447,63 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
     if (localHealthPollInFlight.exchange(true))
         return;
     localHealthLastPollMs = nowMs;
+    const int pollNonce = localHealthPollNonce.fetch_add(1) + 1;
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
+    const auto completedProbes = std::make_shared<std::atomic<int>>(0);
 
-    juce::Thread::launch([asyncAlive, editor]() {
-        auto probeHealth = [](const juce::String& urlText) -> bool
+    auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes](
+        ServiceType service, int port)
+    {
+        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, port]()
         {
-            try
+            const bool online = probeLocalhostHealth(port);
+
+            juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, completedProbes, service, online]()
             {
-                juce::URL healthUrl(urlText);
-                int statusCode = 0;
-                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                    .withConnectionTimeoutMs(1500)
-                    .withStatusCode(&statusCode)
-                    .withExtraHeaders("Accept: application/json");
-                auto stream = healthUrl.createInputStream(options);
-                if (stream == nullptr || statusCode >= 400)
-                    return false;
-                auto responseText = stream->readEntireStreamAsString();
-                return localhostHealthResponseLooksOnline(responseText);
-            }
-            catch (...)
-            {
-                return false;
-            }
-        };
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+                if (pollNonce != editor->localHealthPollNonce.load()
+                    || !editor->audioProcessor.getIsUsingLocalhost())
+                    return;
 
-        const bool garyOnline       = probeHealth("http://127.0.0.1:8000/health");
-        const bool terryOnline      = probeHealth("http://127.0.0.1:8002/health");
-        const bool jerryOnline      = probeHealth("http://127.0.0.1:8005/health");
-        const bool careyOnline      = probeHealth("http://127.0.0.1:8003/health");
-        const bool foundationOnline = probeHealth("http://127.0.0.1:8015/health");
-        const bool sa3Online        = probeHealth("http://127.0.0.1:8006/health");
-
-        juce::MessageManager::callAsync([asyncAlive, editor, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline, sa3Online]() {
-            const auto alive = asyncAlive.lock();
-            if (alive == nullptr || !alive->load(std::memory_order_acquire))
-                return;
-
-            editor->localHealthPollInFlight.store(false);
-
-            const bool careyStatusChanged = editor->localCareyOnline != careyOnline;
-            const bool sa3StatusChanged = editor->localSA3Online != sa3Online;
-
-            const bool changed =
-                editor->localGaryOnline != garyOnline ||
-                editor->localTerryOnline != terryOnline ||
-                editor->localJerryOnline != jerryOnline ||
-                editor->localCareyOnline != careyOnline ||
-                editor->localFoundationOnline != foundationOnline ||
-                editor->localSA3Online != sa3Online;
-
-            editor->localGaryOnline = garyOnline;
-            editor->localTerryOnline = terryOnline;
-            editor->localJerryOnline = jerryOnline;
-            editor->localCareyOnline = careyOnline;
-            editor->localFoundationOnline = foundationOnline;
-            editor->localSA3Online = sa3Online;
-            editor->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
-                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0)
-                + (sa3Online ? 1 : 0);
-
-            editor->updateAllGenerationButtonStates();
-            editor->updateJerrySubTabStates();
-
-            if (!jerryOnline && editor->jerryUI)
-                editor->jerryUI->setLoadingModel(false);
-
-            // Keep Jerry model dropdown fresh while Jerry tab is active on localhost
-            if (jerryOnline && editor->currentTab == ModelTab::Jerry)
-                editor->fetchJerryAvailableModels();
-
-            if (editor->currentTab == ModelTab::Carey && (careyStatusChanged || careyOnline))
-            {
-                editor->refreshCareyAvailableLoras(careyStatusChanged);
-                editor->updateCareyEnablementSnapshot();
-            }
-
-            if (editor->currentTab == ModelTab::Jerry && editor->jerrySubTab == JerrySubTab::SA3)
-            {
-                if (sa3Online)
-                    editor->refreshSA3AvailableLoras(sa3StatusChanged);
-                else
-                {
-                    editor->availableSA3Loras.clear();
-                    editor->syncSA3LoraUi();
-                }
-                editor->updateSA3EnablementSnapshot();
-            }
-
-            if (changed)
-                editor->repaint();
+                const bool pollComplete = completedProbes->fetch_add(1) + 1 == 6;
+                editor->applyLocalServiceHealthResult(service, online, pollComplete);
+            });
         });
-    });
+    };
+
+    auto portForService = [](ServiceType service)
+    {
+        switch (service)
+        {
+        case ServiceType::Gary:       return 8000;
+        case ServiceType::Terry:      return 8002;
+        case ServiceType::Jerry:      return 8005;
+        case ServiceType::Carey:      return 8003;
+        case ServiceType::Foundation: return 8015;
+        case ServiceType::SA3:        return 8006;
+        }
+        return 0;
+    };
+
+    const auto activeService = getActiveLocalService();
+    launchProbe(activeService, portForService(activeService));
+
+    constexpr ServiceType services[] = {
+        ServiceType::Gary,
+        ServiceType::Terry,
+        ServiceType::Jerry,
+        ServiceType::Carey,
+        ServiceType::Foundation,
+        ServiceType::SA3
+    };
+
+    for (const auto service : services)
+        if (service != activeService)
+            launchProbe(service, portForService(service));
 }
 
 //==============================================================================
