@@ -7,6 +7,39 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    bool backendHealthBodyLooksOnline(const juce::String& responseText)
+    {
+        const auto trimmed = responseText.trim();
+        if (trimmed.isEmpty())
+            return false;
+
+        auto parsed = juce::JSON::parse(trimmed);
+        auto* jsonObj = parsed.getDynamicObject();
+        if (jsonObj == nullptr)
+            return false;
+
+        const auto status = jsonObj->getProperty("status").toString().trim().toLowerCase();
+        if (status.isEmpty())
+            return false;
+
+        if (status == "unhealthy" || status == "failed" || status == "down" || status == "error")
+            return false;
+
+        return status == "live" || status == "healthy" || status == "ok"
+            || status == "ready" || status == "online";
+    }
+
+    bool backendHealthResponseLooksOnline(int statusCode, const juce::String& responseText)
+    {
+        if (statusCode != 0 && (statusCode < 200 || statusCode >= 400))
+            return false;
+
+        return backendHealthBodyLooksOnline(responseText);
+    }
+}
+
 class Gary4juceAudioProcessor::BackendHealthChecker final : public juce::Thread
 {
 public:
@@ -95,11 +128,14 @@ public:
 
             Result result;
             juce::URL healthUrl(url);
+            int statusCode = 0;
 
             std::unique_ptr<juce::InputStream> stream(
                 healthUrl.createInputStream(
                     juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs(3000)
+                        .withStatusCode(&statusCode)
+                        .withExtraHeaders("Accept: application/json")
                 )
             );
 
@@ -109,17 +145,12 @@ public:
             if (stream != nullptr)
             {
                 const auto responseText = stream->readEntireStreamAsString();
+                result.success = backendHealthResponseLooksOnline(statusCode, responseText);
 
-                if (responseText.isNotEmpty())
+                if (!result.success)
                 {
-                    result.success = true;
-
-                    auto json = juce::JSON::parse(responseText);
-                    if (auto* jsonObj = json.getDynamicObject())
-                    {
-                        const auto status = jsonObj->getProperty("status").toString();
-                        result.success = (status == "live");
-                    }
+                    DBG("Backend health check failed (HTTP " + juce::String(statusCode) + "): "
+                        + responseText.trim().substring(0, 120));
                 }
             }
 
@@ -159,12 +190,14 @@ Gary4juceAudioProcessor::Gary4juceAudioProcessor()
     )
 #endif
 {
+    DBG("=== PROCESSOR CREATED ===");
     backendHealthCallbackToken = std::make_shared<std::atomic<bool>>(true);
     backendHealthChecker = std::make_unique<BackendHealthChecker>();
 }
 
 Gary4juceAudioProcessor::~Gary4juceAudioProcessor()
 {
+    DBG("=== PROCESSOR DESTROYED ===");
     DBG("=== STOPPING PROCESSOR BACKGROUND OPERATIONS ===");
 
     if (backendHealthCallbackToken)
@@ -335,6 +368,18 @@ bool Gary4juceAudioProcessor::isSessionValid() const
     }
 
     return isValid;
+}
+
+void Gary4juceAudioProcessor::setEditorState(const juce::String& json)
+{
+    const juce::ScopedLock lock(editorStateLock);
+    editorState = json;
+}
+
+juce::String Gary4juceAudioProcessor::getEditorState() const
+{
+    const juce::ScopedLock lock(editorStateLock);
+    return editorState;
 }
 
 //==============================================================================
@@ -1028,6 +1073,7 @@ juce::AudioProcessorEditor* Gary4juceAudioProcessor::createEditor()
 void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     juce::XmlElement xmlState("GARY_STATE");
+    xmlState.setAttribute("stateVersion", 2);
     xmlState.setAttribute("savedSamples", savedSamples.load());
     xmlState.setAttribute("transformRecording", transformRecording.load());
     xmlState.setAttribute("currentSessionId", currentSessionId);
@@ -1038,6 +1084,7 @@ void Gary4juceAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     xmlState.setAttribute("careyLyrics", careyLyrics);
     xmlState.setAttribute("careyLanguage", careyLanguage);
     xmlState.setAttribute("foundationState", foundationState);
+    xmlState.setAttribute("editorState", getEditorState());
 
     // DEBUG: Log what we're saving with age calculation
     DBG("=== SAVING STATE ===");
@@ -1074,6 +1121,7 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
             careyLyrics = xml->getStringAttribute("careyLegoLyrics");
         careyLanguage = xml->getStringAttribute("careyLanguage", "en");
         foundationState = xml->getStringAttribute("foundationState");
+        setEditorState(xml->getStringAttribute("editorState"));
         backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
 
         // DEBUG: Log what we're loading

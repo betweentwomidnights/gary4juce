@@ -471,6 +471,7 @@ SA3UI::SA3UI()
     useLoraToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Jerry);
     useLoraToggle.onClick = [this]()
     {
+        useLoraRequested = useLoraToggle.getToggleState();
         updateLoraControls();
         updateContentLayout();
         if (onLoraSelectionChanged)
@@ -742,12 +743,21 @@ juce::int64 SA3UI::getSeed() const
     return text.getLargeIntValue();
 }
 
+void SA3UI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
 void SA3UI::setLastSeed(const juce::String& seed)
 {
     const auto trimmed = seed.trim();
     if (trimmed.isEmpty())
         return;
 
+    lastSeed = trimmed;
     lastSeedLabel.setText("last seed: " + trimmed, juce::dontSendNotification);
     seedEditor.setText(trimmed, false);
 }
@@ -771,12 +781,51 @@ std::vector<SA3UI::LoraSelection> SA3UI::getActiveLoras() const
     return selections;
 }
 
-void SA3UI::setAvailableLoras(const juce::StringArray& loraNames)
+std::vector<SA3UI::LoraSelection> SA3UI::getLoraSelections() const
 {
-    juce::HashMap<juce::String, double> preservedStrengths;
+    if (loraRows.empty())
+        return savedLoraSelections;
+
+    std::vector<LoraSelection> selections;
+    selections.reserve(loraRows.size());
     for (const auto& row : loraRows)
         if (row.slider)
-            preservedStrengths.set(row.name, row.slider->getValue());
+            selections.push_back({ row.name, row.slider->getValue() });
+    return selections;
+}
+
+void SA3UI::setLoraState(bool enabled, const std::vector<LoraSelection>& selections)
+{
+    useLoraRequested = enabled;
+    savedLoraSelections = selections;
+
+    for (auto& row : loraRows)
+    {
+        if (!row.slider)
+            continue;
+
+        double strength = 0.0;
+        for (const auto& saved : savedLoraSelections)
+        {
+            if (saved.name == row.name)
+            {
+                strength = saved.strength;
+                break;
+            }
+        }
+        row.slider->setValue(juce::jlimit(0.0, 2.0, strength), juce::dontSendNotification);
+    }
+
+    useLoraToggle.setToggleState(useLoraRequested && !loraRows.empty(), juce::dontSendNotification);
+    updateLoraControls();
+    updateContentLayout();
+}
+
+void SA3UI::setAvailableLoras(const juce::StringArray& loraNames)
+{
+    for (const auto& row : loraRows)
+        if (row.slider)
+            updateSavedLoraSelection(row.name, row.slider->getValue());
 
     clearLoraRows();
 
@@ -795,13 +844,23 @@ void SA3UI::setAvailableLoras(const juce::StringArray& loraNames)
 
         row.slider = std::make_unique<CustomSlider>();
         row.slider->setRange(0.0, 2.0, 0.01);
-        row.slider->setValue(preservedStrengths.contains(name) ? preservedStrengths[name] : 0.0,
-                             juce::dontSendNotification);
+        double savedStrength = 0.0;
+        for (const auto& saved : savedLoraSelections)
+        {
+            if (saved.name == name)
+            {
+                savedStrength = saved.strength;
+                break;
+            }
+        }
+        row.slider->setValue(juce::jlimit(0.0, 2.0, savedStrength), juce::dontSendNotification);
         row.slider->setSliderStyle(juce::Slider::LinearHorizontal);
         row.slider->setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
         row.slider->setTooltip("LoRA strength");
-        row.slider->onValueChange = [this]()
+        auto* slider = row.slider.get();
+        row.slider->onValueChange = [this, name, slider]()
         {
+            updateSavedLoraSelection(name, slider->getValue());
             if (onLoraSelectionChanged)
                 onLoraSelectionChanged();
         };
@@ -819,11 +878,26 @@ void SA3UI::setAvailableLoras(const juce::StringArray& loraNames)
     else
     {
         useLoraToggle.setEnabled(true);
+        useLoraToggle.setToggleState(useLoraRequested, juce::dontSendNotification);
         loraStatusLabel.setText(juce::String(loraRows.size()) + " loras available", juce::dontSendNotification);
     }
 
     updateLoraControls();
     updateContentLayout();
+}
+
+void SA3UI::updateSavedLoraSelection(const juce::String& name, double strength)
+{
+    for (auto& saved : savedLoraSelections)
+    {
+        if (saved.name == name)
+        {
+            saved.strength = strength;
+            return;
+        }
+    }
+
+    savedLoraSelections.push_back({ name, strength });
 }
 
 juce::String SA3UI::getShift() const
@@ -876,6 +950,16 @@ void SA3UI::setKeyScale(const juce::String& keyScale)
 void SA3UI::setCurrentSubTab(SubTab tab)
 {
     setCurrentSubTabInternal(tab, true);
+}
+
+void SA3UI::setAdvancedOpen(bool open)
+{
+    if (advancedOpen == open)
+        return;
+
+    advancedOpen = open;
+    updateAdvancedToggleText();
+    updateContentLayout();
 }
 
 void SA3UI::addToContent(juce::Component& component)

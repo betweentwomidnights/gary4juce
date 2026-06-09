@@ -945,6 +945,11 @@ juce::String JerryUI::getSelectedSamplerType() const
     return currentSamplerType;
 }
 
+void JerryUI::setSelectedSamplerType(const juce::String& samplerType)
+{
+    applySamplerSelection(samplerType);
+}
+
 void JerryUI::updateSamplerVisibility()
 {
     bool isFinetune = getSelectedModelIsFinetune();
@@ -1206,6 +1211,7 @@ void JerryUI::setFetchingCheckpoints(bool fetching)
 
 void JerryUI::setAvailableCheckpoints(const juce::StringArray& checkpoints)
 {
+    const auto previousSelection = checkpointComboBox.getText().trim();
     checkpointComboBox.clear();
 
     for (int i = 0; i < checkpoints.size(); ++i) {
@@ -1215,8 +1221,32 @@ void JerryUI::setAvailableCheckpoints(const juce::StringArray& checkpoints)
     addModelButton.setEnabled(checkpoints.size() > 0);
 
     if (checkpoints.size() > 0) {
-        checkpointComboBox.setSelectedId(1);  // Select first by default
+        const int previousIndex = checkpoints.indexOf(previousSelection);
+        checkpointComboBox.setSelectedId(previousIndex >= 0 ? previousIndex + 1 : 1);
     }
+}
+
+void JerryUI::restoreCustomFinetuneState(bool sectionOpen,
+                                         const juce::String& repo,
+                                         const juce::String& checkpoint)
+{
+    repoTextEditor.setText(repo, juce::dontSendNotification);
+
+    checkpointComboBox.clear(juce::dontSendNotification);
+    const auto trimmedCheckpoint = checkpoint.trim();
+    if (trimmedCheckpoint.isNotEmpty())
+    {
+        checkpointComboBox.addItem(trimmedCheckpoint, 1);
+        checkpointComboBox.setSelectedId(1, juce::dontSendNotification);
+        addModelButton.setEnabled(true);
+    }
+    else
+    {
+        addModelButton.setEnabled(false);
+    }
+
+    if (isUsingLocalhost && showingCustomFinetuneSection != sectionOpen)
+        toggleCustomFinetuneSection();
 }
 
 void JerryUI::setLoadingModel(bool loading, const juce::String& modelInfo)

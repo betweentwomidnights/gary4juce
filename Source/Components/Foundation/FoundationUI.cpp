@@ -839,10 +839,12 @@ juce::String FoundationUI::serializeState() const
 
     // Header controls
     state->setProperty("bars", barsComboBox.getSelectedId());
+    state->setProperty("standaloneBpm", standaloneBpmSlider.getValue());
     state->setProperty("keyRoot", keyRootComboBox.getSelectedId());
     state->setProperty("keyMode", keyModeComboBox.getSelectedId());
 
     // Advanced
+    state->setProperty("advancedOpen", advancedOpen);
     state->setProperty("steps", juce::roundToInt(stepsSlider.getValue()));
     state->setProperty("guidance", guidanceSlider.getValue());
     state->setProperty("seed", seedEditor.getText().trim());
@@ -958,12 +960,22 @@ void FoundationUI::restoreState(const juce::String& jsonString)
     // Header controls
     int barsId = (int)obj->getProperty("bars");
     if (barsId > 0) barsComboBox.setSelectedId(barsId, juce::dontSendNotification);
+    if (obj->hasProperty("standaloneBpm"))
+    {
+        const double bpm = juce::jlimit(
+            40.0, 300.0, (double)obj->getProperty("standaloneBpm"));
+        standaloneBpmSlider.setValue(bpm, juce::dontSendNotification);
+        if (isStandaloneMode)
+            hostBpm = bpm;
+    }
     int keyRootId = (int)obj->getProperty("keyRoot");
     if (keyRootId > 0) keyRootComboBox.setSelectedId(keyRootId, juce::dontSendNotification);
     int keyModeId = (int)obj->getProperty("keyMode");
     if (keyModeId > 0) keyModeComboBox.setSelectedId(keyModeId, juce::dontSendNotification);
 
     // Advanced
+    if (obj->hasProperty("advancedOpen"))
+        setAdvancedOpen((bool)obj->getProperty("advancedOpen"));
     stepsSlider.setValue((double)(int)obj->getProperty("steps"), juce::dontSendNotification);
     guidanceSlider.setValue((double)obj->getProperty("guidance"), juce::dontSendNotification);
     seedEditor.setText(obj->getProperty("seed").toString(), juce::dontSendNotification);

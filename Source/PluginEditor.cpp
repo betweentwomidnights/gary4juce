@@ -21,6 +21,309 @@ namespace
     constexpr int kStartupNetworkGraceMs = 750;
 }
 
+juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
+{
+    auto state = std::make_unique<juce::DynamicObject>();
+    state->setProperty("version", 2);
+    state->setProperty("modelTab", static_cast<int>(currentTab));
+    state->setProperty("jerrySubTab", static_cast<int>(jerrySubTab));
+
+    state->setProperty("garyPromptDuration", currentPromptDuration);
+    state->setProperty("garyModelPath",
+        garyUI != nullptr && !garyModelList.empty() ? getSelectedGaryModelPath() : preferredGaryModelPath);
+
+    state->setProperty("jerryPrompt", currentJerryPrompt);
+    state->setProperty("jerryCfg", currentJerryCfg);
+    state->setProperty("jerrySteps", currentJerrySteps);
+    state->setProperty("jerryManualBpm",
+        jerryUI != nullptr ? jerryUI->getManualBpm() : currentJerryManualBpm);
+    state->setProperty("jerrySmartLoop", generateAsLoop);
+    state->setProperty("jerryLoopType", currentLoopType);
+    state->setProperty("jerryModelKey", currentJerryModelKey);
+    state->setProperty("jerryModelType", currentJerryModelType);
+    state->setProperty("jerryFinetuneRepo", currentJerryFinetuneRepo);
+    state->setProperty("jerryFinetuneCheckpoint", currentJerryFinetuneCheckpoint);
+    state->setProperty("jerryIsFinetune", currentJerryIsFinetune);
+    state->setProperty("jerrySampler", currentJerrySamplerType);
+    state->setProperty("jerryCustomFinetuneOpen",
+        jerryUI != nullptr
+            ? jerryUI->getCustomFinetuneSectionOpen()
+            : currentJerryCustomFinetuneOpen);
+    state->setProperty("jerryCustomFinetuneRepo",
+        jerryUI != nullptr
+            ? jerryUI->getCustomFinetuneRepoText()
+            : currentJerryCustomFinetuneRepo);
+    state->setProperty("jerryCustomFinetuneCheckpoint",
+        jerryUI != nullptr
+            ? jerryUI->getCustomFinetuneCheckpointText()
+            : currentJerryCustomFinetuneCheckpoint);
+
+    state->setProperty("sa3Prompt", currentSA3Prompt);
+    state->setProperty("sa3Duration", currentSA3DurationSeconds);
+    state->setProperty("sa3Loop", currentSA3LoopEnabled);
+    state->setProperty("sa3Bars", currentSA3Bars);
+    state->setProperty("sa3Steps", currentSA3Steps);
+    state->setProperty("sa3Cfg", currentSA3Cfg);
+    state->setProperty("sa3Shift", currentSA3Shift);
+    state->setProperty("sa3KeyScale", currentSA3KeyScale);
+    state->setProperty("sa3NegativePrompt", currentSA3NegativePrompt);
+    state->setProperty("sa3TransformPrompt", currentSA3TransformPrompt);
+    state->setProperty("sa3TransformStrength", currentSA3TransformStrength);
+    state->setProperty("sa3ContinuePrompt", currentSA3ContinuePrompt);
+    state->setProperty("sa3ContinueSeconds", currentSA3ContinueTotalSeconds);
+    state->setProperty("sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
+    state->setProperty("sa3SubTab", static_cast<int>(
+        sa3UI != nullptr ? sa3UI->getCurrentSubTab() : currentSA3SubTab));
+    state->setProperty("sa3AdvancedOpen",
+        sa3UI != nullptr ? sa3UI->getAdvancedOpen() : currentSA3AdvancedOpen);
+    state->setProperty("sa3LastSeed",
+        sa3UI != nullptr ? sa3UI->getLastSeed() : currentSA3LastSeed);
+    state->setProperty("sa3UseSeed",
+        sa3UI != nullptr ? sa3UI->getUseSeedEnabled() : currentSA3UseSeed);
+    state->setProperty("sa3SeedText",
+        sa3UI != nullptr ? sa3UI->getSeedText() : currentSA3SeedText);
+    state->setProperty("sa3UseLora",
+        sa3UI != nullptr ? sa3UI->getUseLoraEnabled() : currentSA3UseLora);
+
+    juce::Array<juce::var> sa3Loras;
+    const auto loraSelections = sa3UI != nullptr
+        ? sa3UI->getLoraSelections() : currentSA3LoraSelections;
+    for (const auto& selection : loraSelections)
+    {
+        auto lora = std::make_unique<juce::DynamicObject>();
+        lora->setProperty("name", selection.name);
+        lora->setProperty("strength", selection.strength);
+        sa3Loras.add(juce::var(lora.release()));
+    }
+    state->setProperty("sa3Loras", sa3Loras);
+
+    state->setProperty("terryVariation", currentTerryVariation);
+    state->setProperty("terryCustomPrompt", currentTerryCustomPrompt);
+    state->setProperty("terryFlowstep", currentTerryFlowstep);
+    state->setProperty("terryMidpoint", useMidpointSolver);
+    state->setProperty("transformRecording", transformRecording);
+
+    state->setProperty("careySubTab", static_cast<int>(
+        careyUI != nullptr ? careyUI->getCurrentSubTab() : currentCareySubTab));
+    state->setProperty("careyLegoAdvanced", careyUI != nullptr
+        ? careyUI->getLegoAdvancedOpen() : currentCareyLegoAdvancedOpen);
+    state->setProperty("careyCompleteAdvanced", careyUI != nullptr
+        ? careyUI->getCompleteAdvancedOpen() : currentCareyCompleteAdvancedOpen);
+    state->setProperty("careyCoverAdvanced", careyUI != nullptr
+        ? careyUI->getCoverAdvancedOpen() : currentCareyCoverAdvancedOpen);
+    state->setProperty("careyExtractAdvanced", careyUI != nullptr
+        ? careyUI->getExtractAdvancedOpen() : currentCareyExtractAdvancedOpen);
+    state->setProperty("careyCaption", currentCareyCaption);
+    state->setProperty("careyTrack", currentCareyTrackName);
+    state->setProperty("careySteps", currentCareySteps);
+    state->setProperty("careyLegoCfg", currentLegoCfg);
+    state->setProperty("careyLoopAssist", currentCareyLoopAssistEnabled);
+    state->setProperty("careyTrimToInput", currentCareyTrimToInputEnabled);
+    state->setProperty("careyExtractTrack", currentCareyExtractTrackName);
+    state->setProperty("careyExtractBpm", currentCareyExtractBpm);
+    state->setProperty("careyExtractSteps", currentCareyExtractSteps);
+    state->setProperty("careyExtractCfg", currentCareyExtractCfg);
+    state->setProperty("careyCompleteCaption", currentCareyCompleteCaption);
+    state->setProperty("careyCompleteLora", currentCareyCompleteLora);
+    state->setProperty("careyCompleteModel", currentCareyCompleteModel);
+    state->setProperty("careyCompleteBpm", currentCareyCompleteBpm);
+    state->setProperty("careyCompleteSteps", currentCareyCompleteSteps);
+    state->setProperty("careyCompleteCfg", currentCompleteCfg);
+    state->setProperty("careyCompleteDuration", currentCareyCompleteDurationSeconds);
+    state->setProperty("careyCompleteUseLora", currentCareyCompleteUseLora);
+    state->setProperty("careyCompleteLoraScale", currentCareyCompleteLoraScale);
+    state->setProperty("careyCompleteUseSrcRef", currentCompleteUseSrcAsRef);
+    state->setProperty("careyCoverCaption", currentCoverCaption);
+    state->setProperty("careyCoverModel", currentCoverModel);
+    state->setProperty("careyCoverLora", currentCoverLora);
+    state->setProperty("careyCoverNoise", currentCoverNoiseStrength);
+    state->setProperty("careyCoverAudio", currentCoverAudioStrength);
+    state->setProperty("careyCoverSteps", currentCoverSteps);
+    state->setProperty("careyCoverCfg", currentCoverCfg);
+    state->setProperty("careyCoverUseLora", currentCoverUseLora);
+    state->setProperty("careyCoverLoraScale", currentCoverLoraScale);
+    state->setProperty("careyCoverUseSrcRef", currentCoverUseSrcAsRef);
+    state->setProperty("careyCoverLoopAssist", currentCoverLoopAssistEnabled);
+    state->setProperty("careyCoverTrimToInput", currentCoverTrimToInputEnabled);
+    state->setProperty("careyKeyScale", currentCareyKeyScale);
+    state->setProperty("careyTimeSig", currentCareyTimeSig);
+
+    state->setProperty("dariusState",
+        dariusUI != nullptr ? dariusUI->serializeState() : pendingDariusState);
+
+    return juce::JSON::toString(juce::var(state.release()), false);
+}
+
+void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& json)
+{
+    if (json.trim().isEmpty())
+        return;
+
+    auto parsed = juce::JSON::parse(json);
+    auto* state = parsed.getDynamicObject();
+    if (state == nullptr)
+    {
+        DBG("Ignoring invalid editor state JSON");
+        return;
+    }
+
+    const auto has = [state](const char* name) { return state->hasProperty(name); };
+    const auto get = [state](const char* name) { return state->getProperty(name); };
+    const auto readString = [&has, &get](const char* name, const juce::String& fallback)
+    {
+        return has(name) ? get(name).toString() : fallback;
+    };
+    const auto readInt = [&has, &get](const char* name, int fallback)
+    {
+        return has(name) ? static_cast<int>(get(name)) : fallback;
+    };
+    const auto readDouble = [&has, &get](const char* name, double fallback)
+    {
+        return has(name) ? static_cast<double>(get(name)) : fallback;
+    };
+    const auto readBool = [&has, &get](const char* name, bool fallback)
+    {
+        return has(name) ? static_cast<bool>(get(name)) : fallback;
+    };
+
+    initialTab = static_cast<ModelTab>(juce::jlimit(0, 4, readInt("modelTab", 0)));
+    jerrySubTab = static_cast<JerrySubTab>(juce::jlimit(0, 2, readInt("jerrySubTab", 1)));
+
+    currentPromptDuration = static_cast<float>(
+        juce::jlimit(1.0, 30.0, readDouble("garyPromptDuration", currentPromptDuration)));
+    preferredGaryModelPath = readString("garyModelPath", preferredGaryModelPath);
+
+    currentJerryPrompt = readString("jerryPrompt", currentJerryPrompt);
+    currentJerryCfg = static_cast<float>(readDouble("jerryCfg", currentJerryCfg));
+    currentJerrySteps = readInt("jerrySteps", currentJerrySteps);
+    currentJerryManualBpm = juce::jlimit(20, 300, readInt("jerryManualBpm", currentJerryManualBpm));
+    generateAsLoop = readBool("jerrySmartLoop", generateAsLoop);
+    currentLoopType = readString("jerryLoopType", currentLoopType);
+    currentJerryModelKey = readString("jerryModelKey", currentJerryModelKey);
+    currentJerryModelType = readString("jerryModelType", currentJerryModelType);
+    currentJerryFinetuneRepo = readString("jerryFinetuneRepo", currentJerryFinetuneRepo);
+    currentJerryFinetuneCheckpoint = readString("jerryFinetuneCheckpoint", currentJerryFinetuneCheckpoint);
+    currentJerryIsFinetune = readBool("jerryIsFinetune", currentJerryIsFinetune);
+    currentJerrySamplerType = readString("jerrySampler", currentJerrySamplerType);
+    currentJerryCustomFinetuneOpen = readBool(
+        "jerryCustomFinetuneOpen", currentJerryCustomFinetuneOpen);
+    currentJerryCustomFinetuneRepo = readString(
+        "jerryCustomFinetuneRepo", currentJerryCustomFinetuneRepo);
+    currentJerryCustomFinetuneCheckpoint = readString(
+        "jerryCustomFinetuneCheckpoint", currentJerryCustomFinetuneCheckpoint);
+    preferredJerryModelKey = currentJerryModelKey;
+    preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
+    preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
+
+    currentSA3Prompt = readString("sa3Prompt", currentSA3Prompt);
+    currentSA3DurationSeconds = juce::jlimit(1, 300, readInt("sa3Duration", currentSA3DurationSeconds));
+    currentSA3LoopEnabled = readBool("sa3Loop", currentSA3LoopEnabled);
+    currentSA3Bars = readInt("sa3Bars", currentSA3Bars);
+    currentSA3Steps = juce::jlimit(1, 50, readInt("sa3Steps", currentSA3Steps));
+    currentSA3Cfg = juce::jlimit(0.5, 2.0, readDouble("sa3Cfg", currentSA3Cfg));
+    currentSA3Shift = readString("sa3Shift", currentSA3Shift);
+    currentSA3KeyScale = readString("sa3KeyScale", currentSA3KeyScale);
+    currentSA3NegativePrompt = readString("sa3NegativePrompt", currentSA3NegativePrompt);
+    currentSA3TransformPrompt = readString("sa3TransformPrompt", currentSA3TransformPrompt);
+    currentSA3TransformStrength = juce::jlimit(
+        0.01, 1.0, readDouble("sa3TransformStrength", currentSA3TransformStrength));
+    currentSA3ContinuePrompt = readString("sa3ContinuePrompt", currentSA3ContinuePrompt);
+    currentSA3ContinueTotalSeconds = juce::jlimit(
+        1, 300, readInt("sa3ContinueSeconds", currentSA3ContinueTotalSeconds));
+    currentSA3ContinueLatentPrefix = readBool(
+        "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
+    currentSA3SubTab = static_cast<SA3UI::SubTab>(
+        juce::jlimit(0, 2, readInt("sa3SubTab", 0)));
+    currentSA3AdvancedOpen = readBool("sa3AdvancedOpen", currentSA3AdvancedOpen);
+    currentSA3LastSeed = readString("sa3LastSeed", currentSA3LastSeed);
+    currentSA3UseSeed = readBool("sa3UseSeed", currentSA3UseSeed);
+    currentSA3SeedText = readString("sa3SeedText", currentSA3SeedText);
+    currentSA3UseLora = readBool("sa3UseLora", currentSA3UseLora);
+    currentSA3LoraSelections.clear();
+    if (auto* loras = get("sa3Loras").getArray())
+    {
+        for (const auto& item : *loras)
+        {
+            if (auto* lora = item.getDynamicObject())
+            {
+                const auto name = lora->getProperty("name").toString().trim();
+                if (name.isNotEmpty())
+                {
+                    currentSA3LoraSelections.push_back({
+                        name,
+                        juce::jlimit(0.0, 2.0, static_cast<double>(lora->getProperty("strength")))
+                    });
+                }
+            }
+        }
+    }
+
+    currentTerryVariation = readInt("terryVariation", currentTerryVariation);
+    currentTerryCustomPrompt = readString("terryCustomPrompt", currentTerryCustomPrompt);
+    currentTerryFlowstep = static_cast<float>(readDouble("terryFlowstep", currentTerryFlowstep));
+    useMidpointSolver = readBool("terryMidpoint", useMidpointSolver);
+    transformRecording = readBool("transformRecording", transformRecording);
+
+    currentCareySubTab = static_cast<CareyUI::SubTab>(
+        juce::jlimit(0, 3, readInt("careySubTab", 0)));
+    currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
+    currentCareyCompleteAdvancedOpen = readBool(
+        "careyCompleteAdvanced", currentCareyCompleteAdvancedOpen);
+    currentCareyCoverAdvancedOpen = readBool("careyCoverAdvanced", currentCareyCoverAdvancedOpen);
+    currentCareyExtractAdvancedOpen = readBool(
+        "careyExtractAdvanced", currentCareyExtractAdvancedOpen);
+    currentCareyCaption = readString("careyCaption", currentCareyCaption);
+    currentCareyTrackName = readString("careyTrack", currentCareyTrackName);
+    currentCareySteps = readInt("careySteps", currentCareySteps);
+    currentLegoCfg = readDouble("careyLegoCfg", currentLegoCfg);
+    currentCareyLoopAssistEnabled = readBool("careyLoopAssist", currentCareyLoopAssistEnabled);
+    currentCareyTrimToInputEnabled = readBool("careyTrimToInput", currentCareyTrimToInputEnabled);
+    currentCareyExtractTrackName = readString("careyExtractTrack", currentCareyExtractTrackName);
+    currentCareyExtractBpm = readInt("careyExtractBpm", currentCareyExtractBpm);
+    currentCareyExtractSteps = readInt("careyExtractSteps", currentCareyExtractSteps);
+    currentCareyExtractCfg = readDouble("careyExtractCfg", currentCareyExtractCfg);
+    currentCareyCompleteCaption = readString("careyCompleteCaption", currentCareyCompleteCaption);
+    currentCareyCompleteLora = readString("careyCompleteLora", currentCareyCompleteLora);
+    currentCareyCompleteModel = readString("careyCompleteModel", currentCareyCompleteModel);
+    currentCareyCompleteBpm = readInt("careyCompleteBpm", currentCareyCompleteBpm);
+    currentCareyCompleteSteps = readInt("careyCompleteSteps", currentCareyCompleteSteps);
+    currentCompleteCfg = readDouble("careyCompleteCfg", currentCompleteCfg);
+    currentCareyCompleteDurationSeconds = readInt(
+        "careyCompleteDuration", currentCareyCompleteDurationSeconds);
+    currentCareyCompleteUseLora = readBool("careyCompleteUseLora", currentCareyCompleteUseLora);
+    currentCareyCompleteLoraScale = readDouble(
+        "careyCompleteLoraScale", currentCareyCompleteLoraScale);
+    currentCompleteUseSrcAsRef = readBool(
+        "careyCompleteUseSrcRef", currentCompleteUseSrcAsRef);
+    currentCoverCaption = readString("careyCoverCaption", currentCoverCaption);
+    currentCoverModel = readString("careyCoverModel", currentCoverModel);
+    currentCoverLora = readString("careyCoverLora", currentCoverLora);
+    currentCoverNoiseStrength = readDouble("careyCoverNoise", currentCoverNoiseStrength);
+    currentCoverAudioStrength = readDouble("careyCoverAudio", currentCoverAudioStrength);
+    currentCoverSteps = readInt("careyCoverSteps", currentCoverSteps);
+    currentCoverCfg = readDouble("careyCoverCfg", currentCoverCfg);
+    currentCoverUseLora = readBool("careyCoverUseLora", currentCoverUseLora);
+    currentCoverLoraScale = readDouble("careyCoverLoraScale", currentCoverLoraScale);
+    currentCoverUseSrcAsRef = readBool("careyCoverUseSrcRef", currentCoverUseSrcAsRef);
+    currentCoverLoopAssistEnabled = readBool(
+        "careyCoverLoopAssist", currentCoverLoopAssistEnabled);
+    currentCoverTrimToInputEnabled = readBool(
+        "careyCoverTrimToInput", currentCoverTrimToInputEnabled);
+    currentCareyKeyScale = readString("careyKeyScale", currentCareyKeyScale);
+    currentCareyTimeSig = readString("careyTimeSig", currentCareyTimeSig);
+    pendingDariusState = readString("dariusState", pendingDariusState);
+
+    DBG("Restored versioned editor state");
+}
+
+void Gary4juceAudioProcessorEditor::persistEditorState()
+{
+    if (foundationUI != nullptr)
+        audioProcessor.setFoundationState(foundationUI->serializeState());
+
+    audioProcessor.setEditorState(serializePersistentState());
+}
+
 //==============================================================================
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p),
@@ -36,6 +339,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
 {
     editorCreatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+    transformRecording = audioProcessor.getTransformRecording();
+    restorePersistentState(audioProcessor.getEditorState());
+    audioProcessor.setTransformRecording(transformRecording);
 
     setSize(400, 850);  // Made taller to accommodate controls
 
@@ -119,6 +425,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     garyUI->onModelChanged = [this](int index)
     {
         currentModelIndex = index;
+        if (juce::isPositiveAndBelow(index, static_cast<int>(garyModelList.size())))
+            preferredGaryModelPath = garyModelList[static_cast<size_t>(index)].fullPath;
     };
 
     garyUI->onSendToGary = [this]()
@@ -152,6 +460,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // Handle manual BPM changes in standalone mode
     jerryUI->onManualBpmChanged = [this](int newBpm)
     {
+        currentJerryManualBpm = newBpm;
         DBG("Manual BPM changed to: " + juce::String(newBpm));
         // The BPM will be retrieved via jerryUI->getManualBpm() when generating
     };
@@ -203,6 +512,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 currentJerryFinetuneRepo = jerryUI->getSelectedFinetuneRepo();
                 currentJerryFinetuneCheckpoint = jerryUI->getSelectedFinetuneCheckpoint();
                 currentJerrySamplerType = jerryUI->getSelectedSamplerType();
+                preferredJerryModelKey = currentJerryModelKey;
+                preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
+                preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
 
                 DBG("Selected model components:");
                 DBG("  Type: " + currentJerryModelType);
@@ -250,10 +562,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryUI->setSmartLoop(generateAsLoop);
     jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
     jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
+    jerryUI->setManualBpm(currentJerryManualBpm);
     jerryUI->setButtonsEnabled(false, isServiceReachable(ServiceType::Jerry), isGenerating);
 
     // Update localhost status
     jerryUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
+    jerryUI->restoreCustomFinetuneState(currentJerryCustomFinetuneOpen,
+                                        currentJerryCustomFinetuneRepo,
+                                        currentJerryCustomFinetuneCheckpoint);
 
     // ========== SA3 CONTROLS SETUP ==========
     sa3UI = std::make_unique<SA3UI>();
@@ -299,8 +615,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentSA3NegativePrompt = text.trim();
     };
-    sa3UI->onSubTabChanged = [this](SA3UI::SubTab)
+    sa3UI->onSubTabChanged = [this](SA3UI::SubTab subTab)
     {
+        currentSA3SubTab = subTab;
         updateSA3EnablementSnapshot();
     };
     sa3UI->onGenerate = [this]() { sendToSA3(); };
@@ -316,16 +633,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     sa3UI->onTransformAudioSourceChanged = [this](bool useRecording)
     {
-        transformRecording = useRecording;
-        audioProcessor.setTransformRecording(useRecording);
-        if (terryUI)
-            terryUI->setAudioSourceRecording(useRecording);
-        if (dariusUI)
-            dariusUI->setAudioSourceRecording(useRecording);
-        if (sa3UI)
-            sa3UI->setTransformAudioSourceRecording(useRecording);
-        updateSA3EnablementSnapshot();
-        updateTerryEnablementSnapshot();
+        setTerryAudioSource(useRecording);
     };
     sa3UI->onTransform = [this]() { sendSA3Transform(); };
     sa3UI->onTransformDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Transform); };
@@ -344,16 +652,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     sa3UI->onContinueAudioSourceChanged = [this](bool useRecording)
     {
-        transformRecording = useRecording;
-        audioProcessor.setTransformRecording(useRecording);
-        if (terryUI)
-            terryUI->setAudioSourceRecording(useRecording);
-        if (dariusUI)
-            dariusUI->setAudioSourceRecording(useRecording);
-        if (sa3UI)
-            sa3UI->setContinueAudioSourceRecording(useRecording);
-        updateSA3EnablementSnapshot();
-        updateTerryEnablementSnapshot();
+        setTerryAudioSource(useRecording);
     };
     sa3UI->onContinue = [this]() { sendSA3Continue(); };
     sa3UI->onContinueDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Continue); };
@@ -382,6 +681,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setShift(currentSA3Shift);
     sa3UI->setKeyScale(currentSA3KeyScale);
     sa3UI->setNegativePromptText(currentSA3NegativePrompt);
+    sa3UI->setCurrentSubTab(currentSA3SubTab);
+    sa3UI->setAdvancedOpen(currentSA3AdvancedOpen);
+    sa3UI->setLastSeed(currentSA3LastSeed);
+    sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
+    sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
     sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
     sa3UI->setGenerateButtonEnabled(false, false);
     sa3UI->setDiceButtonsEnabled(false);
@@ -522,7 +826,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusUI->onAudioSourceChanged = [this](bool useRecording)
     {
         DBG("Darius generation source set to " + juce::String(useRecording ? "Recording" : "Output"));
-        audioProcessor.setTransformRecording(useRecording);
+        setTerryAudioSource(useRecording);
     };
 
     dariusUI->setBackendUrl(dariusBackendUrl);
@@ -537,6 +841,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     dariusUI->setBpm(audioProcessor.getCurrentBPM());
     dariusUI->setSteeringAssets(dariusAssetsMeanAvailable, dariusAssetsCentroidCount, dariusCentroidWeights);
+    dariusUI->restoreState(pendingDariusState);
+    dariusBackendUrl = dariusUI->getBackendUrl();
+    dariusUseBaseModel = dariusUI->getUsingBaseModel();
+    dariusFinetuneRepo = dariusUI->getFinetuneRepo();
+    dariusSelectedStepStr = dariusUI->getSelectedCheckpointStep();
+    dariusCentroidWeights = dariusUI->getCentroidWeights();
+    setTerryAudioSource(transformRecording);
 
     // ========== CAREY UI ==========
     careyUI = std::make_unique<CareyUI>();
@@ -544,6 +855,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     careyUI->onSubTabChanged = [this](CareyUI::SubTab tab)
     {
+        currentCareySubTab = tab;
         if (tab == CareyUI::SubTab::Complete || tab == CareyUI::SubTab::Cover)
             refreshCareyAvailableLoras(true);
     };
@@ -633,9 +945,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCaptionText(currentCareyCaption);
     careyUI->setTrackName(currentCareyTrackName);
     careyUI->setSteps(currentCareySteps);
+    careyUI->setLegoCfg(currentLegoCfg);
     careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
     careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
-    currentCareyExtractBpm = juce::jlimit(20, 300, juce::roundToInt(getCareyBpmForRequest()));
     careyUI->setExtractTrackName(currentCareyExtractTrackName);
     careyUI->setExtractBpm(currentCareyExtractBpm);
     careyUI->setExtractSteps(currentCareyExtractSteps);
@@ -660,6 +972,16 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCoverLoraScale(currentCoverLoraScale);
     careyUI->setCoverUseLora(currentCoverUseLora);
     careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
+    careyUI->setCoverCaptionText(currentCoverCaption);
+    careyUI->setCoverLoopAssistEnabled(currentCoverLoopAssistEnabled);
+    careyUI->setCoverTrimToInputEnabled(currentCoverTrimToInputEnabled);
+    careyUI->setKeyScale(currentCareyKeyScale);
+    careyUI->setTimeSig(currentCareyTimeSig);
+    careyUI->setCurrentSubTab(currentCareySubTab);
+    careyUI->setLegoAdvancedOpen(currentCareyLegoAdvancedOpen);
+    careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
+    careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
+    careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
     syncCareyLoraUi();
     careyUI->setGenerateButtonEnabled(false, false);
 
@@ -883,11 +1205,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     outputLabel.setTooltip("drag generated audio to your DAW timeline");
     setInterceptsMouseClicks(true, true);
 
-    // Set initial tab state
+    // The final constructor step applies the persisted tab after every child
+    // component and help button exists.
     updateTabButtonStates();
-    
-    // CRITICAL: Set initial visibility state for tabs
-    switchToTab(ModelTab::Gary);
     
     // Initialize tooltip window
     tooltipWindow = std::make_unique<juce::TooltipWindow>(this);
@@ -1038,8 +1358,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     DBG("All button states updated after restoration");
 
-    // 5. Set initial tab and visibility
-    switchToTab(ModelTab::Gary);
+    // 5. Set initial tab and visibility. Force a transition even when the
+    // default currentTab happens to match the persisted tab.
+    currentTab = initialTab == ModelTab::Gary ? ModelTab::Terry : ModelTab::Gary;
+    switchToTab(initialTab);
 
     // Force initial layout now that help icons are created
     resized();
@@ -1055,6 +1377,8 @@ juce::MessageManager::callAsync([safeThis]()
         if (safeThis != nullptr)
             safeThis->audioProcessor.checkBackendHealth();
     });
+
+    persistEditorState();
 }
 
 Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::beginGenerationAsyncWork() noexcept
@@ -1112,6 +1436,8 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
+    persistEditorState();
+    DBG("=== EDITOR DESTROYED (processor state retained) ===");
     isEditorValid.store(false, std::memory_order_release);
     if (editorAsyncAlive != nullptr)
         editorAsyncAlive->store(false, std::memory_order_release);
@@ -1245,6 +1571,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     // Force a complete relayout to position help icons correctly
     resized();
     repaint();
+    persistEditorState();
 }
 
 void Gary4juceAudioProcessorEditor::updateTabButtonStates()
@@ -1324,6 +1651,12 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         return;
 
     updateRecordingStatus();
+
+    if (++persistentStateTimerTicks >= 10)
+    {
+        persistentStateTimerTicks = 0;
+        persistEditorState();
+    }
 
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
     double currentBPM = audioProcessor.getCurrentBPM();
@@ -3578,17 +3911,29 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
             {
                 modelComboBox->setHierarchicalItems(menuItems);
 
-                // Set default selection to first selectable item
-                if (firstSelectableId > 0)
+                int selectedId = firstSelectableId;
+                if (preferredGaryModelPath.isNotEmpty())
                 {
-                    modelComboBox->setSelectedId(firstSelectableId, juce::dontSendNotification);
+                    for (const auto& model : garyModelList)
+                    {
+                        if (model.fullPath == preferredGaryModelPath)
+                        {
+                            selectedId = model.dropdownId;
+                            break;
+                        }
+                    }
+                }
 
-                    // Find the index in garyModelList that corresponds to this ID
+                if (selectedId > 0)
+                {
+                    modelComboBox->setSelectedId(selectedId, juce::dontSendNotification);
+
                     for (size_t i = 0; i < garyModelList.size(); ++i)
                     {
-                        if (garyModelList[i].dropdownId == firstSelectableId)
+                        if (garyModelList[i].dropdownId == selectedId)
                         {
                             currentModelIndex = static_cast<int>(i);
+                            preferredGaryModelPath = garyModelList[i].fullPath;
                             break;
                         }
                     }

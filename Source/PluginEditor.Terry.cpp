@@ -20,7 +20,12 @@ void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
     if (terryUI)
         terryUI->setAudioSourceRecording(useRecording);
     if (sa3UI)
+    {
         sa3UI->setTransformAudioSourceRecording(useRecording);
+        sa3UI->setContinueAudioSourceRecording(useRecording);
+    }
+    if (dariusUI)
+        dariusUI->setAudioSourceRecording(useRecording);
 
     updateTerryEnablementSnapshot();
     updateSA3EnablementSnapshot();

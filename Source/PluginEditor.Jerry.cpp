@@ -175,6 +175,7 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 
     resized();
     repaint();
+    persistEditorState();
 }
 
 void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
@@ -367,8 +368,44 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
 
         if (jerryUI && modelNames.size() > 0)
         {
+            const juce::String desiredKey = preferredJerryModelKey;
+            const juce::String desiredRepo = preferredJerryFinetuneRepo;
+            const juce::String desiredCheckpoint = preferredJerryFinetuneCheckpoint;
+            const juce::String desiredSampler = currentJerrySamplerType;
+
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
                 modelTypes, modelRepos, modelCheckpoints);
+
+            int desiredIndex = -1;
+            for (int i = 0; i < modelNames.size(); ++i)
+            {
+                const bool keyMatches = desiredKey.isNotEmpty() && modelKeys[i] == desiredKey;
+                const bool finetuneMatches = desiredRepo.isNotEmpty()
+                    && modelRepos[i] == desiredRepo
+                    && modelCheckpoints[i] == desiredCheckpoint;
+                if (keyMatches || finetuneMatches)
+                {
+                    desiredIndex = i;
+                    break;
+                }
+            }
+
+            if (desiredIndex >= 0)
+            {
+                jerryUI->setSelectedModel(desiredIndex);
+                jerryUI->setSelectedSamplerType(desiredSampler);
+                currentJerryModelIndex = desiredIndex;
+                currentJerryModelKey = modelKeys[desiredIndex];
+                currentJerryModelType = modelTypes[desiredIndex];
+                currentJerryFinetuneRepo = modelRepos[desiredIndex];
+                currentJerryFinetuneCheckpoint = modelCheckpoints[desiredIndex];
+                currentJerryIsFinetune = isFinetune[desiredIndex];
+                currentJerrySamplerType = jerryUI->getSelectedSamplerType();
+                preferredJerryModelKey = currentJerryModelKey;
+                preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
+                preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
+            }
+
             DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
         }
     }

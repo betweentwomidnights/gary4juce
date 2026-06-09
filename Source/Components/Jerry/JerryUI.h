@@ -64,6 +64,7 @@ public:
     juce::String getSelectedModelKey() const;
     bool getSelectedModelIsFinetune() const;
     juce::String getSelectedSamplerType() const;
+    void setSelectedSamplerType(const juce::String& samplerType);
 
     // Callbacks
     std::function<void(int, bool)> onModelChanged;  // index, isFinetune
@@ -82,6 +83,12 @@ public:
     void setFetchingCheckpoints(bool fetching);
     void setAvailableCheckpoints(const juce::StringArray& checkpoints);
     void toggleCustomFinetuneSection();
+    bool getCustomFinetuneSectionOpen() const { return showingCustomFinetuneSection; }
+    juce::String getCustomFinetuneRepoText() const { return repoTextEditor.getText().trim(); }
+    juce::String getCustomFinetuneCheckpointText() const { return checkpointComboBox.getText().trim(); }
+    void restoreCustomFinetuneState(bool sectionOpen,
+                                    const juce::String& repo,
+                                    const juce::String& checkpoint);
     void setLoadingModel(bool loading, const juce::String& modelInfo = "");
     void selectModelByRepo(const juce::String& repo);
 

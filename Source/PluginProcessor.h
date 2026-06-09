@@ -111,6 +111,11 @@ public:
     void setFoundationState(const juce::String& json) { foundationState = json; }
     juce::String getFoundationState() const { return foundationState; }
 
+    // Versioned editor configuration. The editor is a disposable host-owned
+    // view, so durable control state must live with the processor.
+    void setEditorState(const juce::String& json);
+    juce::String getEditorState() const;
+
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
     void startOutputPlayback(double fromPosition = 0.0);
@@ -180,6 +185,9 @@ private:
 
     // Foundation UI state persistence
     juce::String foundationState;
+
+    mutable juce::CriticalSection editorStateLock;
+    juce::String editorState;
 
     struct OutputPlaybackData
     {

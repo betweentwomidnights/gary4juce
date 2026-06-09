@@ -81,8 +81,15 @@ public:
     double getCfgScale() const { return cfgSlider.getValue(); }
     void setCfgScale(double value);
     juce::int64 getSeed() const;
+    bool getUseSeedEnabled() const { return useSeedToggle.getToggleState(); }
+    juce::String getSeedText() const { return seedEditor.getText().trim(); }
+    void setSeedState(bool enabled, const juce::String& seedText);
+    juce::String getLastSeed() const { return lastSeed; }
     void setLastSeed(const juce::String& seed);
     std::vector<LoraSelection> getActiveLoras() const;
+    std::vector<LoraSelection> getLoraSelections() const;
+    bool getUseLoraEnabled() const { return useLoraRequested; }
+    void setLoraState(bool enabled, const std::vector<LoraSelection>& selections);
     void setAvailableLoras(const juce::StringArray& loraNames);
     juce::String getShift() const;
     void setShift(const juce::String& shift);
@@ -92,6 +99,8 @@ public:
 
     SubTab getCurrentSubTab() const { return currentSubTab; }
     void setCurrentSubTab(SubTab tab);
+    bool getAdvancedOpen() const { return advancedOpen; }
+    void setAdvancedOpen(bool open);
 
     std::function<void(const juce::String&)> onPromptChanged;
     std::function<void(const juce::String&)> onNegativePromptChanged;
@@ -127,6 +136,7 @@ private:
     void updateAdvancedToggleText();
     void updateKeyScaleVisibility(bool notify);
     void updateLoraControls();
+    void updateSavedLoraSelection(const juce::String& name, double strength);
     void clearLoraRows();
     void updateContentLayout();
     void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
@@ -196,11 +206,14 @@ private:
     juce::ToggleButton useSeedToggle;
     CustomTextEditor seedEditor;
     juce::Label lastSeedLabel;
+    juce::String lastSeed;
     juce::Label continueModeLabel;
     juce::ToggleButton continueModeStandardButton;
     juce::ToggleButton continueModeLatentPrefixButton;
     juce::ToggleButton useLoraToggle;
     juce::Label loraStatusLabel;
+    bool useLoraRequested = false;
+    std::vector<LoraSelection> savedLoraSelections;
     struct LoraRow
     {
         juce::String name;

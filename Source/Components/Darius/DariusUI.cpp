@@ -783,6 +783,9 @@ void DariusUI::setConnected(bool shouldBeConnected)
 
     connected = shouldBeConnected;
     refreshModelControls();
+
+    if (connected && requestedSubTab == SubTab::Generation)
+        setCurrentSubTab(requestedSubTab);
 }
 
 void DariusUI::setUsingBaseModel(bool flag)
@@ -932,6 +935,8 @@ void DariusUI::setGenerating(bool generating)
 
 void DariusUI::setCurrentSubTab(SubTab tab)
 {
+    requestedSubTab = tab;
+
     // Prevent switching to generation tab if backend not connected
     if (tab == SubTab::Generation && !connected)
     {
@@ -1006,6 +1011,134 @@ void DariusUI::setAdvancedOpen(bool open)
 
     genAdvancedOpen = open;
     updateGenAdvancedToggleText();
+    resized();
+}
+
+juce::String DariusUI::serializeState() const
+{
+    auto state = std::make_unique<juce::DynamicObject>();
+    state->setProperty("version", 1);
+    state->setProperty("subTab", static_cast<int>(requestedSubTab));
+    state->setProperty("backendUrl", backendUrl);
+    state->setProperty("setupGuideOpen", setupGuideOpen);
+    state->setProperty("useBaseModel", useBaseModel);
+    state->setProperty("finetuneRepo", finetuneRepoText);
+    state->setProperty("checkpoint", selectedCheckpointStep);
+    state->setProperty("loopInfluence", genLoopInfluence);
+    state->setProperty("advancedOpen", genAdvancedOpen);
+    state->setProperty("temperature", genTemperature);
+    state->setProperty("topK", genTopK);
+    state->setProperty("guidance", genGuidance);
+    state->setProperty("bars", genBars);
+    state->setProperty("useRecording", genAudioSource == GenAudioSource::Recording);
+    state->setProperty("steeringOpen", genSteeringOpen);
+    state->setProperty("mean", genMean);
+
+    juce::Array<juce::var> styles;
+    for (const auto& row : genStyleRows)
+    {
+        auto style = std::make_unique<juce::DynamicObject>();
+        style->setProperty("text", row.text != nullptr ? row.text->getText() : juce::String());
+        style->setProperty("weight", row.weight != nullptr ? row.weight->getValue() : 1.0);
+        styles.add(juce::var(style.release()));
+    }
+    state->setProperty("styles", styles);
+
+    juce::Array<juce::var> centroidWeights;
+    for (const auto weight : genCentroidWeights)
+        centroidWeights.add(weight);
+    state->setProperty("centroidWeights", centroidWeights);
+
+    return juce::JSON::toString(juce::var(state.release()), false);
+}
+
+void DariusUI::restoreState(const juce::String& json)
+{
+    if (json.trim().isEmpty())
+        return;
+
+    auto parsed = juce::JSON::parse(json);
+    auto* state = parsed.getDynamicObject();
+    if (state == nullptr)
+        return;
+
+    const auto get = [state](const char* name) { return state->getProperty(name); };
+    const auto has = [state](const char* name) { return state->hasProperty(name); };
+
+    if (has("backendUrl"))
+        setBackendUrl(get("backendUrl").toString());
+    if (has("setupGuideOpen"))
+        setupGuideOpen = static_cast<bool>(get("setupGuideOpen"));
+    if (has("useBaseModel"))
+        setUsingBaseModel(static_cast<bool>(get("useBaseModel")));
+    if (has("finetuneRepo"))
+        setFinetuneRepo(get("finetuneRepo").toString());
+    if (has("checkpoint"))
+        setSelectedCheckpointStep(get("checkpoint").toString());
+
+    if (has("loopInfluence"))
+        genLoopInfluence = juce::jlimit(0.0, 1.0, static_cast<double>(get("loopInfluence")));
+    if (has("temperature"))
+        genTemperature = juce::jlimit(0.0, 10.0, static_cast<double>(get("temperature")));
+    if (has("topK"))
+        genTopK = juce::jlimit(1, 300, static_cast<int>(get("topK")));
+    if (has("guidance"))
+        genGuidance = juce::jlimit(0.0, 10.0, static_cast<double>(get("guidance")));
+    if (has("bars"))
+    {
+        const int bars = static_cast<int>(get("bars"));
+        genBars = bars == 8 || bars == 16 ? bars : 4;
+    }
+    if (has("useRecording"))
+        genAudioSource = static_cast<bool>(get("useRecording"))
+            ? GenAudioSource::Recording : GenAudioSource::Output;
+    if (has("mean"))
+        genMean = juce::jlimit(0.0, 2.0, static_cast<double>(get("mean")));
+
+    if (auto* styles = get("styles").getArray())
+    {
+        ensureStylesRowCount(juce::jmax(1, styles->size()));
+        for (int i = 0; i < styles->size() && i < static_cast<int>(genStyleRows.size()); ++i)
+        {
+            if (auto* style = styles->getReference(i).getDynamicObject())
+            {
+                auto& row = genStyleRows[static_cast<size_t>(i)];
+                if (row.text != nullptr)
+                    row.text->setText(style->getProperty("text").toString(), false);
+                if (row.weight != nullptr)
+                    row.weight->setValue(
+                        juce::jlimit(0.0, 2.0, static_cast<double>(style->getProperty("weight"))),
+                        juce::dontSendNotification);
+            }
+        }
+    }
+
+    if (auto* weights = get("centroidWeights").getArray())
+    {
+        genCentroidWeights.clear();
+        for (const auto& weight : *weights)
+            genCentroidWeights.push_back(static_cast<double>(weight));
+    }
+
+    genLoopSlider.setValue(genLoopInfluence, juce::dontSendNotification);
+    genTempSlider.setValue(genTemperature, juce::dontSendNotification);
+    genTopKSlider.setValue(genTopK, juce::dontSendNotification);
+    genGuidanceSlider.setValue(genGuidance, juce::dontSendNotification);
+    genMeanSlider.setValue(genMean, juce::dontSendNotification);
+    updateGenLoopLabel();
+    genTempLabel.setText("temperature: " + juce::String(genTemperature, 2), juce::dontSendNotification);
+    genTopKLabel.setText("top-k: " + juce::String(genTopK), juce::dontSendNotification);
+    genGuidanceLabel.setText("guidance: " + juce::String(genGuidance, 2), juce::dontSendNotification);
+    genMeanLabel.setText("mean: " + juce::String(genMean, 2), juce::dontSendNotification);
+    updateGenBarsButtons();
+    updateGenSourceButtons();
+
+    setAdvancedOpen(has("advancedOpen") && static_cast<bool>(get("advancedOpen")));
+    setSteeringOpen(has("steeringOpen") && static_cast<bool>(get("steeringOpen")));
+    updateSetupGuideToggleText();
+
+    const int subTab = has("subTab") ? static_cast<int>(get("subTab")) : 0;
+    setCurrentSubTab(static_cast<SubTab>(juce::jlimit(0, 2, subTab)));
     resized();
 }
 
