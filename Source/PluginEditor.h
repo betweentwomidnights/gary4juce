@@ -95,6 +95,7 @@ private:
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;
     std::atomic<bool> localHealthPollInFlight{ false };
+    std::atomic<int> localHealthPollNonce{ 0 };
 
     // Backend toggle system
     bool isUsingLocalhost = false; // Local cache synced with processor
@@ -492,6 +493,7 @@ private:
     void updateBackendToggleButton();
     void triggerLocalServiceHealthPoll(bool force);
     void resetLocalServiceHealthSnapshot();
+    void restoreLocalServiceHealthSnapshot();
     bool isLocalServiceOnline(ServiceType service) const;
     ServiceType getActiveLocalService() const;
     bool isActiveLocalServiceOnline() const;

@@ -27,6 +27,29 @@ public:
 
     // Service type enum for different ports
     enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
+
+    struct LocalServiceHealthSnapshot
+    {
+        bool valid = false;
+        bool garyOnline = false;
+        bool terryOnline = false;
+        bool jerryOnline = false;
+        bool careyOnline = false;
+        bool foundationOnline = false;
+        bool sa3Online = false;
+        juce::int64 updatedAtMs = 0;
+
+        int getOnlineCount() const
+        {
+            return (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
+                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0)
+                + (foundationOnline ? 1 : 0) + (sa3Online ? 1 : 0);
+        }
+    };
+
+    LocalServiceHealthSnapshot getLocalServiceHealthSnapshot() const;
+    void setLocalServiceHealthSnapshot(const LocalServiceHealthSnapshot& snapshot);
+    void clearLocalServiceHealthSnapshot();
     
     // Backend URL management methods
     void setUsingLocalhost(bool useLocalhost);
@@ -141,6 +164,8 @@ private:
     // Backend URL management
     bool isUsingLocalhost = false;
     juce::String backendBaseUrl = "https://g4l.thecollabagepatch.com"; // Default to remote
+    mutable juce::SpinLock localHealthSnapshotLock;
+    LocalServiceHealthSnapshot localHealthSnapshot;
 
     // Thread safety - PUT THESE FIRST
     juce::CriticalSection bufferLock;

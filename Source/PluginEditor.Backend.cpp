@@ -196,7 +196,25 @@ void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
     localOnlineCount = 0;
     localHealthLastPollMs = 0;
     localHealthPollCounter = 0;
+    localHealthPollNonce.fetch_add(1);
     localHealthPollInFlight.store(false);
+    audioProcessor.clearLocalServiceHealthSnapshot();
+}
+
+void Gary4juceAudioProcessorEditor::restoreLocalServiceHealthSnapshot()
+{
+    const auto snapshot = audioProcessor.getLocalServiceHealthSnapshot();
+    if (!snapshot.valid)
+        return;
+
+    localGaryOnline = snapshot.garyOnline;
+    localTerryOnline = snapshot.terryOnline;
+    localJerryOnline = snapshot.jerryOnline;
+    localCareyOnline = snapshot.careyOnline;
+    localFoundationOnline = snapshot.foundationOnline;
+    localSA3Online = snapshot.sa3Online;
+    localOnlineCount = snapshot.getOnlineCount();
+    localHealthLastPollMs = snapshot.updatedAtMs;
 }
 
 void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
@@ -210,11 +228,12 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
     if (localHealthPollInFlight.exchange(true))
         return;
     localHealthLastPollMs = nowMs;
+    const int pollNonce = localHealthPollNonce.fetch_add(1) + 1;
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
-    juce::Thread::launch([asyncAlive, editor]() {
+    juce::Thread::launch([asyncAlive, editor, pollNonce]() {
         auto probeHealth = [](const juce::String& urlText) -> bool
         {
             try
@@ -237,19 +256,30 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             }
         };
 
-        const bool garyOnline       = probeHealth("http://127.0.0.1:8000/health");
-        const bool terryOnline      = probeHealth("http://127.0.0.1:8002/health");
-        const bool jerryOnline      = probeHealth("http://127.0.0.1:8005/health");
-        const bool careyOnline      = probeHealth("http://127.0.0.1:8003/health");
-        const bool foundationOnline = probeHealth("http://127.0.0.1:8015/health");
-        const bool sa3Online        = probeHealth("http://127.0.0.1:8006/health");
+        auto garyFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8000/health");
+        auto terryFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8002/health");
+        auto jerryFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8005/health");
+        auto careyFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8003/health");
+        auto foundationFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8015/health");
+        auto sa3Future = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8006/health");
 
-        juce::MessageManager::callAsync([asyncAlive, editor, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline, sa3Online]() {
+        const bool garyOnline = garyFuture.get();
+        const bool terryOnline = terryFuture.get();
+        const bool jerryOnline = jerryFuture.get();
+        const bool careyOnline = careyFuture.get();
+        const bool foundationOnline = foundationFuture.get();
+        const bool sa3Online = sa3Future.get();
+
+        juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline, sa3Online]() {
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
+            if (pollNonce != editor->localHealthPollNonce.load()
+                || !editor->audioProcessor.getIsUsingLocalhost())
+                return;
 
             editor->localHealthPollInFlight.store(false);
+            editor->checkConnectionButton.setEnabled(true);
 
             const bool careyStatusChanged = editor->localCareyOnline != careyOnline;
             const bool sa3StatusChanged = editor->localSA3Online != sa3Online;
@@ -271,6 +301,17 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
             editor->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
                 + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0)
                 + (sa3Online ? 1 : 0);
+
+            Gary4juceAudioProcessor::LocalServiceHealthSnapshot snapshot;
+            snapshot.valid = true;
+            snapshot.garyOnline = garyOnline;
+            snapshot.terryOnline = terryOnline;
+            snapshot.jerryOnline = jerryOnline;
+            snapshot.careyOnline = careyOnline;
+            snapshot.foundationOnline = foundationOnline;
+            snapshot.sa3Online = sa3Online;
+            snapshot.updatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+            editor->audioProcessor.setLocalServiceHealthSnapshot(snapshot);
 
             editor->updateAllGenerationButtonStates();
             editor->updateJerrySubTabStates();

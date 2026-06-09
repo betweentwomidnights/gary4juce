@@ -1026,10 +1026,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     checkConnectionButton.setTooltip("check backend connection");
     checkConnectionButton.onClick = [this]() {
         DBG("Manual backend health check requested");
+        checkConnectionButton.setEnabled(false);
         audioProcessor.checkBackendHealth();
         if (audioProcessor.getIsUsingLocalhost())
             triggerLocalServiceHealthPoll(true);
-        checkConnectionButton.setEnabled(false);
 
         juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
         juce::Timer::callAfterDelay(6000, [safeThis]() {
@@ -1071,6 +1071,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // Backend toggle button setup
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
+    if (isUsingLocalhost)
+        restoreLocalServiceHealthSnapshot();
     backendToggleButton.setButtonText("remote");
     backendToggleButton.onClick = [this]() { toggleBackend(); };
     updateBackendToggleButton(); // Set initial state

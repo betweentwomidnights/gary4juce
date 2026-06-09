@@ -256,6 +256,26 @@ void Gary4juceAudioProcessor::setBackendConnectionStatus(bool connected)
     }
 }
 
+Gary4juceAudioProcessor::LocalServiceHealthSnapshot
+Gary4juceAudioProcessor::getLocalServiceHealthSnapshot() const
+{
+    const juce::SpinLock::ScopedLockType lock(localHealthSnapshotLock);
+    return localHealthSnapshot;
+}
+
+void Gary4juceAudioProcessor::setLocalServiceHealthSnapshot(
+    const LocalServiceHealthSnapshot& snapshot)
+{
+    const juce::SpinLock::ScopedLockType lock(localHealthSnapshotLock);
+    localHealthSnapshot = snapshot;
+}
+
+void Gary4juceAudioProcessor::clearLocalServiceHealthSnapshot()
+{
+    const juce::SpinLock::ScopedLockType lock(localHealthSnapshotLock);
+    localHealthSnapshot = {};
+}
+
 //==============================================================================
 // Backend URL management methods
 
