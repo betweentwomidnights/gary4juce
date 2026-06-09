@@ -129,6 +129,28 @@ static bool localhostHealthResponseLooksOnline(const juce::String& responseText)
     return true;
 }
 
+static bool probeLocalhostHealth(const juce::String& urlText)
+{
+    try
+    {
+        juce::URL healthUrl(urlText);
+        int statusCode = 0;
+        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs(1500)
+            .withStatusCode(&statusCode)
+            .withExtraHeaders("Accept: application/json");
+        auto stream = healthUrl.createInputStream(options);
+        if (stream == nullptr || statusCode >= 400)
+            return false;
+
+        return localhostHealthResponseLooksOnline(stream->readEntireStreamAsString());
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) const
 {
     switch (service)
@@ -217,6 +239,78 @@ void Gary4juceAudioProcessorEditor::restoreLocalServiceHealthSnapshot()
     localHealthLastPollMs = snapshot.updatedAtMs;
 }
 
+void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
+    ServiceType service, bool online, bool pollComplete)
+{
+    const bool statusChanged = isLocalServiceOnline(service) != online;
+
+    switch (service)
+    {
+    case ServiceType::Gary:       localGaryOnline = online; break;
+    case ServiceType::Terry:      localTerryOnline = online; break;
+    case ServiceType::Jerry:      localJerryOnline = online; break;
+    case ServiceType::Carey:      localCareyOnline = online; break;
+    case ServiceType::Foundation: localFoundationOnline = online; break;
+    case ServiceType::SA3:        localSA3Online = online; break;
+    }
+
+    localOnlineCount = (localGaryOnline ? 1 : 0) + (localTerryOnline ? 1 : 0)
+        + (localJerryOnline ? 1 : 0) + (localCareyOnline ? 1 : 0)
+        + (localFoundationOnline ? 1 : 0) + (localSA3Online ? 1 : 0);
+
+    Gary4juceAudioProcessor::LocalServiceHealthSnapshot snapshot;
+    snapshot.valid = true;
+    snapshot.garyOnline = localGaryOnline;
+    snapshot.terryOnline = localTerryOnline;
+    snapshot.jerryOnline = localJerryOnline;
+    snapshot.careyOnline = localCareyOnline;
+    snapshot.foundationOnline = localFoundationOnline;
+    snapshot.sa3Online = localSA3Online;
+    snapshot.updatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+    audioProcessor.setLocalServiceHealthSnapshot(snapshot);
+
+    updateAllGenerationButtonStates();
+    updateJerrySubTabStates();
+
+    if (service == ServiceType::Jerry)
+    {
+        if (!online && jerryUI)
+            jerryUI->setLoadingModel(false);
+        else if (online && currentTab == ModelTab::Jerry)
+            fetchJerryAvailableModels();
+    }
+
+    if (service == ServiceType::Carey && currentTab == ModelTab::Carey
+        && (statusChanged || online))
+    {
+        refreshCareyAvailableLoras(statusChanged);
+        updateCareyEnablementSnapshot();
+    }
+
+    if (service == ServiceType::SA3
+        && currentTab == ModelTab::Jerry
+        && jerrySubTab == JerrySubTab::SA3)
+    {
+        if (online)
+            refreshSA3AvailableLoras(statusChanged);
+        else
+        {
+            availableSA3Loras.clear();
+            syncSA3LoraUi();
+        }
+        updateSA3EnablementSnapshot();
+    }
+
+    if (pollComplete)
+    {
+        localHealthPollInFlight.store(false);
+        checkConnectionButton.setEnabled(true);
+    }
+
+    if (statusChanged)
+        repaint();
+}
+
 void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
 {
     if (!audioProcessor.getIsUsingLocalhost())
@@ -232,119 +326,59 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
+    const auto completedProbes = std::make_shared<std::atomic<int>>(0);
 
-    juce::Thread::launch([asyncAlive, editor, pollNonce]() {
-        auto probeHealth = [](const juce::String& urlText) -> bool
+    auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes](
+        ServiceType service, const juce::String& healthUrl)
+    {
+        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, healthUrl]()
         {
-            try
+            const bool online = probeLocalhostHealth(healthUrl);
+
+            juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, completedProbes, service, online]()
             {
-                juce::URL healthUrl(urlText);
-                int statusCode = 0;
-                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                    .withConnectionTimeoutMs(1500)
-                    .withStatusCode(&statusCode)
-                    .withExtraHeaders("Accept: application/json");
-                auto stream = healthUrl.createInputStream(options);
-                if (stream == nullptr || statusCode >= 400)
-                    return false;
-                auto responseText = stream->readEntireStreamAsString();
-                return localhostHealthResponseLooksOnline(responseText);
-            }
-            catch (...)
-            {
-                return false;
-            }
-        };
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+                if (pollNonce != editor->localHealthPollNonce.load()
+                    || !editor->audioProcessor.getIsUsingLocalhost())
+                    return;
 
-        auto garyFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8000/health");
-        auto terryFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8002/health");
-        auto jerryFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8005/health");
-        auto careyFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8003/health");
-        auto foundationFuture = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8015/health");
-        auto sa3Future = std::async(std::launch::async, probeHealth, "http://127.0.0.1:8006/health");
-
-        const bool garyOnline = garyFuture.get();
-        const bool terryOnline = terryFuture.get();
-        const bool jerryOnline = jerryFuture.get();
-        const bool careyOnline = careyFuture.get();
-        const bool foundationOnline = foundationFuture.get();
-        const bool sa3Online = sa3Future.get();
-
-        juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, garyOnline, terryOnline, jerryOnline, careyOnline, foundationOnline, sa3Online]() {
-            const auto alive = asyncAlive.lock();
-            if (alive == nullptr || !alive->load(std::memory_order_acquire))
-                return;
-            if (pollNonce != editor->localHealthPollNonce.load()
-                || !editor->audioProcessor.getIsUsingLocalhost())
-                return;
-
-            editor->localHealthPollInFlight.store(false);
-            editor->checkConnectionButton.setEnabled(true);
-
-            const bool careyStatusChanged = editor->localCareyOnline != careyOnline;
-            const bool sa3StatusChanged = editor->localSA3Online != sa3Online;
-
-            const bool changed =
-                editor->localGaryOnline != garyOnline ||
-                editor->localTerryOnline != terryOnline ||
-                editor->localJerryOnline != jerryOnline ||
-                editor->localCareyOnline != careyOnline ||
-                editor->localFoundationOnline != foundationOnline ||
-                editor->localSA3Online != sa3Online;
-
-            editor->localGaryOnline = garyOnline;
-            editor->localTerryOnline = terryOnline;
-            editor->localJerryOnline = jerryOnline;
-            editor->localCareyOnline = careyOnline;
-            editor->localFoundationOnline = foundationOnline;
-            editor->localSA3Online = sa3Online;
-            editor->localOnlineCount = (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
-                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0) + (foundationOnline ? 1 : 0)
-                + (sa3Online ? 1 : 0);
-
-            Gary4juceAudioProcessor::LocalServiceHealthSnapshot snapshot;
-            snapshot.valid = true;
-            snapshot.garyOnline = garyOnline;
-            snapshot.terryOnline = terryOnline;
-            snapshot.jerryOnline = jerryOnline;
-            snapshot.careyOnline = careyOnline;
-            snapshot.foundationOnline = foundationOnline;
-            snapshot.sa3Online = sa3Online;
-            snapshot.updatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
-            editor->audioProcessor.setLocalServiceHealthSnapshot(snapshot);
-
-            editor->updateAllGenerationButtonStates();
-            editor->updateJerrySubTabStates();
-
-            if (!jerryOnline && editor->jerryUI)
-                editor->jerryUI->setLoadingModel(false);
-
-            // Keep Jerry model dropdown fresh while Jerry tab is active on localhost
-            if (jerryOnline && editor->currentTab == ModelTab::Jerry)
-                editor->fetchJerryAvailableModels();
-
-            if (editor->currentTab == ModelTab::Carey && (careyStatusChanged || careyOnline))
-            {
-                editor->refreshCareyAvailableLoras(careyStatusChanged);
-                editor->updateCareyEnablementSnapshot();
-            }
-
-            if (editor->currentTab == ModelTab::Jerry && editor->jerrySubTab == JerrySubTab::SA3)
-            {
-                if (sa3Online)
-                    editor->refreshSA3AvailableLoras(sa3StatusChanged);
-                else
-                {
-                    editor->availableSA3Loras.clear();
-                    editor->syncSA3LoraUi();
-                }
-                editor->updateSA3EnablementSnapshot();
-            }
-
-            if (changed)
-                editor->repaint();
+                const bool pollComplete = completedProbes->fetch_add(1) + 1 == 6;
+                editor->applyLocalServiceHealthResult(service, online, pollComplete);
+            });
         });
-    });
+    };
+
+    auto healthUrlForService = [](ServiceType service)
+    {
+        switch (service)
+        {
+        case ServiceType::Gary:       return juce::String("http://127.0.0.1:8000/health");
+        case ServiceType::Terry:      return juce::String("http://127.0.0.1:8002/health");
+        case ServiceType::Jerry:      return juce::String("http://127.0.0.1:8005/health");
+        case ServiceType::Carey:      return juce::String("http://127.0.0.1:8003/health");
+        case ServiceType::Foundation: return juce::String("http://127.0.0.1:8015/health");
+        case ServiceType::SA3:        return juce::String("http://127.0.0.1:8006/health");
+        }
+        return juce::String();
+    };
+
+    const auto activeService = getActiveLocalService();
+    launchProbe(activeService, healthUrlForService(activeService));
+
+    constexpr ServiceType services[] = {
+        ServiceType::Gary,
+        ServiceType::Terry,
+        ServiceType::Jerry,
+        ServiceType::Carey,
+        ServiceType::Foundation,
+        ServiceType::SA3
+    };
+
+    for (const auto service : services)
+        if (service != activeService)
+            launchProbe(service, healthUrlForService(service));
 }
 
 //==============================================================================

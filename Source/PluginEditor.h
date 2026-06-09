@@ -19,7 +19,6 @@
 #include "Utils/IconFactory.h"
 
 #include <atomic>
-#include <future>
 #include <memory>
 #include <vector>
 #include <cstdint>
@@ -492,6 +491,7 @@ private:
     void toggleBackend();
     void updateBackendToggleButton();
     void triggerLocalServiceHealthPoll(bool force);
+    void applyLocalServiceHealthResult(ServiceType service, bool online, bool pollComplete);
     void resetLocalServiceHealthSnapshot();
     void restoreLocalServiceHealthSnapshot();
     bool isLocalServiceOnline(ServiceType service) const;
