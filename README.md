@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.0 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0)
+- [gary4juce v4.0.1 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1)
 - [gary4juce v4.0.0-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-mac)
 
 **recommended local companions:**
@@ -51,6 +51,23 @@ Put it on your master, press play, record some audio, and start iterating.
 ---
 
 ## What's New In V4
+
+### v4.0.1 - UI persistence and localhost responsiveness
+
+v4.0.1 is a focused maintenance release. It does not add or change any music
+models. Its purpose is to make the plugin remember its UI settings when the
+editor is closed and reopened, including when a DAW temporarily removes the
+editor while navigating between plugins.
+
+Settings now persist across editor reopens throughout Gary, Jerry, SA3, Terry,
+Carey, Darius, and Foundation-1. This includes prompts, generation controls,
+selected tabs and models, advanced sections, SA3 seeds and LoRAs, and the shared
+recording/output source selector.
+
+The local service status also survives editor recreation. On Windows, local
+health checks now update per service and bypass the slower shared HTTP path, so
+a running Gary, Terry, Jerry, Carey, Foundation-1, or SA3 service is reflected
+in the UI immediately instead of waiting for every offline port to time out.
 
 ### v4.0.0 - stable-audio-3
 
