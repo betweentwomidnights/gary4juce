@@ -129,11 +129,128 @@ static bool localhostHealthResponseLooksOnline(const juce::String& responseText)
     return true;
 }
 
-static bool probeLocalhostHealth(const juce::String& urlText)
+#if JUCE_WINDOWS
+static bool rawHealthResponseLooksOnline(
+    const juce::String& responseText, bool allowUnframedBody)
 {
+    const auto headerEnd = responseText.indexOf("\r\n\r\n");
+    if (headerEnd < 0)
+        return false;
+
+    const auto statusLine = responseText.upToFirstOccurrenceOf("\r\n", false, false);
+    juce::StringArray statusParts;
+    statusParts.addTokens(statusLine, " ", "");
+    if (statusParts.size() < 2)
+        return false;
+
+    const int statusCode = statusParts[1].getIntValue();
+    if (statusCode < 200 || statusCode >= 300)
+        return false;
+
+    const auto responseHeaders = responseText.substring(0, headerEnd);
+    auto responseBody = responseText.substring(headerEnd + 4);
+    if (responseHeaders.containsIgnoreCase("Transfer-Encoding: chunked"))
+    {
+        const auto chunkSizeEnd = responseBody.indexOf("\r\n");
+        if (chunkSizeEnd < 0)
+            return false;
+
+        const int chunkSize = responseBody.substring(0, chunkSizeEnd).getHexValue32();
+        if (responseBody.substring(chunkSizeEnd + 2).getNumBytesAsUTF8() < chunkSize)
+            return false;
+
+        responseBody = responseBody.substring(chunkSizeEnd + 2, chunkSizeEnd + 2 + chunkSize);
+    }
+    else
+    {
+        int contentLength = -1;
+        juce::StringArray headerLines;
+        headerLines.addLines(responseHeaders);
+        for (const auto& headerLine : headerLines)
+        {
+            if (headerLine.startsWithIgnoreCase("Content-Length:"))
+            {
+                contentLength = headerLine.fromFirstOccurrenceOf(":", false, false)
+                    .trim().getIntValue();
+                break;
+            }
+        }
+
+        if (contentLength >= 0
+            && responseBody.getNumBytesAsUTF8() < contentLength)
+            return false;
+        if (contentLength < 0 && !allowUnframedBody)
+            return false;
+    }
+
+    return localhostHealthResponseLooksOnline(responseBody);
+}
+#endif
+
+static bool probeLocalhostHealth(int port)
+{
+    const auto startedAtMs = juce::Time::getMillisecondCounterHiRes();
+    juce::ignoreUnused(startedAtMs);
+
     try
     {
-        juce::URL healthUrl(urlText);
+       #if JUCE_WINDOWS
+        constexpr int connectTimeoutMs = 400;
+        constexpr int responseTimeoutMs = 1000;
+        juce::StreamingSocket socket;
+        if (!socket.connect("127.0.0.1", port, connectTimeoutMs))
+        {
+            DBG("[local health] port " + juce::String(port) + " offline after "
+                + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
+            return false;
+        }
+
+        const juce::String request =
+            "GET /health HTTP/1.1\r\n"
+            "Host: 127.0.0.1:" + juce::String(port) + "\r\n"
+            "Accept: application/json\r\n"
+            "Connection: close\r\n\r\n";
+        const auto requestUtf8 = request.toRawUTF8();
+        const int requestBytes = static_cast<int>(request.getNumBytesAsUTF8());
+
+        if (socket.waitUntilReady(false, connectTimeoutMs) != 1
+            || socket.write(requestUtf8, requestBytes) != requestBytes)
+            return false;
+
+        juce::MemoryOutputStream response;
+        const auto readDeadlineMs = juce::Time::getMillisecondCounterHiRes() + responseTimeoutMs;
+        char buffer[4096];
+
+        while (juce::Time::getMillisecondCounterHiRes() < readDeadlineMs
+            && response.getDataSize() < 1024 * 1024)
+        {
+            const auto remainingMs = juce::jmax(
+                1, static_cast<int>(readDeadlineMs - juce::Time::getMillisecondCounterHiRes()));
+            const int ready = socket.waitUntilReady(true, remainingMs);
+            if (ready <= 0)
+                break;
+
+            const int bytesRead = socket.read(buffer, static_cast<int>(sizeof(buffer)), false);
+            if (bytesRead <= 0)
+                break;
+
+            response.write(buffer, static_cast<size_t>(bytesRead));
+
+            if (rawHealthResponseLooksOnline(response.toString(), false))
+            {
+                DBG("[local health] port " + juce::String(port) + " online after "
+                    + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
+                return true;
+            }
+        }
+
+        const bool online = rawHealthResponseLooksOnline(response.toString(), true);
+        DBG("[local health] port " + juce::String(port) + " "
+            + (online ? "online" : "offline") + " after "
+            + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
+        return online;
+       #else
+        juce::URL healthUrl("http://127.0.0.1:" + juce::String(port) + "/health");
         int statusCode = 0;
         auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
             .withConnectionTimeoutMs(1500)
@@ -144,6 +261,7 @@ static bool probeLocalhostHealth(const juce::String& urlText)
             return false;
 
         return localhostHealthResponseLooksOnline(stream->readEntireStreamAsString());
+       #endif
     }
     catch (...)
     {
@@ -329,11 +447,11 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
     const auto completedProbes = std::make_shared<std::atomic<int>>(0);
 
     auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes](
-        ServiceType service, const juce::String& healthUrl)
+        ServiceType service, int port)
     {
-        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, healthUrl]()
+        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, port]()
         {
-            const bool online = probeLocalhostHealth(healthUrl);
+            const bool online = probeLocalhostHealth(port);
 
             juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, completedProbes, service, online]()
             {
@@ -350,22 +468,22 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         });
     };
 
-    auto healthUrlForService = [](ServiceType service)
+    auto portForService = [](ServiceType service)
     {
         switch (service)
         {
-        case ServiceType::Gary:       return juce::String("http://127.0.0.1:8000/health");
-        case ServiceType::Terry:      return juce::String("http://127.0.0.1:8002/health");
-        case ServiceType::Jerry:      return juce::String("http://127.0.0.1:8005/health");
-        case ServiceType::Carey:      return juce::String("http://127.0.0.1:8003/health");
-        case ServiceType::Foundation: return juce::String("http://127.0.0.1:8015/health");
-        case ServiceType::SA3:        return juce::String("http://127.0.0.1:8006/health");
+        case ServiceType::Gary:       return 8000;
+        case ServiceType::Terry:      return 8002;
+        case ServiceType::Jerry:      return 8005;
+        case ServiceType::Carey:      return 8003;
+        case ServiceType::Foundation: return 8015;
+        case ServiceType::SA3:        return 8006;
         }
-        return juce::String();
+        return 0;
     };
 
     const auto activeService = getActiveLocalService();
-    launchProbe(activeService, healthUrlForService(activeService));
+    launchProbe(activeService, portForService(activeService));
 
     constexpr ServiceType services[] = {
         ServiceType::Gary,
@@ -378,7 +496,7 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
 
     for (const auto service : services)
         if (service != activeService)
-            launchProbe(service, healthUrlForService(service));
+            launchProbe(service, portForService(service));
 }
 
 //==============================================================================
