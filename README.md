@@ -15,8 +15,8 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **recommended local companions:**
 
-- windows: [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
-- macOS: [gary4local mac v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11)
+- windows: [gary4local v0.1.14](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.14)
+- macOS: [gary4local mac v0.1.10](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.10)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
