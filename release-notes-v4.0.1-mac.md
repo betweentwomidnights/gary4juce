@@ -13,6 +13,6 @@ Included DMGs:
 Standalone is intentionally omitted from this release while we continue stabilizing it.
 
 Recommended gary4local version:
-https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11
+https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.10
 
 Close your DAW before replacing plugin files with a downloaded update.
