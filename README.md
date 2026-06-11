@@ -11,12 +11,12 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v4.0.1 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1)
-- [gary4juce v4.0.0-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-mac)
+- [gary4juce v4.0.1-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1-mac)
 
 **recommended local companions:**
 
 - windows: [gary4local v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.11)
-- macOS: [gary4local mac v0.1.9](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.9)
+- macOS: [gary4local mac v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -110,11 +110,13 @@ Carey guide: [CAREY.md](CAREY.md)
 
 - [x] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) on Windows
 - [x] add SA3 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) on macOS
+- [x] ship local SA3 training on Windows and macOS using [underfit](https://github.com/dada-bots/underfit) as the source of truth
 - [x] release the mac AU/VST3 build
 - [x] add the first SA3 usage guide: [SA3.md](SA3.md)
 - [x] add SA3's experimental `latent_prefix` continuation mode
 - [ ] clean up and release a proper standalone app
-- [ ] improve SA3 LoRA loudness handling on the backend and build a custom training script for the pre-encoding step
+- [ ] improve SA3 LoRA loudness handling on the backend
+- [ ] add ACE-Step training directly into the UI by vendoring [Side-Step](https://github.com/koda-dernet/Side-Step)
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
 - [ ] enable the Carey `xl-sft` model on the remote backend
 
@@ -193,6 +195,8 @@ or the local gary4local service on Windows/macOS:
 `http://localhost:8006`
 
 Public upstream repo: https://github.com/stability-ai/stable-audio-3
+
+Local SA3 training source of truth: https://github.com/dada-bots/underfit
 
 ### Darius Backend
 
@@ -330,6 +334,9 @@ Jerry localhost finetune picker.
 
 ### Stable Audio 3
 
+Local SA3 training for both gary4local companions now uses dadabots'
+[underfit](https://github.com/dada-bots/underfit) as the source of truth.
+
 SA3 LoRA workflows are new and still settling. The v4 plugin UI is already
 shaped around multi-LoRA strength sliders and LoRA-aware dice pools so the
 backend can grow into that workflow cleanly.
@@ -414,6 +421,7 @@ Steps:
 ## Credits
 
 - **stable-audio-3:** Stability AI ([repo](https://github.com/stability-ai/stable-audio-3))
+- **underfit:** dadabots ([repo](https://github.com/dada-bots/underfit))
 - **musicgen:** Meta AI / Audiocraft team
 - **stable-audio-open-small:** Stability AI
 - **foundation-1:** RoyalCities ([model](https://huggingface.co/RoyalCities/Foundation-1), [tools](https://github.com/RoyalCities/RC-stable-audio-tools))
