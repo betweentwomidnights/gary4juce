@@ -569,6 +569,11 @@ private:
 
     bool isPausedOutput = false;       // True when paused (different from stopped)
     double pausedPosition = 0.0;       // Position where we paused
+    bool isOutputPlaybackPending = false;
+    bool hasShownPlaybackPendingHint = false;
+    juce::int64 outputPlaybackRequestTimeMs = 0;
+    int outputPlaybackStartRenderPulse = 0;
+    double requestedPlaybackPosition = 0.0;
 
     void fullStopOutputPlayback();     // Complete stop (different from pause)
 

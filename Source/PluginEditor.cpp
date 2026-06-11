@@ -1473,6 +1473,7 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 
     // Stop playback through processor (host audio)
     audioProcessor.stopOutputPlayback();
+    isOutputPlaybackPending = false;
 
     DBG("Audio playback safely cleaned up");
 }
@@ -1714,7 +1715,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     maybeShowDeferredUpdatePrompt();
 
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
-    if (isPlayingOutput)
+    if (isPlayingOutput || isOutputPlaybackPending)
     {
         checkPlaybackStatus();
     }
@@ -5676,6 +5677,8 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     {
         // Currently playing -> pause it
         audioProcessor.pauseOutputPlayback();
+        isOutputPlaybackPending = false;
+        hasShownPlaybackPendingHint = false;
         isPausedOutput = true;
         isPlayingOutput = false;
         pausedPosition = audioProcessor.getOutputPlaybackPosition();
@@ -5688,7 +5691,12 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     {
         // Paused or has seek position -> resume from that position
         audioProcessor.startOutputPlayback(currentPlaybackPosition);
-        isPlayingOutput = true;
+        requestedPlaybackPosition = currentPlaybackPosition;
+        outputPlaybackStartRenderPulse = audioProcessor.getOutputPlaybackRenderPulse();
+        outputPlaybackRequestTimeMs = juce::Time::getCurrentTime().toMilliseconds();
+        isOutputPlaybackPending = true;
+        hasShownPlaybackPendingHint = false;
+        isPlayingOutput = false;
         isPausedOutput = false;
         updatePlayButtonIcon();
         showStatusMessage("resumed from " + juce::String(currentPlaybackPosition, 1) + "s", 1500);
@@ -5697,11 +5705,16 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     {
         // Fresh start from beginning
         audioProcessor.startOutputPlayback(0.0);
-        isPlayingOutput = true;
+        requestedPlaybackPosition = 0.0;
+        outputPlaybackStartRenderPulse = audioProcessor.getOutputPlaybackRenderPulse();
+        outputPlaybackRequestTimeMs = juce::Time::getCurrentTime().toMilliseconds();
+        isOutputPlaybackPending = true;
+        hasShownPlaybackPendingHint = false;
+        isPlayingOutput = false;
         isPausedOutput = false;
         currentPlaybackPosition = 0.0;
         updatePlayButtonIcon();
-        showStatusMessage("playing output...", 2000);
+        showStatusMessage("starting playback...", 2000);
     }
 }
 
@@ -5710,6 +5723,9 @@ void Gary4juceAudioProcessorEditor::stopOutputPlayback()
 {
     audioProcessor.stopOutputPlayback();
 
+    isOutputPlaybackPending = false;
+    hasShownPlaybackPendingHint = false;
+    outputPlaybackRequestTimeMs = 0;
     isPlayingOutput = false;
     isPausedOutput = false;
     currentPlaybackPosition = 0.0;
@@ -5730,6 +5746,43 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
 // Updated checkPlaybackStatus() - full stop when audio finishes naturally
 void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 {
+    if (isOutputPlaybackPending)
+    {
+        currentPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
+
+        if (!audioProcessor.getIsPlayingOutput())
+        {
+            isOutputPlaybackPending = false;
+            hasShownPlaybackPendingHint = false;
+            updatePlayButtonIcon();
+            repaint();
+            return;
+        }
+
+        const bool hostRenderedPlayback =
+            audioProcessor.getOutputPlaybackRenderPulse() != outputPlaybackStartRenderPulse
+            || currentPlaybackPosition > requestedPlaybackPosition + 0.01;
+
+        if (hostRenderedPlayback)
+        {
+            isOutputPlaybackPending = false;
+            hasShownPlaybackPendingHint = false;
+            isPlayingOutput = true;
+            updatePlayButtonIcon();
+            repaint();
+            return;
+        }
+
+        const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+        if (!hasShownPlaybackPendingHint && nowMs - outputPlaybackRequestTimeMs >= 600)
+        {
+            hasShownPlaybackPendingHint = true;
+            showStatusMessage("waiting for host audio callback... if you're in GarageBand, press play once", 5000);
+        }
+
+        return;
+    }
+
     // Update position from processor
     if (isPlayingOutput)
     {
@@ -5740,6 +5793,8 @@ void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
         {
             isPlayingOutput = false;
             isPausedOutput = false;
+            isOutputPlaybackPending = false;
+            hasShownPlaybackPendingHint = false;
             currentPlaybackPosition = 0.0;
             updatePlayButtonIcon();
             showStatusMessage("playback finished", 1500);
@@ -5759,6 +5814,8 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
     updateGaryButtonStates(!isGenerating);
 
     // Reset playback tracking
+    isOutputPlaybackPending = false;
+    hasShownPlaybackPendingHint = false;
     currentPlaybackPosition = 0.0;
     totalAudioDuration = 0.0;
 
@@ -6647,7 +6704,9 @@ void Gary4juceAudioProcessorEditor::updatePlayButtonIcon()
     {
         // Not playing (stopped or paused) -> show play icon
         playOutputButton.setIcon(playIcon->createCopy());
-        if (isPausedOutput)
+        if (isOutputPlaybackPending)
+            playOutputButton.setTooltip("waiting for host audio callback");
+        else if (isPausedOutput)
             playOutputButton.setTooltip("resume");
         else
             playOutputButton.setTooltip("play output...duh");

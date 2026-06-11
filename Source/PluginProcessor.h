@@ -149,6 +149,7 @@ public:
     bool getIsPausedOutput() const { return isPausedOutputAudio.load(); }
     double getOutputPlaybackPosition() const { return outputPlaybackPosition.load(); }
     double getOutputAudioDuration() const { return outputAudioDuration.load(); }
+    int getOutputPlaybackRenderPulse() const { return outputPlaybackRenderPulse.load(); }
 
 private:
     //==============================================================================
@@ -229,6 +230,7 @@ private:
     std::atomic<double> outputAudioDuration{0.0};     // Total duration in seconds
     std::atomic<double> outputAudioSampleRate{44100.0};
     std::atomic<int> outputPlaybackReadPosition{ 0 };  // In samples
+    std::atomic<int> outputPlaybackRenderPulse{ 0 };
 
     // Private methods
     void startRecording();
