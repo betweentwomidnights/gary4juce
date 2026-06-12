@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.1 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1)
+- [gary4juce v4.0.2 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2)
 - [gary4juce v4.0.1-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1-mac)
 
 **recommended local companions:**
@@ -51,6 +51,18 @@ Put it on your master, press play, record some audio, and start iterating.
 ---
 
 ## What's New In V4
+
+### v4.0.2 - open-source licensing and source access
+
+v4.0.2 explicitly releases gary4juce under the GNU Affero General Public
+License v3.0 only. The repository now includes the canonical AGPLv3 text,
+copyright and SPDX notices, pinned JUCE 8.0.8 licensing information, and an
+in-plugin About dialog with direct access to the source and license.
+
+The v4.0.2 Windows package includes the applicable license and third-party
+notice files plus exact links to the Corresponding Source used for the build.
+This release does not change any music models, request formats, or backend
+requirements.
 
 ### v4.0.1 - UI persistence and localhost responsiveness
 
@@ -438,15 +450,45 @@ Stable Audio 3 beta while this integration came together.
 
 ## License
 
-gary4juce is free to use. Model licenses vary:
+The source code and other original material in this repository, including
+earlier gary4juce versions authored by the copyright holder, are free software
+licensed under the
+[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+You may use, study, modify, and redistribute that material under the license.
+Redistribution and network use of modified versions are subject to the AGPLv3's
+notice and Corresponding Source requirements.
 
-- stable-audio-3: check the Stability AI repo/license
-- musicgen: check Audiocraft
-- stable-audio-open-small: Stability AI license
-- foundation-1: check [RoyalCities/Foundation-1](https://huggingface.co/RoyalCities/Foundation-1)
-- ace-step: Apache 2.0
-- melodyflow: Meta research license
-- magenta-realtime: Apache 2.0
+Copyright (C) 2025-2026 Kevin Griffing.
+Developed and published by the collabage patch, inc.
+
+This project is built with JUCE 8.0.8 under JUCE's AGPLv3 option. See
+[Third-Party Notices](THIRD_PARTY_NOTICES.md) for the pinned JUCE source and
+license information.
+
+This license statement is limited to this repository. It does not set the
+license for the separate gary4local applications or installers, model weights,
+hosted services, or any other separately distributed part of the broader Gary
+ecosystem. Consult each project's own license before using or redistributing it.
+
+The AI models and backend services used with gary4juce are separate works and
+are not included in this repository. Code and model weights may use different
+licenses:
+
+- stable-audio-3: [MIT code](https://github.com/stability-ai/stable-audio-3);
+  weights use the Stability AI Community License
+- musicgen: [MIT code and CC-BY-NC-4.0 weights](https://github.com/facebookresearch/audiocraft#license)
+- stable-audio-open-small:
+  [Stability AI Community License](https://huggingface.co/stabilityai/stable-audio-open-small)
+- foundation-1:
+  [Stability AI Community License](https://huggingface.co/RoyalCities/Foundation-1)
+- ace-step 1.5: [MIT](https://github.com/ace-step/ACE-Step-1.5)
+- melodyflow:
+  [MIT code and CC-BY-NC-4.0 weights](https://huggingface.co/facebook/melodyflow-t24-30secs)
+- magenta-realtime: [Apache-2.0 code](https://github.com/magenta/magenta-realtime);
+  model-weight terms depend on the selected version
+
+Always consult the exact upstream code and model version before commercial use
+or redistribution.
 
 ---
 

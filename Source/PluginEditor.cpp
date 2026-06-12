@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /*
   ==============================================================================
     This file contains the basic framework code for a JUCE plugin editor.
@@ -1086,6 +1089,39 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         checkForPluginUpdates(true, true);
     };
 
+    licenseButton.setButtonText("about");
+    licenseButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    licenseButton.setTooltip("about gary4juce, source, and license");
+    licenseButton.onClick = [this]()
+    {
+        auto* alertWindow = new juce::AlertWindow(
+            "gary4juce source and license",
+            "gary4juce " + juce::String(ProjectInfo::versionString)
+                + "\n\nCopyright (C) 2025-2026 Kevin Griffing."
+                + "\nDeveloped and published by the collabage patch, inc."
+                + "\n\nLicensed under the GNU Affero General Public License,"
+                  " version 3 only."
+                + "\nYou may redistribute and modify gary4juce under that license."
+                + "\ngary4juce comes with no warranty."
+                + "\n\nUse \"view source\" below for the source code and full license.",
+            juce::MessageBoxIconType::InfoIcon,
+            this);
+
+        alertWindow->addButton("view source", 1);
+        alertWindow->addButton("close", 0);
+        alertWindow->enterModalState(true,
+            juce::ModalCallbackFunction::create([alertWindow](int result)
+        {
+            std::unique_ptr<juce::AlertWindow> cleanup(alertWindow);
+
+            if (result == 1)
+            {
+                juce::URL("https://github.com/betweentwomidnights/gary4juce")
+                    .launchInDefaultBrowser();
+            }
+        }));
+    };
+
     // Backend toggle button setup
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
     if (isUsingLocalhost)
@@ -1110,6 +1146,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     addAndMakeVisible(checkConnectionButton);
     addAndMakeVisible(checkUpdatesButton);
+    addAndMakeVisible(licenseButton);
     addAndMakeVisible(backendToggleButton);
 
     // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
@@ -7280,6 +7317,13 @@ void Gary4juceAudioProcessorEditor::resized()
         112,
         24);
     checkUpdatesButton.setBounds(updatesButtonBounds);
+
+    auto licenseButtonBounds = juce::Rectangle<int>(
+        titleArea.getRight() - 80,
+        titleArea.getY() + (titleArea.getHeight() - 24) / 2,
+        64,
+        24);
+    licenseButton.setBounds(licenseButtonBounds);
 
     // Upload button overlay on recording waveform (top-right corner, matching crop button style)
     auto uploadOverlayArea = juce::Rectangle<int>(

@@ -1,16 +1,13 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.0-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.0-mac",
+  "latest_version": "4.0.1-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1-mac",
   "sha256": null,
-  "published_at": "2026-05-26T06:53:57Z",
+  "published_at": "2026-06-11T11:34:23Z",
   "notes": [
-    "Mac build of gary4juce v4.0.0-mac.",
-    "This release brings the v4.0.0 plugin feature set to macOS AU and VST3.",
-    "Included DMGs: AU and VST3.",
-    "Standalone is intentionally omitted from this release while we continue stabilizing it.",
-    "Includes the final recording-buffer startup safety fix to avoid dropped blocks when recording begins.",
-    "Recommended gary4local version: https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.9",
+    "UI settings now survive window close/reopen and switching between plug-ins.",
+    "Local service status is restored across reopens, and GarageBand playback now waits for a real host audio callback.",
+    "No music-model update is required. Recommended gary4local-mac: v0.1.10.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
