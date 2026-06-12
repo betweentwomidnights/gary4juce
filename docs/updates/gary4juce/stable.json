@@ -1,12 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.1",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1",
-  "sha256": "7df06622d095e7d0c2158a67f8aef03a7d030a3ce26c806a894cc5ce01646d95",
-  "published_at": "2026-06-09T07:26:12Z",
+  "latest_version": "4.0.2",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2",
+  "sha256": "6e450745d27d2f5c2941f1f326105d09bda3eba7fd2cd5c8173079be074d5f14",
+  "published_at": "2026-06-12T02:57:21Z",
   "notes": [
-    "UI settings now survive window close/reopen and switching between plug-ins.",
-    "Local service status is restored across reopens and detects running Windows services immediately.",
+    "gary4juce is explicitly licensed under the GNU AGPLv3 only.",
+    "The plugin About dialog provides direct access to the public source and license.",
+    "The Windows package now includes license, third-party notice, and Corresponding Source information.",
     "No music-model or backend update is required.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]

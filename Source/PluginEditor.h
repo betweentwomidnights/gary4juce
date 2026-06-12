@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /*
   ==============================================================================
     This file contains the basic framework code for a JUCE plugin editor.
@@ -124,6 +127,7 @@ private:
     // UI Components
     CustomButton checkConnectionButton;
     CustomButton checkUpdatesButton;
+    CustomButton licenseButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
 
