@@ -11,7 +11,7 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v4.0.2 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2)
-- [gary4juce v4.0.1-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1-mac)
+- [gary4juce v4.0.2-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac)
 
 **recommended local companions:**
 
@@ -59,9 +59,9 @@ License v3.0 only. The repository now includes the canonical AGPLv3 text,
 copyright and SPDX notices, pinned JUCE 8.0.8 licensing information, and an
 in-plugin About dialog with direct access to the source and license.
 
-The v4.0.2 Windows package includes the applicable license and third-party
-notice files plus exact links to the Corresponding Source used for the build.
-This release does not change any music models, request formats, or backend
+Release packages now include the applicable license and third-party notice
+files plus exact links to the Corresponding Source used for the build. This
+release does not change any music models, request formats, or backend
 requirements.
 
 ### v4.0.1 - UI persistence and localhost responsiveness
