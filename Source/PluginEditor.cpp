@@ -5212,6 +5212,12 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         if (connected)
         {
             fetchGaryAvailableModels();
+
+            if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
+            {
+                refreshSA3AvailableLoras(true);
+                updateSA3EnablementSnapshot();
+            }
         }
 
         repaint(); // Trigger a redraw to update tab section border
@@ -5890,11 +5896,12 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
     DBG("Dropped file: " + audioFile.getFileName() +
         " - Duration: " + juce::String(fileDuration, 2) + "s");
 
-    // Dynamic direct-load limit: carey tab allows longer conditioning audio
+    // Dynamic direct-load limit: short-window models cap conditioning audio at 30 seconds.
     const double hostSampleRate = audioProcessor.getCurrentSampleRate();
     const double maxBufferDuration = juce::jmax(1.0,
         (double)audioProcessor.getMaxRecordingSamples() / hostSampleRate);
     const bool isCareyTab = (currentTab == ModelTab::Carey);
+    const bool isSA3Tab = (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3);
     const bool shortWindowPreferred = (currentTab == ModelTab::Gary ||
                                        currentTab == ModelTab::Terry ||
                                        currentTab == ModelTab::Darius);
@@ -5994,7 +6001,9 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         auto* dialog = new AudioSelectionDialog();
 
         // Set selection window constraints based on current tab
-        if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
+        if (isSA3Tab)
+            dialog->setSelectionWindowConstraints(10.0, 180.0, 180.0);  // SA3: long conditioning
+        else if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
             dialog->setSelectionWindowConstraints(10.0, 180.0, 30.0);   // Complete: short preferred
         else if (isCareyTab)
             dialog->setSelectionWindowConstraints(30.0, 180.0, 180.0);  // Lego: long preferred
