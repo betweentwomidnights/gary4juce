@@ -2,6 +2,9 @@
 
 `gary4juce` Phase 1 update checks use a static JSON manifest published from this repo's `docs/` folder.
 
+See the tracked [release checklist](../../RELEASING.md) for artifact packaging,
+verification, checksums, and release-note guidance.
+
 Planned GitHub Pages URLs:
 
 - `https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json`

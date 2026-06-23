@@ -116,6 +116,12 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
         ? careyUI->getCoverAdvancedOpen() : currentCareyCoverAdvancedOpen);
     state->setProperty("careyExtractAdvanced", careyUI != nullptr
         ? careyUI->getExtractAdvancedOpen() : currentCareyExtractAdvancedOpen);
+    state->setProperty("careyLastSeed",
+        careyUI != nullptr ? careyUI->getLastSeed() : currentCareyLastSeed);
+    state->setProperty("careyUseSeed",
+        careyUI != nullptr ? careyUI->getUseSeedEnabled() : currentCareyUseSeed);
+    state->setProperty("careySeedText",
+        careyUI != nullptr ? careyUI->getSeedText() : currentCareySeedText);
     state->setProperty("careyCaption", currentCareyCaption);
     state->setProperty("careyTrack", currentCareyTrackName);
     state->setProperty("careySteps", currentCareySteps);
@@ -275,6 +281,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentCareyCoverAdvancedOpen = readBool("careyCoverAdvanced", currentCareyCoverAdvancedOpen);
     currentCareyExtractAdvancedOpen = readBool(
         "careyExtractAdvanced", currentCareyExtractAdvancedOpen);
+    currentCareyLastSeed = readString("careyLastSeed", currentCareyLastSeed);
+    currentCareyUseSeed = readBool("careyUseSeed", currentCareyUseSeed);
+    currentCareySeedText = readString("careySeedText", currentCareySeedText);
     currentCareyCaption = readString("careyCaption", currentCareyCaption);
     currentCareyTrackName = readString("careyTrack", currentCareyTrackName);
     currentCareySteps = readInt("careySteps", currentCareySteps);
@@ -985,6 +994,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
     careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
     careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+    careyUI->setLastSeed(currentCareyLastSeed);
+    careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
     syncCareyLoraUi();
     careyUI->setGenerateButtonEnabled(false, false);
 

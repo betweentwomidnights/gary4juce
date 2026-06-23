@@ -305,6 +305,9 @@ private:
     bool currentCareyCompleteAdvancedOpen = false;
     bool currentCareyCoverAdvancedOpen = false;
     bool currentCareyExtractAdvancedOpen = false;
+    juce::String currentCareyLastSeed;
+    bool currentCareyUseSeed = false;
+    juce::String currentCareySeedText;
     juce::String currentCareyCaption = "";
     juce::String currentCareyTrackName = "vocals";
     int currentCareySteps = 50;
@@ -357,6 +360,7 @@ private:
     void sendToCareyExtract();
     void sendToCareyComplete();
     void sendToCareyCover();
+    void setCareyLastSeed(const juce::String& seed);
     void updateCareyEnablementSnapshot();
     double getCareyBpmForRequest() const;
     bool isCareyTabAvailable() const;

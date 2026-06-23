@@ -78,6 +78,13 @@ public:
         return juce::roundToInt(stepsSlider.getValue());
     }
 
+    juce::int64 getSeed() const;
+    bool getUseSeedEnabled() const { return useSeedToggle.getToggleState(); }
+    juce::String getSeedText() const { return seedEditor.getText().trim(); }
+    void setSeedState(bool enabled, const juce::String& seedText);
+    juce::String getLastSeed() const { return lastSeed; }
+    void setLastSeed(const juce::String& seed);
+
     juce::String getExtractTrackName() const
     {
         const int selectedId = extractTrackComboBox.getSelectedId();
@@ -668,6 +675,11 @@ private:
     juce::ToggleButton coverUseSrcAsRefToggle;
     CustomButton coverGenerateButton;
     juce::Label coverInfoLabel;
+
+    juce::ToggleButton useSeedToggle;
+    CustomTextEditor seedEditor;
+    juce::Label lastSeedLabel;
+    juce::String lastSeed;
 
     juce::Label extractTrackLabel;
     CustomComboBox extractTrackComboBox;

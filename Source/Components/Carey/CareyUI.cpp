@@ -289,6 +289,33 @@ CareyUI::CareyUI()
     contentViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
     addAndMakeVisible(contentViewport.get());
 
+    useSeedToggle.setButtonText("use seed");
+    useSeedToggle.setToggleState(false, juce::dontSendNotification);
+    useSeedToggle.setTooltip("when enabled, submit the seed value below instead of asking the backend for a random seed");
+    useSeedToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    useSeedToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+    useSeedToggle.onClick = [this]()
+    {
+        const bool on = useSeedToggle.getToggleState();
+        seedEditor.setEnabled(on);
+        seedEditor.setAlpha(on ? 1.0f : 0.45f);
+    };
+    addToContent(useSeedToggle);
+
+    seedEditor.setMultiLine(false);
+    seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
+    seedEditor.setTooltip("seed for reproducible carey generations");
+    seedEditor.setInputRestrictions(20, "0123456789");
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.45f);
+    addToContent(seedEditor);
+
+    lastSeedLabel.setText("last seed: -", juce::dontSendNotification);
+    lastSeedLabel.setFont(juce::FontOptions(11.0f));
+    lastSeedLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+    lastSeedLabel.setJustificationType(juce::Justification::centred);
+    addToContent(lastSeedLabel);
+
     captionLabel.setText("caption", juce::dontSendNotification);
     captionLabel.setFont(juce::FontOptions(12.0f));
     captionLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
@@ -1211,6 +1238,37 @@ CareyUI::~CareyUI()
         contentViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
 
+juce::int64 CareyUI::getSeed() const
+{
+    if (!useSeedToggle.getToggleState())
+        return -1;
+
+    const auto text = seedEditor.getText().trim();
+    if (text.isEmpty())
+        return -1;
+
+    return text.getLargeIntValue();
+}
+
+void CareyUI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
+void CareyUI::setLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    lastSeed = trimmed;
+    lastSeedLabel.setText("last seed: " + trimmed, juce::dontSendNotification);
+    seedEditor.setText(trimmed, false);
+}
+
 void CareyUI::paint(juce::Graphics&)
 {
 }
@@ -1319,6 +1377,14 @@ void CareyUI::updateContentLayout()
     setCoverControlsVisible(showingCover);
     setExtractControlsVisible(showingExtract);
 
+    const bool showingSeededMode = showingLego || showingComplete || showingCover;
+    const bool showSeedControls = (showingLego && legoAdvancedOpen)
+        || (showingComplete && completeAdvancedOpen)
+        || (showingCover && coverAdvancedOpen);
+    useSeedToggle.setVisible(showSeedControls);
+    seedEditor.setVisible(showSeedControls);
+    lastSeedLabel.setVisible(showingSeededMode);
+
     constexpr int sidePadding = 8;
     int y = 8;
     auto contentArea = juce::Rectangle<int>(0, 0, contentWidth, 0);
@@ -1375,7 +1441,16 @@ void CareyUI::updateContentLayout()
             trimToInputLabel.setBounds(assistRow.removeFromLeft(90));
             trimToInputToggle.setBounds(assistRow.removeFromLeft(22));
             y += 30;
+
+            auto seedRow = fullRow(22);
+            useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+            seedRow.removeFromLeft(8);
+            seedEditor.setBounds(seedRow.removeFromLeft(120));
+            y += 26;
         }
+
+        lastSeedLabel.setBounds(fullRow(16));
+        y += 22;
 
         auto generateRow = fullRow(34).reduced(50, 0);
         legoGenerateButton.setBounds(generateRow);
@@ -1468,7 +1543,16 @@ void CareyUI::updateContentLayout()
 
             completeUseSrcAsRefToggle.setBounds(fullRow(22));
             y += 30;
+
+            auto seedRow = fullRow(22);
+            useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+            seedRow.removeFromLeft(8);
+            seedEditor.setBounds(seedRow.removeFromLeft(120));
+            y += 26;
         }
+
+        lastSeedLabel.setBounds(fullRow(16));
+        y += 22;
 
         auto completeGenerateRow = fullRow(34).reduced(50, 0);
         completeGenerateButton.setBounds(completeGenerateRow);
@@ -1561,7 +1645,16 @@ void CareyUI::updateContentLayout()
 
             coverUseSrcAsRefToggle.setBounds(fullRow(22));
             y += 30;
+
+            auto seedRow = fullRow(22);
+            useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+            seedRow.removeFromLeft(8);
+            seedEditor.setBounds(seedRow.removeFromLeft(120));
+            y += 26;
         }
+
+        lastSeedLabel.setBounds(fullRow(16));
+        y += 22;
 
         auto coverGenerateRow = fullRow(34).reduced(50, 0);
         coverGenerateButton.setBounds(coverGenerateRow);

@@ -86,6 +86,18 @@ juce::String Gary4juceAudioProcessorEditor::cleanCareyQueueMessage(const juce::S
     return cleanCareyQueueMessageText(raw);
 }
 
+void Gary4juceAudioProcessorEditor::setCareyLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    currentCareyLastSeed = trimmed;
+    currentCareySeedText = trimmed;
+    if (careyUI)
+        careyUI->setLastSeed(trimmed);
+}
+
 void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
 {
     if (!careyUI)
@@ -595,6 +607,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     const juce::String language = currentCareyLanguage;
     const bool loopAssistEnabled = currentCareyLoopAssistEnabled;
     const bool trimToInputEnabled = currentCareyTrimToInputEnabled;
+    const juce::int64 requestSeed = careyUI != nullptr ? careyUI->getSeed() : -1;
 
     DBG("[carey] remote request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
@@ -604,7 +617,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false")
         + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
-        + ", trim_to_input=" + juce::String(trimToInputEnabled ? "on" : "off"));
+        + ", trim_to_input=" + juce::String(trimToInputEnabled ? "on" : "off")
+        + ", seed=" + (requestSeed >= 0 ? juce::String(requestSeed) : juce::String("random")));
 
     const auto cancelCareyOperation = [this, requestNonce]()
     {
@@ -642,7 +656,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, requestSeed, loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
         auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
             return safeThis != nullptr
@@ -659,6 +673,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
+        juce::String usedSeed;
         bool success = false;
         double originalInputDurationSeconds = 0.0;
 
@@ -826,6 +841,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 if (language.isNotEmpty() && language != "en")
                     submitPayload->setProperty("language", language);
                 submitPayload->setProperty("guidance_scale", guidanceScale);
+                submitPayload->setProperty("seed", requestSeed);
                 if (timeSig.isNotEmpty())
                     submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
@@ -932,6 +948,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     if (status == "completed")
                     {
                         downloadedBase64 = queryObj->getProperty("audio_data").toString();
+                        usedSeed = queryObj->getProperty("seed").toString().trim();
                         if (downloadedBase64.isEmpty())
                         {
                             failureReason = "carey completed without audio_data";
@@ -1095,7 +1112,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 }
             }
 
-            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalBase64, usedSeed]()
             {
                 if (safeThis == nullptr
                     || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
@@ -1107,6 +1124,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                 safeThis->smoothProgressAnimation = false;
                 safeThis->setCareyWaveformState(100, false);
                 safeThis->setActiveOp(ActiveOp::None);
+                safeThis->setCareyLastSeed(usedSeed);
                 safeThis->saveGeneratedAudio(finalBase64);
                 safeThis->showStatusMessage("carey generation complete", 2500);
                 safeThis->updateAllGenerationButtonStates();
@@ -1577,6 +1595,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         ? juce::jlimit(0.0, 1.0, currentCareyCompleteLoraScale)
         : -1.0;
     const bool useSrcAsRef = currentCompleteUseSrcAsRef;
+    const juce::int64 requestSeed = careyUI != nullptr ? careyUI->getSeed() : -1;
 
     DBG("[carey-complete] request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
@@ -1587,6 +1606,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", target_duration=" + juce::String(targetDurationSeconds)
         + ", use_src_ref=" + juce::String(useSrcAsRef ? "on" : "off")
+        + ", seed=" + (requestSeed >= 0 ? juce::String(requestSeed) : juce::String("random"))
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false"));
 
@@ -1627,7 +1647,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, loraScale, useSrcAsRef, submitCompleteModel, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, inferenceSteps, guidanceScale, targetDurationSeconds, selectedLora, loraScale, useSrcAsRef, requestSeed, submitCompleteModel, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
         auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
             return safeThis != nullptr
@@ -1644,6 +1664,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
+        juce::String usedSeed;
         bool success = false;
 
         do
@@ -1688,6 +1709,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     submitPayload->setProperty("language", language);
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
+                submitPayload->setProperty("seed", requestSeed);
                 if (timeSig.isNotEmpty())
                     submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
@@ -1794,6 +1816,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                     if (status == "completed")
                     {
                         downloadedBase64 = queryObj->getProperty("audio_data").toString();
+                        usedSeed = queryObj->getProperty("seed").toString().trim();
                         if (downloadedBase64.isEmpty())
                         {
                             failureReason = "carey complete finished without audio_data";
@@ -1862,7 +1885,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
         if (success && downloadedBase64.isNotEmpty())
         {
-            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, downloadedBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, downloadedBase64, usedSeed]()
             {
                 if (safeThis == nullptr
                     || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
@@ -1874,6 +1897,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
                 safeThis->smoothProgressAnimation = false;
                 safeThis->setCareyWaveformState(100, false);
                 safeThis->setActiveOp(ActiveOp::None);
+                safeThis->setCareyLastSeed(usedSeed);
                 safeThis->saveGeneratedAudio(downloadedBase64);
                 safeThis->showStatusMessage("carey continuation complete", 2500);
                 safeThis->updateAllGenerationButtonStates();
@@ -1974,6 +1998,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const bool useSrcAsRef = currentCoverUseSrcAsRef;
     const bool loopAssistEnabled = currentCoverLoopAssistEnabled;
     const bool trimToInputEnabled = currentCoverTrimToInputEnabled;
+    const juce::int64 requestSeed = careyUI != nullptr ? careyUI->getSeed() : -1;
 
     DBG("[carey-cover] request metas - bpm=" + juce::String(bpm)
         + ", steps=" + juce::String(inferenceSteps)
@@ -1988,6 +2013,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         + ", use_src_ref=" + juce::String(useSrcAsRef ? "on" : "off")
         + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
         + ", trim_to_input=" + juce::String(trimToInputEnabled ? "on" : "off")
+        + ", seed=" + (requestSeed >= 0 ? juce::String(requestSeed) : juce::String("random"))
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false"));
 
@@ -2030,7 +2056,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
     juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, bpm, coverNoiseStrength,
                           audioCoverStrength, guidanceScale, inferenceSteps, selectedLora, loraScale, submitCoverModel, useSrcAsRef,
-                          loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
+                          requestSeed, loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
         auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
             return safeThis != nullptr
@@ -2047,6 +2073,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
         juce::String failureReason;
         juce::String failureDetail;
         juce::String downloadedBase64;
+        juce::String usedSeed;
         bool success = false;
         double originalInputDurationSeconds = 0.0;
 
@@ -2223,6 +2250,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("inference_steps", inferenceSteps);
                 submitPayload->setProperty("use_src_as_ref", useSrcAsRef);
+                submitPayload->setProperty("seed", requestSeed);
                 if (timeSig.isNotEmpty())
                     submitPayload->setProperty("time_signature", timeSig);
                 submitPayload->setProperty("batch_size", 1);
@@ -2331,6 +2359,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                     if (status == "completed")
                     {
                         downloadedBase64 = queryObj->getProperty("audio_data").toString();
+                        usedSeed = queryObj->getProperty("seed").toString().trim();
                         if (downloadedBase64.isEmpty())
                         {
                             failureReason = "carey cover finished without audio_data";
@@ -2510,7 +2539,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 }
             }
 
-            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalBase64]()
+            juce::MessageManager::callAsync([safeThis, generationToken, requestNonce, finalBase64, usedSeed]()
             {
                 if (safeThis == nullptr
                     || !safeThis->isGenerationAsyncWorkCurrent(generationToken)
@@ -2522,6 +2551,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
                 safeThis->smoothProgressAnimation = false;
                 safeThis->setCareyWaveformState(100, false);
                 safeThis->setActiveOp(ActiveOp::None);
+                safeThis->setCareyLastSeed(usedSeed);
                 safeThis->saveGeneratedAudio(finalBase64);
                 safeThis->showStatusMessage("carey cover remix complete", 2500);
                 safeThis->updateAllGenerationButtonStates();

@@ -1,14 +1,14 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.2",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2",
-  "sha256": "6e450745d27d2f5c2941f1f326105d09bda3eba7fd2cd5c8173079be074d5f14",
-  "published_at": "2026-06-12T02:57:21Z",
+  "latest_version": "4.0.3",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.3",
+  "sha256": "ddaeeb1272eb007b492318a644d74d1eefbfd5740a60f124108f8712376d1850",
+  "published_at": "2026-06-23T06:58:45Z",
   "notes": [
-    "gary4juce is explicitly licensed under the GNU AGPLv3 only.",
-    "The plugin About dialog provides direct access to the public source and license.",
-    "The Windows package now includes license, third-party notice, and Corresponding Source information.",
-    "No music-model or backend update is required.",
+    "Carey now supports reproducible seed values.",
+    "SA3 now refreshes LoRAs correctly when reopened as the active subtab.",
+    "SA3 now allows longer audio selections when dragging audio into the active subtab.",
+    "Recommended gary4local: v0.1.17.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

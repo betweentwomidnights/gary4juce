@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.2 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2)
+- [gary4juce v4.0.3 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.3)
 - [gary4juce v4.0.2-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.1.14](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.14)
+- windows: [gary4local v0.1.17](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.17)
 - macOS: [gary4local mac v0.1.10](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.10)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -51,6 +51,20 @@ Put it on your master, press play, record some audio, and start iterating.
 ---
 
 ## What's New In V4
+
+### v4.0.3 - Carey seeds and SA3 polish
+
+v4.0.3 adds reproducible seed controls to Carey so supported Carey workflows
+can reuse a known seed and show the last seed returned by the backend.
+
+This release also fixes two SA3 UI edge cases. Restored sessions that reopen
+directly to the SA3 subtab now refresh available LoRAs correctly, and dragging
+audio in with SA3 active now keeps the longer SA3/Carey-style selection window
+instead of falling back to the shorter model limit.
+
+The Windows VST3 ZIP now nests license and Corresponding Source files inside
+`gary4juce.vst3`, so Windows **Extract All** can target a VST3 folder without
+leaving loose files beside the plugin.
 
 ### v4.0.2 - open-source licensing and source access
 
@@ -139,8 +153,9 @@ Carey guide: [CAREY.md](CAREY.md)
 ### Windows
 
 1. Close your DAW.
-2. Extract the `gary4juce.vst3` folder from the ZIP.
-3. Copy the entire folder to `C:\Program Files\Common Files\VST3\`.
+2. Use **Extract All** on the ZIP.
+3. Choose `C:\Program Files\Common Files\VST3\` as the destination, or extract
+   somewhere else and copy the `gary4juce.vst3` folder there.
 4. Reopen your DAW and rescan plugins if needed.
 
 You can put the VST3 literally anywhere as long as your DAW scans that
