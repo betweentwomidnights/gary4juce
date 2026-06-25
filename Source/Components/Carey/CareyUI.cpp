@@ -395,6 +395,56 @@ CareyUI::CareyUI()
     };
     addToContent(legoAdvancedToggle);
 
+    legoUseLoraToggle.setButtonText("use lora");
+    legoUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+    legoUseLoraToggle.setTooltip("enable a backend LoRA adapter for lego generation");
+    legoUseLoraToggle.setEnabled(false);
+    legoUseLoraToggle.onClick = [this]()
+    {
+        const bool enabled = legoUseLoraToggle.getToggleState() && !legoLoraOptionValues.isEmpty();
+        legoUseLoraToggle.setToggleState(enabled, juce::dontSendNotification);
+        if (onLegoUseLoraChanged)
+            onLegoUseLoraChanged(enabled);
+        updateContentLayout();
+    };
+    addToContent(legoUseLoraToggle);
+
+    legoLoraLabel.setText("lora", juce::dontSendNotification);
+    legoLoraLabel.setFont(juce::FontOptions(12.0f));
+    legoLoraLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    legoLoraLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(legoLoraLabel);
+
+    legoLoraComboBox.setTextWhenNothingSelected("select lora...");
+    legoLoraComboBox.setTooltip("choose which backend LoRA adapter to use for lego mode");
+    legoLoraComboBox.setEnabled(false);
+    legoLoraComboBox.onChange = [this]()
+    {
+        if (onLegoLoraChanged)
+            onLegoLoraChanged(getLegoSelectedLora());
+    };
+    addToContent(legoLoraComboBox);
+
+    legoLoraScaleLabel.setText("lora strength", juce::dontSendNotification);
+    legoLoraScaleLabel.setFont(juce::FontOptions(12.0f));
+    legoLoraScaleLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    legoLoraScaleLabel.setJustificationType(juce::Justification::centredLeft);
+    legoLoraScaleLabel.setTooltip("blend between the base model and the selected LoRA");
+    addToContent(legoLoraScaleLabel);
+
+    legoLoraScaleSlider.setRange(0.0, 1.0, 0.01);
+    legoLoraScaleSlider.setValue(1.0);
+    legoLoraScaleSlider.setNumDecimalPlacesToDisplay(2);
+    legoLoraScaleSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    legoLoraScaleSlider.setTooltip("LoRA strength: 0 = base model, 1 = full adapter");
+    legoLoraScaleSlider.setEnabled(false);
+    legoLoraScaleSlider.onValueChange = [this]()
+    {
+        if (onLegoLoraScaleChanged)
+            onLegoLoraScaleChanged(getLegoLoraScale());
+    };
+    addToContent(legoLoraScaleSlider);
+
     stepsLabel.setText("steps", juce::dontSendNotification);
     stepsLabel.setFont(juce::FontOptions(12.0f));
     stepsLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
@@ -1423,6 +1473,22 @@ void CareyUI::updateContentLayout()
 
         if (legoAdvancedOpen)
         {
+            legoUseLoraToggle.setBounds(fullRow(22));
+            y += 30;
+
+            if (legoUseLoraToggle.getToggleState() && !legoLoraOptionValues.isEmpty())
+            {
+                auto legoLoraRow = fullRow(28);
+                legoLoraLabel.setBounds(legoLoraRow.removeFromLeft(110));
+                legoLoraComboBox.setBounds(legoLoraRow);
+                y += 36;
+
+                auto legoLoraScaleRow = fullRow(28);
+                legoLoraScaleLabel.setBounds(legoLoraScaleRow.removeFromLeft(110));
+                legoLoraScaleSlider.setBounds(legoLoraScaleRow);
+                y += 36;
+            }
+
             auto stepsRow = fullRow(28);
             stepsLabel.setBounds(stepsRow.removeFromLeft(60));
             stepsSlider.setBounds(stepsRow);
@@ -1723,6 +1789,12 @@ void CareyUI::setLegoControlsVisible(bool shouldBeVisible)
     legoInfoLabel.setVisible(shouldBeVisible);
 
     const bool showAdvanced = shouldBeVisible && legoAdvancedOpen;
+    legoUseLoraToggle.setVisible(showAdvanced);
+    const bool showLoraSelector = showAdvanced && legoUseLoraToggle.getToggleState() && !legoLoraOptionValues.isEmpty();
+    legoLoraLabel.setVisible(showLoraSelector);
+    legoLoraComboBox.setVisible(showLoraSelector);
+    legoLoraScaleLabel.setVisible(showLoraSelector);
+    legoLoraScaleSlider.setVisible(showLoraSelector);
     stepsLabel.setVisible(showAdvanced);
     stepsSlider.setVisible(showAdvanced);
     legoCfgLabel.setVisible(showAdvanced);
@@ -1816,6 +1888,55 @@ void CareyUI::updateCompleteModelControls(bool notify)
         if (onCompleteCfgChanged)
             onCompleteCfgChanged(getCompleteCfg());
     }
+}
+
+void CareyUI::setAvailableLegoLoras(const juce::StringArray& loraNames)
+{
+    const juce::String previousSelection = getLegoSelectedLora();
+    const bool wasUsingLora = legoUseLoraToggle.getToggleState();
+
+    legoLoraOptionValues.clear();
+    legoLoraComboBox.clear(juce::dontSendNotification);
+
+    juce::StringArray normalizedLoraNames;
+    for (const auto& rawName : loraNames)
+    {
+        const juce::String name = rawName.trim();
+        if (name.isNotEmpty() && !normalizedLoraNames.contains(name))
+            normalizedLoraNames.add(name);
+    }
+
+    normalizedLoraNames.sortNatural();
+
+    for (int i = 0; i < normalizedLoraNames.size(); ++i)
+    {
+        legoLoraOptionValues.add(normalizedLoraNames[i]);
+        legoLoraComboBox.addItem(normalizedLoraNames[i], i + 1);
+    }
+
+    const bool hasLoras = !legoLoraOptionValues.isEmpty();
+    legoUseLoraToggle.setEnabled(hasLoras);
+    legoUseLoraToggle.setTooltip(hasLoras
+        ? "enable a backend LoRA adapter for lego generation"
+        : "no LoRA adapters are available on the current Carey backend");
+    legoLoraComboBox.setEnabled(hasLoras);
+    legoLoraScaleSlider.setEnabled(hasLoras);
+    legoLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
+
+    if (hasLoras)
+    {
+        const int restoredIndex = findTrackIndex(legoLoraOptionValues, previousSelection.trim());
+        legoLoraComboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
+    }
+    else
+    {
+        legoUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+        legoLoraComboBox.setSelectedId(0, juce::dontSendNotification);
+    }
+
+    legoUseLoraToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
+
+    updateContentLayout();
 }
 
 void CareyUI::setAvailableCompleteLoras(const juce::StringArray& loraNames)

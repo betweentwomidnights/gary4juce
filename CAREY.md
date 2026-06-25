@@ -20,8 +20,8 @@ backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
 ### backend notes
 
-- lego mode seems to regress with the xl models. common failure modes include instrumentation bleed into the requested stem, less stable separation, and, when vocals do work, weaker singing/lyric adherence than we'd expect from xl.
-- for now, lego defaults to `ace-step-v15-base`. this is a compromise: base appears to be better behaved for the lego stem workflow, even though xl models are usually better at following lyrics in the other modes.
+- lego mode uses the active base family only: base when regular models are active, xl-base when xl models are active. turbo and sft choices stay hidden here.
+- LoRAs are available in lego mode when they match the active model family.
 - if you specifically need strong lyric adherence, complete or cover mode with an xl model is usually a better place to work than lego.
 
 ### loop assist & trim to input
@@ -97,7 +97,8 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 
 ## lora adapters
 
-- loras can currently be used in **complete** or **cover** mode.
+- loras can currently be used in **lego**, **complete**, or **cover** mode.
+- lego dice captions stay track-type based; LoRA caption pools are aimed at full-song complete/cover prompts.
 - adapters trained on **xl-base** can also be used on **xl-turbo**.
 - todo: add a fuller write-up on how we train and package loras for the remote backend. the current remote adapters were trained with [Side-Step](https://github.com/koda-dernet/Side-Step), a standalone ace-step 1.5 training toolkit with variant-aware adapter fine-tuning.
 

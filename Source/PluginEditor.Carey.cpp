@@ -154,6 +154,24 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
     updateCareyEnablementSnapshot();
 }
 
+juce::String Gary4juceAudioProcessorEditor::getSelectedCareyLegoLora() const
+{
+    if (!currentCareyLegoUseLora)
+        return {};
+
+    const juce::String requestedLora = currentCareyLegoLora.trim();
+    if (requestedLora.isEmpty())
+        return {};
+
+    for (const auto& availableLora : availableCareyLoras)
+    {
+        if (availableLora.equalsIgnoreCase(requestedLora))
+            return availableLora;
+    }
+
+    return {};
+}
+
 juce::String Gary4juceAudioProcessorEditor::getSelectedCareyCompleteLora() const
 {
     if (!currentCareyCompleteUseLora)
@@ -195,6 +213,10 @@ void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
     if (!careyUI)
         return;
 
+    careyUI->setAvailableLegoLoras(availableCareyLoras);
+    careyUI->setLegoSelectedLora(currentCareyLegoLora);
+    careyUI->setLegoLoraScale(currentCareyLegoLoraScale);
+    careyUI->setLegoUseLora(currentCareyLegoUseLora);
     careyUI->setAvailableCompleteLoras(availableCareyLoras);
     careyUI->setCompleteSelectedLora(currentCareyCompleteLora);
     careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
@@ -283,6 +305,23 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
 
             editor->availableCareyLoras = success ? fetchedLoras : juce::StringArray();
 
+            juce::String resolvedLegoLora;
+            for (const auto& availableLora : editor->availableCareyLoras)
+            {
+                if (availableLora.equalsIgnoreCase(editor->currentCareyLegoLora))
+                {
+                    resolvedLegoLora = availableLora;
+                    break;
+                }
+            }
+
+            if (resolvedLegoLora.isNotEmpty())
+                editor->currentCareyLegoLora = resolvedLegoLora;
+            else if (!editor->availableCareyLoras.isEmpty())
+                editor->currentCareyLegoLora = editor->availableCareyLoras[0];
+            else
+                editor->currentCareyLegoLora = {};
+
             juce::String resolvedLora;
             for (const auto& availableLora : editor->availableCareyLoras)
             {
@@ -319,6 +358,7 @@ void Gary4juceAudioProcessorEditor::refreshCareyAvailableLoras(bool force)
 
             if (editor->availableCareyLoras.isEmpty())
             {
+                editor->currentCareyLegoUseLora = false;
                 editor->currentCareyCompleteUseLora = false;
                 editor->currentCoverUseLora = false;
             }
@@ -607,6 +647,10 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     const juce::String language = currentCareyLanguage;
     const bool loopAssistEnabled = currentCareyLoopAssistEnabled;
     const bool trimToInputEnabled = currentCareyTrimToInputEnabled;
+    const juce::String selectedLora = getSelectedCareyLegoLora();
+    const double loraScale = selectedLora.isNotEmpty()
+        ? juce::jlimit(0.0, 1.0, currentCareyLegoLoraScale)
+        : 1.0;
     const juce::int64 requestSeed = careyUI != nullptr ? careyUI->getSeed() : -1;
 
     DBG("[carey] remote request metas - bpm=" + juce::String(bpm)
@@ -616,6 +660,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
         + ", time_sig=" + (timeSig.isEmpty() ? "auto" : timeSig)
         + ", caption_empty=" + juce::String(caption.isEmpty() ? "true" : "false")
         + ", lyrics_empty=" + juce::String(lyrics.trim().isEmpty() ? "true" : "false")
+        + ", lora=" + (selectedLora.isEmpty() ? juce::String("none") : selectedLora)
+        + ", lora_scale=" + (selectedLora.isEmpty() ? juce::String("default") : juce::String(loraScale, 2))
         + ", loop_assist=" + juce::String(loopAssistEnabled ? "on" : "off")
         + ", trim_to_input=" + juce::String(trimToInputEnabled ? "on" : "off")
         + ", seed=" + (requestSeed >= 0 ? juce::String(requestSeed) : juce::String("random")));
@@ -656,7 +702,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, requestSeed, loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
+    juce::Thread::launch([safeThis, generationToken, requestNonce, bufferFile, caption, lyrics, keyScale, timeSig, language, trackName, bpm, inferenceSteps, guidanceScale, selectedLora, loraScale, requestSeed, loopAssistEnabled, trimToInputEnabled, submitUrlText, statusUrlPrefix, allowTextProgressFallback]()
     {
         auto isRequestCurrent = [safeThis, generationToken, requestNonce]() {
             return safeThis != nullptr
@@ -840,6 +886,11 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
                     submitPayload->setProperty("key_scale", keyScale);
                 if (language.isNotEmpty() && language != "en")
                     submitPayload->setProperty("language", language);
+                if (selectedLora.isNotEmpty())
+                {
+                    submitPayload->setProperty("lora", selectedLora);
+                    submitPayload->setProperty("lora_scale", loraScale);
+                }
                 submitPayload->setProperty("guidance_scale", guidanceScale);
                 submitPayload->setProperty("seed", requestSeed);
                 if (timeSig.isNotEmpty())

@@ -312,6 +312,9 @@ private:
     juce::String currentCareyTrackName = "vocals";
     int currentCareySteps = 50;
     double currentLegoCfg = 7.0;
+    juce::String currentCareyLegoLora = "";
+    bool currentCareyLegoUseLora = false;
+    double currentCareyLegoLoraScale = 1.0;
     double currentCareyBpm = 120.0;
     bool currentCareyLoopAssistEnabled = true;
     bool currentCareyTrimToInputEnabled = true;
@@ -369,6 +372,7 @@ private:
     void syncCareyLoraUi();
     void requestCareyCompleteCaption();
     void requestCareyCoverCaption();
+    juce::String getSelectedCareyLegoLora() const;
     juce::String getSelectedCareyCompleteLora() const;
     juce::String getSelectedCareyCoverLora() const;
 
