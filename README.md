@@ -11,7 +11,7 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v4.0.4 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4)
-- [gary4juce v4.0.2-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac)
+- [gary4juce v4.0.4-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac)
 
 **recommended local companions:**
 

@@ -1,13 +1,13 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.2-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac",
+  "latest_version": "4.0.4-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac",
   "sha256": null,
-  "published_at": "2026-06-12T05:27:09Z",
+  "published_at": "2026-06-27T13:53:39Z",
   "notes": [
-    "gary4juce is explicitly licensed under the GNU AGPLv3 only.",
-    "The plugin About dialog provides direct access to the public source and license.",
-    "The macOS AU/VST3 packages now include license, third-party notice, and Corresponding Source information.",
-    "Recommended gary4local-mac: v0.1.10. Close your DAW before replacing plugin files."
+    "Carey lego mode now supports LoRA usage more broadly on macOS too.",
+    "Carey docs now clarify that v15-base is still recommended when no LoRA is loaded.",
+    "No new mac local backend is required. Recommended gary4local-mac: v0.1.10.",
+    "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
