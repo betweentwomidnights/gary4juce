@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.3 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.3)
+- [gary4juce v4.0.4 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4)
 - [gary4juce v4.0.2-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.1.17](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.17)
+- windows: [gary4local v0.1.18](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.18)
 - macOS: [gary4local mac v0.1.10](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.10)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -29,7 +29,7 @@ videos about it here when i can: https://youtube.com/@thepatch_dev
 
 ---
 
-## Built For Musicians
+## built for musicians
 
 If you just want pure text-to-music, you probably do not need a VST. This
 project exists for people who want AI to sit inside the session with them.
@@ -50,107 +50,41 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ---
 
-## What's New In V4
+## latest update
 
-### v4.0.3 - Carey seeds and SA3 polish
+### v4.0.4 - Carey LoRA polish
 
-v4.0.3 adds reproducible seed controls to Carey so supported Carey workflows
-can reuse a known seed and show the last seed returned by the backend.
+v4.0.4 opens up Carey LoRA usage in lego mode and refreshes the Carey docs
+around what has worked best in testing.
 
-This release also fixes two SA3 UI edge cases. Restored sessions that reopen
-directly to the SA3 subtab now refresh available LoRAs correctly, and dragging
-audio in with SA3 active now keeps the longer SA3/Carey-style selection window
-instead of falling back to the shorter model limit.
+lego mode is still usually more reliable and musical with regular
+`acestep-v15-base` when no LoRA adapter is loaded. `xl-base` gets much more
+interesting once a matching xl-base LoRA is attached, especially for vocals and
+backing vocals.
 
-The Windows VST3 ZIP now nests license and Corresponding Source files inside
-`gary4juce.vst3`, so Windows **Extract All** can target a VST3 folder without
-leaving loose files beside the plugin.
+this release is paired with gary4local v0.1.18, which fixes local Carey seed
+reporting and updates ACE-Step LoRA captioning so LM-hallucinated lyrics are
+left out of training sidecars.
 
-### v4.0.2 - open-source licensing and source access
-
-v4.0.2 explicitly releases gary4juce under the GNU Affero General Public
-License v3.0 only. The repository now includes the canonical AGPLv3 text,
-copyright and SPDX notices, pinned JUCE 8.0.8 licensing information, and an
-in-plugin About dialog with direct access to the source and license.
-
-Release packages now include the applicable license and third-party notice
-files plus exact links to the Corresponding Source used for the build. This
-release does not change any music models, request formats, or backend
-requirements.
-
-### v4.0.1 - UI persistence and localhost responsiveness
-
-v4.0.1 is a focused maintenance release. It does not add or change any music
-models. Its purpose is to make the plugin remember its UI settings when the
-editor is closed and reopened, including when a DAW temporarily removes the
-editor while navigating between plugins.
-
-Settings now persist across editor reopens throughout Gary, Jerry, SA3, Terry,
-Carey, Darius, and Foundation-1. This includes prompts, generation controls,
-selected tabs and models, advanced sections, SA3 seeds and LoRAs, and the shared
-recording/output source selector.
-
-The local service status also survives editor recreation. On Windows, local
-health checks now update per service and bypass the slower shared HTTP path, so
-a running Gary, Terry, Jerry, Carey, Foundation-1, or SA3 service is reflected
-in the UI immediately instead of waiting for every offline port to time out.
-
-### v4.0.0 - stable-audio-3
-
-gary4juce has entered v4 with a new **sa3** sub-tab inside Jerry, positioned
-alongside the original SAOS and Foundation-1 workflows.
-
-SA3 currently includes:
-
-- **generate** - text-to-audio up to 300 seconds, plus 4/8/16-bar loop mode
-- **transform** - restyle the recording buffer or current output audio
-- **continue** - continue the recording buffer or current output audio to a target total duration
-- **seed recall** - random generations show the backend-returned seed so a take can be reproduced
-- **key/scale prompting** - optional Carey-style key and mode dropdown appended to the final prompt
-- **LoRA sliders** - one strength slider per available SA3 LoRA, defaulting to 0
-- **smart dice** - prompt rolls come from the default pool or from every LoRA whose slider is above 0
-
-Read the practical guide: [SA3.md](SA3.md)
-
-Launch notes:
-
-- SA3 outputs can be hot, especially with LoRAs. Treat gain staging like part of the instrument for now.
-- Continue results can leave a quiet/fading tail near the end of longer continuations. This is being audited against the upstream SA3 UI.
-- Local SA3 is available in gary4local on Windows and macOS, including LoRAs and both continuation modes.
-
-### V3 Highlights
-
-v3 brought Carey, Foundation-1, and the first pass at the modern multi-model
-workflow:
-
-- Carey joined with lego, complete, cover, extract, lyrics, language, key/scale, time signature, LoRA selection, LoRA dice captions, and caption popouts.
-- Foundation-1 became `rc-jerry`, a structured BPM/key-aware loop generator inside the Jerry tab.
-- Foundation-1 landed in gary4local mac on Apple silicon.
-- Plugin-safe update checks and editor lifecycle hardening made the app much harder to crash during in-flight requests.
-
-Carey guide: [CAREY.md](CAREY.md)
+older release notes now live in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Roadmap
+## roadmap
 
 - [x] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) on Windows
 - [x] add SA3 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) on macOS
 - [x] ship local SA3 training on Windows and macOS using [underfit](https://github.com/dada-bots/underfit) as the source of truth
-- [x] release the mac AU/VST3 build
-- [x] add the first SA3 usage guide: [SA3.md](SA3.md)
-- [x] add SA3's experimental `latent_prefix` continuation mode
 - [ ] clean up and release a proper standalone app
-- [ ] improve SA3 LoRA loudness handling on the backend
-- [ ] add ACE-Step training directly into the UI by vendoring [Side-Step](https://github.com/koda-dernet/Side-Step)
+- [x] ship local ACE-Step LoRA training in gary4local on Windows using [Side-Step](https://github.com/koda-dernet/Side-Step) as the reference point
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
 - [ ] enable the Carey `xl-sft` model on the remote backend
 
 ---
 
-## Installation
+## installation
 
-### Windows
+### windows
 
 1. Close your DAW.
 2. Use **Extract All** on the ZIP.
@@ -186,7 +120,7 @@ VST3.
 
 ---
 
-## Backends
+## backends
 
 The plugin can use either:
 
@@ -211,7 +145,7 @@ Recommended hardware:
 - 16 GB+ recommended for heavier local models
 - 24 GB+ recommended for Darius-style separate backends
 
-### SA3 Backend
+### SA3 backend
 
 SA3 can run on the remote backend:
 
@@ -225,7 +159,7 @@ Public upstream repo: https://github.com/stability-ai/stable-audio-3
 
 Local SA3 training source of truth: https://github.com/dada-bots/underfit
 
-### Darius Backend
+### Darius backend
 
 Darius is too heavy to run alongside the other gary4local services.
 
@@ -247,14 +181,14 @@ docker run --gpus all -p 7860:7860 magenta-rt
 
 ---
 
-## How To Use
+## how to use
 
 1. Put gary4juce on your master track, a bus, or any track you want to listen to.
 2. Press play in your DAW.
 3. Save the recording buffer when you have audio you want a model to react to.
 4. Generate, transform, continue, crop, drag, and repeat.
 
-### Jerry Tab
+### jerry tab
 
 The Jerry tab now has three sub-tabs:
 
@@ -289,7 +223,7 @@ Learn more: https://huggingface.co/stabilityai/stable-audio-open-small
 
 Learn more: https://huggingface.co/RoyalCities/Foundation-1
 
-### Gary Tab
+### gary tab
 
 Gary uses MusicGen continuation models.
 
@@ -302,23 +236,28 @@ what is loaded locally or remotely.
 
 Learn more: https://github.com/facebookresearch/audiocraft
 
-### Carey Tab
+### carey tab
 
-Carey uses ACE-Step.
+carey uses ACE-Step.
 
 - **lego** - generate vocals/backing vocals over your audio
 - **complete** - extend audio into a full continuation
 - **cover** - remix/restyle with caption guidance
 - **extract** - attempt target stem extraction from your recording buffer
 
-Shared lyrics editor, 50-language support, key/scale/time signature selection,
+shared lyrics editor, 50-language support, key/scale/time signature selection,
 caption popouts, and LoRA support live here.
 
-Full guide: [CAREY.md](CAREY.md)
+for lego mode, regular `acestep-v15-base` is still the safer default if you
+don't have a LoRA trained. `xl-base` gets much more interesting when a matching
+xl-base LoRA is attached, especially for vocals and backing vocals. some
+instrument bleed can happen, but it often fits the source audio anyway.
 
-Learn more: https://github.com/ace-step/ACE-Step-1.5
+full guide: [CAREY.md](CAREY.md)
 
-### Terry Tab
+learn more: https://github.com/ace-step/ACE-Step-1.5
+
+### terry tab
 
 - Transforms audio with style presets or custom prompts.
 - Can use either the recording buffer or current output audio.
@@ -326,7 +265,7 @@ Learn more: https://github.com/ace-step/ACE-Step-1.5
 
 Learn more: https://huggingface.co/spaces/facebook/Melodyflow
 
-### Darius Tab
+### darius tab
 
 - High-quality 48 kHz continuations.
 - Style steering with prompts, base model, or custom weights.
@@ -337,7 +276,7 @@ Learn more: https://github.com/magenta/magenta-realtime
 
 ---
 
-## Finetuning
+## finetuning
 
 gary4juce gets better as more finetunes exist.
 
@@ -380,7 +319,7 @@ Upload weights to a Hugging Face model repo and point the Darius tab at it.
 
 ---
 
-## Project Structure
+## project structure
 
 ```text
 gary4juce/
@@ -405,7 +344,7 @@ gary4juce/
 \-- gary4juce.jucer
 ```
 
-### Building From Source
+### building from source
 
 Requirements:
 
@@ -422,7 +361,7 @@ Steps:
 
 ---
 
-## Known Issues
+## known issues
 
 - **SA3 launch notes:** output loudness and continuation tails are still being tuned.
 - **SA3 local backend:** available through gary4local on Windows and gary4local mac.
@@ -433,7 +372,7 @@ Steps:
 
 ---
 
-## Community
+## community
 
 **discord:** https://discord.gg/VECkyXEnAd
 
@@ -445,7 +384,7 @@ Steps:
 
 ---
 
-## Credits
+## credits
 
 - **stable-audio-3:** Stability AI ([repo](https://github.com/stability-ai/stable-audio-3))
 - **underfit:** dadabots ([repo](https://github.com/dada-bots/underfit))
@@ -463,7 +402,7 @@ Stable Audio 3 beta while this integration came together.
 
 ---
 
-## License
+## license
 
 The source code and other original material in this repository, including
 earlier gary4juce versions authored by the copyright holder, are free software
@@ -507,7 +446,7 @@ or redistribution.
 
 ---
 
-## Support The Project
+## support the project
 
 If gary4juce is useful to you:
 

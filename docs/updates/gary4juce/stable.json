@@ -1,14 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.3",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.3",
-  "sha256": "ddaeeb1272eb007b492318a644d74d1eefbfd5740a60f124108f8712376d1850",
-  "published_at": "2026-06-23T06:58:45Z",
+  "latest_version": "4.0.4",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4",
+  "sha256": "4cf913af2582aa1d5544c9905713f8b5d6b5be9a0f3c0f8330921d7573dad68d",
+  "published_at": "2026-06-27T09:12:08Z",
   "notes": [
-    "Carey now supports reproducible seed values.",
-    "SA3 now refreshes LoRAs correctly when reopened as the active subtab.",
-    "SA3 now allows longer audio selections when dragging audio into the active subtab.",
-    "Recommended gary4local: v0.1.17.",
+    "Carey lego mode now supports LoRA usage more broadly.",
+    "Carey docs now clarify that v15-base is still recommended when no LoRA is loaded.",
+    "Recommended gary4local: v0.1.18.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
