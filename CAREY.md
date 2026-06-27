@@ -12,16 +12,20 @@ backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
 **best with:** ~2 minutes of recorded audio. shorter clips work thanks to loop assist (see below).
 
+**model note:** if you don't have a LoRA trained, regular `acestep-v15-base` is still the safer lego choice. `xl-base` without a matching LoRA has been pretty rough in my testing. with an `xl-base` LoRA, though, lego vocals are pretty amazing.
+
 ### tips
 
 - **vocals and backing vocals are the sweet spot.** these produce genuinely impressive results. the other stem options (synth, keyboard, etc.) will generate layers that harmonically "fit" your audio, but tend to sound generic. the chords are correct though, so they can serve as a compositional reference.
+- **xl-base wants a LoRA here.** plain xl-base lego vocals have not been good enough for me to recommend yet. once an xl-base LoRA is attached, vocals and backing vocals can become the best version of this mode.
 - **backing vocals trick:** sound out words that match the syllables you hear in the existing vocal layer. alternatively, if you generated vocals with lyrics, use the same lyrics for backing vocals - the model will create harmonies.
-- **lyrics are optional.** leave them blank for wordless vocal generation (humming, "la la la", etc.). this produces surprisingly musical results and is great as a starting point for the cover mode workflow described below.
+- **lyrics are optional.** leave them blank for wordless vocal generation, or what we affectionately call sims-core gibberish. it's based, and it's better than the 'neon skies' nonsense your claude would write.
 
 ### backend notes
 
-- lego mode seems to regress with the xl models. common failure modes include instrumentation bleed into the requested stem, less stable separation, and, when vocals do work, weaker singing/lyric adherence than we'd expect from xl.
-- for now, lego defaults to `ace-step-v15-base`. this is a compromise: base appears to be better behaved for the lego stem workflow, even though xl models are usually better at following lyrics in the other modes.
+- lego mode uses the active base family only: base when regular models are active, xl-base when xl models are active. turbo and sft choices stay hidden here.
+- matching LoRAs are available in lego mode when they match the active model family.
+- some non-vocal lego targets with xl-base LoRAs are still lightly tested. i've also heard occasional instrument bleed from xl-base vocal LoRAs. the nice part is that the bleed tends to fit the input audio anyway, so it can be annoying, useful, or both.
 - if you specifically need strong lyric adherence, complete or cover mode with an xl model is usually a better place to work than lego.
 
 ### loop assist & trim to input
@@ -42,9 +46,8 @@ the model doesn't perform well with audio shorter than ~1 minute. loop assist du
 ### tips
 
 - **as of april 22, 2026, this mode is much more reliable.** older complete-mode builds were more unhinged and could sometimes create very wild, interesting continuations, but the current backend uses the repainting branch of ace-step and lands in a more controllable place.
-- **the model prefers "full" input audio.** if you record just a solo guitar layer and try to continue it (like you would with musicgen/gary), the model may decide to overwrite your conditioning audio entirely. it works best with denser arrangements as input.
-- **duration slider** controls how long the output will be (30-180 seconds). the model generates the full duration including your input audio as the beginning.
-- **use source as reference** passes your audio as both the conditioning input and a style reference, encouraging the continuation to stay closer to your original timbre and feel.
+- **duration slider** controls how long the output will be (30-180 seconds). the model generates the full duration including your input audio as the beginning. just like the other modes, longer duration is better even if you only want a 20 second sample to use.
+- **use source as reference** passes your audio as both the conditioning input and a style reference, encouraging the continuation to stay closer to your original timbre and feel. i actually think this should be discontinued, tbh. it kind of lowers output fidelity even though it does help the model stick to your notes better.
 
 ### remote xl models
 
@@ -97,9 +100,10 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 
 ## lora adapters
 
-- loras can currently be used in **complete** or **cover** mode.
+- loras can currently be used in **lego**, **complete**, or **cover** mode.
+- lego dice captions stay track-type based; LoRA caption pools are aimed at full-song complete/cover prompts. i think my dice captions for lego mode are terrible. write some really detailed ones.
+- for lego mode specifically, regular base is the better default when no LoRA is loaded. xl-base starts making sense when you have a matching xl-base LoRA, especially for vocals and backing vocals.
 - adapters trained on **xl-base** can also be used on **xl-turbo**.
-- todo: add a fuller write-up on how we train and package loras for the remote backend. the current remote adapters were trained with [Side-Step](https://github.com/koda-dernet/Side-Step), a standalone ace-step 1.5 training toolkit with variant-aware adapter fine-tuning.
 
 ---
 

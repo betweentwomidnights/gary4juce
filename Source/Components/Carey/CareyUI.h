@@ -78,6 +78,13 @@ public:
         return juce::roundToInt(stepsSlider.getValue());
     }
 
+    juce::int64 getSeed() const;
+    bool getUseSeedEnabled() const { return useSeedToggle.getToggleState(); }
+    juce::String getSeedText() const { return seedEditor.getText().trim(); }
+    void setSeedState(bool enabled, const juce::String& seedText);
+    juce::String getLastSeed() const { return lastSeed; }
+    void setLastSeed(const juce::String& seed);
+
     juce::String getExtractTrackName() const
     {
         const int selectedId = extractTrackComboBox.getSelectedId();
@@ -172,6 +179,39 @@ public:
 
     double getLegoCfg() const { return legoCfgSlider.getValue(); }
     void setLegoCfg(double val) { legoCfgSlider.setValue(juce::jlimit(3.0, 10.0, val), juce::dontSendNotification); }
+    bool getLegoUseLora() const { return legoUseLoraToggle.getToggleState(); }
+    juce::String getLegoSelectedLora() const
+    {
+        const int selectedId = legoLoraComboBox.getSelectedId();
+        const int index = selectedId - 1;
+        if (index >= 0 && index < legoLoraOptionValues.size())
+            return legoLoraOptionValues[index];
+        return {};
+    }
+    double getLegoLoraScale() const { return legoLoraScaleSlider.getValue(); }
+
+    void setLegoUseLora(bool enabled)
+    {
+        const bool shouldEnable = enabled && !legoLoraOptionValues.isEmpty();
+        if (legoUseLoraToggle.getToggleState() != shouldEnable)
+            legoUseLoraToggle.setToggleState(shouldEnable, juce::dontSendNotification);
+
+        updateContentLayout();
+    }
+
+    void setAvailableLegoLoras(const juce::StringArray& loraNames);
+
+    void setLegoSelectedLora(const juce::String& loraName)
+    {
+        const int loraIndex = findTrackIndex(legoLoraOptionValues, loraName.trim());
+        legoLoraComboBox.setSelectedId(loraIndex >= 0 ? loraIndex + 1 : 0, juce::dontSendNotification);
+        updateContentLayout();
+    }
+
+    void setLegoLoraScale(double value)
+    {
+        legoLoraScaleSlider.setValue(juce::jlimit(0.0, 1.0, value), juce::dontSendNotification);
+    }
 
     void setExtractTrackName(const juce::String& trackName)
     {
@@ -493,6 +533,9 @@ public:
     std::function<void(const juce::String&)> onTrackChanged;
     std::function<void(int)> onStepsChanged;
     std::function<void(double)> onLegoCfgChanged;
+    std::function<void(bool)> onLegoUseLoraChanged;
+    std::function<void(const juce::String&)> onLegoLoraChanged;
+    std::function<void(double)> onLegoLoraScaleChanged;
     std::function<void(bool)> onLoopAssistChanged;
     std::function<void(bool)> onTrimToInputChanged;
     std::function<void()> onGenerate;
@@ -597,6 +640,12 @@ private:
     CustomSlider stepsSlider;
     juce::Label legoCfgLabel;
     CustomSlider legoCfgSlider;
+    juce::ToggleButton legoUseLoraToggle;
+    juce::Label legoLoraLabel;
+    CustomComboBox legoLoraComboBox;
+    juce::Label legoLoraScaleLabel;
+    CustomSlider legoLoraScaleSlider;
+    juce::StringArray legoLoraOptionValues;
     juce::Label loopAssistLabel;
     juce::ToggleButton loopAssistToggle;
     juce::Label trimToInputLabel;
@@ -668,6 +717,11 @@ private:
     juce::ToggleButton coverUseSrcAsRefToggle;
     CustomButton coverGenerateButton;
     juce::Label coverInfoLabel;
+
+    juce::ToggleButton useSeedToggle;
+    CustomTextEditor seedEditor;
+    juce::Label lastSeedLabel;
+    juce::String lastSeed;
 
     juce::Label extractTrackLabel;
     CustomComboBox extractTrackComboBox;

@@ -306,10 +306,16 @@ private:
     bool currentCareyCompleteAdvancedOpen = false;
     bool currentCareyCoverAdvancedOpen = false;
     bool currentCareyExtractAdvancedOpen = false;
+    juce::String currentCareyLastSeed;
+    bool currentCareyUseSeed = false;
+    juce::String currentCareySeedText;
     juce::String currentCareyCaption = "";
     juce::String currentCareyTrackName = "vocals";
     int currentCareySteps = 50;
     double currentLegoCfg = 7.0;
+    juce::String currentCareyLegoLora = "";
+    bool currentCareyLegoUseLora = false;
+    double currentCareyLegoLoraScale = 1.0;
     double currentCareyBpm = 120.0;
     bool currentCareyLoopAssistEnabled = true;
     bool currentCareyTrimToInputEnabled = true;
@@ -358,6 +364,7 @@ private:
     void sendToCareyExtract();
     void sendToCareyComplete();
     void sendToCareyCover();
+    void setCareyLastSeed(const juce::String& seed);
     void updateCareyEnablementSnapshot();
     double getCareyBpmForRequest() const;
     bool isCareyTabAvailable() const;
@@ -366,6 +373,7 @@ private:
     void syncCareyLoraUi();
     void requestCareyCompleteCaption();
     void requestCareyCoverCaption();
+    juce::String getSelectedCareyLegoLora() const;
     juce::String getSelectedCareyCompleteLora() const;
     juce::String getSelectedCareyCoverLora() const;
 

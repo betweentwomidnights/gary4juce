@@ -131,6 +131,13 @@ public:
     std::function<void()> onLoraSelectionChanged;
 
 private:
+    enum class PromptPopoutTarget
+    {
+        Generate = 0,
+        Transform,
+        Continue
+    };
+
     void addToContent(juce::Component& component);
     void setCurrentSubTabInternal(SubTab tab, bool notify);
     void updateSubTabButtonStyles();
@@ -143,6 +150,13 @@ private:
     void clearLoraRows();
     void updateContentLayout();
     void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
+    void drawPopoutIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed);
+    void openPromptPopout(PromptPopoutTarget target,
+                          CustomTextEditor& sourceEditor,
+                          const juce::String& titleText,
+                          const juce::String& placeholderText,
+                          std::function<void()> diceCallback);
+    void syncActivePromptPopout(PromptPopoutTarget target, const juce::String& text);
 
     juce::Label titleLabel;
     juce::Rectangle<int> titleBounds;
@@ -165,10 +179,12 @@ private:
 
     juce::Label promptLabel;
     CustomTextEditor promptEditor;
+    CustomButton promptPopoutButton;
     CustomButton diceButton;
 
     juce::Label transformPromptLabel;
     CustomTextEditor transformPromptEditor;
+    CustomButton transformPromptPopoutButton;
     CustomButton transformDiceButton;
     juce::Label transformSourceLabel;
     juce::ToggleButton transformRecordingButton;
@@ -181,6 +197,7 @@ private:
 
     juce::Label continuePromptLabel;
     CustomTextEditor continuePromptEditor;
+    CustomButton continuePromptPopoutButton;
     CustomButton continueDiceButton;
     juce::Label continueSourceLabel;
     juce::ToggleButton continueRecordingButton;
@@ -234,6 +251,8 @@ private:
     bool lastCanGenerate = false;
     bool lastIsGenerating = false;
     bool lastDiceButtonsEnabled = false;
+    PromptPopoutTarget activePromptPopoutTarget = PromptPopoutTarget::Generate;
+    CustomTextEditor* activePromptPopoutEditor = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SA3UI)
 };

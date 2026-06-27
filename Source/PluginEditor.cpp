@@ -117,10 +117,19 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
         ? careyUI->getCoverAdvancedOpen() : currentCareyCoverAdvancedOpen);
     state->setProperty("careyExtractAdvanced", careyUI != nullptr
         ? careyUI->getExtractAdvancedOpen() : currentCareyExtractAdvancedOpen);
+    state->setProperty("careyLastSeed",
+        careyUI != nullptr ? careyUI->getLastSeed() : currentCareyLastSeed);
+    state->setProperty("careyUseSeed",
+        careyUI != nullptr ? careyUI->getUseSeedEnabled() : currentCareyUseSeed);
+    state->setProperty("careySeedText",
+        careyUI != nullptr ? careyUI->getSeedText() : currentCareySeedText);
     state->setProperty("careyCaption", currentCareyCaption);
     state->setProperty("careyTrack", currentCareyTrackName);
     state->setProperty("careySteps", currentCareySteps);
     state->setProperty("careyLegoCfg", currentLegoCfg);
+    state->setProperty("careyLegoLora", currentCareyLegoLora);
+    state->setProperty("careyLegoUseLora", currentCareyLegoUseLora);
+    state->setProperty("careyLegoLoraScale", currentCareyLegoLoraScale);
     state->setProperty("careyLoopAssist", currentCareyLoopAssistEnabled);
     state->setProperty("careyTrimToInput", currentCareyTrimToInputEnabled);
     state->setProperty("careyExtractTrack", currentCareyExtractTrackName);
@@ -276,10 +285,16 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentCareyCoverAdvancedOpen = readBool("careyCoverAdvanced", currentCareyCoverAdvancedOpen);
     currentCareyExtractAdvancedOpen = readBool(
         "careyExtractAdvanced", currentCareyExtractAdvancedOpen);
+    currentCareyLastSeed = readString("careyLastSeed", currentCareyLastSeed);
+    currentCareyUseSeed = readBool("careyUseSeed", currentCareyUseSeed);
+    currentCareySeedText = readString("careySeedText", currentCareySeedText);
     currentCareyCaption = readString("careyCaption", currentCareyCaption);
     currentCareyTrackName = readString("careyTrack", currentCareyTrackName);
     currentCareySteps = readInt("careySteps", currentCareySteps);
     currentLegoCfg = readDouble("careyLegoCfg", currentLegoCfg);
+    currentCareyLegoLora = readString("careyLegoLora", currentCareyLegoLora);
+    currentCareyLegoUseLora = readBool("careyLegoUseLora", currentCareyLegoUseLora);
+    currentCareyLegoLoraScale = readDouble("careyLegoLoraScale", currentCareyLegoLoraScale);
     currentCareyLoopAssistEnabled = readBool("careyLoopAssist", currentCareyLoopAssistEnabled);
     currentCareyTrimToInputEnabled = readBool("careyTrimToInput", currentCareyTrimToInputEnabled);
     currentCareyExtractTrackName = readString("careyExtractTrack", currentCareyExtractTrackName);
@@ -876,13 +891,32 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onSubTabChanged = [this](CareyUI::SubTab tab)
     {
         currentCareySubTab = tab;
-        if (tab == CareyUI::SubTab::Complete || tab == CareyUI::SubTab::Cover)
+        if (tab == CareyUI::SubTab::Lego
+            || tab == CareyUI::SubTab::Complete
+            || tab == CareyUI::SubTab::Cover)
             refreshCareyAvailableLoras(true);
     };
     careyUI->onCaptionChanged = [this](const juce::String& text) { currentCareyCaption = text; };
     careyUI->onTrackChanged = [this](const juce::String& track) { currentCareyTrackName = track.trim().toLowerCase(); };
     careyUI->onStepsChanged = [this](int steps) { currentCareySteps = juce::jlimit(32, 100, steps); };
     careyUI->onLegoCfgChanged = [this](double val) { currentLegoCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onLegoUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyLegoUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyLegoUseLora && currentCareyLegoLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyLegoLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onLegoLoraChanged = [this](const juce::String& loraName)
+    {
+        currentCareyLegoLora = loraName.trim();
+    };
+    careyUI->onLegoLoraScaleChanged = [this](double value)
+    {
+        currentCareyLegoLoraScale = juce::jlimit(0.0, 1.0, value);
+    };
     careyUI->onLoopAssistChanged = [this](bool enabled) { currentCareyLoopAssistEnabled = enabled; };
     careyUI->onTrimToInputChanged = [this](bool enabled) { currentCareyTrimToInputEnabled = enabled; };
     careyUI->onLyricsChanged = [this](const juce::String& text) { currentCareyLyrics = text; audioProcessor.setCareyLyrics(text); };
@@ -966,6 +1000,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setTrackName(currentCareyTrackName);
     careyUI->setSteps(currentCareySteps);
     careyUI->setLegoCfg(currentLegoCfg);
+    careyUI->setLegoLoraScale(currentCareyLegoLoraScale);
+    careyUI->setLegoUseLora(currentCareyLegoUseLora);
     careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
     careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
     careyUI->setExtractTrackName(currentCareyExtractTrackName);
@@ -1002,6 +1038,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
     careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
     careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+    careyUI->setLastSeed(currentCareyLastSeed);
+    careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
     syncCareyLoraUi();
     careyUI->setGenerateButtonEnabled(false, false);
 
@@ -5340,6 +5378,12 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         if (connected)
         {
             fetchGaryAvailableModels();
+
+            if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
+            {
+                refreshSA3AvailableLoras(true);
+                updateSA3EnablementSnapshot();
+            }
         }
 
         repaint(); // Trigger a redraw to update tab section border
@@ -6094,11 +6138,12 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
     DBG("Dropped file: " + audioFile.getFileName() +
         " - Duration: " + juce::String(fileDuration, 2) + "s");
 
-    // Dynamic direct-load limit: carey tab allows longer conditioning audio
+    // Dynamic direct-load limit: short-window models cap conditioning audio at 30 seconds.
     const double hostSampleRate = audioProcessor.getCurrentSampleRate();
     const double maxBufferDuration = juce::jmax(1.0,
         (double)audioProcessor.getMaxRecordingSamples() / hostSampleRate);
     const bool isCareyTab = (currentTab == ModelTab::Carey);
+    const bool isSA3Tab = (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3);
     const bool shortWindowPreferred = (currentTab == ModelTab::Gary ||
                                        currentTab == ModelTab::Terry ||
                                        currentTab == ModelTab::Darius);
@@ -6198,7 +6243,9 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         auto* dialog = new AudioSelectionDialog();
 
         // Set selection window constraints based on current tab
-        if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
+        if (isSA3Tab)
+            dialog->setSelectionWindowConstraints(10.0, 180.0, 180.0);  // SA3: long conditioning
+        else if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
             dialog->setSelectionWindowConstraints(10.0, 180.0, 30.0);   // Complete: short preferred
         else if (isCareyTab)
             dialog->setSelectionWindowConstraints(30.0, 180.0, 180.0);  // Lego: long preferred

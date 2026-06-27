@@ -1,14 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.2",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2",
-  "sha256": "6e450745d27d2f5c2941f1f326105d09bda3eba7fd2cd5c8173079be074d5f14",
-  "published_at": "2026-06-12T02:57:21Z",
+  "latest_version": "4.0.4",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4",
+  "sha256": "4cf913af2582aa1d5544c9905713f8b5d6b5be9a0f3c0f8330921d7573dad68d",
+  "published_at": "2026-06-27T09:12:08Z",
   "notes": [
-    "gary4juce is explicitly licensed under the GNU AGPLv3 only.",
-    "The plugin About dialog provides direct access to the public source and license.",
-    "The Windows package now includes license, third-party notice, and Corresponding Source information.",
-    "No music-model or backend update is required.",
+    "Carey lego mode now supports LoRA usage more broadly.",
+    "Carey docs now clarify that v15-base is still recommended when no LoRA is loaded.",
+    "Recommended gary4local: v0.1.18.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

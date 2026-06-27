@@ -1,13 +1,13 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.1-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.1-mac",
+  "latest_version": "4.0.2-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac",
   "sha256": null,
-  "published_at": "2026-06-11T11:34:23Z",
+  "published_at": "2026-06-12T05:27:09Z",
   "notes": [
-    "UI settings now survive window close/reopen and switching between plug-ins.",
-    "Local service status is restored across reopens, and GarageBand playback now waits for a real host audio callback.",
-    "No music-model update is required. Recommended gary4local-mac: v0.1.10.",
-    "Close your DAW before replacing plugin files with a downloaded update."
+    "gary4juce is explicitly licensed under the GNU AGPLv3 only.",
+    "The plugin About dialog provides direct access to the public source and license.",
+    "The macOS AU/VST3 packages now include license, third-party notice, and Corresponding Source information.",
+    "Recommended gary4local-mac: v0.1.10. Close your DAW before replacing plugin files."
   ]
 }

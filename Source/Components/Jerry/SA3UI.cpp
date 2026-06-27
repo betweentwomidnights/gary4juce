@@ -17,6 +17,85 @@ namespace
         static const juce::StringArray keys = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         return keys;
     }
+
+    class SA3PromptPopoutContent : public juce::Component
+    {
+    public:
+        SA3PromptPopoutContent(const juce::String& initialText,
+                               const juce::String& titleText,
+                               const juce::String& placeholderText,
+                               std::function<void(const juce::String&)> onTextChangedCallback,
+                               std::function<void()> onDiceRequestedCallback,
+                               std::function<void(juce::Graphics&, juce::Rectangle<int>, bool, bool)> drawDiceCallback)
+            : onTextChanged(std::move(onTextChangedCallback)),
+              onDiceRequested(std::move(onDiceRequestedCallback)),
+              drawDice(std::move(drawDiceCallback))
+        {
+            promptLabel.setText(titleText, juce::dontSendNotification);
+            promptLabel.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+            promptLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+            promptLabel.setJustificationType(juce::Justification::centredLeft);
+            addAndMakeVisible(promptLabel);
+
+            hintLabel.setText("full sa3 prompt", juce::dontSendNotification);
+            hintLabel.setFont(juce::FontOptions(11.0f));
+            hintLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+            hintLabel.setJustificationType(juce::Justification::centredLeft);
+            addAndMakeVisible(hintLabel);
+
+            editor.setMultiLine(true);
+            editor.setReturnKeyStartsNewLine(true);
+            editor.setScrollbarsShown(true);
+            editor.setPopupMenuEnabled(true);
+            editor.setTextToShowWhenEmpty(placeholderText, juce::Colour(0xff666666));
+            editor.setText(initialText, juce::dontSendNotification);
+            editor.onTextChange = [this]()
+            {
+                if (onTextChanged)
+                    onTextChanged(editor.getText());
+            };
+            addAndMakeVisible(editor);
+
+            diceButton.setButtonText("");
+            diceButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+            diceButton.setTooltip("roll an SA3 prompt");
+            diceButton.onClick = [this]()
+            {
+                if (onDiceRequested)
+                    onDiceRequested();
+            };
+            diceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+            {
+                if (drawDice)
+                    drawDice(g, bounds, diceButton.isMouseOver(), diceButton.isDown());
+            };
+            addAndMakeVisible(diceButton);
+        }
+
+        CustomTextEditor& getEditor() { return editor; }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(10);
+            auto topRow = area.removeFromTop(24);
+            promptLabel.setBounds(topRow.removeFromLeft(160));
+            const auto diceBounds = topRow.removeFromRight(22).withHeight(22).withY(topRow.getY() + 1);
+            diceButton.setBounds(diceBounds);
+
+            hintLabel.setBounds(area.removeFromTop(16));
+            area.removeFromTop(8);
+            editor.setBounds(area);
+        }
+
+    private:
+        std::function<void(const juce::String&)> onTextChanged;
+        std::function<void()> onDiceRequested;
+        std::function<void(juce::Graphics&, juce::Rectangle<int>, bool, bool)> drawDice;
+        juce::Label promptLabel;
+        juce::Label hintLabel;
+        CustomTextEditor editor;
+        CustomButton diceButton;
+    };
 }
 
 SA3UI::SA3UI()
@@ -96,6 +175,27 @@ SA3UI::SA3UI()
     };
     addToContent(promptEditor);
 
+    promptPopoutButton.setButtonText("");
+    promptPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    promptPopoutButton.setTooltip("open prompt popout");
+    promptPopoutButton.onClick = [this]()
+    {
+        openPromptPopout(PromptPopoutTarget::Generate,
+                         promptEditor,
+                         "generate prompt",
+                         "describe the audio to generate...",
+                         [this]()
+                         {
+                             if (onGenerateDiceRequested)
+                                 onGenerateDiceRequested();
+                         });
+    };
+    promptPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), promptPopoutButton.isMouseOver(), promptPopoutButton.isDown());
+    };
+    addToContent(promptPopoutButton);
+
     diceButton.setButtonText("");
     diceButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
     diceButton.setTooltip("roll an SA3 prompt");
@@ -128,6 +228,27 @@ SA3UI::SA3UI()
             onTransformPromptChanged(transformPromptEditor.getText());
     };
     addToContent(transformPromptEditor);
+
+    transformPromptPopoutButton.setButtonText("");
+    transformPromptPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    transformPromptPopoutButton.setTooltip("open prompt popout");
+    transformPromptPopoutButton.onClick = [this]()
+    {
+        openPromptPopout(PromptPopoutTarget::Transform,
+                         transformPromptEditor,
+                         "transform prompt",
+                         "describe the transformed audio...",
+                         [this]()
+                         {
+                             if (onTransformDiceRequested)
+                                 onTransformDiceRequested();
+                         });
+    };
+    transformPromptPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), transformPromptPopoutButton.isMouseOver(), transformPromptPopoutButton.isDown());
+    };
+    addToContent(transformPromptPopoutButton);
 
     transformDiceButton.setButtonText("");
     transformDiceButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
@@ -219,6 +340,27 @@ SA3UI::SA3UI()
             onContinuePromptChanged(continuePromptEditor.getText());
     };
     addToContent(continuePromptEditor);
+
+    continuePromptPopoutButton.setButtonText("");
+    continuePromptPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    continuePromptPopoutButton.setTooltip("open prompt popout");
+    continuePromptPopoutButton.onClick = [this]()
+    {
+        openPromptPopout(PromptPopoutTarget::Continue,
+                         continuePromptEditor,
+                         "continue prompt",
+                         "describe where the audio should go next...",
+                         [this]()
+                         {
+                             if (onContinueDiceRequested)
+                                 onContinueDiceRequested();
+                         });
+    };
+    continuePromptPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), continuePromptPopoutButton.isMouseOver(), continuePromptPopoutButton.isDown());
+    };
+    addToContent(continuePromptPopoutButton);
 
     continueDiceButton.setButtonText("");
     continueDiceButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
@@ -641,6 +783,7 @@ void SA3UI::setGenerateButtonText(const juce::String& text)
 void SA3UI::setPromptText(const juce::String& text)
 {
     promptEditor.setText(text, false);
+    syncActivePromptPopout(PromptPopoutTarget::Generate, text);
 }
 
 void SA3UI::setNegativePromptText(const juce::String& text)
@@ -651,6 +794,7 @@ void SA3UI::setNegativePromptText(const juce::String& text)
 void SA3UI::setTransformPromptText(const juce::String& text)
 {
     transformPromptEditor.setText(text, false);
+    syncActivePromptPopout(PromptPopoutTarget::Transform, text);
 }
 
 void SA3UI::setTransformStrength(double value)
@@ -680,6 +824,7 @@ void SA3UI::setTransformAudioSourceAvailability(bool recordingAvailable, bool ou
 void SA3UI::setContinuePromptText(const juce::String& text)
 {
     continuePromptEditor.setText(text, false);
+    syncActivePromptPopout(PromptPopoutTarget::Continue, text);
 }
 
 void SA3UI::setContinueTotalSeconds(int seconds)
@@ -1083,6 +1228,7 @@ void SA3UI::updateContentLayout()
 
     promptLabel.setVisible(showGenerate);
     promptEditor.setVisible(showGenerate);
+    promptPopoutButton.setVisible(showGenerate);
     diceButton.setVisible(showGenerate);
     durationLabel.setVisible(showGenerate);
     durationSlider.setVisible(showGenerate);
@@ -1090,6 +1236,7 @@ void SA3UI::updateContentLayout()
 
     transformPromptLabel.setVisible(showTransform);
     transformPromptEditor.setVisible(showTransform);
+    transformPromptPopoutButton.setVisible(showTransform);
     transformDiceButton.setVisible(showTransform);
     transformSourceLabel.setVisible(showTransform);
     transformRecordingButton.setVisible(showTransform);
@@ -1099,6 +1246,7 @@ void SA3UI::updateContentLayout()
 
     continuePromptLabel.setVisible(showContinue);
     continuePromptEditor.setVisible(showContinue);
+    continuePromptPopoutButton.setVisible(showContinue);
     continueDiceButton.setVisible(showContinue);
     continueSourceLabel.setVisible(showContinue);
     continueRecordingButton.setVisible(showContinue);
@@ -1233,7 +1381,11 @@ void SA3UI::updateContentLayout()
         auto promptRow = fullRow(26);
         auto diceBounds = promptRow.removeFromRight(22);
         promptRow.removeFromRight(3);
+        auto popoutBounds = promptRow.removeFromLeft(22);
+        promptRow.removeFromRight(3);
+        promptRow.removeFromLeft(3);
         promptEditor.setBounds(promptRow);
+        promptPopoutButton.setBounds(popoutBounds.withHeight(22).withY(popoutBounds.getY() + 2));
         diceButton.setBounds(diceBounds.withHeight(22).withY(diceBounds.getY() + 2));
         y += 30;
 
@@ -1265,7 +1417,11 @@ void SA3UI::updateContentLayout()
         auto promptRow = fullRow(26);
         auto diceBounds = promptRow.removeFromRight(22);
         promptRow.removeFromRight(3);
+        auto popoutBounds = promptRow.removeFromLeft(22);
+        promptRow.removeFromRight(3);
+        promptRow.removeFromLeft(3);
         transformPromptEditor.setBounds(promptRow);
+        transformPromptPopoutButton.setBounds(popoutBounds.withHeight(22).withY(popoutBounds.getY() + 2));
         transformDiceButton.setBounds(diceBounds.withHeight(22).withY(diceBounds.getY() + 2));
         y += 30;
 
@@ -1291,7 +1447,11 @@ void SA3UI::updateContentLayout()
         auto promptRow = fullRow(26);
         auto diceBounds = promptRow.removeFromRight(22);
         promptRow.removeFromRight(3);
+        auto popoutBounds = promptRow.removeFromLeft(22);
+        promptRow.removeFromRight(3);
+        promptRow.removeFromLeft(3);
         continuePromptEditor.setBounds(promptRow);
+        continuePromptPopoutButton.setBounds(popoutBounds.withHeight(22).withY(popoutBounds.getY() + 2));
         continueDiceButton.setBounds(diceBounds.withHeight(22).withY(diceBounds.getY() + 2));
         y += 30;
 
@@ -1317,11 +1477,11 @@ void SA3UI::updateContentLayout()
 
 void SA3UI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed)
 {
-    juce::Colour bgColour = Theme::Colors::Jerry.withAlpha(0.45f);
+    juce::Colour bgColour = Theme::Colors::Jerry.withAlpha(0.9f);
     if (isPressed)
-        bgColour = Theme::Colors::Jerry.withAlpha(0.65f);
+        bgColour = Theme::Colors::Jerry.brighter(0.2f);
     else if (isHovered)
-        bgColour = Theme::Colors::Jerry.withAlpha(0.55f);
+        bgColour = Theme::Colors::Jerry.brighter(0.3f);
 
     juce::Path dicePath;
     dicePath.addRoundedRectangle(bounds, 2.0f);
@@ -1333,7 +1493,7 @@ void SA3UI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool 
     const float cy = bounds.getCentreY();
     const float offset = bounds.getWidth() * 0.25f;
 
-    g.setColour(juce::Colours::white.withAlpha(0.75f));
+    g.setColour(juce::Colours::white);
     auto drawPip = [&](float x, float y)
     {
         g.fillEllipse(x - pipRadius, y - pipRadius, pipRadius * 2.0f, pipRadius * 2.0f);
@@ -1344,4 +1504,100 @@ void SA3UI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool 
     drawPip(cx + offset, cy - offset);
     drawPip(cx - offset, cy + offset);
     drawPip(cx + offset, cy + offset);
+}
+
+void SA3UI::drawPopoutIcon(juce::Graphics& g, juce::Rectangle<float> bounds, bool isHovered, bool isPressed)
+{
+    juce::Colour bgColour = Theme::Colors::Jerry.withAlpha(0.9f);
+    if (isPressed)
+        bgColour = Theme::Colors::Jerry.brighter(0.2f);
+    else if (isHovered)
+        bgColour = Theme::Colors::Jerry.brighter(0.3f);
+
+    g.setColour(bgColour);
+    g.fillRoundedRectangle(bounds, 2.0f);
+
+    g.setColour(juce::Colours::white);
+    const auto inner = bounds.reduced(5.0f);
+    const auto box = inner.withTrimmedTop(inner.getHeight() * 0.28f)
+                          .withTrimmedRight(inner.getWidth() * 0.28f);
+    g.drawRect(box, 1.4f);
+
+    juce::Path arrow;
+    const auto start = inner.getBottomLeft() + juce::Point<float>(inner.getWidth() * 0.38f, -inner.getHeight() * 0.38f);
+    const auto end = inner.getTopRight();
+    arrow.startNewSubPath(start);
+    arrow.lineTo(end);
+    arrow.lineTo(end.translated(-inner.getWidth() * 0.34f, 0.0f));
+    arrow.startNewSubPath(end);
+    arrow.lineTo(end.translated(0.0f, inner.getHeight() * 0.34f));
+    g.strokePath(arrow, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+void SA3UI::openPromptPopout(PromptPopoutTarget target,
+                             CustomTextEditor& sourceEditor,
+                             const juce::String& titleText,
+                             const juce::String& placeholderText,
+                             std::function<void()> diceCallback)
+{
+    juce::Component::SafePointer<SA3UI> safeThis(this);
+
+    auto* dialogContent = new SA3PromptPopoutContent(
+        sourceEditor.getText(),
+        titleText,
+        placeholderText,
+        [safeThis, target](const juce::String& text)
+        {
+            if (safeThis == nullptr)
+                return;
+
+            auto updateEditor = [&text](CustomTextEditor& editor)
+            {
+                if (editor.getText() != text)
+                    editor.setText(text, juce::sendNotification);
+            };
+
+            if (target == PromptPopoutTarget::Generate)
+                updateEditor(safeThis->promptEditor);
+            else if (target == PromptPopoutTarget::Transform)
+                updateEditor(safeThis->transformPromptEditor);
+            else if (target == PromptPopoutTarget::Continue)
+                updateEditor(safeThis->continuePromptEditor);
+        },
+        [safeThis, diceCallback = std::move(diceCallback)]()
+        {
+            if (safeThis != nullptr && diceCallback)
+                diceCallback();
+        },
+        [safeThis](juce::Graphics& g, juce::Rectangle<int> bounds, bool isHovered, bool isPressed)
+        {
+            if (safeThis != nullptr)
+                safeThis->drawDiceIcon(g, bounds.toFloat().reduced(2.0f), isHovered, isPressed);
+        });
+
+    activePromptPopoutEditor = &dialogContent->getEditor();
+    activePromptPopoutTarget = target;
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(dialogContent);
+    options.content->setSize(520, 230);
+    options.dialogTitle = "sa3 prompt";
+    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.useBottomRightCornerResizer = true;
+    options.componentToCentreAround = this;
+
+    if (auto* window = options.launchAsync())
+        window->setResizeLimits(360, 180, 900, 520);
+}
+
+void SA3UI::syncActivePromptPopout(PromptPopoutTarget target, const juce::String& text)
+{
+    if (activePromptPopoutTarget != target || activePromptPopoutEditor == nullptr)
+        return;
+
+    if (activePromptPopoutEditor->getText() != text)
+        activePromptPopoutEditor->setText(text, juce::dontSendNotification);
 }
