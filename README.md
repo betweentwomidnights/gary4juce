@@ -11,12 +11,12 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v4.0.4 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4)
-- [gary4juce v4.0.2-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.2-mac)
+- [gary4juce v4.0.4-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac)
 
 **recommended local companions:**
 
 - windows: [gary4local v0.1.18](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.18)
-- macOS: [gary4local mac v0.1.10](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.10)
+- macOS: [gary4local mac v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
