@@ -115,7 +115,7 @@ The defaults are intentionally conservative:
 
 - `steps` defaults to `8` and caps at `16`
 - `cfg` defaults to `1`
-- `shift` defaults to `full`
+- `shift` defaults to `logsnr`
 
 These values matter for SA3. Treat them like model-native defaults rather than
 normal "more is better" controls.
@@ -152,9 +152,9 @@ same take, assuming the rest of the settings are the same.
 
 `shift` changes the sampling distribution. Options:
 
-- `full` - default in the plugin
+- `full`
 - `none`
-- `logsnr`
+- `logsnr` - default in the plugin
 - `flux`
 
 The difference is audible. Use it as a character switch more than a correction

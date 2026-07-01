@@ -390,11 +390,11 @@ private:
     int currentSA3Bars = 8;
     int currentSA3Steps = 8;
     double currentSA3Cfg = 1.0;
-    juce::String currentSA3Shift = "full";
+    juce::String currentSA3Shift = "logsnr";
     juce::String currentSA3KeyScale = "";
     juce::String currentSA3NegativePrompt = "";
     juce::String currentSA3TransformPrompt = "";
-    double currentSA3TransformStrength = 0.9;
+    double currentSA3TransformStrength = 0.5;
     juce::String currentSA3ContinuePrompt = "";
     int currentSA3ContinueTotalSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;

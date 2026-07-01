@@ -1,12 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.4",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4",
-  "sha256": "4cf913af2582aa1d5544c9905713f8b5d6b5be9a0f3c0f8330921d7573dad68d",
-  "published_at": "2026-06-27T09:12:08Z",
+  "latest_version": "4.0.5",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.5",
+  "sha256": "2b5920298950d9dd06d69021ce76cac73c713a124f78a24a559d5112cdda69ff",
+  "published_at": "2026-07-01T08:19:29Z",
   "notes": [
-    "Carey lego mode now supports LoRA usage more broadly.",
-    "Carey docs now clarify that v15-base is still recommended when no LoRA is loaded.",
+    "Bitwig drag/drop now preserves handed-off audio files in Documents/gary4juce/dragged_audio.",
+    "SA3 transform now defaults init noise to 0.5 with LogSNR.",
     "Recommended gary4local: v0.1.18.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]

@@ -623,7 +623,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentSA3Shift = shift.trim().toLowerCase();
         if (currentSA3Shift.isEmpty())
-            currentSA3Shift = "full";
+            currentSA3Shift = "logsnr";
     };
     sa3UI->onKeyScaleChanged = [this](const juce::String& keyScale)
     {
@@ -6354,11 +6354,6 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
             {
                 DBG("Drag callback ignored - editor no longer valid");
-                // Still try to clean up the file
-                if (uniqueDragFile.existsAsFile())
-                {
-                    uniqueDragFile.deleteFile();
-                }
                 return;
             }
 
@@ -6370,33 +6365,12 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
                     if (alive == nullptr || !alive->load(std::memory_order_acquire))
                     {
                         DBG("Drag callback ignored on main thread - editor no longer valid");
-                        if (uniqueDragFile.existsAsFile())
-                        {
-                            uniqueDragFile.deleteFile();
-                        }
                         return;
                     }
 
                     DBG("Drag operation completed successfully");
                     editor->showStatusMessage("audio dragged successfully!", 2000);
                     editor->isDragInProgress.store(false);
-
-                    // Clean up with delay and additional safety
-                    juce::Timer::callAfterDelay(3000, [uniqueDragFile]()
-                        {
-                            try
-                            {
-                                if (uniqueDragFile.existsAsFile())
-                                {
-                                    uniqueDragFile.deleteFile();
-                                    DBG("Cleaned up temporary drag file");
-                                }
-                            }
-                            catch (...)
-                            {
-                                DBG("Exception during drag file cleanup - ignoring");
-                            }
-                        });
                 });
         });
 
@@ -6525,8 +6499,7 @@ bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragF
             // THREAD SAFETY: Always check if component still exists
             if (safeThis.getComponent() == nullptr)
             {
-                DBG("Component deleted during drag - cleaning up file");
-                dragFile.deleteFile();
+                DBG("Component deleted during drag - preserving handed-off drag file");
                 return;
             }
 
@@ -6537,15 +6510,6 @@ bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragF
                     editor->showStatusMessage("audio dragged successfully!", 2000);
                     DBG("Drag operation completed successfully");
                 }
-
-                // Clean up the temporary file after a delay
-                juce::Timer::callAfterDelay(5000, [dragFile]() {
-                    if (dragFile.existsAsFile())
-                    {
-                        dragFile.deleteFile();
-                        DBG("Cleaned up temporary drag file");
-                    }
-                    });
                 });
         });
 

@@ -45,6 +45,11 @@ For each release:
 5. Copy the applicable JUCE and dependency license texts into
    `Legal/licenses/`. Refresh these whenever JUCE or another bundled dependency
    changes; do not blindly reuse an older set.
+   When copying from a previous staged package in PowerShell, copy the child
+   files explicitly (for example, `Get-ChildItem $oldLicenses -File |
+   Copy-Item -Destination $newLicenses`) rather than relying on a wildcard path
+   that may only recreate the directory shell and silently leave `licenses/`
+   empty.
 6. Create the ZIP from `gary4juce.vst3` only. Do not zip the staging directory
    or leave legal files as siblings of the bundle.
 

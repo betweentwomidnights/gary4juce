@@ -311,7 +311,7 @@ SA3UI::SA3UI()
     addToContent(transformStrengthLabel);
 
     transformStrengthSlider.setRange(0.01, 1.0, 0.01);
-    transformStrengthSlider.setValue(0.9, juce::dontSendNotification);
+    transformStrengthSlider.setValue(0.5, juce::dontSendNotification);
     transformStrengthSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     transformStrengthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
     transformStrengthSlider.setNumDecimalPlacesToDisplay(2);
@@ -640,7 +640,7 @@ SA3UI::SA3UI()
     shiftComboBox.addItem("none", 2);
     shiftComboBox.addItem("logsnr", 3);
     shiftComboBox.addItem("flux", 4);
-    shiftComboBox.setSelectedId(1, juce::dontSendNotification);
+    shiftComboBox.setSelectedId(3, juce::dontSendNotification);
     shiftComboBox.setTooltip("distribution shift");
     shiftComboBox.onChange = [this]()
     {
@@ -1051,16 +1051,17 @@ void SA3UI::updateSavedLoraSelection(const juce::String& name, double strength)
 juce::String SA3UI::getShift() const
 {
     auto value = shiftComboBox.getText().trim().toLowerCase();
-    return value.isNotEmpty() ? value : "full";
+    return value.isNotEmpty() ? value : "logsnr";
 }
 
 void SA3UI::setShift(const juce::String& shift)
 {
     const auto lower = shift.trim().toLowerCase();
-    if (lower == "none") shiftComboBox.setSelectedId(2, juce::dontSendNotification);
+    if (lower == "full") shiftComboBox.setSelectedId(1, juce::dontSendNotification);
+    else if (lower == "none") shiftComboBox.setSelectedId(2, juce::dontSendNotification);
     else if (lower == "logsnr") shiftComboBox.setSelectedId(3, juce::dontSendNotification);
     else if (lower == "flux") shiftComboBox.setSelectedId(4, juce::dontSendNotification);
-    else shiftComboBox.setSelectedId(1, juce::dontSendNotification);
+    else shiftComboBox.setSelectedId(3, juce::dontSendNotification);
 }
 
 juce::String SA3UI::getKeyScale() const
