@@ -2325,8 +2325,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 // No stream: consider whether this is a transient warmup hiccup
                 clearInFlight();
 
-                const bool treatAsTransient =
-                    warmupSnapshot || queuedSnapshot || generatingSnapshot;
+                const bool treatAsTransient = warmupSnapshot || queuedSnapshot;
 
                 if (treatAsTransient)
                 {
@@ -2374,7 +2373,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 DBG("Polling exception: " + juce::String(e.what()));
 
                 // During warmup, treat as transient
-                if (warmupSnapshot || queuedSnapshot || generatingSnapshot)
+                if (warmupSnapshot || queuedSnapshot)
                 {
                     juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
@@ -2399,7 +2398,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 clearInFlight();
                 DBG("Unknown polling exception");
 
-                if (warmupSnapshot || queuedSnapshot || generatingSnapshot)
+                if (warmupSnapshot || queuedSnapshot)
                 {
                     juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
@@ -2425,31 +2424,22 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
 void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& responseText)
 {
+    const auto applyTerminalFailureRetryPolicy = [this]()
+    {
+        const auto op = getActiveOp();
+        const bool keepGaryRetry = op == ActiveOp::GaryContinue || op == ActiveOp::GaryRetry;
+
+        audioProcessor.setRetryAvailable(keepGaryRetry);
+        if (!keepGaryRetry)
+            audioProcessor.clearCurrentSessionId();
+    };
+
     if (responseText.isEmpty())
     {
         DBG("Empty polling response - backend likely down");
-        stopPolling();
-        const auto stoppedToken = currentGenerationAsyncToken();
-
-        // Empty response indicates backend failure - check health immediately
         audioProcessor.checkBackendHealth();
-
-        juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-        juce::Timer::callAfterDelay(3000, [safeThis, stoppedToken]() {
-            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stoppedToken))
-                return;
-
-            if (!safeThis->audioProcessor.isBackendConnected())
-            {
-                safeThis->handleBackendDisconnection();
-                safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-            }
-            else
-            {
-                safeThis->showStatusMessage("backend reachable but no response; retry", 3000);
-            }
-        });
-        setActiveOp(ActiveOp::None);
+        applyTerminalFailureRetryPolicy();
+        handleGenerationFailure("polling failed - empty response from backend");
         return;
     }
 
@@ -2493,9 +2483,10 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 // --- END WARMUP HANDLING ---
 
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
-                stopPolling();
-                showStatusMessage("processing failed", 3000);
-                setActiveOp(ActiveOp::None);
+                const juce::String error = responseObj->getProperty("error").toString().trim();
+                applyTerminalFailureRetryPolicy();
+                handleGenerationFailure(error.isNotEmpty() ? "processing failed: " + error
+                                                           : "processing failed");
                 return;
             }
 
@@ -2644,10 +2635,10 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             // COMPLETED - Check what TYPE of completion this is FIRST
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
-            const auto activeOp = getActiveOp();
-            const bool isSA3TransformOp = activeOp == ActiveOp::SA3Transform;
-            const bool isSA3ContinueOp = activeOp == ActiveOp::SA3Continue;
-            const bool isTerryTransformOp = activeOp == ActiveOp::TerryTransform
+            const auto activeOperation = getActiveOp();
+            const bool isSA3TransformOp = activeOperation == ActiveOp::SA3Transform;
+            const bool isSA3ContinueOp = activeOperation == ActiveOp::SA3Continue;
+            const bool isTerryTransformOp = activeOperation == ActiveOp::TerryTransform
                 || (transformInProgress && !isSA3TransformOp && !isSA3ContinueOp);
             const bool isTransformOp = isTerryTransformOp || isSA3TransformOp;
 
@@ -2745,119 +2736,86 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 if (status == "failed")
                 {
                     auto error = responseObj->getProperty("error").toString();
-                    stopPolling();
+                    juce::String message;
 
                     if (isTransformOp)
                     {
-                        showStatusMessage("transform failed: " + error, 5000);
+                        message = "transform failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
                         audioProcessor.setUndoTransformAvailable(false);
                         audioProcessor.setRetryAvailable(false);
                         if (isSA3TransformOp)
                             audioProcessor.clearCurrentSessionId();
-                        updateRetryButtonState();
                     }
                     else if (isSA3ContinueOp)
                     {
-                        showStatusMessage("continue failed: " + error, 5000);
+                        message = "continue failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
                         audioProcessor.setRetryAvailable(false);
                         audioProcessor.clearCurrentSessionId();
-                        updateRetryButtonState();
                     }
                     else
                     {
-                        showStatusMessage("generation failed: " + error, 5000);
-                        audioProcessor.setRetryAvailable(true);
-                        updateRetryButtonState();
+                        message = "generation failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
+                        applyTerminalFailureRetryPolicy();
                     }
 
-                    isGenerating = false;
-                    isCurrentlyQueued = false;
-                    updateAllGenerationButtonStates();
-                    repaint();
-
-                    setActiveOp(ActiveOp::None);
+                    handleGenerationFailure(message);
                 }
                 else if (status == "completed")
                 {
-                    stopPolling();
+                    juce::String message;
 
                     if (isTransformOp)
                     {
-                        showStatusMessage("transform completed but no audio received", 3000);
+                        message = "transform completed but no audio received";
                         if (isSA3TransformOp)
                             audioProcessor.clearCurrentSessionId();
                     }
                     else if (isSA3ContinueOp)
                     {
-                        showStatusMessage("continuation completed but no audio received", 3000);
+                        message = "continuation completed but no audio received";
                         audioProcessor.clearCurrentSessionId();
                     }
                     else
                     {
-                        showStatusMessage("generation completed but no audio received", 3000);
+                        message = "generation completed but no audio received";
                     }
 
-                    isGenerating = false;
-                    isCurrentlyQueued = false;
-                    updateAllGenerationButtonStates();
-                    repaint();
-
-                    setActiveOp(ActiveOp::None);
+                    resetGenerationStateAfterTerminalResult();
+                    showStatusMessage(message, 3000);
+                }
+                else
+                {
+                    const juce::String fallbackStatus = status.trim().isNotEmpty()
+                        ? status.trim()
+                        : "missing terminal status";
+                    applyTerminalFailureRetryPolicy();
+                    handleGenerationFailure("processing failed: " + fallbackStatus);
                 }
             }
         }
         else
         {
             DBG("Failed to parse polling response as JSON - backend likely down");
-            stopPolling();
-            const auto stoppedToken = currentGenerationAsyncToken();
-
-            // JSON parsing failure indicates backend issues - check health
             audioProcessor.checkBackendHealth();
-
-            juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-            juce::Timer::callAfterDelay(3000, [safeThis, stoppedToken]() {
-                if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stoppedToken))
-                    return;
-
-                if (!safeThis->audioProcessor.isBackendConnected())
-                {
-                    safeThis->handleBackendDisconnection();
-                    safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-                }
-                else
-                {
-                    safeThis->showStatusMessage("bad response; retry", 3000);
-                }
-            });
-            setActiveOp(ActiveOp::None);
+            applyTerminalFailureRetryPolicy();
+            handleGenerationFailure("polling failed - bad response from backend");
         }
     }
     catch (...)
     {
         DBG("Exception parsing polling response - backend likely down");
-        stopPolling();
-        const auto stoppedToken = currentGenerationAsyncToken();
-
-        // Exception indicates backend issues - check health
         audioProcessor.checkBackendHealth();
-
-        juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-        juce::Timer::callAfterDelay(3000, [safeThis, stoppedToken]() {
-            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(stoppedToken))
-                return;
-
-            if (!safeThis->audioProcessor.isBackendConnected())
-            {
-                safeThis->handleBackendDisconnection();
-                safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-            }
-            else
-            {
-                safeThis->showStatusMessage("parse error; retry", 3000);
-            }
-        });
-        setActiveOp(ActiveOp::None);
+        applyTerminalFailureRetryPolicy();
+        handleGenerationFailure("polling failed - could not parse backend response");
     }
 }
 

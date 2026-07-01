@@ -606,6 +606,7 @@ private:
     void handleGenerationStall();
     void handleBackendDisconnection();
     void handleGenerationFailure(const juce::String& reason);
+    void resetGenerationStateAfterTerminalResult();
     void resetStallDetection();
     void performSmartHealthCheck();
     void showBackendDisconnectionDialog();

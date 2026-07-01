@@ -602,53 +602,50 @@ void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
 {
     DBG("=== BACKEND DISCONNECTION CONFIRMED - CLEANING UP STATE ===");
     
-    // Clean up generation state
-    isGenerating = false;
-    isPolling = false;
-    invalidateGenerationAsyncWork();
-    generationProgress = 0;
-    lastProgressUpdateTime = 0;
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-    
     // Update connection status
     updateConnectionStatus(false);
 
-    // Update all button states centrally
-    updateAllGenerationButtonStates();
+    resetGenerationStateAfterTerminalResult();
 
     // Show user-friendly error with communication options
     showBackendDisconnectionDialog();
-
-    repaint();
-
-    setActiveOp(ActiveOp::None);
 }
 
 void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& reason)
 {
     DBG("Generation failed: " + reason);
-    
-    // Clean up generation state (same as disconnection)
-    isGenerating = false;
-    isPolling = false;
-    invalidateGenerationAsyncWork();
-    generationProgress = 0;
-    lastProgressUpdateTime = 0;
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-    
-    // Update all button states centrally
-    updateAllGenerationButtonStates();
+
+    resetGenerationStateAfterTerminalResult();
 
     // Show error message
     showStatusMessage(reason, 5000);
     if (shouldShowGenerationFailureDialog(reason))
         showGenerationFailureDialog(reason);
+}
 
-    repaint();
+void Gary4juceAudioProcessorEditor::resetGenerationStateAfterTerminalResult()
+{
+    isGenerating = false;
+    isPolling = false;
+    isCurrentlyQueued = false;
+    withinWarmup = false;
+    continueInProgress = false;
+
+    generationProgress = 0;
+    careyWaveformProgress = 0;
+    careyWaveformQueued = false;
+    lastProgressUpdateTime = 0;
+    lastKnownServerProgress = 0;
+    hasDetectedStall = false;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    pollingStartTimeMs = 0;
 
     setActiveOp(ActiveOp::None);
+    invalidateGenerationAsyncWork();
+    updateAllGenerationButtonStates();
+    repaint();
 }
 
 void Gary4juceAudioProcessorEditor::resetStallDetection()
