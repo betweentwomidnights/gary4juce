@@ -66,7 +66,7 @@ this release is paired with gary4local v0.1.18, which fixes local Carey seed
 reporting and updates ACE-Step LoRA captioning so LM-hallucinated lyrics are
 left out of training sidecars.
 
-older release notes now live in [CHANGELOG.md](CHANGELOG.md).
+older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -124,7 +124,7 @@ VST3.
 
 The plugin can use either:
 
-- **remote backend** - my server, free, on a spot VM, limited to the models I have loaded
+- **remote backend** - self-hosted on a DGX Spark, free for now, limited to the models I have loaded
 - **localhost** - your machine, requires GPU, full control
 
 Remote base URL: `https://g4l.thecollabagepatch.com`
@@ -203,7 +203,7 @@ The Jerry tab now has three sub-tabs:
 - Use LoRA sliders in advanced settings. Sliders default to 0.
 - Use dice prompts from the default pool, or from selected LoRA pools when one or more LoRA sliders are above 0.
 
-Full guide: [SA3.md](SA3.md)
+Full guide: [SA3.md](docs/SA3.md)
 
 #### jerry - stable-audio-open-small
 
@@ -253,7 +253,7 @@ don't have a LoRA trained. `xl-base` gets much more interesting when a matching
 xl-base LoRA is attached, especially for vocals and backing vocals. some
 instrument bleed can happen, but it often fits the source audio anyway.
 
-full guide: [CAREY.md](CAREY.md)
+full guide: [CAREY.md](docs/CAREY.md)
 
 learn more: https://github.com/ace-step/ACE-Step-1.5
 
@@ -338,9 +338,10 @@ gary4juce/
 |       +-- Theme.h
 |       +-- IconFactory.cpp/h
 |       \-- BarTrim.cpp/h
-+-- CAREY.md
-+-- SA3.md
 +-- docs/
+|   +-- CAREY.md
+|   +-- SA3.md
+|   \-- CHANGELOG.md
 \-- gary4juce.jucer
 ```
 

@@ -910,10 +910,27 @@ void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
 
 void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
 {
-    showSupportDialog("backend down",
-        "our backend runs on a spot vm\n"
-        "and azure prolly deallocated it.\n"
-        "hit up kev in discord/twitter or",
+    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
+
+    if (usingLocalhost)
+    {
+        showSupportDialog("gary4local backend down",
+            "it looks like the gary4local backend\n"
+            "you were using went down.\n"
+            "check that gary4local is still running.\n"
+            "if it shows an error log, please @ kev\n"
+            "in discord or on twitter so he can fix it!",
+            {},
+            false);
+        return;
+    }
+
+    showSupportDialog("remote backend down",
+        "we self-host the remote backend from a dgx spark\n"
+        "so that it can remain free to use for now.\n"
+        "this comes with some reliability tradeoffs...\n"
+        "please @ kev in discord or on twitter\n"
+        "and he'll reboot it for you.",
         {},
         true);
 }

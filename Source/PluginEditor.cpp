@@ -3140,7 +3140,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -3387,7 +3387,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -3606,7 +3606,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {

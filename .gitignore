@@ -42,6 +42,9 @@ Desktop.ini
 .vscode/
 .idea/
 
+# Local agent workspace
+.agents/
+
 # Audio files (optional - you might want to keep some for testing)
 *.wav
 *.mp3

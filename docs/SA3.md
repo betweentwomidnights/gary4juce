@@ -1,5 +1,7 @@
 # SA3 Guide
 
+> this doc is probably a bit outdated right now. i am always learning new tricks with these models, and documentation hasn't been top of mind for me. this is a great place to add a contribution if you've found some clever ways to use this model inside of gary.
+
 SA3 is the Stable Audio 3 workflow inside gary4juce v4. It lives in the Jerry
 tab, to the left of the original SAOS tab.
 
