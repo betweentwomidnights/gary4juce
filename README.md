@@ -341,7 +341,8 @@ gary4juce/
 +-- docs/
 |   +-- CAREY.md
 |   +-- SA3.md
-|   \-- CHANGELOG.md
+|   +-- CHANGELOG.md
+|   \-- RELEASING.md
 \-- gary4juce.jucer
 ```
 
@@ -359,6 +360,9 @@ Steps:
 2. Save the project to regenerate build files.
 3. Open the generated IDE project.
 4. Build release configuration.
+
+Maintainers: see the [release checklist](docs/RELEASING.md) for packaging and
+verification.
 
 ---
 
