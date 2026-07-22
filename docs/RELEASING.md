@@ -130,22 +130,39 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 In the source-release commit:
 
 1. Confirm the project version and generated build metadata.
-2. Update `docs/CHANGELOG.md` with the release's user-visible changes. The
+2. Review the commits and diff since the previous release tag. Account for
+   every user-visible change rather than relying on memory or only describing
+   the most recent commit.
+3. Update `docs/CHANGELOG.md` with the release's user-visible changes. Add an
+   entry for every release, even when it is only a small fix. The
    release commit must include this entry.
-3. Update the README's current-release copy and installation instructions when
-   the artifact format changes. Do not change its stable-download link yet.
-4. Write fuller GitHub release notes covering the user-visible changes,
+4. Replace the README's entire `latest update` section with copy for this
+   release. Do this for every release, including small fixes; do not leave the
+   previous release's title or summary in place. Label it `upcoming vX.Y.Z`
+   while the GitHub release is still a draft.
+5. Update README installation instructions when the artifact format changes.
+   Do not change its stable-download or recommended-companion links yet.
+6. Write fuller GitHub release notes covering the user-visible changes,
    recommended gary4local version, artifact hash, and installation changes.
-5. Tag the exact source-release commit used to build the binaries.
+7. Tag the exact source-release commit used to build the binaries.
 
 In the post-publication promotion commit:
 
-1. Update the stable release and companion links in `README.md`.
-2. Update `SHA256SUMS.txt` from the exact uploaded ZIP.
-3. Update `docs/updates/gary4juce/stable.json` and, when applicable,
+1. Update both the stable release link and the recommended Windows gary4local
+   link in `README.md`, and remove `upcoming` from the `latest update` heading.
+   Confirm the companion tag URL is live before committing it.
+2. Confirm the README `latest update`, GitHub release notes, and updater notes
+   all name the same recommended gary4local version.
+3. Update `SHA256SUMS.txt` from the exact uploaded ZIP.
+4. Update `docs/updates/gary4juce/stable.json` and, when applicable,
    `stable-mac.json`.
-4. Keep updater notes compact and plain text. End binary-release notes with
+5. Keep updater notes compact and plain text. End binary-release notes with
    the reminder to close the DAW before replacing plugin files.
+
+Before pushing either release commit, search `README.md`, `docs/CHANGELOG.md`,
+and the updater manifest for the outgoing plugin and companion versions. Old
+versions are expected in changelog history, but not in the README's stable
+links, recommended-companion links, or `latest update` section after promotion.
 
 For the nested Windows package, tell users they may close their DAW and use
 **Extract All** directly into `C:\Program Files\Common Files\VST3\`. Windows may

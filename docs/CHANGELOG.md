@@ -1,7 +1,7 @@
 # gary4juce changelog
 
-older release notes for gary4juce. the README keeps the current release notes
-near the top so it does not turn into a museum hallway.
+release history for gary4juce. the README keeps the current release notes near
+the top so it does not turn into a museum hallway.
 
 ## v4.0.7 - popup lifecycle cleanup
 

@@ -15,7 +15,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **recommended local companions:**
 
-- windows: [gary4local v0.1.18](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.18)
+- windows: [gary4local v0.1.19](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.19)
 - macOS: [gary4local mac v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -52,7 +52,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.7 - popup lifecycle cleanup
+### upcoming v4.0.7 - popup lifecycle cleanup
 
 v4.0.7 is a small Windows maintenance release focused on popup state and
 lifecycle management. update reminders and other plugin-owned dialogs now
@@ -338,7 +338,7 @@ gary4juce/
 |   \-- Utils/
 |       +-- Theme.h
 |       +-- IconFactory.cpp/h
-|       \-- BarTrim.cpp/h
+|       \-- BarTrim.h
 +-- docs/
 |   +-- CAREY.md
 |   +-- SA3.md
