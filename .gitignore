@@ -55,6 +55,7 @@ third_party/
 
 # Local/reference handoff notes
 SA3_API_HANDOFF.md
+kevs_docs_style.md
 
 # Claude.md (keep this if you want Claude to ignore it)
 CLAUDE.md
