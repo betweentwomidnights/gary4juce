@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.6 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.6)
+- [gary4juce v4.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7)
 - [gary4juce v4.0.4-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.1.19](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.19)
+- windows: [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0)
 - macOS: [gary4local mac v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -52,7 +52,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v4.0.7 - popup lifecycle cleanup
+### v4.0.7 - popup lifecycle cleanup
 
 v4.0.7 is a small Windows maintenance release focused on popup state and
 lifecycle management. update reminders and other plugin-owned dialogs now

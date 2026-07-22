@@ -1,13 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.6",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.6",
-  "sha256": "34d8731e4e89d888799ed76a2fc84d20fd1038ec127d44ddab34700f221a079a",
-  "published_at": "2026-07-01T11:24:45Z",
+  "latest_version": "4.0.7",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7",
+  "sha256": "5815337a70feac2d04eec1f1d53c62e381ac73759c5c68c319b859833fbae922",
+  "published_at": "2026-07-22T15:22:38Z",
   "notes": [
-    "Minor bugfix: fixed a sticky failure state after generation errors.",
-    "Sorry for the quick follow-up release; if everything is working for you, this can wait.",
-    "Recommended gary4local: v0.1.18.",
+    "Fixed popup lifecycle handling so update reminders and other dialogs close cleanly with the plugin.",
+    "Recommended gary4local: v0.2.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
