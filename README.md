@@ -52,20 +52,20 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.7 - SA3 workflow polish
+### v4.0.7 - popup lifecycle cleanup
 
-the upcoming v4.0.7 release rolls the small 4.0.5 and 4.0.6 improvements into
-the current build. SA3 now defaults to the `logsnr` distribution shift, and
-its transform strength starts at a gentler `0.5` for more controllable results.
+v4.0.7 is a small Windows maintenance release focused on popup state and
+lifecycle management. update reminders and other plugin-owned dialogs now
+close with the plugin instead of lingering during DAW shutdown.
 
-dragging generated audio to your DAW is more reliable because the handoff file
-is preserved long enough for the host to receive it. terminal generation
-failures also reset the UI through one cleanup path, so a failed or malformed
-backend response should leave the controls ready for the next attempt.
+the popup audit also covered backend and support dialogs, prompt and lyrics
+popouts, preset choosers, audio-selection windows, and asynchronous popup
+callbacks. backend outage messages now distinguish a local gary4local service
+from the self-hosted remote backend and give the appropriate recovery steps.
 
-popup teardown is also safer across the plugin. update reminders, backend and
-support dialogs, prompt and lyrics popouts, preset choosers, and audio-selection
-windows now close with the plugin instead of lingering during DAW shutdown.
+this has been thoroughly tested in Ableton Live. final confirmation from
+Fender Studio One users is still welcome. this release is paired with
+[gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0).
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

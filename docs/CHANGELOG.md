@@ -3,6 +3,16 @@
 older release notes for gary4juce. the README keeps the current release notes
 near the top so it does not turn into a museum hallway.
 
+## v4.0.7 - popup lifecycle cleanup
+
+v4.0.7 makes plugin-owned popups and asynchronous callbacks shut down safely
+with their editor or tab. the audit covers update reminders, backend/support
+dialogs, prompt and lyrics popouts, preset choosers, audio-selection windows,
+and related popup menus.
+
+backend outage messaging now also distinguishes local gary4local failures from
+the self-hosted remote backend and provides the appropriate recovery guidance.
+
 ## v4.0.6 - terminal failure cleanup
 
 v4.0.6 is a small reliability release. terminal generation and polling failures

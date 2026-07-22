@@ -4,9 +4,37 @@ This is the maintainer checklist for preparing a gary4juce release. Release
 staging remains manual under the ignored `.release/` directory, but the final
 artifact shape and verification steps should be repeatable.
 
+## Release Order
+
+Use two commits so the release tag identifies the exact source used to build
+the binary without making the public updater point at an unpublished asset:
+
+1. Prepare a source-release commit containing the final project version,
+   generated build metadata, changelog entry, and current-release copy. Leave
+   the README stable-download link and public updater feed on the currently
+   published release.
+2. Tag that source-release commit locally, then build the Release binary from
+   its clean tree.
+3. Stage and verify the archive, calculate its hash, and prepare the GitHub
+   release as a draft. Push the source commit/tag when the draft needs the tag
+   on GitHub.
+4. Confirm every recommended companion-release URL is already live. Publish
+   the GitHub release and verify its uploaded asset before promoting it through
+   the updater.
+5. Create a promotion commit that updates `README.md`, `SHA256SUMS.txt`, and
+   the stable updater manifest. This commit intentionally comes after the
+   tagged source-release commit.
+6. Verify the public updater manifest, release URL, downloaded filename, and
+   downloaded SHA-256 after the promotion commit is live.
+
+This ordering prevents a public updater manifest from linking to a missing
+release and keeps checksum-only metadata changes out of the tagged build
+source.
+
 ## Windows VST3 Package
 
-Build the Release VST3 first. Stage the bundle from:
+After creating the source-release commit and local tag, build the Release VST3
+from that clean tree. Stage the bundle from:
 
 ```text
 Builds/VisualStudio2022/x64/Release/VST3/gary4juce.vst3
@@ -81,6 +109,10 @@ foreach ($path in $required) {
 }
 ```
 
+Also verify that `moduleinfo.json` contains the release version, `SOURCE.md`
+names the release tag, and `Legal/licenses/` contains actual files rather than
+only an empty directory.
+
 Also extract the ZIP into a clean temporary directory, confirm the bundle
 loads in a DAW, and confirm that **Extract All** can target a VST3 directory
 without creating loose files beside `gary4juce.vst3`.
@@ -95,20 +127,25 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 
 ## Release Metadata
 
-Before publishing:
+In the source-release commit:
 
 1. Confirm the project version and generated build metadata.
 2. Update `docs/CHANGELOG.md` with the release's user-visible changes. The
    release commit must include this entry.
-3. Update `README.md` release links and installation instructions when the
-   artifact format changes.
-4. Update `docs/updates/gary4juce/stable.json` and, when applicable,
-   `stable-mac.json`.
-5. Keep updater notes compact and plain text. End binary-release notes with
-   the reminder to close the DAW before replacing plugin files.
-6. Write fuller GitHub release notes covering the user-visible changes,
+3. Update the README's current-release copy and installation instructions when
+   the artifact format changes. Do not change its stable-download link yet.
+4. Write fuller GitHub release notes covering the user-visible changes,
    recommended gary4local version, artifact hash, and installation changes.
-7. Tag the exact commit used to build the binaries.
+5. Tag the exact source-release commit used to build the binaries.
+
+In the post-publication promotion commit:
+
+1. Update the stable release and companion links in `README.md`.
+2. Update `SHA256SUMS.txt` from the exact uploaded ZIP.
+3. Update `docs/updates/gary4juce/stable.json` and, when applicable,
+   `stable-mac.json`.
+4. Keep updater notes compact and plain text. End binary-release notes with
+   the reminder to close the DAW before replacing plugin files.
 
 For the nested Windows package, tell users they may close their DAW and use
 **Extract All** directly into `C:\Program Files\Common Files\VST3\`. Windows may
