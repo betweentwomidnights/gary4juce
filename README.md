@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.4 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4)
+- [gary4juce v4.0.6 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.6)
 - [gary4juce v4.0.4-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac)
 
 **recommended local companions:**
@@ -52,19 +52,20 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.4 - Carey LoRA polish
+### v4.0.7 - SA3 workflow polish
 
-v4.0.4 opens up Carey LoRA usage in lego mode and refreshes the Carey docs
-around what has worked best in testing.
+the upcoming v4.0.7 release rolls the small 4.0.5 and 4.0.6 improvements into
+the current build. SA3 now defaults to the `logsnr` distribution shift, and
+its transform strength starts at a gentler `0.5` for more controllable results.
 
-lego mode is still usually more reliable and musical with regular
-`acestep-v15-base` when no LoRA adapter is loaded. `xl-base` gets much more
-interesting once a matching xl-base LoRA is attached, especially for vocals and
-backing vocals.
+dragging generated audio to your DAW is more reliable because the handoff file
+is preserved long enough for the host to receive it. terminal generation
+failures also reset the UI through one cleanup path, so a failed or malformed
+backend response should leave the controls ready for the next attempt.
 
-this release is paired with gary4local v0.1.18, which fixes local Carey seed
-reporting and updates ACE-Step LoRA captioning so LM-hallucinated lyrics are
-left out of training sidecars.
+popup teardown is also safer across the plugin. update reminders, backend and
+support dialogs, prompt and lyrics popouts, preset choosers, and audio-selection
+windows now close with the plugin instead of lingering during DAW shutdown.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

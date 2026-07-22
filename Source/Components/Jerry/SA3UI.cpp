@@ -685,6 +685,8 @@ SA3UI::SA3UI()
 
 SA3UI::~SA3UI()
 {
+    closeAuxiliaryWindows();
+
     if (contentViewport)
         contentViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
@@ -1591,7 +1593,10 @@ void SA3UI::openPromptPopout(PromptPopoutTarget target,
     options.componentToCentreAround = this;
 
     if (auto* window = options.launchAsync())
+    {
+        auxiliaryWindows.emplace_back(window);
         window->setResizeLimits(360, 180, 900, 520);
+    }
 }
 
 void SA3UI::syncActivePromptPopout(PromptPopoutTarget target, const juce::String& text)
@@ -1601,4 +1606,16 @@ void SA3UI::syncActivePromptPopout(PromptPopoutTarget target, const juce::String
 
     if (activePromptPopoutEditor->getText() != text)
         activePromptPopoutEditor->setText(text, juce::dontSendNotification);
+}
+
+void SA3UI::closeAuxiliaryWindows()
+{
+    activePromptPopoutEditor = nullptr;
+
+    auto windows = std::move(auxiliaryWindows);
+    auxiliaryWindows.clear();
+
+    for (auto& window : windows)
+        if (auto* dialog = window.getComponent())
+            dialog->exitModalState(0);
 }

@@ -559,6 +559,8 @@ FoundationUI::FoundationUI()
 
 FoundationUI::~FoundationUI()
 {
+    presetFileChooser.reset();
+
     if (contentViewport != nullptr)
         contentViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
@@ -1622,16 +1624,23 @@ void FoundationUI::savePreset()
     juce::String defaultName = familyComboBox.getText() + " - " + subfamilyComboBox.getText();
     defaultName = defaultName.replaceCharacters("\\/:*?\"<>|", "_________");
 
-    auto chooser = std::make_shared<juce::FileChooser>(
+    presetFileChooser = std::make_unique<juce::FileChooser>(
         "Save Foundation Preset",
         folder.getChildFile(defaultName + ".f1preset"),
-        "*.f1preset");
+        "*.f1preset",
+        true,
+        false,
+        this);
 
-    chooser->launchAsync(juce::FileBrowserComponent::saveMode
-                         | juce::FileBrowserComponent::canSelectFiles
-                         | juce::FileBrowserComponent::warnAboutOverwriting,
-        [this, chooser](const juce::FileChooser& fc)
+    juce::Component::SafePointer<FoundationUI> safeThis(this);
+    presetFileChooser->launchAsync(juce::FileBrowserComponent::saveMode
+                                   | juce::FileBrowserComponent::canSelectFiles
+                                   | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safeThis](const juce::FileChooser& fc)
         {
+            if (safeThis == nullptr)
+                return;
+
             auto file = fc.getResult();
             if (file == juce::File()) return;
 
@@ -1639,10 +1648,10 @@ void FoundationUI::savePreset()
             if (!filePath.endsWithIgnoreCase(".f1preset"))
                 file = juce::File(filePath + ".f1preset");
 
-            juce::String json = serializeState();
+            juce::String json = safeThis->serializeState();
             file.replaceWithText(json);
-            infoLabel.setText("Preset saved: " + file.getFileNameWithoutExtension(),
-                              juce::dontSendNotification);
+            safeThis->infoLabel.setText("Preset saved: " + file.getFileNameWithoutExtension(),
+                                        juce::dontSendNotification);
         });
 }
 
@@ -1650,24 +1659,31 @@ void FoundationUI::loadPreset()
 {
     auto folder = getPresetsFolder();
 
-    auto chooser = std::make_shared<juce::FileChooser>(
+    presetFileChooser = std::make_unique<juce::FileChooser>(
         "Load Foundation Preset",
         folder,
-        "*.f1preset");
+        "*.f1preset",
+        true,
+        false,
+        this);
 
-    chooser->launchAsync(juce::FileBrowserComponent::openMode
-                         | juce::FileBrowserComponent::canSelectFiles,
-        [this, chooser](const juce::FileChooser& fc)
+    juce::Component::SafePointer<FoundationUI> safeThis(this);
+    presetFileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                                   | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis](const juce::FileChooser& fc)
         {
+            if (safeThis == nullptr)
+                return;
+
             auto file = fc.getResult();
             if (file == juce::File() || !file.existsAsFile()) return;
 
             juce::String json = file.loadFileAsString();
             if (json.isNotEmpty())
             {
-                restoreState(json);
-                infoLabel.setText("Loaded: " + file.getFileNameWithoutExtension(),
-                                  juce::dontSendNotification);
+                safeThis->restoreState(json);
+                safeThis->infoLabel.setText("Loaded: " + file.getFileNameWithoutExtension(),
+                                            juce::dontSendNotification);
             }
         });
 }

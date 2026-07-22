@@ -901,6 +901,7 @@ void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
     auto* customButtons = new SupportButtonPanel(this, detailText, showCheckConnectionHint);
     alertWindow->addCustomComponent(customButtons);
     alertWindow->addButton("close", 999);
+    trackEditorModalWindow(alertWindow);
     alertWindow->enterModalState(true,
         juce::ModalCallbackFunction::create([alertWindow](int result) {
             DBG("Modal closed with result: " + juce::String(result));

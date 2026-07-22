@@ -1130,6 +1130,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
         alertWindow->addButton("view source", 1);
         alertWindow->addButton("close", 0);
+        trackEditorModalWindow(alertWindow);
         alertWindow->enterModalState(true,
             juce::ModalCallbackFunction::create([alertWindow](int result)
         {
@@ -1242,16 +1243,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton.setTooltip("load an audio file into the recording buffer");
     uploadButton.onClick = [this]()
     {
-        auto chooser = std::make_shared<juce::FileChooser>(
+        uploadFileChooser = std::make_unique<juce::FileChooser>(
             "load audio into recording buffer",
             juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
-            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a");
+            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a",
+            true,
+            false,
+            this);
 
         const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
         auto* editor = this;
 
-        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [asyncAlive, editor, chooser](const juce::FileChooser& fc)
+        uploadFileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [asyncAlive, editor](const juce::FileChooser& fc)
             {
                 const auto alive = asyncAlive.lock();
                 if (alive == nullptr || !alive->load(std::memory_order_acquire))
@@ -1515,6 +1519,13 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
     persistEditorState();
     DBG("=== EDITOR DESTROYED (processor state retained) ===");
+
+    // End independently-owned UI before the host tears down this editor so no
+    // modal or native chooser can block host shutdown after its parent is gone.
+    dismissPluginUpdatePrompt();
+    dismissEditorModalWindows();
+    uploadFileChooser.reset();
+
     isEditorValid.store(false, std::memory_order_release);
     if (editorAsyncAlive != nullptr)
         editorAsyncAlive->store(false, std::memory_order_release);
@@ -6036,6 +6047,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
 
         // Launch the dialog and capture the window reference
         auto dialogWindow = options.launchAsync();
+        trackEditorModalWindow(dialogWindow);
 
         const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
         auto* editor = this;

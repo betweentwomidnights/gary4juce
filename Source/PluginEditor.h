@@ -529,6 +529,9 @@ private:
                                 const juce::StringArray& notes,
                                 const juce::String& channel,
                                 const juce::String& publishedAt);
+    void dismissPluginUpdatePrompt();
+    void trackEditorModalWindow(juce::Component* window);
+    void dismissEditorModalWindows();
     void clearDeferredUpdatePrompt();
     juce::PropertiesFile& getUpdatePreferences();
     juce::String getSkippedUpdateVersion();
@@ -724,6 +727,9 @@ private:
     std::atomic<bool> updateCheckInFlight{ false };
     bool hasCheckedForUpdatesThisEditorSession = false;
     bool updatePromptVisible = false;
+    juce::Component::SafePointer<juce::AlertWindow> updatePromptWindow;
+    std::vector<juce::Component::SafePointer<juce::Component>> editorModalWindows;
+    std::unique_ptr<juce::FileChooser> uploadFileChooser;
     bool deferredUpdatePromptReady = false;
     juce::String deferredUpdateVersion;
     juce::String deferredUpdateDownloadUrl;

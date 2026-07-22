@@ -98,7 +98,8 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 Before publishing:
 
 1. Confirm the project version and generated build metadata.
-2. Tag the exact commit used to build the binaries.
+2. Update `docs/CHANGELOG.md` with the release's user-visible changes. The
+   release commit must include this entry.
 3. Update `README.md` release links and installation instructions when the
    artifact format changes.
 4. Update `docs/updates/gary4juce/stable.json` and, when applicable,
@@ -107,6 +108,7 @@ Before publishing:
    the reminder to close the DAW before replacing plugin files.
 6. Write fuller GitHub release notes covering the user-visible changes,
    recommended gary4local version, artifact hash, and installation changes.
+7. Tag the exact commit used to build the binaries.
 
 For the nested Windows package, tell users they may close their DAW and use
 **Extract All** directly into `C:\Program Files\Common Files\VST3\`. Windows may
