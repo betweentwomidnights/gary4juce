@@ -1582,7 +1582,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
         jsonRequest->setProperty("negative_prompt", currentSA3NegativePrompt);
     jsonRequest->setProperty("steps", currentSA3Steps);
     jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
-    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
+    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "logsnr");
     jsonRequest->setProperty("seed", requestSeed);
 
     juce::Array<juce::var> loraEntries;
@@ -1811,7 +1811,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
         jsonRequest->setProperty("negative_prompt", currentSA3NegativePrompt);
     jsonRequest->setProperty("steps", currentSA3Steps);
     jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
-    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
+    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "logsnr");
     jsonRequest->setProperty("seed", requestSeed);
     jsonRequest->setProperty("audio_data", base64Audio);
     jsonRequest->setProperty("strength", currentSA3TransformStrength);
@@ -2060,7 +2060,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
         jsonRequest->setProperty("negative_prompt", currentSA3NegativePrompt);
     jsonRequest->setProperty("steps", currentSA3Steps);
     jsonRequest->setProperty("cfg_scale", currentSA3Cfg);
-    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "full");
+    jsonRequest->setProperty("shift", currentSA3Shift.isNotEmpty() ? currentSA3Shift : "logsnr");
     jsonRequest->setProperty("seed", requestSeed);
     jsonRequest->setProperty("audio_data", base64Audio);
     jsonRequest->setProperty("continuation_seconds", continuationSecondsForRequest);

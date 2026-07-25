@@ -1284,6 +1284,8 @@ void CareyUI::updateCoverModelSelectorCopy()
 
 CareyUI::~CareyUI()
 {
+    closeAuxiliaryWindows();
+
     if (contentViewport != nullptr)
         contentViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
@@ -2317,7 +2319,10 @@ void CareyUI::openCaptionPopout(CaptionPopoutTarget target,
     options.componentToCentreAround = this;
 
     if (auto* window = options.launchAsync())
+    {
+        auxiliaryWindows.emplace_back(window);
         window->setResizeLimits(360, 180, 900, 520);
+    }
 }
 
 void CareyUI::syncActiveCaptionPopout(CaptionPopoutTarget target, const juce::String& text)
@@ -2461,15 +2466,19 @@ void CareyUI::updateLyricsButtonLabels()
 
 void CareyUI::openLyricsEditor()
 {
+    juce::Component::SafePointer<CareyUI> safeThis(this);
     auto* dialogContent = new CareyLyricsDialogContent(
         lyricsText,
         lyricsLanguage,
-        [this](const juce::String& text, const juce::String& language)
+        [safeThis](const juce::String& text, const juce::String& language)
         {
-            setLyricsTextInternal(text, true);
-            lyricsLanguage = language;
-            if (onLyricsLanguageChanged)
-                onLyricsLanguageChanged(lyricsLanguage);
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->setLyricsTextInternal(text, true);
+            safeThis->lyricsLanguage = language;
+            if (safeThis->onLyricsLanguageChanged)
+                safeThis->onLyricsLanguageChanged(safeThis->lyricsLanguage);
         });
 
     juce::DialogWindow::LaunchOptions options;
@@ -2484,5 +2493,20 @@ void CareyUI::openLyricsEditor()
     options.componentToCentreAround = this;
 
     if (auto* window = options.launchAsync())
+    {
+        auxiliaryWindows.emplace_back(window);
         window->setResizeLimits(420, 260, 1000, 900);
+    }
+}
+
+void CareyUI::closeAuxiliaryWindows()
+{
+    activeCaptionPopoutEditor = nullptr;
+
+    auto windows = std::move(auxiliaryWindows);
+    auxiliaryWindows.clear();
+
+    for (auto& window : windows)
+        if (auto* dialog = window.getComponent())
+            dialog->exitModalState(0);
 }

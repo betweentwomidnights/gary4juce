@@ -1,13 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.4",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4",
-  "sha256": "4cf913af2582aa1d5544c9905713f8b5d6b5be9a0f3c0f8330921d7573dad68d",
-  "published_at": "2026-06-27T09:12:08Z",
+  "latest_version": "4.0.7",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7",
+  "sha256": "5815337a70feac2d04eec1f1d53c62e381ac73759c5c68c319b859833fbae922",
+  "published_at": "2026-07-22T15:22:38Z",
   "notes": [
-    "Carey lego mode now supports LoRA usage more broadly.",
-    "Carey docs now clarify that v15-base is still recommended when no LoRA is loaded.",
-    "Recommended gary4local: v0.1.18.",
+    "Fixed popup lifecycle handling so update reminders and other dialogs close cleanly with the plugin.",
+    "Recommended gary4local: v0.2.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

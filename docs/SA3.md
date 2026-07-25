@@ -1,5 +1,7 @@
 # SA3 Guide
 
+> this doc is probably a bit outdated right now. i am always learning new tricks with these models, and documentation hasn't been top of mind for me. this is a great place to add a contribution if you've found some clever ways to use this model inside of gary.
+
 SA3 is the Stable Audio 3 workflow inside gary4juce v4. It lives in the Jerry
 tab, to the left of the original SAOS tab.
 
@@ -115,7 +117,7 @@ The defaults are intentionally conservative:
 
 - `steps` defaults to `8` and caps at `16`
 - `cfg` defaults to `1`
-- `shift` defaults to `full`
+- `shift` defaults to `logsnr`
 
 These values matter for SA3. Treat them like model-native defaults rather than
 normal "more is better" controls.
@@ -152,9 +154,9 @@ same take, assuming the rest of the settings are the same.
 
 `shift` changes the sampling distribution. Options:
 
-- `full` - default in the plugin
+- `full`
 - `none`
-- `logsnr`
+- `logsnr` - default in the plugin
 - `flux`
 
 The difference is audible. Use it as a character switch more than a correction

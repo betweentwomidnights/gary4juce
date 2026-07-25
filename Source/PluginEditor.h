@@ -391,11 +391,11 @@ private:
     int currentSA3Bars = 8;
     int currentSA3Steps = 8;
     double currentSA3Cfg = 1.0;
-    juce::String currentSA3Shift = "full";
+    juce::String currentSA3Shift = "logsnr";
     juce::String currentSA3KeyScale = "";
     juce::String currentSA3NegativePrompt = "";
     juce::String currentSA3TransformPrompt = "";
-    double currentSA3TransformStrength = 0.9;
+    double currentSA3TransformStrength = 0.5;
     juce::String currentSA3ContinuePrompt = "";
     int currentSA3ContinueTotalSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;
@@ -534,6 +534,9 @@ private:
                                 const juce::StringArray& notes,
                                 const juce::String& channel,
                                 const juce::String& publishedAt);
+    void dismissPluginUpdatePrompt();
+    void trackEditorModalWindow(juce::Component* window);
+    void dismissEditorModalWindows();
     void clearDeferredUpdatePrompt();
     juce::PropertiesFile& getUpdatePreferences();
     juce::String getSkippedUpdateVersion();
@@ -616,6 +619,7 @@ private:
     void handleGenerationStall();
     void handleBackendDisconnection();
     void handleGenerationFailure(const juce::String& reason);
+    void resetGenerationStateAfterTerminalResult();
     void resetStallDetection();
     void performSmartHealthCheck();
     void showBackendDisconnectionDialog();
@@ -733,6 +737,9 @@ private:
     std::atomic<bool> updateCheckInFlight{ false };
     bool hasCheckedForUpdatesThisEditorSession = false;
     bool updatePromptVisible = false;
+    juce::Component::SafePointer<juce::AlertWindow> updatePromptWindow;
+    std::vector<juce::Component::SafePointer<juce::Component>> editorModalWindows;
+    std::unique_ptr<juce::FileChooser> uploadFileChooser;
     bool deferredUpdatePromptReady = false;
     juce::String deferredUpdateVersion;
     juce::String deferredUpdateDownloadUrl;

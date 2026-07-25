@@ -608,60 +608,53 @@ void Gary4juceAudioProcessorEditor::handleGenerationStall()
 void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
 {
     DBG("=== BACKEND DISCONNECTION CONFIRMED - CLEANING UP STATE ===");
-
-    // Clean up generation state
-    isGenerating = false;
-    isPolling = false;
-    invalidateGenerationAsyncWork();
-    generationProgress = 0;
-    lastProgressUpdateTime = 0;
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-
     // Update connection status
     updateConnectionStatus(false);
 
-    // Update all button states centrally
-    updateAllGenerationButtonStates();
+    resetGenerationStateAfterTerminalResult();
 
     // Show user-friendly error with communication options
     showBackendDisconnectionDialog();
-
-    repaint();
-
-    if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
-        jerryUI->setGenerateButtonText("generate with jerry");
-
-    setActiveOp(ActiveOp::None);
 }
 
 void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& reason)
 {
     DBG("Generation failed: " + reason);
 
-    // Clean up generation state (same as disconnection)
-    isGenerating = false;
-    isPolling = false;
-    invalidateGenerationAsyncWork();
-    generationProgress = 0;
-    lastProgressUpdateTime = 0;
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-
-    // Update all button states centrally
-    updateAllGenerationButtonStates();
+    resetGenerationStateAfterTerminalResult();
 
     // Show error message
     showStatusMessage(reason, 5000);
     if (shouldShowGenerationFailureDialog(reason))
         showGenerationFailureDialog(reason);
+}
 
-    repaint();
+void Gary4juceAudioProcessorEditor::resetGenerationStateAfterTerminalResult()
+{
+    isGenerating = false;
+    isPolling = false;
+    isCurrentlyQueued = false;
+    withinWarmup = false;
+    continueInProgress = false;
+
+    generationProgress = 0;
+    careyWaveformProgress = 0;
+    careyWaveformQueued = false;
+    lastProgressUpdateTime = 0;
+    lastKnownServerProgress = 0;
+    hasDetectedStall = false;
+    lastKnownProgress = 0;
+    targetProgress = 0;
+    smoothProgressAnimation = false;
+    pollingStartTimeMs = 0;
 
     if (getActiveOp() == ActiveOp::JerryGenerate && jerryUI)
         jerryUI->setGenerateButtonText("generate with jerry");
 
     setActiveOp(ActiveOp::None);
+    invalidateGenerationAsyncWork();
+    updateAllGenerationButtonStates();
+    repaint();
 }
 
 void Gary4juceAudioProcessorEditor::resetStallDetection()
@@ -917,6 +910,7 @@ void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
     auto* customButtons = new SupportButtonPanel(this, detailText, showCheckConnectionHint);
     alertWindow->addCustomComponent(customButtons);
     alertWindow->addButton("close", 999);
+    trackEditorModalWindow(alertWindow);
     alertWindow->enterModalState(true,
         juce::ModalCallbackFunction::create([alertWindow](int result) {
             DBG("Modal closed with result: " + juce::String(result));
@@ -926,10 +920,27 @@ void Gary4juceAudioProcessorEditor::showSupportDialog(const juce::String& title,
 
 void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
 {
-    showSupportDialog("backend down",
-        "our backend runs on a spot vm\n"
-        "and azure prolly deallocated it.\n"
-        "hit up kev in discord/twitter or",
+    const bool usingLocalhost = audioProcessor.getIsUsingLocalhost();
+
+    if (usingLocalhost)
+    {
+        showSupportDialog("gary4local backend down",
+            "it looks like the gary4local backend\n"
+            "you were using went down.\n"
+            "check that gary4local is still running.\n"
+            "if it shows an error log, please @ kev\n"
+            "in discord or on twitter so he can fix it!",
+            {},
+            false);
+        return;
+    }
+
+    showSupportDialog("remote backend down",
+        "we self-host the remote backend from a dgx spark\n"
+        "so that it can remain free to use for now.\n"
+        "this comes with some reliability tradeoffs...\n"
+        "please @ kev in discord or on twitter\n"
+        "and he'll reboot it for you.",
         {},
         true);
 }

@@ -640,7 +640,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentSA3Shift = shift.trim().toLowerCase();
         if (currentSA3Shift.isEmpty())
-            currentSA3Shift = "full";
+            currentSA3Shift = "logsnr";
     };
     sa3UI->onKeyScaleChanged = [this](const juce::String& keyScale)
     {
@@ -1147,6 +1147,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
         alertWindow->addButton("view source", 1);
         alertWindow->addButton("close", 0);
+        trackEditorModalWindow(alertWindow);
         alertWindow->enterModalState(true,
             juce::ModalCallbackFunction::create([alertWindow](int result)
         {
@@ -1259,16 +1260,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton.setTooltip("load an audio file into the recording buffer");
     uploadButton.onClick = [this]()
     {
-        auto chooser = std::make_shared<juce::FileChooser>(
+        uploadFileChooser = std::make_unique<juce::FileChooser>(
             "load audio into recording buffer",
             juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
-            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a");
+            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a",
+            true,
+            false,
+            this);
 
         const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
         auto* editor = this;
 
-        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [asyncAlive, editor, chooser](const juce::FileChooser& fc)
+        uploadFileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [asyncAlive, editor](const juce::FileChooser& fc)
             {
                 const auto alive = asyncAlive.lock();
                 if (alive == nullptr || !alive->load(std::memory_order_acquire))
@@ -1532,6 +1536,13 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
     persistEditorState();
     DBG("=== EDITOR DESTROYED (processor state retained) ===");
+
+    // End independently-owned UI before the host tears down this editor so no
+    // modal or native chooser can block host shutdown after its parent is gone.
+    dismissPluginUpdatePrompt();
+    dismissEditorModalWindows();
+    uploadFileChooser.reset();
+
     isEditorValid.store(false, std::memory_order_release);
     if (editorAsyncAlive != nullptr)
         editorAsyncAlive->store(false, std::memory_order_release);
@@ -2345,8 +2356,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 // No stream: consider whether this is a transient warmup hiccup
                 clearInFlight();
 
-                const bool treatAsTransient =
-                    warmupSnapshot || queuedSnapshot || generatingSnapshot;
+                const bool treatAsTransient = warmupSnapshot || queuedSnapshot;
 
                 if (treatAsTransient)
                 {
@@ -2394,7 +2404,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 DBG("Polling exception: " + juce::String(e.what()));
 
                 // During warmup, treat as transient
-                if (warmupSnapshot || queuedSnapshot || generatingSnapshot)
+                if (warmupSnapshot || queuedSnapshot)
                 {
                     juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
@@ -2419,7 +2429,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 clearInFlight();
                 DBG("Unknown polling exception");
 
-                if (warmupSnapshot || queuedSnapshot || generatingSnapshot)
+                if (warmupSnapshot || queuedSnapshot)
                 {
                     juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
@@ -2456,6 +2466,16 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             jerryUI->setGenerateButtonText("generate with jerry");
     };
 
+    const auto applyTerminalFailureRetryPolicy = [this]()
+    {
+        const auto op = getActiveOp();
+        const bool keepGaryRetry = op == ActiveOp::GaryContinue || op == ActiveOp::GaryRetry;
+
+        audioProcessor.setRetryAvailable(keepGaryRetry);
+        if (!keepGaryRetry)
+            audioProcessor.clearCurrentSessionId();
+    };
+
     if (responseText.isEmpty())
     {
         DBG("Empty polling response - backend likely down");
@@ -2464,6 +2484,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
         if (isLocalTerryOp)
         {
+            applyTerminalFailureRetryPolicy();
             handleGenerationFailure("cannot connect to terry on localhost - ensure terry is running in gary4local");
             return;
         }
@@ -2486,6 +2507,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     safeThis->showStatusMessage("backend reachable but no response; retry", 3000);
                 }
         });
+        applyTerminalFailureRetryPolicy();
         resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
         return;
@@ -2531,10 +2553,10 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 // --- END WARMUP HANDLING ---
 
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
-                stopPolling();
-                showStatusMessage("processing failed", 3000);
-                resetJerryButtonIfNeeded();
-                setActiveOp(ActiveOp::None);
+                const juce::String error = responseObj->getProperty("error").toString().trim();
+                applyTerminalFailureRetryPolicy();
+                handleGenerationFailure(error.isNotEmpty() ? "processing failed: " + error
+                                                           : "processing failed");
                 return;
             }
 
@@ -2683,10 +2705,10 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             // COMPLETED - Check what TYPE of completion this is FIRST
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
-            const auto activeOp = getActiveOp();
-            const bool isSA3TransformOp = activeOp == ActiveOp::SA3Transform;
-            const bool isSA3ContinueOp = activeOp == ActiveOp::SA3Continue;
-            const bool isTerryTransformOp = activeOp == ActiveOp::TerryTransform
+            const auto activeOperation = getActiveOp();
+            const bool isSA3TransformOp = activeOperation == ActiveOp::SA3Transform;
+            const bool isSA3ContinueOp = activeOperation == ActiveOp::SA3Continue;
+            const bool isTerryTransformOp = activeOperation == ActiveOp::TerryTransform
                 || (transformInProgress && !isSA3TransformOp && !isSA3ContinueOp);
             const bool isTransformOp = isTerryTransformOp || isSA3TransformOp;
 
@@ -2785,66 +2807,69 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 if (status == "failed")
                 {
                     auto error = responseObj->getProperty("error").toString();
-                    stopPolling();
+                    juce::String message;
 
                     if (isTransformOp)
                     {
-                        showStatusMessage("transform failed: " + error, 5000);
+                        message = "transform failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
                         audioProcessor.setUndoTransformAvailable(false);
                         audioProcessor.setRetryAvailable(false);
                         if (isSA3TransformOp)
                             audioProcessor.clearCurrentSessionId();
-                        updateRetryButtonState();
                     }
                     else if (isSA3ContinueOp)
                     {
-                        showStatusMessage("continue failed: " + error, 5000);
+                        message = "continue failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
                         audioProcessor.setRetryAvailable(false);
                         audioProcessor.clearCurrentSessionId();
-                        updateRetryButtonState();
                     }
                     else
                     {
-                        showStatusMessage("generation failed: " + error, 5000);
-                        audioProcessor.setRetryAvailable(true);
-                        updateRetryButtonState();
+                        message = "generation failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
+                        applyTerminalFailureRetryPolicy();
                     }
 
-                    isGenerating = false;
-                    isCurrentlyQueued = false;
-                    updateAllGenerationButtonStates();
-                    repaint();
-
-                    resetJerryButtonIfNeeded();
-                    setActiveOp(ActiveOp::None);
+                    handleGenerationFailure(message);
                 }
                 else if (status == "completed")
                 {
-                    stopPolling();
+                    juce::String message;
 
                     if (isTransformOp)
                     {
-                        showStatusMessage("transform completed but no audio received", 3000);
+                        message = "transform completed but no audio received";
                         if (isSA3TransformOp)
                             audioProcessor.clearCurrentSessionId();
                     }
                     else if (isSA3ContinueOp)
                     {
-                        showStatusMessage("continuation completed but no audio received", 3000);
+                        message = "continuation completed but no audio received";
                         audioProcessor.clearCurrentSessionId();
                     }
                     else
                     {
-                        showStatusMessage("generation completed but no audio received", 3000);
+                        message = "generation completed but no audio received";
                     }
 
-                    isGenerating = false;
-                    isCurrentlyQueued = false;
-                    updateAllGenerationButtonStates();
-                    repaint();
-
-                    resetJerryButtonIfNeeded();
-                    setActiveOp(ActiveOp::None);
+                    resetGenerationStateAfterTerminalResult();
+                    showStatusMessage(message, 3000);
+                }
+                else
+                {
+                    const juce::String fallbackStatus = status.trim().isNotEmpty()
+                        ? status.trim()
+                        : "missing terminal status";
+                    applyTerminalFailureRetryPolicy();
+                    handleGenerationFailure("processing failed: " + fallbackStatus);
                 }
             }
         }
@@ -2856,6 +2881,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
             if (isLocalTerryOp)
             {
+                applyTerminalFailureRetryPolicy();
                 handleGenerationFailure("terry returned an invalid response");
                 return;
             }
@@ -2878,6 +2904,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     safeThis->showStatusMessage("bad response; retry", 3000);
                 }
             });
+            applyTerminalFailureRetryPolicy();
             resetJerryButtonIfNeeded();
             setActiveOp(ActiveOp::None);
         }
@@ -2890,6 +2917,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 
         if (isLocalTerryOp)
         {
+            applyTerminalFailureRetryPolicy();
             handleGenerationFailure("failed to parse terry response");
             return;
         }
@@ -2912,6 +2940,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 safeThis->showStatusMessage("parse error; retry", 3000);
             }
         });
+        applyTerminalFailureRetryPolicy();
         resetJerryButtonIfNeeded();
         setActiveOp(ActiveOp::None);
     }
@@ -3243,7 +3272,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -3495,7 +3524,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -3718,7 +3747,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -6282,6 +6311,7 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
 
         // Launch the dialog and capture the window reference
         auto dialogWindow = options.launchAsync();
+        trackEditorModalWindow(dialogWindow);
 
         const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
         auto* editor = this;
@@ -6558,11 +6588,6 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
             {
                 DBG("Drag callback ignored - editor no longer valid");
-                // Still try to clean up the file
-                if (uniqueDragFile.existsAsFile())
-                {
-                    uniqueDragFile.deleteFile();
-                }
                 return;
             }
 
@@ -6574,33 +6599,12 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
                     if (alive == nullptr || !alive->load(std::memory_order_acquire))
                     {
                         DBG("Drag callback ignored on main thread - editor no longer valid");
-                        if (uniqueDragFile.existsAsFile())
-                        {
-                            uniqueDragFile.deleteFile();
-                        }
                         return;
                     }
 
                     DBG("Drag operation completed successfully");
                     editor->showStatusMessage("audio dragged successfully!", 2000);
                     editor->isDragInProgress.store(false);
-
-                    // Clean up with delay and additional safety
-                    juce::Timer::callAfterDelay(3000, [uniqueDragFile]()
-                        {
-                            try
-                            {
-                                if (uniqueDragFile.existsAsFile())
-                                {
-                                    uniqueDragFile.deleteFile();
-                                    DBG("Cleaned up temporary drag file");
-                                }
-                            }
-                            catch (...)
-                            {
-                                DBG("Exception during drag file cleanup - ignoring");
-                            }
-                        });
                 });
         });
 
@@ -6729,8 +6733,7 @@ bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragF
             // THREAD SAFETY: Always check if component still exists
             if (safeThis.getComponent() == nullptr)
             {
-                DBG("Component deleted during drag - cleaning up file");
-                dragFile.deleteFile();
+                DBG("Component deleted during drag - preserving handed-off drag file");
                 return;
             }
 
@@ -6741,15 +6744,6 @@ bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragF
                     editor->showStatusMessage("audio dragged successfully!", 2000);
                     DBG("Drag operation completed successfully");
                 }
-
-                // Clean up the temporary file after a delay
-                juce::Timer::callAfterDelay(5000, [dragFile]() {
-                    if (dragFile.existsAsFile())
-                    {
-                        dragFile.deleteFile();
-                        DBG("Cleaned up temporary drag file");
-                    }
-                    });
                 });
         });
 

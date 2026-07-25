@@ -170,8 +170,13 @@ public:
             juce::PopupMenu menu;
             for (int i = 0; i < numSteps; ++i)
                 menu.addItem(i + 1, labels[i], true, i == currentStep);
+            juce::Component::SafePointer<SteppedKnob> safeThis(this);
             menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-                [this](int result) { if (result > 0) setCurrentStep(result - 1); });
+                [safeThis](int result)
+                {
+                    if (safeThis != nullptr && result > 0)
+                        safeThis->setCurrentStep(result - 1);
+                });
             return;
         }
         dragStartY = e.position.y;
@@ -826,6 +831,7 @@ private:
     bool titleHidden = false;
     bool inLayout = false;
     juce::String lastBuiltPrompt;
+    std::unique_ptr<juce::FileChooser> presetFileChooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FoundationUI)
 };

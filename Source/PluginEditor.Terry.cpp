@@ -358,7 +358,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 else if (statusCode == 0)
                 {
                     errorMsg = "failed to connect to Terry on remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {

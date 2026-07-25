@@ -10,13 +10,13 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.4 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4)
-- [gary4juce v4.0.4-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac)
+- [gary4juce v4.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7)
+- [gary4juce v4.0.7-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.1.18](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.1.18)
-- macOS: [gary4local mac v0.1.11](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.1.11)
+- windows: [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0)
+- macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -52,21 +52,22 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.4 - Carey LoRA polish
+### v4.0.7 - popup lifecycle cleanup
 
-v4.0.4 opens up Carey LoRA usage in lego mode and refreshes the Carey docs
-around what has worked best in testing.
+v4.0.7 is a small Windows maintenance release focused on popup state and
+lifecycle management. update reminders and other plugin-owned dialogs now
+close with the plugin instead of lingering during DAW shutdown.
 
-lego mode is still usually more reliable and musical with regular
-`acestep-v15-base` when no LoRA adapter is loaded. `xl-base` gets much more
-interesting once a matching xl-base LoRA is attached, especially for vocals and
-backing vocals.
+the popup audit also covered backend and support dialogs, prompt and lyrics
+popouts, preset choosers, audio-selection windows, and asynchronous popup
+callbacks. backend outage messages now distinguish a local gary4local service
+from the self-hosted remote backend and give the appropriate recovery steps.
 
-this release is paired with gary4local v0.1.18, which fixes local Carey seed
-reporting and updates ACE-Step LoRA captioning so LM-hallucinated lyrics are
-left out of training sidecars.
+this has been thoroughly tested in Ableton Live. final confirmation from
+Fender Studio One users is still welcome. this release is paired with
+[gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0).
 
-older release notes now live in [CHANGELOG.md](CHANGELOG.md).
+older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ---
 
@@ -124,7 +125,7 @@ VST3.
 
 The plugin can use either:
 
-- **remote backend** - my server, free, on a spot VM, limited to the models I have loaded
+- **remote backend** - self-hosted on a DGX Spark, free for now, limited to the models I have loaded
 - **localhost** - your machine, requires GPU, full control
 
 Remote base URL: `https://g4l.thecollabagepatch.com`
@@ -203,7 +204,7 @@ The Jerry tab now has three sub-tabs:
 - Use LoRA sliders in advanced settings. Sliders default to 0.
 - Use dice prompts from the default pool, or from selected LoRA pools when one or more LoRA sliders are above 0.
 
-Full guide: [SA3.md](SA3.md)
+Full guide: [SA3.md](docs/SA3.md)
 
 #### jerry - stable-audio-open-small
 
@@ -253,7 +254,7 @@ don't have a LoRA trained. `xl-base` gets much more interesting when a matching
 xl-base LoRA is attached, especially for vocals and backing vocals. some
 instrument bleed can happen, but it often fits the source audio anyway.
 
-full guide: [CAREY.md](CAREY.md)
+full guide: [CAREY.md](docs/CAREY.md)
 
 learn more: https://github.com/ace-step/ACE-Step-1.5
 
@@ -337,10 +338,12 @@ gary4juce/
 |   \-- Utils/
 |       +-- Theme.h
 |       +-- IconFactory.cpp/h
-|       \-- BarTrim.cpp/h
-+-- CAREY.md
-+-- SA3.md
+|       \-- BarTrim.h
 +-- docs/
+|   +-- CAREY.md
+|   +-- SA3.md
+|   +-- CHANGELOG.md
+|   \-- RELEASING.md
 \-- gary4juce.jucer
 ```
 
@@ -358,6 +361,9 @@ Steps:
 2. Save the project to regenerate build files.
 3. Open the generated IDE project.
 4. Build release configuration.
+
+Maintainers: see the [release checklist](docs/RELEASING.md) for packaging and
+verification.
 
 ---
 

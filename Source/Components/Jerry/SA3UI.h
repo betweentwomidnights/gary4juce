@@ -157,6 +157,7 @@ private:
                           const juce::String& placeholderText,
                           std::function<void()> diceCallback);
     void syncActivePromptPopout(PromptPopoutTarget target, const juce::String& text);
+    void closeAuxiliaryWindows();
 
     juce::Label titleLabel;
     juce::Rectangle<int> titleBounds;
@@ -252,7 +253,8 @@ private:
     bool lastIsGenerating = false;
     bool lastDiceButtonsEnabled = false;
     PromptPopoutTarget activePromptPopoutTarget = PromptPopoutTarget::Generate;
-    CustomTextEditor* activePromptPopoutEditor = nullptr;
+    juce::Component::SafePointer<CustomTextEditor> activePromptPopoutEditor;
+    std::vector<juce::Component::SafePointer<juce::DialogWindow>> auxiliaryWindows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SA3UI)
 };

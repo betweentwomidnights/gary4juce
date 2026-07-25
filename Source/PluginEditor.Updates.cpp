@@ -512,6 +512,7 @@ void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& l
     alertWindow->addCustomComponent(optionsComponent);
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    updatePromptWindow = alertWindow;
     alertWindow->enterModalState(true,
         juce::ModalCallbackFunction::create([safeThis, alertWindow, optionsComponent, latestVersion, downloadUrl](int result)
         {
@@ -528,6 +529,7 @@ void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& l
             if (safeThis == nullptr)
                 return;
 
+            safeThis->updatePromptWindow = nullptr;
             safeThis->updatePromptVisible = false;
             safeThis->setStartupUpdateCheckEnabled(checkOnStartup);
 
@@ -543,6 +545,43 @@ void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& l
                 safeThis->showStatusMessage("will skip v" + latestVersion + " for now", 3000);
             }
         }));
+}
+
+void Gary4juceAudioProcessorEditor::dismissPluginUpdatePrompt()
+{
+    updatePromptVisible = false;
+
+    if (auto* alertWindow = updatePromptWindow.getComponent())
+    {
+        updatePromptWindow = nullptr;
+        alertWindow->exitModalState(0);
+    }
+}
+
+void Gary4juceAudioProcessorEditor::trackEditorModalWindow(juce::Component* window)
+{
+    if (window == nullptr)
+        return;
+
+    for (auto it = editorModalWindows.begin(); it != editorModalWindows.end();)
+    {
+        if (*it == nullptr)
+            it = editorModalWindows.erase(it);
+        else
+            ++it;
+    }
+
+    editorModalWindows.emplace_back(window);
+}
+
+void Gary4juceAudioProcessorEditor::dismissEditorModalWindows()
+{
+    auto windows = std::move(editorModalWindows);
+    editorModalWindows.clear();
+
+    for (auto& window : windows)
+        if (auto* component = window.getComponent())
+            component->exitModalState(0);
 }
 
 void Gary4juceAudioProcessorEditor::clearDeferredUpdatePrompt()

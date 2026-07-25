@@ -1,7 +1,39 @@
 # gary4juce changelog
 
-older release notes for gary4juce. the README keeps the current release notes
-near the top so it does not turn into a museum hallway.
+release history for gary4juce. the README keeps the current release notes near
+the top so it does not turn into a museum hallway.
+
+## v4.0.7 - popup lifecycle cleanup
+
+v4.0.7 makes plugin-owned popups and asynchronous callbacks shut down safely
+with their editor or tab. the audit covers update reminders, backend/support
+dialogs, prompt and lyrics popouts, preset choosers, audio-selection windows,
+and related popup menus.
+
+backend outage messaging now also distinguishes local gary4local failures from
+the self-hosted remote backend and provides the appropriate recovery guidance.
+
+## v4.0.6 - terminal failure cleanup
+
+v4.0.6 is a small reliability release. terminal generation and polling failures
+now use one cleanup path, so malformed responses and failed jobs return the UI
+to a ready state consistently instead of leaving stale generation controls
+behind.
+
+## v4.0.5 - SA3 default tuning and drag handoff
+
+v4.0.5 changes SA3's default distribution shift to `logsnr` and lowers the
+default transform strength to `0.5` for more controllable transformations.
+
+dragging generated audio to a DAW now preserves the handoff file long enough
+for the host to receive it reliably.
+
+## v4.0.4 - Carey lego LoRAs and SA3 prompt popouts
+
+v4.0.4 adds LoRA selection and strength controls to Carey's lego mode, with
+the selected adapter persisted with the rest of the editor state. it also adds
+prompt popouts to SA3 generate, transform, and continue workflows, making
+longer prompt editing more practical inside a DAW session.
 
 ## v4.0.3 - carey seeds and SA3 polish
 

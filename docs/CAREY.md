@@ -1,5 +1,7 @@
 # carey (ace-step) - guide
 
+> this doc is probably a bit outdated right now. i am always learning new tricks with these models, and documentation hasn't been top of mind for me. this is a great place to add a contribution if you've found some clever ways to use this model inside of gary.
+
 carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with four modes: **lego**, **complete**, **cover**, and **extract**. each mode uses the same underlying model family, but the backend routing and the best practices are a little different depending on what you're trying to do.
 
 backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)

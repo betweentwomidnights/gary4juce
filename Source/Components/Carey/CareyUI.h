@@ -13,6 +13,7 @@
 #include "../../Utils/Theme.h"
 
 #include <functional>
+#include <vector>
 
 class CareyUI : public juce::Component
 {
@@ -615,6 +616,7 @@ private:
     void setLyricsTextInternal(const juce::String& text, bool notify);
     void updateLyricsButtonLabels();
     void openLyricsEditor();
+    void closeAuxiliaryWindows();
 
     SubTab currentSubTab = SubTab::Lego;
     juce::Random random;
@@ -749,6 +751,7 @@ private:
     bool extractRemoteGenerationEnabled = true;
     juce::Component::SafePointer<juce::TextEditor> activeCaptionPopoutEditor;
     CaptionPopoutTarget activeCaptionPopoutTarget = CaptionPopoutTarget::None;
+    std::vector<juce::Component::SafePointer<juce::DialogWindow>> auxiliaryWindows;
 
     juce::Rectangle<int> titleBounds;
 };

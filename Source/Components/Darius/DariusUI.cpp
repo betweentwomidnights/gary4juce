@@ -1308,9 +1308,10 @@ void DariusUI::openCheckpointMenu()
         }
     }
 
-    menu.showMenuAsync(juce::PopupMenu::Options(),
-        [this, nextId](int result) {
-            if (result == 0)
+    juce::Component::SafePointer<DariusUI> safeThis(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&dariusCheckpointButton),
+        [safeThis, nextId](int result) {
+            if (safeThis == nullptr || result == 0)
                 return;
 
             juce::String chosen;
@@ -1319,17 +1320,17 @@ void DariusUI::openCheckpointMenu()
             else if (result >= 100)
             {
                 const int idx = result - 100;
-                if (juce::isPositiveAndBelow(idx, checkpointSteps.size()))
-                    chosen = juce::String(checkpointSteps[(int)idx]);
+                if (juce::isPositiveAndBelow(idx, safeThis->checkpointSteps.size()))
+                    chosen = juce::String(safeThis->checkpointSteps[(int)idx]);
             }
 
             if (chosen.isEmpty())
                 return;
 
-            selectedCheckpointStep = chosen;
-            refreshCheckpointButton();
-            if (onCheckpointSelected)
-                onCheckpointSelected(selectedCheckpointStep);
+            safeThis->selectedCheckpointStep = chosen;
+            safeThis->refreshCheckpointButton();
+            if (safeThis->onCheckpointSelected)
+                safeThis->onCheckpointSelected(safeThis->selectedCheckpointStep);
         });
 }
 
