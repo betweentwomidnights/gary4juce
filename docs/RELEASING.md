@@ -168,7 +168,115 @@ For the nested Windows package, tell users they may close their DAW and use
 **Extract All** directly into `C:\Program Files\Common Files\VST3\`. Windows may
 request administrator permission for that destination.
 
-## macOS Note
+## macOS Release Flow (mac branch)
+
+The `mac` branch carries macOS-specific packaging on top of `main`'s source.
+Cutting a `vX.Y.Z-mac` release means merging `main` into `mac`, then building
+and publishing from `mac`.
+
+### 1. Merge and expect real conflicts
+
+```bash
+git checkout mac
+git merge origin/main -m "Merge origin/main into mac: prep vX.Y.Z-mac"
+```
+
+Conflicts in `Source/*.cpp` are not just textual drift — the `mac` branch
+carries its own behavioral logic (e.g. `isLocalTerryOp`-aware deferred
+health-check polling, GarageBand-specific overrides) that `main` doesn't have.
+Resolve these by understanding both sides' intent, not by blindly picking one
+side. Grep the *whole* surrounding function for other call sites before
+deleting a locally-scoped lambda/helper that a conflict block seems to make
+redundant — these functions run long, and a helper removed inside one
+conflict block is often still called several times further down in code that
+git didn't even flag as conflicting.
+
+`README.md` and `docs/updates/gary4juce/stable-mac.json` will very likely
+conflict too (both branches touch the mac companion links/version). Resolve
+in favor of whichever side is more current; both get overwritten with the
+real release values in a later step anyway.
+
+### 2. Regenerate the Xcode project
+
+`Builds/MacOSX/` is gitignored — it's a local artifact regenerated from
+`gary4juce.jucer` via Projucer, not something the merge updates for you.
+`JUCE_APP_VERSION` (and other version-derived build settings) are baked into
+the generated `.xcodeproj` at resave time, not read live from the `.jucer` at
+build time. Skipping this step means the build silently succeeds against the
+*old* version:
+
+```bash
+/path/to/Projucer.app/Contents/MacOS/Projucer --resave gary4juce.jucer
+```
+
+### 3. Build both plugin targets as universal binaries
+
+`build-dmg.sh` does not build anything itself — it expects
+`Builds/MacOSX/build/Release/{gary4juce.vst3,gary4juce.component}` to already
+exist. Build them with `xcodebuild` first, and pass `ARCHS` explicitly:
+
+```bash
+xcodebuild -project Builds/MacOSX/gary4juce.xcodeproj -scheme "gary4juce - VST3" \
+  -configuration Release ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO build
+xcodebuild -project Builds/MacOSX/gary4juce.xcodeproj -scheme "gary4juce - AU" \
+  -configuration Release ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO build
+```
+
+Without the explicit `ARCHS`/`ONLY_ACTIVE_ARCH` override, `xcodebuild` here
+resolves to a single-arch build (x86_64 only was observed) with no error or
+warning — the build succeeds, the DMG builds and notarizes fine, and the
+resulting plugin is quietly not universal. Verify before packaging:
+
+```bash
+lipo -info Builds/MacOSX/build/Release/gary4juce.vst3/Contents/MacOS/gary4juce
+```
+should print `x86_64 arm64`, not a single architecture.
+
+Aside: Xcode's "Plugin Copy Step" build phase copies the freshly-built,
+ad-hoc-signed binary straight into `~/Library/Audio/Plug-Ins/{VST3,Components}`
+on every local build. Convenient for smoke-testing in a DAW immediately after
+building, but it means a local dev build silently replaces whatever plugin
+build you had installed for regular use.
+
+### 4. Package, sign, notarize
+
+```bash
+VERSION="vX.Y.Z-mac" ./build-dmg.sh plugins
+```
+
+### 5. Publish
+
+Tag and release from `mac`:
+
+```bash
+git tag -a vX.Y.Z-mac -m "gary4juce vX.Y.Z-mac"
+git push origin mac
+git push origin vX.Y.Z-mac
+gh release create vX.Y.Z-mac gary4juce-vX.Y.Z-mac-{AU,VST3}.dmg \
+  --title "gary4juce vX.Y.Z-mac" --notes-file release-notes-vX.Y.Z-mac.md
+```
+
+`docs/updates/gary4juce/stable-mac.json` exists on **both** `mac` and `main`,
+but only the copy on `main` is live — GitHub Pages serves `/docs` from
+`main`, not `mac`. Editing the `mac` copy during the merge/prep commit does
+not publish anything. At actual publish time, land a separate commit
+directly on `main` with the real `published_at` timestamp (from
+`gh release view vX.Y.Z-mac --json publishedAt`):
+
+```bash
+git worktree add /tmp/gary4juce-main-wt main   # or origin/main, see below
+# edit /tmp/gary4juce-main-wt/docs/updates/gary4juce/stable-mac.json and README.md
+cd /tmp/gary4juce-main-wt && git add -A && git commit -m "Update stable-mac feed for vX.Y.Z-mac" && git push origin main
+git worktree remove /tmp/gary4juce-main-wt
+```
+
+Before doing this, make sure the local `main` branch ref is actually current
+— `git branch -f main origin/main` first if it's been a while since anything
+fetched-and-fast-forwarded it locally. A worktree checks out whatever the
+local branch ref points to, not automatically `origin/main`, and a stale
+local `main` can be a very long way behind without any obvious warning.
+
+### License/signing order
 
 Any license or notice files placed inside a macOS AU or VST3 bundle must be
 added before code signing. Modifying a signed bundle invalidates its signature.
