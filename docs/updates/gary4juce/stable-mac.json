@@ -1,13 +1,14 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.4-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.4-mac",
+  "latest_version": "4.0.7-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac",
   "sha256": null,
-  "published_at": "2026-06-28T09:41:42Z",
+  "published_at": "2026-07-25T03:54:51Z",
   "notes": [
-    "Carey lego mode now supports LoRA usage more broadly on macOS too.",
-    "Carey docs now clarify that v15-base is still recommended when no LoRA is loaded.",
-    "Recommended gary4local-mac: v0.1.11.",
+    "Popups and dialogs now close cleanly with the plugin instead of lingering.",
+    "Backend outage messages now tell local gary4local and the remote backend apart, with the right recovery steps for each.",
+    "SA3 defaults changed: logsnr distribution shift, 0.5 transform strength.",
+    "Recommended gary4local-mac: v0.2.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
