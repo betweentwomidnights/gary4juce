@@ -62,6 +62,12 @@ public:
 
     void stopOutputPlayback();
     void checkPlaybackStatus();
+    void playInputAudio();
+    void stopInputPlayback();
+    void seekInputToPosition(double timeInSeconds);
+    double getInputWaveformDisplayDuration() const;
+    juce::File getInputReselectionFile() const;
+    void updateInputPlayButtonIcon();
 
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
@@ -130,6 +136,8 @@ private:
     CustomButton licenseButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
+    CustomButton playInputButton;
+    CustomButton stopInputButton;
 
     juce::Rectangle<int> titleArea;
     juce::Rectangle<int> connectionStatusArea;
@@ -379,12 +387,15 @@ private:
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
     juce::String lastFoundationPromptSnapshot;
+    double currentStandaloneBpm = 120.0;
+    void setStandaloneBpm(double bpm);
     void sendToFoundation();
     void randomizeFoundation();
     void updateFoundationEnablementSnapshot();
 
     // ========== SA3 ==========
     juce::String currentSA3Prompt = "";
+    double currentSA3Bpm = 120.0;
     int currentSA3DurationSeconds = 30;
     bool currentSA3LoopEnabled = false;
     int currentSA3Bars = 8;
@@ -571,6 +582,15 @@ private:
     juce::DrawableButton uploadButton;
 
     bool isPlayingOutput = false;
+
+    enum class PlaybackSource { None, Input, Output };
+    PlaybackSource activePlaybackSource = PlaybackSource::None;
+
+    bool isPlayingInput = false;
+    bool isPausedInput = false;
+    double currentInputPlaybackPosition = 0.0;
+    double inputPlaybackDuration = 0.0;
+    int inputPlaybackSnapshotSamples = 0;
 
     // Playback cursor tracking
     double currentPlaybackPosition = 0.0;  // Current position in seconds

@@ -9,6 +9,7 @@
 #include "../Base/CustomComboBox.h"
 #include "../Base/CustomSlider.h"
 #include "../Base/CustomTextEditor.h"
+#include "../Base/BpmControl.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
 
@@ -151,7 +152,7 @@ public:
 
     int getCompleteBpm() const
     {
-        return juce::roundToInt(completeBpmSlider.getValue());
+        return juce::roundToInt(completeBpmControl.getValue());
     }
 
     int getCompleteSteps() const
@@ -284,7 +285,7 @@ public:
 
     void setCompleteBpm(int bpm)
     {
-        completeBpmSlider.setValue(juce::jlimit(40, 240, bpm), juce::dontSendNotification);
+        completeBpmControl.setValue(juce::jlimit(40, 240, bpm), false);
     }
 
     void setCompleteSteps(int steps)
@@ -672,8 +673,7 @@ private:
     juce::ToggleButton completeTurboModelToggle;
     juce::ToggleButton completeBaseModelToggle;
     juce::ToggleButton completeSftModelToggle;
-    juce::Label completeBpmLabel;
-    CustomSlider completeBpmSlider;
+    BpmControl completeBpmControl;
     juce::Label completeStepsLabel;
     CustomSlider completeStepsSlider;
     juce::Label completeCfgLabel;

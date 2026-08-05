@@ -8,6 +8,7 @@
 #include "../Base/CustomButton.h"
 #include "../Base/CustomComboBox.h"
 #include "../Base/CustomSlider.h"
+#include "../Base/BpmControl.h"
 #include "../Base/CustomTextEditor.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
@@ -792,7 +793,7 @@ private:
     CustomComboBox barsComboBox;
     juce::Label bpmValueLabel;
     juce::Label bpmWarningLabel;
-    CustomSlider standaloneBpmSlider;
+    BpmControl standaloneBpmControl;
     CustomComboBox keyRootComboBox;
     CustomComboBox keyModeComboBox;
 

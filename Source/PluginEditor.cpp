@@ -30,6 +30,8 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("version", 2);
     state->setProperty("modelTab", static_cast<int>(currentTab));
     state->setProperty("jerrySubTab", static_cast<int>(jerrySubTab));
+    state->setProperty("inputSourceFile", lastDraggedAudioFile.getFullPathName());
+    state->setProperty("standaloneBpm", currentStandaloneBpm);
 
     state->setProperty("garyPromptDuration", currentPromptDuration);
     state->setProperty("garyModelPath",
@@ -38,8 +40,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("jerryPrompt", currentJerryPrompt);
     state->setProperty("jerryCfg", currentJerryCfg);
     state->setProperty("jerrySteps", currentJerrySteps);
-    state->setProperty("jerryManualBpm",
-        jerryUI != nullptr ? jerryUI->getManualBpm() : currentJerryManualBpm);
+    state->setProperty("jerryManualBpm", currentStandaloneBpm);
     state->setProperty("jerrySmartLoop", generateAsLoop);
     state->setProperty("jerryLoopType", currentLoopType);
     state->setProperty("jerryModelKey", currentJerryModelKey);
@@ -62,6 +63,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
             : currentJerryCustomFinetuneCheckpoint);
 
     state->setProperty("sa3Prompt", currentSA3Prompt);
+    state->setProperty("sa3ManualBpm", currentStandaloneBpm);
     state->setProperty("sa3Duration", currentSA3DurationSeconds);
     state->setProperty("sa3Loop", currentSA3LoopEnabled);
     state->setProperty("sa3Bars", currentSA3Bars);
@@ -138,7 +140,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("careyCompleteCaption", currentCareyCompleteCaption);
     state->setProperty("careyCompleteLora", currentCareyCompleteLora);
     state->setProperty("careyCompleteModel", currentCareyCompleteModel);
-    state->setProperty("careyCompleteBpm", currentCareyCompleteBpm);
+    state->setProperty("careyCompleteBpm", currentStandaloneBpm);
     state->setProperty("careyCompleteSteps", currentCareyCompleteSteps);
     state->setProperty("careyCompleteCfg", currentCompleteCfg);
     state->setProperty("careyCompleteDuration", currentCareyCompleteDurationSeconds);
@@ -200,6 +202,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
 
     initialTab = static_cast<ModelTab>(juce::jlimit(0, 4, readInt("modelTab", 0)));
     jerrySubTab = static_cast<JerrySubTab>(juce::jlimit(0, 2, readInt("jerrySubTab", 1)));
+    const auto inputSourcePath = readString("inputSourceFile", {});
+    if (inputSourcePath.isNotEmpty())
+        lastDraggedAudioFile = juce::File(inputSourcePath);
 
     currentPromptDuration = static_cast<float>(
         juce::jlimit(1.0, 30.0, readDouble("garyPromptDuration", currentPromptDuration)));
@@ -228,6 +233,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
 
     currentSA3Prompt = readString("sa3Prompt", currentSA3Prompt);
+    currentSA3Bpm = juce::jlimit(40.0, 300.0,
+        readDouble("sa3ManualBpm", currentSA3Bpm));
     currentSA3DurationSeconds = juce::jlimit(1, 300, readInt("sa3Duration", currentSA3DurationSeconds));
     currentSA3LoopEnabled = readBool("sa3Loop", currentSA3LoopEnabled);
     currentSA3Bars = readInt("sa3Bars", currentSA3Bars);
@@ -304,6 +311,26 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentCareyCompleteLora = readString("careyCompleteLora", currentCareyCompleteLora);
     currentCareyCompleteModel = readString("careyCompleteModel", currentCareyCompleteModel);
     currentCareyCompleteBpm = readInt("careyCompleteBpm", currentCareyCompleteBpm);
+    double legacyStandaloneBpm = currentJerryManualBpm;
+    if (initialTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
+        legacyStandaloneBpm = currentSA3Bpm;
+    else if (!has("standaloneBpm")
+             && initialTab == ModelTab::Jerry
+             && jerrySubTab == JerrySubTab::Foundation)
+    {
+        auto legacyFoundationState = juce::JSON::parse(audioProcessor.getFoundationState());
+        if (auto* foundationState = legacyFoundationState.getDynamicObject())
+            if (foundationState->hasProperty("standaloneBpm"))
+                legacyStandaloneBpm = static_cast<double>(foundationState->getProperty("standaloneBpm"));
+    }
+    else if (initialTab == ModelTab::Carey && currentCareySubTab == CareyUI::SubTab::Complete)
+        legacyStandaloneBpm = currentCareyCompleteBpm;
+
+    currentStandaloneBpm = juce::jlimit(40.0, 240.0,
+        readDouble("standaloneBpm", legacyStandaloneBpm));
+    currentJerryManualBpm = juce::roundToInt(currentStandaloneBpm);
+    currentSA3Bpm = currentStandaloneBpm;
+    currentCareyCompleteBpm = juce::roundToInt(currentStandaloneBpm);
     currentCareyCompleteSteps = readInt("careyCompleteSteps", currentCareyCompleteSteps);
     currentCompleteCfg = readDouble("careyCompleteCfg", currentCompleteCfg);
     currentCareyCompleteDurationSeconds = readInt(
@@ -340,6 +367,26 @@ void Gary4juceAudioProcessorEditor::persistEditorState()
         audioProcessor.setFoundationState(foundationUI->serializeState());
 
     audioProcessor.setEditorState(serializePersistentState());
+}
+
+void Gary4juceAudioProcessorEditor::setStandaloneBpm(double bpm)
+{
+    currentStandaloneBpm = juce::jlimit(40.0, 240.0, bpm);
+    currentJerryManualBpm = juce::roundToInt(currentStandaloneBpm);
+    currentSA3Bpm = currentStandaloneBpm;
+    currentCareyCompleteBpm = juce::roundToInt(currentStandaloneBpm);
+
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+        return;
+
+    if (jerryUI != nullptr)
+        jerryUI->setManualBpm(currentJerryManualBpm);
+    if (sa3UI != nullptr)
+        sa3UI->setBpm(currentSA3Bpm);
+    if (careyUI != nullptr)
+        careyUI->setCompleteBpm(currentCareyCompleteBpm);
+    if (foundationUI != nullptr)
+        foundationUI->setBpm(currentStandaloneBpm);
 }
 
 //==============================================================================
@@ -478,7 +525,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // Handle manual BPM changes in standalone mode
     jerryUI->onManualBpmChanged = [this](int newBpm)
     {
-        currentJerryManualBpm = newBpm;
+        setStandaloneBpm(newBpm);
         DBG("Manual BPM changed to: " + juce::String(newBpm));
         // The BPM will be retrieved via jerryUI->getManualBpm() when generating
     };
@@ -580,7 +627,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryUI->setSmartLoop(generateAsLoop);
     jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
     jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
-    jerryUI->setManualBpm(currentJerryManualBpm);
+    jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
     jerryUI->setButtonsEnabled(false, isServiceReachable(ServiceType::Jerry), isGenerating);
 
     // Update localhost status
@@ -592,6 +639,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // ========== SA3 CONTROLS SETUP ==========
     sa3UI = std::make_unique<SA3UI>();
     addAndMakeVisible(*sa3UI);
+    const bool isStandaloneApp = juce::JUCEApplicationBase::isStandaloneApp();
+    sa3UI->setIsStandalone(isStandaloneApp);
+    sa3UI->onBpmChanged = [this](double bpm)
+    {
+        setStandaloneBpm(bpm);
+    };
 
     sa3UI->onPromptChanged = [this](const juce::String& text)
     {
@@ -680,7 +733,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         updateSA3EnablementSnapshot();
     };
 
-    sa3UI->setBpm(audioProcessor.getCurrentBPM());
+    sa3UI->setBpm(isStandaloneApp ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
     sa3UI->setPromptText(currentSA3Prompt);
     sa3UI->setTransformPromptText(currentSA3TransformPrompt);
     sa3UI->setTransformStrength(currentSA3TransformStrength);
@@ -935,7 +988,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentCareyCompleteModel = model.trim().toLowerCase();
     };
-    careyUI->onCompleteBpmChanged = [this](int bpm) { currentCareyCompleteBpm = juce::jlimit(40, 240, bpm); };
+    careyUI->onCompleteBpmChanged = [this](int bpm) { setStandaloneBpm(bpm); };
     careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(8, 100, steps); };
     careyUI->onCompleteCfgChanged = [this](double val) { currentCompleteCfg = juce::jlimit(1.0, 10.0, val); };
     careyUI->onCompleteDurationChanged = [this](int seconds) { currentCareyCompleteDurationSeconds = juce::jlimit(30, 180, seconds); };
@@ -993,7 +1046,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setExtractCfg(currentCareyExtractCfg);
     careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
     careyUI->setCompleteModel(currentCareyCompleteModel);
-    careyUI->setCompleteBpm(currentCareyCompleteBpm);
+    careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
     careyUI->setCompleteSteps(currentCareyCompleteSteps);
     careyUI->setCompleteCfg(currentCompleteCfg);
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
@@ -1040,7 +1093,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(*foundationUI);
 
     foundationUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
-    foundationUI->setBpm(audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : 120.0);
+    foundationUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+        ? currentStandaloneBpm
+        : (audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : 120.0));
+    foundationUI->onBpmChanged = [this](double bpm) { setStandaloneBpm(bpm); };
 
     foundationUI->onGenerate = [this]() { sendToFoundation(); };
     foundationUI->onRandomize = [this]() { randomizeFoundation(); };
@@ -1056,6 +1112,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             foundationUI->restoreState(savedFoundation);
         }
     }
+
+    // The editor-wide standalone tempo is authoritative over the legacy BPM
+    // value stored inside Foundation's own state object.
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+        foundationUI->setBpm(currentStandaloneBpm);
 
     // ========== REMAINING SETUP (unchanged) ==========
 
@@ -1158,6 +1219,25 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     saveBufferButton.onClick = [this]() { saveRecordingBuffer(); };
     saveBufferButton.setEnabled(false); // Initially disabled
 
+    // Compact input-buffer audition controls. These share the host playback
+    // engine with the output player, so only one source can play at a time.
+    playIcon = IconFactory::createPlayIcon();
+    pauseIcon = IconFactory::createPauseIcon();
+    stopIcon = IconFactory::createStopIcon();
+
+    playInputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    updateInputPlayButtonIcon();
+    playInputButton.setTooltip("play recording buffer");
+    playInputButton.onClick = [this]() { playInputAudio(); };
+    playInputButton.setEnabled(false);
+
+    if (stopIcon)
+        stopInputButton.setIcon(stopIcon->createCopy());
+    stopInputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    stopInputButton.setTooltip("stop recording buffer playback");
+    stopInputButton.onClick = [this]() { stopInputPlayback(); };
+    stopInputButton.setEnabled(false);
+
     // Set up the "Clear Buffer" button
     trashIcon = IconFactory::createTrashIcon();
     if (trashIcon)
@@ -1179,6 +1259,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     }
 
     addAndMakeVisible(clearBufferButton);
+    addAndMakeVisible(playInputButton);
+    addAndMakeVisible(stopInputButton);
 
     // Start timer to update recording status (refresh every 50ms for smooth waveform)
     startTimer(50);
@@ -1198,8 +1280,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(outputLabel);
 
     // Play output button
-    playIcon = IconFactory::createPlayIcon();
-    pauseIcon = IconFactory::createPauseIcon();
     playOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     updatePlayButtonIcon(); // Set initial icon
     playOutputButton.onClick = [this]() { playOutputAudio(); };
@@ -1216,7 +1296,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(clearOutputButton);
 
     // Stop output button  
-    stopIcon = IconFactory::createStopIcon();
     if (stopIcon)
         stopOutputButton.setIcon(stopIcon->createCopy());
     stopOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -1751,7 +1830,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     if (jerryUI && !juce::JUCEApplicationBase::isStandaloneApp())
         jerryUI->setBpm(juce::roundToInt(currentBPM));
 
-    if (sa3UI)
+    if (sa3UI && !juce::JUCEApplicationBase::isStandaloneApp())
         sa3UI->setBpm(currentBPM);
 
     if (terryUI)
@@ -1783,7 +1862,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     maybeShowDeferredUpdatePrompt();
 
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
-    if (isPlayingOutput)
+    if (isPlayingOutput || isPlayingInput)
     {
         checkPlaybackStatus();
     }
@@ -1884,6 +1963,24 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     recordingProgress = audioProcessor.getRecordingProgress();
     recordedSamples = audioProcessor.getRecordedSamples();
 
+    const bool canAuditionInput = recordedSamples > 0 && !isRecording;
+    playInputButton.setEnabled(canAuditionInput);
+    stopInputButton.setEnabled(canAuditionInput);
+
+    // A new recording replaces the buffer, even if it happens to end up with
+    // the same sample count as the previous take.
+    if (isRecording && !wasRecording)
+    {
+        if (activePlaybackSource == PlaybackSource::Input)
+        {
+            stopInputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
+
+        inputPlaybackSnapshotSamples = 0;
+        inputPlaybackDuration = 0.0;
+    }
+
     // Update save button state (only in plugin mode)
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
     if (!isStandalone)
@@ -1977,12 +2074,9 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     const double currentSampleRate = audioProcessor.getCurrentSampleRate();
 
     // Time calculations — zoom to fit: show 30s window until content exceeds it, then full buffer
-    const double fullBufferDuration = juce::jmax(1.0,
-        (double)audioProcessor.getMaxRecordingSamples() / juce::jmax(1.0, currentSampleRate));
     const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
     const double savedDuration = juce::jmax(0.0, (double)savedSamples / currentSampleRate);
-    const double contentDuration = juce::jmax(recordedDuration, savedDuration);
-    const double totalDuration = (contentDuration > 30.0) ? fullBufferDuration : juce::jmin(30.0, fullBufferDuration);
+    const double totalDuration = getInputWaveformDisplayDuration();
 
     // Pixel calculations with safety checks
     const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
@@ -2143,9 +2237,26 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         }
     }
 
+    // The input player uses the same white cursor treatment as the output
+    // player, mapped to the input waveform's current time scale.
+    if ((isPlayingInput || isPausedInput) && inputPlaybackDuration > 0.0)
+    {
+        const double progressPercent = juce::jlimit(0.0, 1.0,
+            currentInputPlaybackPosition / totalDuration);
+        const int cursorX = area.getX() + 1 + (int)(progressPercent * waveWidth);
+
+        g.setColour(juce::Colours::white.withAlpha(isPlayingInput ? 0.9f : 0.7f));
+        g.drawVerticalLine(cursorX, (float)area.getY() + 1, (float)area.getBottom() - 1);
+        g.setColour(juce::Colours::white.withAlpha(0.3f));
+        if (cursorX > area.getX() + 1)
+            g.drawVerticalLine(cursorX - 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+        if (cursorX < area.getRight() - 1)
+            g.drawVerticalLine(cursorX + 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+    }
+
     // Show reselection hint for standalone mode when file is available
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
-    if (isStandalone && savedSamples > 0 && lastDraggedAudioFile.existsAsFile())
+    if (isStandalone && recordedSamples > 0 && getInputReselectionFile().existsAsFile())
     {
         // Draw hint text at bottom-right of waveform
         g.setFont(juce::FontOptions(13.0f));
@@ -2821,6 +2932,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             handleGenerationFailure("polling failed - bad response from backend");
         }
     }
+
     catch (...)
     {
         DBG("Exception parsing polling response - backend likely down");
@@ -5191,6 +5303,13 @@ void Gary4juceAudioProcessorEditor::handleDariusAssetsStatusResponse(const juce:
 
 void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
 {
+    if (activePlaybackSource == PlaybackSource::Input)
+    {
+        stopInputPlayback();
+        activePlaybackSource = PlaybackSource::None;
+    }
+    inputPlaybackDuration = 0.0;
+    inputPlaybackSnapshotSamples = 0;
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
     updateRecordingStatus();
@@ -5242,6 +5361,12 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
 {
     if (!outputAudioFile.exists())
     {
+        if (activePlaybackSource == PlaybackSource::Output)
+        {
+            stopOutputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
+
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
         stopOutputButton.setEnabled(false);
@@ -5268,8 +5393,21 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = (double)reader->lengthInSamples / reader->sampleRate;
         currentAudioSampleRate = reader->sampleRate;
 
-        // Load into processor for host audio playback
+        // Loading a new output replaces any input-buffer snapshot in the
+        // shared host playback engine.
+        isPlayingInput = false;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
+
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+
         audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+        activePlaybackSource = PlaybackSource::Output;
+        updatePlayButtonIcon();
 
         hasOutputAudio = true;
         playOutputButton.setEnabled(true);
@@ -5287,8 +5425,14 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
     else
     {
         DBG("Failed to read output audio file");
+        if (activePlaybackSource == PlaybackSource::Output)
+        {
+            stopOutputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
+        stopOutputButton.setEnabled(false);
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
         totalAudioDuration = 0.0;
@@ -5571,11 +5715,26 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
         return;
     }
 
-    // Get current state from processor
-    bool processorIsPlaying = audioProcessor.getIsPlayingOutput();
-    bool processorIsPaused = audioProcessor.getIsPausedOutput();
+    if (activePlaybackSource != PlaybackSource::Output)
+    {
+        audioProcessor.stopOutputPlayback();
+        isPlayingInput = false;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
 
-    if (processorIsPlaying)
+        audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+        activePlaybackSource = PlaybackSource::Output;
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+    }
+
+    const bool processorIsPlaying = audioProcessor.getIsPlayingOutput();
+    const bool processorIsPaused = audioProcessor.getIsPausedOutput();
+
+    if (isPlayingOutput && processorIsPlaying)
     {
         // Currently playing -> pause it
         audioProcessor.pauseOutputPlayback();
@@ -5608,10 +5767,146 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     }
 }
 
+void Gary4juceAudioProcessorEditor::playInputAudio()
+{
+    if (recordedSamples <= 0 || isRecording)
+    {
+        showStatusMessage(isRecording ? "stop recording before playing the buffer"
+                                      : "no recording buffer to play");
+        return;
+    }
+
+    const bool needsFreshSnapshot = activePlaybackSource != PlaybackSource::Input
+        || inputPlaybackSnapshotSamples != recordedSamples;
+
+    if (needsFreshSnapshot)
+    {
+        audioProcessor.stopOutputPlayback();
+
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+
+        if (!audioProcessor.loadRecordingAudioForPlayback())
+        {
+            showStatusMessage("could not load recording buffer for playback");
+            activePlaybackSource = PlaybackSource::None;
+            return;
+        }
+
+        activePlaybackSource = PlaybackSource::Input;
+        inputPlaybackSnapshotSamples = recordedSamples;
+        inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
+        isPlayingInput = false;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+    }
+
+    if (isPlayingInput && audioProcessor.getIsPlayingOutput())
+    {
+        audioProcessor.pauseOutputPlayback();
+        isPlayingInput = false;
+        isPausedInput = true;
+        currentInputPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
+        updateInputPlayButtonIcon();
+        showStatusMessage("buffer playback paused", 1500);
+        repaint();
+    }
+    else if (isPausedInput || audioProcessor.getIsPausedOutput())
+    {
+        audioProcessor.startOutputPlayback(currentInputPlaybackPosition);
+        isPlayingInput = true;
+        isPausedInput = false;
+        updateInputPlayButtonIcon();
+        showStatusMessage("resumed buffer playback", 1500);
+    }
+    else
+    {
+        audioProcessor.startOutputPlayback(0.0);
+        isPlayingInput = true;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
+        showStatusMessage("playing recording buffer...", 2000);
+    }
+}
+
+double Gary4juceAudioProcessorEditor::getInputWaveformDisplayDuration() const
+{
+    const double sampleRate = juce::jmax(1.0, audioProcessor.getCurrentSampleRate());
+    const double fullBufferDuration = juce::jmax(1.0,
+        (double)audioProcessor.getMaxRecordingSamples() / sampleRate);
+    const double contentDuration = juce::jmax(
+        (double)recordedSamples / sampleRate,
+        (double)savedSamples / sampleRate);
+    return contentDuration > 30.0 ? fullBufferDuration
+                                  : juce::jmin(30.0, fullBufferDuration);
+}
+
+void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
+{
+    if (recordedSamples <= 0 || isRecording)
+        return;
+
+    const bool needsFreshSnapshot = activePlaybackSource != PlaybackSource::Input
+        || inputPlaybackSnapshotSamples != recordedSamples;
+    if (needsFreshSnapshot)
+    {
+        audioProcessor.stopOutputPlayback();
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+
+        if (!audioProcessor.loadRecordingAudioForPlayback())
+            return;
+
+        activePlaybackSource = PlaybackSource::Input;
+        inputPlaybackSnapshotSamples = recordedSamples;
+        inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
+        isPlayingInput = false;
+        isPausedInput = false;
+    }
+
+    const bool keepPlaying = isPlayingInput && audioProcessor.getIsPlayingOutput();
+    timeInSeconds = juce::jlimit(0.0, inputPlaybackDuration, timeInSeconds);
+    audioProcessor.seekOutputPlayback(timeInSeconds);
+    currentInputPlaybackPosition = timeInSeconds;
+    isPlayingInput = keepPlaying;
+    isPausedInput = !keepPlaying;
+    updateInputPlayButtonIcon();
+    repaint(waveformArea);
+}
+
+juce::File Gary4juceAudioProcessorEditor::getInputReselectionFile() const
+{
+    if (lastDraggedAudioFile.existsAsFile())
+        return lastDraggedAudioFile;
+
+    const auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
+    return documentsDir.getChildFile("gary4juce").getChildFile("myBuffer.wav");
+}
+
+void Gary4juceAudioProcessorEditor::stopInputPlayback()
+{
+    if (activePlaybackSource == PlaybackSource::Input)
+        audioProcessor.stopOutputPlayback();
+
+    isPlayingInput = false;
+    isPausedInput = false;
+    currentInputPlaybackPosition = 0.0;
+    updateInputPlayButtonIcon();
+    repaint();
+}
+
 // Updated stopOutputPlayback() - distinguish between pause and full stop
 void Gary4juceAudioProcessorEditor::stopOutputPlayback()
 {
-    audioProcessor.stopOutputPlayback();
+    if (activePlaybackSource == PlaybackSource::Output)
+        audioProcessor.stopOutputPlayback();
 
     isPlayingOutput = false;
     isPausedOutput = false;
@@ -5633,6 +5928,23 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
 // Updated checkPlaybackStatus() - full stop when audio finishes naturally
 void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 {
+    if (isPlayingInput && activePlaybackSource == PlaybackSource::Input)
+    {
+        currentInputPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
+
+        if (!audioProcessor.getIsPlayingOutput())
+        {
+            isPlayingInput = false;
+            isPausedInput = false;
+            currentInputPlaybackPosition = 0.0;
+            updateInputPlayButtonIcon();
+            showStatusMessage("buffer playback finished", 1500);
+        }
+
+        repaint();
+        return;
+    }
+
     // Update position from processor
     if (isPlayingOutput)
     {
@@ -5654,10 +5966,17 @@ void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 
 void Gary4juceAudioProcessorEditor::clearOutputAudio()
 {
+    if (activePlaybackSource == PlaybackSource::Output)
+    {
+        stopOutputPlayback();
+        activePlaybackSource = PlaybackSource::None;
+    }
+
     hasOutputAudio = false;
     outputAudioBuffer.clear();
     playOutputButton.setEnabled(false);
-   clearOutputButton.setEnabled(false);
+    stopOutputButton.setEnabled(false);
+    clearOutputButton.setEnabled(false);
     cropButton.setEnabled(false);
     updateGaryButtonStates(!isGenerating);
 
@@ -5688,6 +6007,15 @@ void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
     isDragging = false;
     dragStarted = false;
     dragStartPosition = event.getPosition();
+
+    if (waveformArea.contains(event.getPosition()) && recordedSamples > 0 && !isRecording)
+    {
+        const int waveformWidth = juce::jmax(1, waveformArea.getWidth() - 2);
+        const double clickPercent = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / waveformWidth);
+        seekInputToPosition(clickPercent * getInputWaveformDisplayDuration());
+        return;
+    }
 
     // Check if click is within the output waveform area
     if (outputWaveformArea.contains(event.getPosition()) && hasOutputAudio && totalAudioDuration > 0.0)
@@ -5720,6 +6048,15 @@ void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
     if (!isEditorValid.load())
     {
         DBG("MouseDrag ignored - editor not valid");
+        return;
+    }
+
+    if (waveformArea.contains(dragStartPosition) && recordedSamples > 0 && !isRecording)
+    {
+        const int waveformWidth = juce::jmax(1, waveformArea.getWidth() - 2);
+        const double dragPercent = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / waveformWidth);
+        seekInputToPosition(dragPercent * getInputWaveformDisplayDuration());
         return;
     }
 
@@ -5763,6 +6100,16 @@ void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
 
 void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
 {
+    if (waveformArea.contains(dragStartPosition) && recordedSamples > 0 && !isRecording)
+    {
+        const int waveformWidth = juce::jmax(1, waveformArea.getWidth() - 2);
+        const double releasePercent = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / waveformWidth);
+        seekInputToPosition(releasePercent * getInputWaveformDisplayDuration());
+        dragStartPosition = {};
+        return;
+    }
+
     // If we didn't drag, and we're in the output waveform area, perform seek
     if (!dragStarted && isMouseOverOutputWaveform(event.getPosition()) && 
         hasOutputAudio && totalAudioDuration > 0.0)
@@ -5795,16 +6142,16 @@ void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& eve
     // Check if double-click is on the recorded audio waveform area
     if (waveformArea.contains(event.getPosition()))
     {
-        // Only proceed if we have a previously dragged file that still exists
-        if (lastDraggedAudioFile.existsAsFile())
+        const auto selectionSource = getInputReselectionFile();
+        if (selectionSource.existsAsFile())
         {
             DBG("Double-click on waveform - reopening selection dialog for: " +
-                lastDraggedAudioFile.getFileName());
-            loadAudioFileIntoBuffer(lastDraggedAudioFile, true);
+                selectionSource.getFileName());
+            loadAudioFileIntoBuffer(selectionSource, true);
         }
         else
         {
-            showStatusMessage("drag an audio file here first", 2000);
+            showStatusMessage("source audio is no longer available", 2500);
         }
         return;
     }
@@ -5966,6 +6313,13 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         }
 
         // Load into processor's recording buffer
+        if (activePlaybackSource == PlaybackSource::Input)
+        {
+            stopInputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
+        inputPlaybackSnapshotSamples = 0;
+        inputPlaybackDuration = 0.0;
         audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
         // Save to myBuffer.wav (reuse existing save pattern)
@@ -6124,6 +6478,13 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
 
             // Load into processor's recording buffer (now at correct host rate)
+            if (editor->activePlaybackSource == PlaybackSource::Input)
+            {
+                editor->stopInputPlayback();
+                editor->activePlaybackSource = PlaybackSource::None;
+            }
+            editor->inputPlaybackSnapshotSamples = 0;
+            editor->inputPlaybackDuration = 0.0;
             editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
             // Save to myBuffer.wav (reuse existing save pattern)
@@ -6180,6 +6541,18 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
 
 void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
 {
+    if (activePlaybackSource != PlaybackSource::Output && outputAudioFile.existsAsFile())
+    {
+        stopInputPlayback();
+        audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+        activePlaybackSource = PlaybackSource::Output;
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+    }
+
     // Clamp time to valid range
     timeInSeconds = juce::jlimit(0.0, totalAudioDuration, timeInSeconds);
 
@@ -6522,6 +6895,24 @@ void Gary4juceAudioProcessorEditor::updatePlayButtonIcon()
             playOutputButton.setTooltip("resume");
         else
             playOutputButton.setTooltip("play output...duh");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::updateInputPlayButtonIcon()
+{
+    if (!playIcon || !pauseIcon)
+        return;
+
+    if (isPlayingInput)
+    {
+        playInputButton.setIcon(pauseIcon->createCopy());
+        playInputButton.setTooltip("pause recording buffer");
+    }
+    else
+    {
+        playInputButton.setIcon(playIcon->createCopy());
+        playInputButton.setTooltip(isPausedInput ? "resume recording buffer"
+                                                 : "play recording buffer");
     }
 }
 
@@ -7126,13 +7517,26 @@ void Gary4juceAudioProcessorEditor::resized()
     // Layout buffer control buttons within their allocated space
     auto bufferControlsBounds = topSectionFlexBox.items[6].currentBounds.toNearestInt();
 
-    // Layout buffer control buttons (only Save and Clear now)
+    // Keep the audition controls compact so Save Buffer remains the primary
+    // action in this single-row layout.
     juce::FlexBox bufferButtonsFlexBox;
     bufferButtonsFlexBox.flexDirection = juce::FlexBox::Direction::row;
     bufferButtonsFlexBox.justifyContent = juce::FlexBox::JustifyContent::center;
     bufferButtonsFlexBox.alignItems = juce::FlexBox::AlignItems::center;
 
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+
+    juce::FlexItem playInputItem(playInputButton);
+    playInputItem.width = 30;
+    playInputItem.height = 30;
+    playInputItem.margin = juce::FlexItem::Margin(0, 4, 0, 0);
+    bufferButtonsFlexBox.items.add(playInputItem);
+
+    juce::FlexItem stopInputItem(stopInputButton);
+    stopInputItem.width = 30;
+    stopInputItem.height = 30;
+    stopInputItem.margin = juce::FlexItem::Margin(0, 12, 0, 0);
+    bufferButtonsFlexBox.items.add(stopInputItem);
 
     // Save buffer button (only in plugin mode - not needed in standalone with drag & drop)
     if (!isStandalone)

@@ -7,6 +7,7 @@
 
 #include "../Base/CustomButton.h"
 #include "../Base/CustomSlider.h"
+#include "../Base/BpmControl.h"
 #include "../Base/CustomTextEditor.h"
 
 #include "BeatPrompts.h"
@@ -128,7 +129,7 @@ private:
     CustomSlider jerryStepsSlider;
     juce::Label jerryStepsLabel;
     juce::Label jerryBpmLabel;
-    CustomSlider jerryBpmSlider;        // Manual BPM control (standalone only)
+    BpmControl jerryBpmControl;         // Manual BPM control (standalone only)
     CustomButton generateWithJerryButton;
     CustomButton generateAsLoopButton;
     CustomButton loopTypeAutoButton;

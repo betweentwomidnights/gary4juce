@@ -1142,9 +1142,12 @@ void Gary4juceAudioProcessorEditor::updateSA3EnablementSnapshot()
                 ? "transform with sa3" : "generate with sa3");
     }
 
-    const double bpm = audioProcessor.getCurrentBPM();
-    if (bpm > 0.0)
-        sa3UI->setBpm(bpm);
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        const double bpm = audioProcessor.getCurrentBPM();
+        if (bpm > 0.0)
+            sa3UI->setBpm(bpm);
+    }
 }
 
 void Gary4juceAudioProcessorEditor::syncSA3LoraUi()
@@ -1431,7 +1434,8 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
         repaint();
     };
 
-    double bpm = audioProcessor.getCurrentBPM();
+    double bpm = juce::JUCEApplicationBase::isStandaloneApp() && sa3UI
+        ? sa3UI->getBpm() : audioProcessor.getCurrentBPM();
     if (bpm <= 0.0)
         bpm = 120.0;
 
@@ -1664,7 +1668,8 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
 
     const auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
 
-    double bpm = audioProcessor.getCurrentBPM();
+    double bpm = juce::JUCEApplicationBase::isStandaloneApp() && sa3UI
+        ? sa3UI->getBpm() : audioProcessor.getCurrentBPM();
     if (bpm <= 0.0)
         bpm = 120.0;
 
@@ -1913,7 +1918,8 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     const auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
     const juce::String continuationMode = currentSA3ContinueLatentPrefix ? "latent_prefix" : "inpaint";
 
-    double bpm = audioProcessor.getCurrentBPM();
+    double bpm = juce::JUCEApplicationBase::isStandaloneApp() && sa3UI
+        ? sa3UI->getBpm() : audioProcessor.getCurrentBPM();
     if (bpm <= 0.0)
         bpm = 120.0;
 

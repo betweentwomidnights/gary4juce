@@ -1201,6 +1201,45 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
 //==============================================================================
 // Output Audio Playback Methods (Host Audio Implementation)
 
+bool Gary4juceAudioProcessor::loadRecordingAudioForPlayback()
+{
+    auto newPlaybackData = std::make_shared<OutputPlaybackData>();
+
+    {
+        // Playback must use a stable snapshot: the audio thread may start a new
+        // recording while the editor is auditioning the current buffer.
+        juce::ScopedLock lock(bufferLock);
+
+        const int snapshotSamples = recordedSamples;
+        const int snapshotChannels = recordingBuffer.getNumChannels();
+
+        if (snapshotSamples <= 0 || snapshotChannels <= 0)
+            return false;
+
+        newPlaybackData->buffer.setSize(snapshotChannels, snapshotSamples);
+        for (int channel = 0; channel < snapshotChannels; ++channel)
+            newPlaybackData->buffer.copyFrom(channel, 0, recordingBuffer,
+                                             channel, 0, snapshotSamples);
+
+        newPlaybackData->sampleRate = currentSampleRate;
+        newPlaybackData->durationSeconds = (double)snapshotSamples / currentSampleRate;
+    }
+
+    std::shared_ptr<const OutputPlaybackData> immutablePlaybackData = newPlaybackData;
+    std::atomic_store(&outputPlaybackData, immutablePlaybackData);
+    outputAudioSampleRate.store(newPlaybackData->sampleRate);
+    outputAudioDuration.store(newPlaybackData->durationSeconds);
+
+    isPlayingOutputAudio.store(false);
+    isPausedOutputAudio.store(false);
+    outputPlaybackReadPosition.store(0);
+    outputPlaybackPosition.store(0.0);
+
+    DBG("Loaded recording buffer snapshot for playback: "
+        + juce::String(newPlaybackData->durationSeconds, 2) + "s");
+    return true;
+}
+
 void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audioFile)
 {
     juce::AudioFormatManager formatManager;

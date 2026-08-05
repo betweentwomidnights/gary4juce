@@ -144,6 +144,7 @@ public:
 
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
+    bool loadRecordingAudioForPlayback();
     void startOutputPlayback(double fromPosition = 0.0);
     void pauseOutputPlayback();
     void stopOutputPlayback();
