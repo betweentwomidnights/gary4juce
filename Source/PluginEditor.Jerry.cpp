@@ -1645,11 +1645,11 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
         return;
     }
 
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
     const juce::File audioFile = transformRecording
-        ? garyDir.getChildFile("myBuffer.wav")
-        : garyDir.getChildFile("myOutput.wav");
+        ? getGaryBufferFile()
+        : getGaryOutputFile();
 
     if (!audioFile.existsAsFile())
     {
@@ -1894,11 +1894,11 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
         return;
     }
 
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
     const juce::File audioFile = transformRecording
-        ? garyDir.getChildFile("myBuffer.wav")
-        : garyDir.getChildFile("myOutput.wav");
+        ? getGaryBufferFile()
+        : getGaryOutputFile();
 
     if (!audioFile.existsAsFile())
     {

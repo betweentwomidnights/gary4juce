@@ -1205,6 +1205,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         }));
     };
 
+    storageButton.setButtonText("storage");
+    storageButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    storageButton.setTooltip("choose or migrate the gary4juce audio storage folder");
+    storageButton.onClick = [this]() { showStorageSettings(); };
+
     // Backend toggle button setup
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
     if (isUsingLocalhost)
@@ -1249,7 +1254,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(checkConnectionButton);
     addAndMakeVisible(checkUpdatesButton);
     addAndMakeVisible(licenseButton);
+    addAndMakeVisible(storageButton);
     addAndMakeVisible(backendToggleButton);
+
+    initializeGaryDataDirectory();
 
     // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
@@ -1349,10 +1357,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(uploadButton);
 
-    // Initialize output file path
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    outputAudioFile = garyDir.getChildFile("myOutput.wav");
+    // Initialize output file path from the validated global storage location.
+    outputAudioFile = getGaryOutputFile();
 
     // Check if output file already exists and load it
     if (outputAudioFile.exists())
@@ -1604,6 +1610,7 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     dismissPluginUpdatePrompt();
     dismissEditorModalWindows();
     uploadFileChooser.reset();
+    storageFolderChooser.reset();
 
     isEditorValid.store(false, std::memory_order_release);
     if (editorAsyncAlive != nullptr)
@@ -1818,6 +1825,14 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         return;
 
     updateRecordingStatus();
+
+    // Detect a removed external drive without probing it on every 50ms tick.
+    if (++storageAvailabilityTimerTicks >= 40)
+    {
+        storageAvailabilityTimerTicks = 0;
+        if (!activeGaryDataDirectory.isDirectory())
+            ensureGaryDataDirectoryAvailable(true);
+    }
 
     if (++persistentStateTimerTicks >= 10)
     {
@@ -2277,22 +2292,18 @@ void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
 
     DBG("Save buffer button clicked with " + juce::String(recordedSamples) + " samples");
 
-    // Create gary4juce directory in Documents
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-
-    // Create directory if it doesn't exist
-    if (!garyDir.exists())
-    {
-        auto result = garyDir.createDirectory();
-        DBG("Created gary4juce directory: " + juce::String(result ? "success" : "failed"));
-    }
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
 
     // Always save to the same filename (overwrite each time)
-    auto recordingFile = garyDir.getChildFile("myBuffer.wav");
+    auto recordingFile = getGaryBufferFile();
 
     DBG("Saving to: " + recordingFile.getFullPathName());
-    audioProcessor.saveRecordingToFile(recordingFile);
+    if (!audioProcessor.saveRecordingToFile(recordingFile))
+    {
+        showStatusMessage("could not save input buffer - check storage settings", 7000);
+        return;
+    }
 
     // Get the saved samples from processor (source of truth)
     savedSamples = audioProcessor.getSavedSamples();
@@ -2959,26 +2970,14 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         // Get the decoded data
         const juce::MemoryBlock& audioData = outputStream.getMemoryBlock();
 
-        // Save to gary4juce directory as myOutput.wav (overwrite each time)
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
-
-        if (!garyDir.exists())
-        {
-            auto result = garyDir.createDirectory();
-            if (!result.wasOk())
-            {
-                showStatusMessage("failed to create Documents/gary4juce folder", 6000);
-                DBG("Failed to create gary4juce directory: " + result.getErrorMessage());
-                return;
-            }
-        }
+        if (!ensureGaryDataDirectoryAvailable())
+            return;
 
         // FIXED: Always save as myOutput.wav
-        outputAudioFile = garyDir.getChildFile("myOutput.wav");
+        outputAudioFile = getGaryOutputFile();
 
         // Write to file
-        if (outputAudioFile.replaceWithData(audioData.getData(), audioData.getSize()))
+        if (writeDataToFileSafely(outputAudioFile, audioData.getData(), audioData.getSize()))
         {
             showStatusMessage("generated audio ready", 3000);
             DBG("Generated audio saved to: " + outputAudioFile.getFullPathName());
@@ -3069,9 +3068,9 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     DBG("Current prompt duration value: " + juce::String(currentPromptDuration) + " (will be cast to: " + juce::String((int)currentPromptDuration) + ")");
 
     // Read the saved audio file
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    auto audioFile = garyDir.getChildFile("myBuffer.wav");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+    auto audioFile = getGaryBufferFile();
 
     if (!audioFile.exists())
     {
@@ -4864,20 +4863,11 @@ void Gary4juceAudioProcessorEditor::updateDariusModelControlsEnabled()
 
 
 
-// Helper: base directory used by Terry
-static juce::File getGaryDir()
-{
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    return documentsDir.getChildFile("gary4juce");
-}
-
 // Generation: which file to upload to /generate
 juce::String Gary4juceAudioProcessorEditor::getGenAudioFilePath() const
 {
     const bool useRec = audioProcessor.getTransformRecording(); // shared Terry flag
-    auto garyDir = getGaryDir();
-    const auto audioFile = useRec ? garyDir.getChildFile("myBuffer.wav")
-                                  : garyDir.getChildFile("myOutput.wav");
+    const auto audioFile = useRec ? getGaryBufferFile() : getGaryOutputFile();
     DBG("Darius generate path: " + audioFile.getFullPathName());
     return audioFile.getFullPathName();
 }
@@ -4906,6 +4896,9 @@ juce::String Gary4juceAudioProcessorEditor::centroidWeightsCSV() const
 void Gary4juceAudioProcessorEditor::onClickGenerate()
 {
     if (genIsGenerating)
+        return;
+
+    if (!ensureGaryDataDirectoryAvailable())
         return;
 
     if (dariusBackendUrl.trim().isEmpty())
@@ -5886,8 +5879,7 @@ juce::File Gary4juceAudioProcessorEditor::getInputReselectionFile() const
     if (lastDraggedAudioFile.existsAsFile())
         return lastDraggedAudioFile;
 
-    const auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    return documentsDir.getChildFile("gary4juce").getChildFile("myBuffer.wav");
+    return getGaryBufferFile();
 }
 
 void Gary4juceAudioProcessorEditor::stopInputPlayback()
@@ -6322,27 +6314,16 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         inputPlaybackDuration = 0.0;
         audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
-        // Save to myBuffer.wav (reuse existing save pattern)
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
-
-        // CRITICAL FIX: Ensure directory exists before saving
-        if (!garyDir.exists())
-        {
-            auto result = garyDir.createDirectory();
-            if (!result.wasOk())
-            {
-                showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
-                DBG("ERROR: Could not create gary4juce directory: " + result.getErrorMessage());
-                return;
-            }
-            DBG("Created gary4juce directory for first-time drag-and-drop");
-        }
-
-        auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+        if (!ensureGaryDataDirectoryAvailable())
+            return;
+        auto bufferFile = getGaryBufferFile();
 
         // Use the processor's existing saveRecordingToFile method to maintain consistency
-        audioProcessor.saveRecordingToFile(bufferFile);
+        if (!audioProcessor.saveRecordingToFile(bufferFile))
+        {
+            showStatusMessage("audio loaded, but the input buffer could not be saved", 7000);
+            return;
+        }
 
         // Update savedSamples and UI state
         savedSamples = audioProcessor.getSavedSamples();
@@ -6487,27 +6468,16 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             editor->inputPlaybackDuration = 0.0;
             editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
 
-            // Save to myBuffer.wav (reuse existing save pattern)
-            auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-            auto garyDir = documentsDir.getChildFile("gary4juce");
-
-            // CRITICAL FIX: Ensure directory exists before saving
-            if (!garyDir.exists())
-            {
-                auto result = garyDir.createDirectory();
-                if (!result.wasOk())
-                {
-                    editor->showStatusMessage("failed to create gary4juce folder: " + result.getErrorMessage(), 5000);
-                    DBG("ERROR: Could not create gary4juce directory: " + result.getErrorMessage());
-                    return;
-                }
-                DBG("Created gary4juce directory for first-time drag-and-drop");
-            }
-
-            auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+            if (!editor->ensureGaryDataDirectoryAvailable())
+                return;
+            auto bufferFile = editor->getGaryBufferFile();
 
             // Use the processor's existing saveRecordingToFile method
-            editor->audioProcessor.saveRecordingToFile(bufferFile);
+            if (!editor->audioProcessor.saveRecordingToFile(bufferFile))
+            {
+                editor->showStatusMessage("selection loaded, but the input buffer could not be saved", 7000);
+                return;
+            }
 
             // Update savedSamples and UI state
             editor->savedSamples = editor->audioProcessor.getSavedSamples();
@@ -6597,6 +6567,9 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         return;
     }
 
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+
     if (!outputAudioFile.existsAsFile())
     {
         DBG("No output audio file to drag");
@@ -6620,10 +6593,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         // Protect file operations with critical section
         juce::ScopedLock lock(fileLock);
 
-        // Create dragged_audio folder inside Documents/gary4juce
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
-        auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+        auto draggedAudioDir = getGaryDraggedAudioDirectory();
 
         // Ensure the dragged_audio directory exists
         if (!draggedAudioDir.exists())
@@ -6754,10 +6724,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 
     try
     {
-        // Create dragged_audio folder
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
-        auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
+        auto draggedAudioDir = getGaryDraggedAudioDirectory();
 
         if (!draggedAudioDir.exists())
         {
@@ -7485,11 +7452,18 @@ void Gary4juceAudioProcessorEditor::resized()
     checkUpdatesButton.setBounds(updatesButtonBounds);
 
     auto licenseButtonBounds = juce::Rectangle<int>(
-        titleArea.getRight() - 80,
+        titleArea.getRight() - 72,
         titleArea.getY() + (titleArea.getHeight() - 24) / 2,
-        64,
+        56,
         24);
     licenseButton.setBounds(licenseButtonBounds);
+
+    auto storageButtonBounds = juce::Rectangle<int>(
+        licenseButtonBounds.getX() - 76,
+        licenseButtonBounds.getY(),
+        68,
+        24);
+    storageButton.setBounds(storageButtonBounds);
 
     // Upload button overlay on recording waveform (top-right corner, matching crop button style)
     auto uploadOverlayArea = juce::Rectangle<int>(

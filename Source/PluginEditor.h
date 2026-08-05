@@ -134,6 +134,7 @@ private:
     CustomButton checkConnectionButton;
     CustomButton checkUpdatesButton;
     CustomButton licenseButton;
+    CustomButton storageButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
     CustomButton playInputButton;
@@ -198,6 +199,22 @@ private:
     juce::String serializePersistentState() const;
     void restorePersistentState(const juce::String& json);
     void persistEditorState();
+
+    // Global user-data location (shared by every plugin/standalone instance).
+    void initializeGaryDataDirectory();
+    bool ensureGaryDataDirectoryAvailable(bool notifyUser = true);
+    juce::File getGaryDataDirectory() const { return activeGaryDataDirectory; }
+    juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
+    juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
+    juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    void showStorageSettings();
+    void chooseGaryDataDirectory();
+    void migrateGaryDataDirectory(const juce::File& destination);
+    void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
+    void recoverCurrentAudioFiles();
+    bool writeDataToFileSafely(const juce::File& file, const void* data, size_t dataSize) const;
+    bool writeCurrentOutputToFile(const juce::File& file) const;
+    void updateStorageButtonState();
 
     void setActiveOp(ActiveOp op) { activeOp = op; }
     ActiveOp getActiveOp() const { return activeOp; }
@@ -750,6 +767,14 @@ private:
     juce::Component::SafePointer<juce::AlertWindow> updatePromptWindow;
     std::vector<juce::Component::SafePointer<juce::Component>> editorModalWindows;
     std::unique_ptr<juce::FileChooser> uploadFileChooser;
+    std::unique_ptr<juce::FileChooser> storageFolderChooser;
+    std::unique_ptr<juce::ThreadWithProgressWindow> storageMigrationTask;
+    juce::File configuredGaryDataDirectory;
+    juce::File activeGaryDataDirectory;
+    bool usingGaryDataFallback = false;
+    bool garyDataFallbackDirty = false;
+    std::atomic<bool> storageMigrationInProgress { false };
+    int storageAvailabilityTimerTicks = 0;
     bool deferredUpdatePromptReady = false;
     juce::String deferredUpdateVersion;
     juce::String deferredUpdateDownloadUrl;

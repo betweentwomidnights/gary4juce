@@ -604,7 +604,7 @@ void Gary4juceAudioProcessor::clearRecordingBuffer()
     DBG("Recording buffer cleared and saved samples reset");
 }
 
-void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
+bool Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
 {
     DBG("saveRecordingToFile called with: " + file.getFullPathName());
 
@@ -624,7 +624,7 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
         if (snapshotSamples <= 0)
         {
             DBG("No recorded samples to save");
-            return;
+            return false;
         }
 
         DBG("Creating temp buffer with " + juce::String(snapshotSamples) + " samples, " +
@@ -640,22 +640,30 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     }
     // Lock is released here, safe to do file I/O
 
-    // CRITICAL FIX: Delete existing file first to prevent appending
-    if (file.exists())
+    if (snapshotChannels <= 0 || snapshotSampleRate <= 0.0)
     {
-        bool deleteSuccess = file.deleteFile();
-        DBG("Existing file deleted: " + juce::String(deleteSuccess ? "success" : "failed"));
+        DBG("Invalid recording format while saving");
+        return false;
     }
 
+    const auto parentResult = file.getParentDirectory().createDirectory();
+    if (!parentResult.wasOk())
+    {
+        DBG("Failed to create recording directory: " + parentResult.getErrorMessage());
+        return false;
+    }
+
+    const auto temporaryFile = file.getParentDirectory().getNonexistentChildFile(
+        file.getFileNameWithoutExtension() + ".writing", file.getFileExtension(), true);
     DBG("Creating file output stream...");
 
-    // Create file output stream - this should now create a fresh file
-    std::unique_ptr<juce::FileOutputStream> fileStream(file.createOutputStream());
+    std::unique_ptr<juce::FileOutputStream> fileStream(temporaryFile.createOutputStream());
 
-    if (fileStream == nullptr)
+    if (fileStream == nullptr || !fileStream->openedOk())
     {
         DBG("Failed to create file output stream for: " + file.getFullPathName());
-        return;
+        temporaryFile.deleteFile();
+        return false;
     }
 
     // ADDITIONAL FIX: Use 16-bit instead of 24-bit for smaller files
@@ -670,40 +678,59 @@ void Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
         {},
         0));
 
-    if (writer != nullptr)
-    {
-        DBG("Writing audio buffer to file...");
-        bool writeSuccess = writer->writeFromAudioSampleBuffer(tempBuffer, 0, tempBuffer.getNumSamples());
-        writer.reset();
-        
-        if (writeSuccess)
-        {
-            // CRITICAL: Store saved samples in processor for persistence
-            savedSamples = snapshotSamples;
-            DBG("Successfully saved and stored " + juce::String(snapshotSamples) + " samples in processor");
-        }
-        
-        DBG("Write operation success: " + juce::String(writeSuccess ? "true" : "false"));
-
-        // VERIFY FILE SIZE
-        if (file.exists())
-        {
-            auto fileSize = file.getSize();
-            auto expectedSize = snapshotSamples * snapshotChannels * 2 + 44; // 16-bit + WAV header
-            DBG("Final file size: " + juce::String(fileSize) + " bytes (expected ~" + juce::String(expectedSize) + " bytes)");
-
-            if (fileSize > expectedSize * 2) // If more than 2x expected size
-            {
-                DBG("WARNING: File size is unexpectedly large!");
-            }
-        }
-
-        DBG("Successfully saved " + juce::String(snapshotSamples) + " samples to " + file.getFullPathName());
-    }
-    else
+    if (writer == nullptr)
     {
         DBG("Failed to create audio writer for file: " + file.getFullPathName());
+        temporaryFile.deleteFile();
+        return false;
     }
+
+    DBG("Writing audio buffer to file...");
+    const bool writeSuccess = writer->writeFromAudioSampleBuffer(
+        tempBuffer, 0, tempBuffer.getNumSamples());
+    writer.reset();
+    if (!writeSuccess || !temporaryFile.existsAsFile() || temporaryFile.getSize() <= 44)
+    {
+        DBG("Write operation failed for: " + file.getFullPathName());
+        temporaryFile.deleteFile();
+        return false;
+    }
+
+    juce::File previousFile;
+    if (file.existsAsFile())
+    {
+        previousFile = file.getParentDirectory().getNonexistentChildFile(
+            file.getFileNameWithoutExtension() + ".previous", file.getFileExtension(), true);
+        if (!file.moveFileTo(previousFile))
+        {
+            DBG("Could not preserve existing recording before replacement");
+            temporaryFile.deleteFile();
+            return false;
+        }
+    }
+
+    if (!temporaryFile.moveFileTo(file))
+    {
+        DBG("Could not install newly written recording");
+        if (previousFile.existsAsFile() && !previousFile.moveFileTo(file))
+        {
+            DBG("Could not restore previous recording: " + previousFile.getFullPathName());
+        }
+        temporaryFile.deleteFile();
+        return false;
+    }
+
+    if (previousFile.existsAsFile() && !previousFile.deleteFile())
+    {
+        DBG("Could not remove previous recording backup: " + previousFile.getFullPathName());
+    }
+
+    savedSamples = snapshotSamples;
+    DBG("Successfully saved and stored " + juce::String(snapshotSamples) + " samples in processor");
+
+    DBG("Final file size: " + juce::String(file.getSize()) + " bytes");
+    DBG("Successfully saved " + juce::String(snapshotSamples) + " samples to " + file.getFullPathName());
+    return true;
 }
 
 void Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer)

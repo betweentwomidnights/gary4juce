@@ -90,6 +90,8 @@
             file="Source/PluginEditor.Backend.cpp"/>
       <FILE id="PEUpd0" name="PluginEditor.Updates.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Updates.cpp"/>
+      <FILE id="PEStr0" name="PluginEditor.Storage.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Storage.cpp"/>
       <FILE id="PEFnd0" name="PluginEditor.Foundation.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Foundation.cpp"/>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>

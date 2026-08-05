@@ -103,8 +103,7 @@ void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
     if (!careyUI)
         return;
 
-    const auto garyDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("gary4juce");
-    const bool hasInputAudio = savedSamples > 0 && garyDir.getChildFile("myBuffer.wav").existsAsFile();
+    const bool hasInputAudio = savedSamples > 0 && getGaryBufferFile().existsAsFile();
     const bool backendLooksOnline = isServiceReachable(ServiceType::Carey);
 
     const bool canGenerate = backendLooksOnline && hasInputAudio;
@@ -610,9 +609,9 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
     const int requestNonce = careyRequestNonce.fetch_add(1) + 1;
 
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    const juce::File bufferFile = garyDir.getChildFile("myBuffer.wav");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+    const juce::File bufferFile = getGaryBufferFile();
 
     if (!bufferFile.existsAsFile())
     {
@@ -1233,9 +1232,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
 
     const int requestNonce = careyRequestNonce.fetch_add(1) + 1;
 
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    const juce::File bufferFile = garyDir.getChildFile("myBuffer.wav");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+    const juce::File bufferFile = getGaryBufferFile();
 
     if (!bufferFile.existsAsFile())
     {
@@ -1596,9 +1595,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     const int requestNonce = careyRequestNonce.fetch_add(1) + 1;
 
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    const juce::File bufferFile = garyDir.getChildFile("myBuffer.wav");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+    const juce::File bufferFile = getGaryBufferFile();
 
     if (!bufferFile.existsAsFile())
     {
@@ -2000,9 +1999,9 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
     const int requestNonce = careyRequestNonce.fetch_add(1) + 1;
 
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
-    const juce::File bufferFile = garyDir.getChildFile("myBuffer.wav");
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+    const juce::File bufferFile = getGaryBufferFile();
 
     if (!bufferFile.existsAsFile())
     {
