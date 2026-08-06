@@ -1,11 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.7",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7",
-  "sha256": "5815337a70feac2d04eec1f1d53c62e381ac73759c5c68c319b859833fbae922",
-  "published_at": "2026-07-22T15:22:38Z",
+  "latest_version": "4.0.8",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8",
+  "sha256": "0433c3a71565ec63021e0b8fea726cd36cf9793f906fbb4ef22707ba16e9d5ef",
+  "published_at": "2026-08-06T09:11:47Z",
   "notes": [
-    "Fixed popup lifecycle handling so update reminders and other dialogs close cleanly with the plugin.",
+    "Added input-buffer playback and standalone BPM and audio-selection improvements.",
+    "The gary4juce audio folder can now be moved safely to another location.",
     "Recommended gary4local: v0.2.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]

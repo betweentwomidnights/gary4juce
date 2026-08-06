@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7)
+- [gary4juce v4.0.8 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8)
 - [gary4juce v4.0.7-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac)
 
 **recommended local companions:**
@@ -52,7 +52,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v4.0.8 - listen back and take your files with you
+### v4.0.8 - listen back and take your files with you
 
 v4.0.8 adds playback controls for the input buffer and improves short-buffer
 selection, including exact segment selection in the standalone app.
