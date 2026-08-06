@@ -261,16 +261,19 @@ build time. Skipping this step means the build silently succeeds against the
 /path/to/Projucer.app/Contents/MacOS/Projucer --resave gary4juce.jucer
 ```
 
-### 3. Build both plugin targets as universal binaries
+### 3. Build all three macOS targets as universal binaries
 
 `build-dmg.sh` does not build anything itself — it expects
-`Builds/MacOSX/build/Release/{gary4juce.vst3,gary4juce.component}` to already
-exist. Build them with `xcodebuild` first, and pass `ARCHS` explicitly:
+`Builds/MacOSX/build/Release/{gary4juce.vst3,gary4juce.component,gary4juce.app}`
+to already exist. Build them with `xcodebuild` first, and pass `ARCHS`
+explicitly:
 
 ```bash
 xcodebuild -project Builds/MacOSX/gary4juce.xcodeproj -scheme "gary4juce - VST3" \
   -configuration Release ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO build
 xcodebuild -project Builds/MacOSX/gary4juce.xcodeproj -scheme "gary4juce - AU" \
+  -configuration Release ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO build
+xcodebuild -project Builds/MacOSX/gary4juce.xcodeproj -scheme "gary4juce - Standalone Plugin" \
   -configuration Release ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO build
 ```
 
@@ -281,8 +284,10 @@ resulting plugin is quietly not universal. Verify before packaging:
 
 ```bash
 lipo -info Builds/MacOSX/build/Release/gary4juce.vst3/Contents/MacOS/gary4juce
+lipo -info Builds/MacOSX/build/Release/gary4juce.component/Contents/MacOS/gary4juce
+lipo -info Builds/MacOSX/build/Release/gary4juce.app/Contents/MacOS/gary4juce
 ```
-should print `x86_64 arm64`, not a single architecture.
+Each command should print `x86_64 arm64`, not a single architecture.
 
 Aside: Xcode's "Plugin Copy Step" build phase copies the freshly-built,
 ad-hoc-signed binary straight into `~/Library/Audio/Plug-Ins/{VST3,Components}`
@@ -293,8 +298,10 @@ build you had installed for regular use.
 ### 4. Package, sign, notarize
 
 ```bash
-VERSION="vX.Y.Z-mac" ./build-dmg.sh plugins
+VERSION="vX.Y.Z-mac" ./build-dmg.sh all
 ```
+
+The AU, VST3, and standalone DMGs must each contain the `licenses` directory.
 
 ### 5. Publish
 
@@ -304,7 +311,7 @@ Tag and release from `mac`:
 git tag -a vX.Y.Z-mac -m "gary4juce vX.Y.Z-mac"
 git push origin mac
 git push origin vX.Y.Z-mac
-gh release create vX.Y.Z-mac gary4juce-vX.Y.Z-mac-{AU,VST3}.dmg \
+gh release create vX.Y.Z-mac gary4juce-vX.Y.Z-mac-{AU,VST3,STANDALONE}.dmg \
   --title "gary4juce vX.Y.Z-mac" --notes-file release-notes-vX.Y.Z-mac.md
 ```
 
