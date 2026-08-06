@@ -15,7 +15,7 @@ the binary without making the public updater point at an unpublished asset:
    published release.
 2. Tag that source-release commit locally, then build the Release binary from
    its clean tree.
-3. Stage and verify the archive, calculate its hash, and prepare the GitHub
+3. Stage and verify the archives, calculate their hashes, and prepare the GitHub
    release as a draft. Push the source commit/tag when the draft needs the tag
    on GitHub.
 4. Confirm every recommended companion-release URL is already live. Publish
@@ -125,6 +125,58 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $name" | Set-Content SHA256SUMS.txt
 ```
 
+## Windows Standalone Package
+
+Ship the standalone app as a second ZIP on the same Windows release. Do not put
+it inside the VST3 ZIP: that archive must remain safe to extract directly into
+the system VST3 directory.
+
+Stage the freshly built executable from:
+
+```text
+Builds/VisualStudio2022/x64/Release/Standalone Plugin/gary4juce.exe
+```
+
+Required standalone layout:
+
+```text
+gary4juce-standalone/
+|-- gary4juce.exe
+|-- README.txt
+|-- VC_redist.x64.exe
+`-- Legal/
+    |-- LICENSE
+    |-- SOURCE.md
+    |-- THIRD_PARTY_NOTICES.md
+    `-- licenses/
+        |-- JUCE-LICENSE.md
+        `-- applicable dependency license files
+```
+
+Use the same release-specific `SOURCE.md` and license set as the VST3 bundle.
+Download the latest supported v14 x64 redistributable from Microsoft's stable
+URL, `https://aka.ms/vc14/vc_redist.x64.exe`, for every release. Keep the
+installer unmodified, confirm its Authenticode signature is valid and issued to
+Microsoft Corporation, and record its file version and SHA-256 in the release
+verification log. `README.txt` should tell users to run it only when Windows
+reports missing Visual C++ runtime DLLs.
+
+Verify that the ZIP has exactly one top-level `gary4juce-standalone/` entry,
+that the app reports the release version, and that the redistributable and every
+required legal file are present and nonempty. Extract it into a clean directory
+and launch the extracted app before upload.
+
+Name the assets consistently:
+
+```text
+gary4juce-vX.Y.Z-win-vst3.zip
+gary4juce-vX.Y.Z-win-standalone.zip
+```
+
+Record both uploaded asset hashes in `SHA256SUMS.txt`. The Windows stable
+updater manifest continues to use the VST3 ZIP hash because its download flow
+is for the plugin update.
+
 ## Release Metadata
 
 In the source-release commit:
@@ -143,7 +195,7 @@ In the source-release commit:
 5. Update README installation instructions when the artifact format changes.
    Do not change its stable-download or recommended-companion links yet.
 6. Write fuller GitHub release notes covering the user-visible changes,
-   recommended gary4local version, artifact hash, and installation changes.
+   recommended gary4local version, artifact hashes, and installation changes.
 7. Tag the exact source-release commit used to build the binaries.
 
 In the post-publication promotion commit:
@@ -153,7 +205,7 @@ In the post-publication promotion commit:
    Confirm the companion tag URL is live before committing it.
 2. Confirm the README `latest update`, GitHub release notes, and updater notes
    all name the same recommended gary4local version.
-3. Update `SHA256SUMS.txt` from the exact uploaded ZIP.
+3. Update `SHA256SUMS.txt` from the exact uploaded ZIPs.
 4. Update `docs/updates/gary4juce/stable.json` and, when applicable,
    `stable-mac.json`.
 5. Keep updater notes compact and plain text. End binary-release notes with
