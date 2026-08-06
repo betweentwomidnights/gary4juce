@@ -62,6 +62,12 @@ public:
 
     void stopOutputPlayback();
     void checkPlaybackStatus();
+    void playInputAudio();
+    void stopInputPlayback();
+    void seekInputToPosition(double timeInSeconds);
+    double getInputWaveformDisplayDuration() const;
+    juce::File getInputReselectionFile() const;
+    void updateInputPlayButtonIcon();
 
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
@@ -128,8 +134,11 @@ private:
     CustomButton checkConnectionButton;
     CustomButton checkUpdatesButton;
     CustomButton licenseButton;
+    CustomButton storageButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
+    CustomButton playInputButton;
+    CustomButton stopInputButton;
 
     juce::Rectangle<int> titleArea;
     juce::Rectangle<int> connectionStatusArea;
@@ -189,6 +198,22 @@ private:
     juce::String serializePersistentState() const;
     void restorePersistentState(const juce::String& json);
     void persistEditorState();
+
+    // Global user-data location (shared by every plugin/standalone instance).
+    void initializeGaryDataDirectory();
+    bool ensureGaryDataDirectoryAvailable(bool notifyUser = true);
+    juce::File getGaryDataDirectory() const { return activeGaryDataDirectory; }
+    juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
+    juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
+    juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    void showStorageSettings();
+    void chooseGaryDataDirectory();
+    void migrateGaryDataDirectory(const juce::File& destination);
+    void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
+    void recoverCurrentAudioFiles();
+    bool writeDataToFileSafely(const juce::File& file, const void* data, size_t dataSize) const;
+    bool writeCurrentOutputToFile(const juce::File& file) const;
+    void updateStorageButtonState();
 
     void setActiveOp(ActiveOp op) { activeOp = op; }
     ActiveOp getActiveOp() const { return activeOp; }
@@ -380,12 +405,15 @@ private:
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
     juce::String lastFoundationPromptSnapshot;
+    double currentStandaloneBpm = 120.0;
+    void setStandaloneBpm(double bpm);
     void sendToFoundation();
     void randomizeFoundation();
     void updateFoundationEnablementSnapshot();
 
     // ========== SA3 ==========
     juce::String currentSA3Prompt = "";
+    double currentSA3Bpm = 120.0;
     int currentSA3DurationSeconds = 30;
     bool currentSA3LoopEnabled = false;
     int currentSA3Bars = 8;
@@ -577,6 +605,15 @@ private:
 
     bool isPlayingOutput = false;
 
+    enum class PlaybackSource { None, Input, Output };
+    PlaybackSource activePlaybackSource = PlaybackSource::None;
+
+    bool isPlayingInput = false;
+    bool isPausedInput = false;
+    double currentInputPlaybackPosition = 0.0;
+    double inputPlaybackDuration = 0.0;
+    int inputPlaybackSnapshotSamples = 0;
+
     // Playback cursor tracking
     double currentPlaybackPosition = 0.0;  // Current position in seconds
     double totalAudioDuration = 0.0;      // Total duration of loaded audio in seconds
@@ -740,6 +777,14 @@ private:
     juce::Component::SafePointer<juce::AlertWindow> updatePromptWindow;
     std::vector<juce::Component::SafePointer<juce::Component>> editorModalWindows;
     std::unique_ptr<juce::FileChooser> uploadFileChooser;
+    std::unique_ptr<juce::FileChooser> storageFolderChooser;
+    std::unique_ptr<juce::ThreadWithProgressWindow> storageMigrationTask;
+    juce::File configuredGaryDataDirectory;
+    juce::File activeGaryDataDirectory;
+    bool usingGaryDataFallback = false;
+    bool garyDataFallbackDirty = false;
+    std::atomic<bool> storageMigrationInProgress { false };
+    int storageAvailabilityTimerTicks = 0;
     bool deferredUpdatePromptReady = false;
     juce::String deferredUpdateVersion;
     juce::String deferredUpdateDownloadUrl;

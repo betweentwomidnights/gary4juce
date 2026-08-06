@@ -77,7 +77,7 @@ public:
     // Recording buffer methods - REMOVE INLINE IMPLEMENTATIONS
     bool isRecording() const;  // Declaration only - implementation in .cpp
     float getRecordingProgress() const;  // Declaration only - implementation in .cpp
-    void saveRecordingToFile(const juce::File& file);
+    bool saveRecordingToFile(const juce::File& file);
     void loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer);
     void clearRecordingBuffer();
     const juce::AudioBuffer<float>& getRecordingBuffer() const { return recordingBuffer; }
@@ -144,6 +144,7 @@ public:
 
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
+    bool loadRecordingAudioForPlayback();
     void startOutputPlayback(double fromPosition = 0.0);
     void pauseOutputPlayback();
     void stopOutputPlayback();

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="4.0.7"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="4.0.8"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE" companyCopyright="Copyright (C) 2025-2026 Kevin Griffing">
@@ -27,6 +27,7 @@
         <FILE id="hy0Tc6" name="CustomSlider.cpp" compile="1" resource="0"
               file="Source/Components/Base/CustomSlider.cpp"/>
         <FILE id="NVmho3" name="CustomSlider.h" compile="0" resource="0" file="Source/Components/Base/CustomSlider.h"/>
+        <FILE id="bpmCtrl" name="BpmControl.h" compile="0" resource="0" file="Source/Components/Base/BpmControl.h"/>
         <FILE id="MmMTuG" name="CustomTextEditor.cpp" compile="1" resource="0"
               file="Source/Components/Base/CustomTextEditor.cpp"/>
         <FILE id="wQ87Xd" name="CustomTextEditor.h" compile="0" resource="0"
@@ -90,6 +91,8 @@
             file="Source/PluginEditor.Backend.cpp"/>
       <FILE id="PEUpd0" name="PluginEditor.Updates.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Updates.cpp"/>
+      <FILE id="PEStr0" name="PluginEditor.Storage.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Storage.cpp"/>
       <FILE id="PEFnd0" name="PluginEditor.Foundation.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Foundation.cpp"/>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>

@@ -330,19 +330,20 @@ FoundationUI::FoundationUI()
     bpmWarningLabel.setVisible(false);
     addAndMakeVisible(bpmWarningLabel);
 
-    // Standalone BPM slider
-    standaloneBpmSlider.setRange(40.0, 300.0, 1.0);
-    standaloneBpmSlider.setValue(120.0, juce::dontSendNotification);
-    standaloneBpmSlider.setTooltip("BPM for generation (standalone mode only - DAW mode syncs automatically)");
-    standaloneBpmSlider.onValueChange = [this]()
+    // Compact standalone BPM editor; plugin mode continues to display DAW BPM.
+    standaloneBpmControl.setRange(40.0, 240.0, 1.0);
+    standaloneBpmControl.setValue(120.0, false);
+    standaloneBpmControl.setAccentColour(Theme::Colors::Jerry);
+    standaloneBpmControl.setTooltip("generation bpm: drag, wheel, or double-click to type");
+    standaloneBpmControl.onValueChange = [this](double value)
     {
-        hostBpm = standaloneBpmSlider.getValue();
+        hostBpm = value;
         updateBpmDisplay();
         rebuildPromptPreview();
         if (onBpmChanged)
             onBpmChanged(hostBpm);
     };
-    addAndMakeVisible(standaloneBpmSlider);
+    addAndMakeVisible(standaloneBpmControl);
 
     keyRootComboBox.addItem("C", 1); keyRootComboBox.addItem("C#", 2);
     keyRootComboBox.addItem("D", 3); keyRootComboBox.addItem("D#", 4);
@@ -587,7 +588,7 @@ void FoundationUI::resized()
         auto headerRow = area.removeFromTop(22);
 
         // Calculate total width needed, then center the block
-        int bpmW = isStandaloneMode ? 90 : 56;
+        int bpmW = isStandaloneMode ? 68 : 56;
         int totalNeeded = 78 + 4 + bpmW + 4 + 58 + 3 + 78;
         int sidePad = juce::jmax(0, (headerRow.getWidth() - totalNeeded) / 2);
         headerRow.removeFromLeft(sidePad);
@@ -597,15 +598,15 @@ void FoundationUI::resized()
 
         if (isStandaloneMode)
         {
-            standaloneBpmSlider.setBounds(headerRow.removeFromLeft(90));
+            standaloneBpmControl.setBounds(headerRow.removeFromLeft(bpmW));
             bpmValueLabel.setVisible(false);
-            standaloneBpmSlider.setVisible(true);
+            standaloneBpmControl.setVisible(true);
         }
         else
         {
             bpmValueLabel.setBounds(headerRow.removeFromLeft(56));
             bpmValueLabel.setVisible(true);
-            standaloneBpmSlider.setVisible(false);
+            standaloneBpmControl.setVisible(false);
         }
         headerRow.removeFromLeft(4);
 
@@ -614,12 +615,11 @@ void FoundationUI::resized()
         keyModeComboBox.setBounds(headerRow.removeFromLeft(78));
     }
 
-    // ---- BPM warning row (slim, only when time-stretching) ----
-    if (bpmWarningLabel.isVisible())
-    {
-        area.removeFromTop(1);
-        bpmWarningLabel.setBounds(area.removeFromTop(14));
-    }
+    // ---- BPM warning row ----
+    // Always reserve this slim row so the viewport does not jump when an odd
+    // standalone BPM reveals the time-stretch warning.
+    area.removeFromTop(1);
+    bpmWarningLabel.setBounds(area.removeFromTop(14));
 
     // ---- Pinned footer: [save][load] [randomize] [generate] ----
     area.removeFromBottom(1);
@@ -702,7 +702,7 @@ int FoundationUI::getSeed() const
 void FoundationUI::setBpm(double bpm)
 {
     hostBpm = bpm;
-    standaloneBpmSlider.setValue(bpm, juce::dontSendNotification);
+    standaloneBpmControl.setValue(bpm, false);
     updateBpmDisplay();
     rebuildPromptPreview();
 }
@@ -844,7 +844,7 @@ juce::String FoundationUI::serializeState() const
 
     // Header controls
     state->setProperty("bars", barsComboBox.getSelectedId());
-    state->setProperty("standaloneBpm", standaloneBpmSlider.getValue());
+    state->setProperty("standaloneBpm", standaloneBpmControl.getValue());
     state->setProperty("keyRoot", keyRootComboBox.getSelectedId());
     state->setProperty("keyMode", keyModeComboBox.getSelectedId());
 
@@ -968,8 +968,8 @@ void FoundationUI::restoreState(const juce::String& jsonString)
     if (obj->hasProperty("standaloneBpm"))
     {
         const double bpm = juce::jlimit(
-            40.0, 300.0, (double)obj->getProperty("standaloneBpm"));
-        standaloneBpmSlider.setValue(bpm, juce::dontSendNotification);
+            40.0, 240.0, (double)obj->getProperty("standaloneBpm"));
+        standaloneBpmControl.setValue(bpm, false);
         if (isStandaloneMode)
             hostBpm = bpm;
     }
@@ -1727,7 +1727,6 @@ void FoundationUI::updateBpmWarning()
 {
     int foundationBpm = getFoundationBpm();
     bool stretching = std::abs(hostBpm - foundationBpm) > 0.5;
-    bool visChanged = (bpmWarningLabel.isVisible() != stretching);
     bpmWarningLabel.setVisible(stretching);
     if (stretching)
     {
@@ -1735,13 +1734,6 @@ void FoundationUI::updateBpmWarning()
             + juce::String(foundationBpm) + " BPM, stretches to "
             + juce::String(juce::roundToInt(hostBpm));
         bpmWarningLabel.setText(warning, juce::dontSendNotification);
-    }
-    // Re-layout since warning row affects viewport position (guard against recursion)
-    if (visChanged && getWidth() > 0 && !inLayout)
-    {
-        inLayout = true;
-        resized();
-        inLayout = false;
     }
 }
 

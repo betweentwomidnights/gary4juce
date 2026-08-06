@@ -667,22 +667,16 @@ CareyUI::CareyUI()
     completeSftModelToggle.onClick = [this]() { setCompleteModel("sft"); };
     addToContent(completeSftModelToggle);
 
-    completeBpmLabel.setText("bpm", juce::dontSendNotification);
-    completeBpmLabel.setFont(juce::FontOptions(12.0f));
-    completeBpmLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
-    completeBpmLabel.setJustificationType(juce::Justification::centredLeft);
-    addToContent(completeBpmLabel);
-
-    completeBpmSlider.setRange(40, 240, 1);
-    completeBpmSlider.setValue(120);
-    completeBpmSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
-    completeBpmSlider.setTooltip("BPM for generation (standalone only - DAW mode syncs automatically)");
-    completeBpmSlider.onValueChange = [this]()
+    completeBpmControl.setRange(40.0, 240.0, 1.0);
+    completeBpmControl.setValue(120.0, false);
+    completeBpmControl.setAccentColour(Theme::Colors::PrimaryRed);
+    completeBpmControl.setTooltip("completion bpm: drag, wheel, or double-click to type");
+    completeBpmControl.onValueChange = [this](double)
     {
         if (onCompleteBpmChanged)
             onCompleteBpmChanged(getCompleteBpm());
     };
-    addToContent(completeBpmSlider);
+    addToContent(completeBpmControl);
 
     completeStepsLabel.setText("steps", juce::dontSendNotification);
     completeStepsLabel.setFont(juce::FontOptions(12.0f));
@@ -1549,6 +1543,12 @@ void CareyUI::updateContentLayout()
         completeLyricsButton.setBounds(completeLyricsBounds.withHeight(24).withY(completeLyricsBounds.getY() + 2));
         y += 36;
 
+        if (isStandalone)
+        {
+            completeBpmControl.setBounds(fullRow(20).withSizeKeepingCentre(76, 20));
+            y += 28;
+        }
+
         completeAdvancedToggle.setBounds(fullRow(26));
         y += 32;
 
@@ -1583,14 +1583,6 @@ void CareyUI::updateContentLayout()
                 auto completeLoraScaleRow = fullRow(28);
                 completeLoraScaleLabel.setBounds(completeLoraScaleRow.removeFromLeft(110));
                 completeLoraScaleSlider.setBounds(completeLoraScaleRow);
-                y += 36;
-            }
-
-            if (isStandalone)
-            {
-                auto bpmRow = fullRow(28);
-                completeBpmLabel.setBounds(bpmRow.removeFromLeft(110));
-                completeBpmSlider.setBounds(bpmRow);
                 y += 36;
             }
 
@@ -1831,8 +1823,7 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
     completeTurboModelToggle.setVisible(showAdvanced);
     completeBaseModelToggle.setVisible(showAdvanced);
     completeSftModelToggle.setVisible(showAdvanced && !completeRemoteModelSelectionEnabled);
-    completeBpmLabel.setVisible(showAdvanced && isStandalone);
-    completeBpmSlider.setVisible(showAdvanced && isStandalone);
+    completeBpmControl.setVisible(shouldBeVisible && isStandalone);
     completeStepsLabel.setVisible(showAdvanced);
     completeStepsSlider.setVisible(showAdvanced);
     completeCfgLabel.setVisible(showAdvanced);

@@ -3,7 +3,7 @@
   "latest_version": "4.0.7-mac",
   "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac",
   "sha256": null,
-  "published_at": "2026-07-24T00:00:00Z",
+  "published_at": "2026-07-25T03:54:51Z",
   "notes": [
     "Popups and dialogs now close cleanly with the plugin instead of lingering.",
     "Backend outage messages now tell local gary4local and the remote backend apart, with the right recovery steps for each.",

@@ -3,6 +3,19 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.8 - input playback, standalone polish, and movable storage
+
+v4.0.8 adds input-buffer playback in both the plugin and standalone app, plus
+exact segment selection for short input audio. standalone tempo controls now
+share one persistent BPM wheel across the relevant tabs, including Carey
+complete mode, with steadier Foundation-1 layout when its BPM warning appears.
+
+the `gary4juce` audio folder can now be moved out of Documents to another
+location or external drive. migration reports progress, keeps the original
+copy, preserves conflicting files, and uses recovery storage when the chosen
+location is unavailable. the standalone app now ships beside the VST3 as a
+separate asset in the regular Windows release.
+
 ## v4.0.7 - popup lifecycle cleanup
 
 v4.0.7 makes plugin-owned popups and asynchronous callbacks shut down safely

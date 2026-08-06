@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.7 (windows VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7)
+- [gary4juce v4.0.8 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8)
 - [gary4juce v4.0.7-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac)
 
 **recommended local companions:**
@@ -52,20 +52,19 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.7 - popup lifecycle cleanup
+### v4.0.8 - listen back and take your files with you
 
-v4.0.7 is a small Windows maintenance release focused on popup state and
-lifecycle management. update reminders and other plugin-owned dialogs now
-close with the plugin instead of lingering during DAW shutdown.
+v4.0.8 adds playback controls for the input buffer and improves short-buffer
+selection, including exact segment selection in the standalone app.
 
-the popup audit also covered backend and support dialogs, prompt and lyrics
-popouts, preset choosers, audio-selection windows, and asynchronous popup
-callbacks. backend outage messages now distinguish a local gary4local service
-from the self-hosted remote backend and give the appropriate recovery steps.
+standalone BPM controls now use one shared, persistent wheel across the tabs
+that need tempo, including Carey complete mode. the standalone app is also
+joining the VST3 in the regular Windows release from here forward.
 
-this has been thoroughly tested in Ableton Live. final confirmation from
-Fender Studio One users is still welcome. this release is paired with
-[gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0).
+you can now move the `gary4juce` audio folder out of Documents and onto another
+location or external drive. migration shows progress, keeps the original copy,
+and falls back safely if the configured location is unavailable. this release
+is paired with [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0).
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
@@ -76,7 +75,7 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 - [x] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) on Windows
 - [x] add SA3 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) on macOS
 - [x] ship local SA3 training on Windows and macOS using [underfit](https://github.com/dada-bots/underfit) as the source of truth
-- [ ] clean up and release a proper standalone app
+- [x] clean up and release a proper standalone app
 - [x] ship local ACE-Step LoRA training in gary4local on Windows using [Side-Step](https://github.com/koda-dernet/Side-Step) as the reference point
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
 - [ ] enable the Carey `xl-sft` model on the remote backend
@@ -87,6 +86,11 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ### windows
 
+The Windows release has two downloads: the VST3 ZIP for use in a DAW and the
+standalone ZIP for running gary4juce as its own app.
+
+For the VST3:
+
 1. Close your DAW.
 2. Use **Extract All** on the ZIP.
 3. Choose `C:\Program Files\Common Files\VST3\` as the destination, or extract
@@ -96,6 +100,12 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 You can put the VST3 literally anywhere as long as your DAW scans that
 location. `C:\Program Files\Common Files\VST3\` is just the default path most
 DAWs already check.
+
+For the standalone app, extract the standalone ZIP anywhere you want to keep
+it, then run `gary4juce.exe` from the extracted `gary4juce-standalone` folder.
+If Windows reports missing Visual C++ runtime DLLs, run the included,
+Microsoft-signed `VC_redist.x64.exe` once and try again. License and source
+information for gary4juce lives in the adjacent `Legal` folder.
 
 If permission errors appear, run Command Prompt as admin:
 

@@ -139,18 +139,21 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     const auto& variationNames = terryVariationNames.isEmpty() ? getTerryVariationNames() : terryVariationNames;
 
     // Determine which audio file to read
+    if (!ensureGaryDataDirectoryAvailable())
+    {
+        cancelTerryOperation();
+        return;
+    }
     juce::File audioFile;
-    auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    auto garyDir = documentsDir.getChildFile("gary4juce");
 
     if (transformRecording)
     {
-        audioFile = garyDir.getChildFile("myBuffer.wav");
+        audioFile = getGaryBufferFile();
         DBG("Terry transforming recording: myBuffer.wav");
     }
     else
     {
-        audioFile = garyDir.getChildFile("myOutput.wav");
+        audioFile = getGaryOutputFile();
         DBG("Terry transforming output: myOutput.wav");
     }
 

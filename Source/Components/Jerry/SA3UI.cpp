@@ -149,6 +149,19 @@ SA3UI::SA3UI()
     bpmLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(bpmLabel);
 
+    bpmControl.setRange(40.0, 240.0, 1.0);
+    bpmControl.setValue(120.0, false);
+    bpmControl.setAccentColour(Theme::Colors::Jerry);
+    bpmControl.setTooltip("generation bpm: drag, wheel, or double-click to type");
+    bpmControl.onValueChange = [this](double value)
+    {
+        bpmValue = value;
+        if (onBpmChanged)
+            onBpmChanged(value);
+    };
+    bpmControl.setVisible(false);
+    addAndMakeVisible(bpmControl);
+
     contentComponent = std::make_unique<juce::Component>();
     contentViewport = std::make_unique<juce::Viewport>();
     contentViewport->setViewedComponent(contentComponent.get(), false);
@@ -722,7 +735,18 @@ void SA3UI::resized()
         keyRow.removeFromLeft(kGap);
         keyModeComboBox.setBounds(keyRow.removeFromLeft(76));
     }
-    bpmLabel.setBounds(keyRow);
+    if (isStandaloneMode)
+    {
+        bpmControl.setBounds(keyRow.removeFromRight(68));
+        bpmControl.setVisible(true);
+        bpmLabel.setVisible(false);
+    }
+    else
+    {
+        bpmLabel.setBounds(keyRow);
+        bpmLabel.setVisible(true);
+        bpmControl.setVisible(false);
+    }
     area.removeFromTop(kGap);
 
     if (contentViewport)
@@ -748,6 +772,13 @@ void SA3UI::setBpm(double bpm)
 {
     bpmValue = bpm > 0.0 ? bpm : 120.0;
     bpmLabel.setText(juce::String(juce::roundToInt(bpmValue)) + " bpm", juce::dontSendNotification);
+    bpmControl.setValue(bpmValue, false);
+}
+
+void SA3UI::setIsStandalone(bool standalone)
+{
+    isStandaloneMode = standalone;
+    resized();
 }
 
 void SA3UI::setRemoteAvailable(bool available)

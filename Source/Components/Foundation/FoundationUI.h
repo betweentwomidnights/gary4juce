@@ -8,6 +8,7 @@
 #include "../Base/CustomButton.h"
 #include "../Base/CustomComboBox.h"
 #include "../Base/CustomSlider.h"
+#include "../Base/BpmControl.h"
 #include "../Base/CustomTextEditor.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
@@ -585,6 +586,7 @@ public:
     // ==================== SETTERS ====================
 
     void setBpm(double bpm);
+    void setDataDirectory(const juce::File& directory) { dataDirectory = directory; }
 
     void setIsStandalone(bool standalone);
 
@@ -675,8 +677,7 @@ private:
 
     juce::File getPresetsFolder() const
     {
-        auto docs = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto folder = docs.getChildFile("gary4juce").getChildFile("foundation-presets");
+        auto folder = dataDirectory.getChildFile("foundation-presets");
         if (!folder.isDirectory())
             folder.createDirectory();
         return folder;
@@ -792,7 +793,7 @@ private:
     CustomComboBox barsComboBox;
     juce::Label bpmValueLabel;
     juce::Label bpmWarningLabel;
-    CustomSlider standaloneBpmSlider;
+    BpmControl standaloneBpmControl;
     CustomComboBox keyRootComboBox;
     CustomComboBox keyModeComboBox;
 
@@ -832,6 +833,9 @@ private:
     bool inLayout = false;
     juce::String lastBuiltPrompt;
     std::unique_ptr<juce::FileChooser> presetFileChooser;
+    juce::File dataDirectory {
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("gary4juce")
+    };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FoundationUI)
 };

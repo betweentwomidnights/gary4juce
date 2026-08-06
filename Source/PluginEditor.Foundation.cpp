@@ -142,9 +142,12 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
 
     if (isAudio2Audio)
     {
-        auto documentsDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-        auto garyDir = documentsDir.getChildFile("gary4juce");
-        auto bufferFile = garyDir.getChildFile("myBuffer.wav");
+        if (!ensureGaryDataDirectoryAvailable())
+        {
+            cancelOp();
+            return;
+        }
+        auto bufferFile = getGaryBufferFile();
 
         if (!bufferFile.existsAsFile())
         {

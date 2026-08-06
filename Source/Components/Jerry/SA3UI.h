@@ -8,6 +8,7 @@
 #include "../Base/CustomButton.h"
 #include "../Base/CustomComboBox.h"
 #include "../Base/CustomSlider.h"
+#include "../Base/BpmControl.h"
 #include "../Base/CustomTextEditor.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
@@ -42,10 +43,14 @@ public:
     juce::Rectangle<int> getTitleBounds() const { return titleBounds; }
 
     void setBpm(double bpm);
+    double getBpm() const { return isStandaloneMode ? bpmControl.getValue() : bpmValue; }
+    void setIsStandalone(bool standalone);
     void setRemoteAvailable(bool available);
     void setGenerateButtonEnabled(bool enabled, bool isGenerating);
     void setDiceButtonsEnabled(bool enabled);
     void setGenerateButtonText(const juce::String& text);
+
+    std::function<void(double)> onBpmChanged;
 
     juce::String getPromptText() const { return promptEditor.getText().trim(); }
     void setPromptText(const juce::String& text);
@@ -172,7 +177,9 @@ private:
     CustomComboBox keyRootComboBox;
     CustomComboBox keyModeComboBox;
     juce::Label bpmLabel;
+    BpmControl bpmControl;
     double bpmValue = 120.0;
+    bool isStandaloneMode = false;
 
     std::unique_ptr<juce::Component> contentComponent;
     std::unique_ptr<juce::Viewport> contentViewport;
