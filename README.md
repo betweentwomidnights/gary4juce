@@ -11,7 +11,7 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v4.0.8 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8)
-- [gary4juce v4.0.7-mac (macOS AU/VST3)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac)
+- [gary4juce v4.0.8-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8-mac)
 
 **recommended local companions:**
 
@@ -58,13 +58,15 @@ v4.0.8 adds playback controls for the input buffer and improves short-buffer
 selection, including exact segment selection in the standalone app.
 
 standalone BPM controls now use one shared, persistent wheel across the tabs
-that need tempo, including Carey complete mode. the standalone app is also
-joining the VST3 in the regular Windows release from here forward.
+that need tempo, including Carey complete mode. the standalone app now joins
+the regular Windows and macOS releases from here forward.
 
 you can now move the `gary4juce` audio folder out of Documents and onto another
 location or external drive. migration shows progress, keeps the original copy,
 and falls back safely if the configured location is unavailable. this release
-is paired with [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0).
+is paired with [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0)
+on Windows and [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
+on macOS.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
@@ -117,14 +119,18 @@ LMMS support is not working yet. We did an initial VST2/LV2 compatibility pass
 and documented the exact Windows alpha environment here:
 [LMMS compatibility notes](docs/lmms-compatibility.md).
 
-### macOS AU/VST3
+### macOS AU/VST3/standalone
 
-1. Quit your DAW.
-2. Open the DMG.
+The macOS release has separate universal DMGs for AU, VST3, and the standalone
+app.
+
+1. Quit your DAW and the standalone app.
+2. Open the DMG for the format you want.
 3. Drag to the matching folder:
-   - `Gary4Juce.component` -> Components (Audio Unit)
-   - `Gary4Juce.vst3` -> VST3
-4. Reopen your DAW and rescan.
+   - `gary4juce.component` -> Components (Audio Unit)
+   - `gary4juce.vst3` -> VST3
+   - `gary4juce.app` -> Applications
+4. Reopen your DAW and rescan if you installed a plugin.
 
 GarageBand and Logic use AU. Ableton, FL, Reaper, Cubase, and Bitwig can use
 VST3.
