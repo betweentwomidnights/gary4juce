@@ -1,3 +1,3 @@
-3386e8f30a6bab2bc852518b2581316e5fd618eceeed3342c689b53669aac8a7  gary4juce-v4.0.8-mac-AU.dmg
-766e73ed47a70dca1ed66806c4ec3d2f264cfa577ca6e81e192e62f46e0b4bf0  gary4juce-v4.0.8-mac-VST3.dmg
-0d4e3e4f95b30622b25296df2ef7c704b14790c843c2306e7d73e8b7cc4eeda7  gary4juce-v4.0.8-mac-STANDALONE.dmg
+298c7f782daa7760c6ed15a4a792db8640b4c9005d9d256dd290c9521b4b712d  gary4juce-v4.0.8-mac-AU.dmg
+688eef7313539a6e7455ad00a1cdee32744ca3ec8e5fdc4e098e104bb7d27f76  gary4juce-v4.0.8-mac-VST3.dmg
+aa827ebf71434f12563923f10a9bdcb2034dce6c297336e949dc1a4179933a2f  gary4juce-v4.0.8-mac-STANDALONE.dmg

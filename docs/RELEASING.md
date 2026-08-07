@@ -338,4 +338,15 @@ local `main` can be a very long way behind without any obvious warning.
 ### License/signing order
 
 Any license or notice files placed inside a macOS AU or VST3 bundle must be
-added before code signing. Modifying a signed bundle invalidates its signature.
+added before code signing. The AU, VST3, and standalone bundles must each be
+Developer ID-signed; signing only the outer DMG is not a substitute for signing
+the executable bundle that the user installs.
+
+The AU and VST3 also use Finder custom-icon metadata because Finder does not
+honor their regular `CFBundleIconFile` in the same way it honors the standalone
+app's icon. Apply that custom icon only after the clean bundle passes
+`codesign --verify --deep --strict`. The intentional `com.apple.FinderInfo` and
+resource-fork metadata makes later `--strict` verification fail, so verify the
+finished AU/VST3 with ordinary `codesign --verify --deep`, Gatekeeper, and the
+notarized DMG instead. The standalone uses its embedded signed icon and should
+continue to pass strict verification.

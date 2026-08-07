@@ -2,7 +2,7 @@ gary4juce v4.0.8-mac adds input-buffer playback to the AU, VST3, and standalone 
 
 Standalone BPM controls now share one persistent, editable wheel across the tabs that need it. You can also move the `gary4juce` audio folder out of Documents and onto another location or external drive, with progress, conflict preservation, and a safe fallback if that location disappears.
 
-The standalone app is included as its own macOS download from this release forward. All three downloads contain universal x86_64/arm64 binaries and include the project license, third-party notices, and exact Corresponding Source information.
+The standalone app is included as its own macOS download from this release forward. All three downloads contain universal x86_64/arm64 binaries and include the project license, third-party notices, and exact Corresponding Source information. The AU and VST3 retain their familiar Gary Finder icon.
 
 This release is paired with [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0).
 
@@ -14,9 +14,9 @@ Included DMGs:
 
 SHA-256:
 
-- AU: `3386e8f30a6bab2bc852518b2581316e5fd618eceeed3342c689b53669aac8a7`
-- VST3: `766e73ed47a70dca1ed66806c4ec3d2f264cfa577ca6e81e192e62f46e0b4bf0`
-- Standalone: `0d4e3e4f95b30622b25296df2ef7c704b14790c843c2306e7d73e8b7cc4eeda7`
+- AU: `298c7f782daa7760c6ed15a4a792db8640b4c9005d9d256dd290c9521b4b712d`
+- VST3: `688eef7313539a6e7455ad00a1cdee32744ca3ec8e5fdc4e098e104bb7d27f76`
+- Standalone: `aa827ebf71434f12563923f10a9bdcb2034dce6c297336e949dc1a4179933a2f`
 
 Recommended gary4local:
 https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0
