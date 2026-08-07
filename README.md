@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.8 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8)
+- [gary4juce v4.0.9 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9)
 - [gary4juce v4.0.8-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8-mac)
 
 **recommended local companions:**
@@ -52,7 +52,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v4.0.9 - wide mode for our friends who hate scroll bars
+### v4.0.9 - wide mode for our friends who hate scroll bars
 
 v4.0.9 adds an optional wide layout with audio on the left and model controls
 on the right. switch between wide and compact mode from the new settings menu.
