@@ -52,21 +52,12 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.8 - listen back and take your files with you
+### upcoming v4.0.9 - wide mode for our friends who hate scroll bars
 
-v4.0.8 adds playback controls for the input buffer and improves short-buffer
-selection, including exact segment selection in the standalone app.
+v4.0.9 adds an optional wide layout with audio on the left and model controls
+on the right. switch between wide and compact mode from the new settings menu.
 
-standalone BPM controls now use one shared, persistent wheel across the tabs
-that need tempo, including Carey complete mode. the standalone app now joins
-the regular Windows and macOS releases from here forward.
-
-you can now move the `gary4juce` audio folder out of Documents and onto another
-location or external drive. migration shows progress, keeps the original copy,
-and falls back safely if the configured location is unavailable. this release
-is paired with [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0)
-on Windows and [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
-on macOS.
+if the current layout already works fine for you, you can skip this one.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

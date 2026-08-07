@@ -392,6 +392,8 @@ CareyUI::CareyUI()
             ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
             : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
         updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
     };
     addToContent(legoAdvancedToggle);
 
@@ -646,6 +648,8 @@ CareyUI::CareyUI()
             ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
             : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
         updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
     };
     addToContent(completeAdvancedToggle);
 
@@ -874,6 +878,8 @@ CareyUI::CareyUI()
             ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
             : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
         updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
     };
     addToContent(coverAdvancedToggle);
 
@@ -1062,6 +1068,8 @@ CareyUI::CareyUI()
             ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
             : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
         updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
     };
     addToContent(extractAdvancedToggle);
 

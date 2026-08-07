@@ -1960,6 +1960,7 @@ void FoundationUI::updateContentLayout()
     const int scrollbarWidth = contentViewport->getVerticalScrollBar().isVisible()
         ? contentViewport->getVerticalScrollBar().getWidth() : 0;
     const int contentWidth = juce::jmax(220, viewportWidth - scrollbarWidth - 4);
+    const bool useWideRows = getWidth() >= 500;
 
     constexpr int sidePadding = 8;
     int y = 8;
@@ -2081,40 +2082,43 @@ void FoundationUI::updateContentLayout()
                 secondaryBtns.add(btn);
         }
 
-        // Center primary row
-        int totalPrimaryW = 0;
-        for (auto* btn : primaryBtns)
-            totalPrimaryW += juce::jmax(50, (int)btnFont.getStringWidthFloat(btn->getButtonText()) + 20);
-        totalPrimaryW += (primaryBtns.size() - 1) * gap;
-        int px = sidePadding + (contentWidth - sidePadding * 2 - totalPrimaryW) / 2;
-        for (auto* btn : primaryBtns)
+        auto layoutCenteredRow = [&](const juce::Array<CustomButton*>& buttons,
+                                     int rowHeight, int minimumWidth, int textPadding)
         {
-            int bw = juce::jmax(50, (int)btnFont.getStringWidthFloat(btn->getButtonText()) + 20);
-            btn->setBounds(px, y, bw, primaryH);
-            px += bw + gap;
-        }
-        y += primaryH + gap;
+            int totalW = 0;
+            for (auto* button : buttons)
+                totalW += juce::jmax(minimumWidth,
+                    (int)btnFont.getStringWidthFloat(button->getButtonText()) + textPadding);
+            totalW += (buttons.size() - 1) * gap;
 
-        // Center secondary row (smaller)
-        if (!secondaryBtns.isEmpty())
-        {
-            int totalSecW = 0;
-            for (auto* btn : secondaryBtns)
-                totalSecW += juce::jmax(40, (int)btnFont.getStringWidthFloat(btn->getButtonText()) + 14);
-            totalSecW += (secondaryBtns.size() - 1) * gap;
-            int sx = sidePadding + (contentWidth - sidePadding * 2 - totalSecW) / 2;
-            for (auto* btn : secondaryBtns)
+            int x = sidePadding + (contentWidth - sidePadding * 2 - totalW) / 2;
+            for (auto* button : buttons)
             {
-                int bw = juce::jmax(40, (int)btnFont.getStringWidthFloat(btn->getButtonText()) + 14);
-                btn->setBounds(sx, y, bw, secondaryH);
-                sx += bw + gap;
+                int buttonW = juce::jmax(minimumWidth,
+                    (int)btnFont.getStringWidthFloat(button->getButtonText()) + textPadding);
+                button->setBounds(x, y, buttonW, rowHeight);
+                x += buttonW + gap;
             }
-            y += secondaryH + gap;
+            y += rowHeight + gap;
+        };
+
+        if (useWideRows)
+        {
+            juce::Array<CustomButton*> allButtons;
+            allButtons.addArray(primaryBtns);
+            allButtons.addArray(secondaryBtns);
+            layoutCenteredRow(allButtons, primaryH, 40, 14);
+        }
+        else
+        {
+            layoutCenteredRow(primaryBtns, primaryH, 50, 20);
+            if (!secondaryBtns.isEmpty())
+                layoutCenteredRow(secondaryBtns, secondaryH, 40, 14);
         }
         y += 4;
     }
 
-    // ---- BEHAVIOR TOGGLES (two per row to save vertical space) ----
+    // ---- BEHAVIOR TOGGLES ----
     {
         constexpr int toggleH = 26;
         constexpr int toggleGap = 4;
@@ -2129,10 +2133,21 @@ void FoundationUI::updateContentLayout()
             y += toggleH + toggleGap;
         };
 
-        // Row 1: speed | rhythm
-        layoutTogglePair(speedToggle, rhythmToggle);
+        auto layoutToggleQuad = [&](CustomButton& first, CustomButton& second,
+                                    CustomButton& third, CustomButton& fourth)
+        {
+            constexpr int columnGap = 4;
+            int columnW = (usableW - columnGap * 3) / 4;
+            int x = sidePadding;
+            for (auto* button : { &first, &second, &third, &fourth })
+            {
+                button->setBounds(x, y, columnW, toggleH);
+                x += columnW + columnGap;
+            }
+            y += toggleH + toggleGap;
+        };
 
-        // Knobs for speed + rhythm (side by side if both open)
+        auto layoutSpeedAndRhythmKnobs = [&]()
         {
             bool speedOn = speedToggle.getToggleState();
             bool rhythmOn = rhythmToggle.getToggleState();
@@ -2149,12 +2164,9 @@ void FoundationUI::updateContentLayout()
                 rhythmAddButton.setVisible(false);
                 rhythmRemoveB.setVisible(false);
             }
-        }
+        };
 
-        // Row 2: contour | density
-        layoutTogglePair(contourToggle, densityToggle);
-
-        // Knobs for contour + density
+        auto layoutContourAndDensityKnobs = [&]()
         {
             bool contourOn = contourToggle.getToggleState();
             bool densityOn = densityToggle.getToggleState();
@@ -2173,12 +2185,9 @@ void FoundationUI::updateContentLayout()
                 densityAddButton.setVisible(false);
                 densityRemoveB.setVisible(false);
             }
-        }
+        };
 
-        // Row 3: spatial | style
-        layoutTogglePair(spatialToggle, styleToggle);
-
-        // Knobs for spatial + style (both single-knob)
+        auto layoutSpatialAndStyleKnobs = [&]()
         {
             bool spatialOn = spatialToggle.getToggleState();
             bool styleOn = styleToggle.getToggleState();
@@ -2190,12 +2199,9 @@ void FoundationUI::updateContentLayout()
                                     nullptr, nullptr,
                                     fullRow, y, sidePadding, contentWidth);
             }
-        }
+        };
 
-        // Row 4: band | synthesis
-        layoutTogglePair(bandToggle, waveTechToggle);
-
-        // Knobs for band + synthesis (both single-knob)
+        auto layoutBandAndSynthesisKnobs = [&]()
         {
             bool bandOn = bandToggle.getToggleState();
             bool waveTechOn = waveTechToggle.getToggleState();
@@ -2207,13 +2213,48 @@ void FoundationUI::updateContentLayout()
                                     nullptr, nullptr,
                                     fullRow, y, sidePadding, contentWidth);
             }
+        };
+
+        if (useWideRows)
+        {
+            layoutToggleQuad(speedToggle, rhythmToggle, contourToggle, densityToggle);
+            layoutToggleQuad(spatialToggle, styleToggle, bandToggle, waveTechToggle);
+
+            layoutSpeedAndRhythmKnobs();
+            layoutContourAndDensityKnobs();
+            layoutSpatialAndStyleKnobs();
+            layoutBandAndSynthesisKnobs();
+        }
+        else
+        {
+            layoutTogglePair(speedToggle, rhythmToggle);
+            layoutSpeedAndRhythmKnobs();
+            layoutTogglePair(contourToggle, densityToggle);
+            layoutContourAndDensityKnobs();
+            layoutTogglePair(spatialToggle, styleToggle);
+            layoutSpatialAndStyleKnobs();
+            layoutTogglePair(bandToggle, waveTechToggle);
+            layoutBandAndSynthesisKnobs();
         }
     }
 
     // ---- FX (guitar-pedal style: toggle reveals stepped knob) ----
     fxSectionLabel.setBounds(fullRow(16)); y += 18;
+    if (useWideRows)
     {
-        // Row 1: reverb, delay, distortion
+        auto fxRow = fullRow(26);
+        int toggleW = (fxRow.getWidth() - 16) / 5;
+        for (auto* toggle : { &reverbToggle, &delayToggle, &distortionToggle,
+                              &phaserToggle, &bitcrushToggle })
+        {
+            toggle->setBounds(fxRow.removeFromLeft(toggleW));
+            if (fxRow.getWidth() >= 4)
+                fxRow.removeFromLeft(4);
+        }
+        y += 30;
+    }
+    else
+    {
         auto fxRow1 = fullRow(26);
         int toggleW = (fxRow1.getWidth() - 8) / 3;
         reverbToggle.setBounds(fxRow1.removeFromLeft(toggleW));
@@ -2221,17 +2262,15 @@ void FoundationUI::updateContentLayout()
         delayToggle.setBounds(fxRow1.removeFromLeft(toggleW));
         fxRow1.removeFromLeft(4);
         distortionToggle.setBounds(fxRow1);
-    }
-    y += 30;
-    {
-        // Row 2: phaser, bitcrush
+        y += 30;
+
         auto fxRow2 = fullRow(26);
         int toggleW2 = (fxRow2.getWidth() - 4) / 2;
         phaserToggle.setBounds(fxRow2.removeFromLeft(toggleW2));
         fxRow2.removeFromLeft(4);
         bitcrushToggle.setBounds(fxRow2);
+        y += 30;
     }
-    y += 30;
 
     // Show knobs side-by-side for active FX — shrink to fit all on one row
     {

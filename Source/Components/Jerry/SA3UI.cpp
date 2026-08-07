@@ -503,6 +503,8 @@ SA3UI::SA3UI()
         advancedOpen = !advancedOpen;
         updateAdvancedToggleText();
         updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
     };
     addToContent(advancedToggle);
 

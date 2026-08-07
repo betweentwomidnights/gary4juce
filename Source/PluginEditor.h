@@ -86,6 +86,14 @@ public:
     
 
 private:
+    enum class EditorLayoutMode { Compact = 0, Wide };
+
+    void layoutInputSection(juce::Rectangle<int> sectionBounds);
+    void layoutModelSection(juce::Rectangle<int> sectionBounds);
+    void layoutOutputSection(juce::Rectangle<int> sectionBounds);
+    void showGarySettingsMenu();
+    void setEditorLayoutMode(EditorLayoutMode mode);
+
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     Gary4juceAudioProcessor& audioProcessor;
@@ -134,7 +142,7 @@ private:
     CustomButton checkConnectionButton;
     CustomButton checkUpdatesButton;
     CustomButton licenseButton;
-    CustomButton storageButton;
+    CustomButton settingsButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
     CustomButton playInputButton;
@@ -145,6 +153,7 @@ private:
     juce::Rectangle<int> recordingLabelArea;
     juce::Rectangle<int> inputStatusArea;      // For status messages
     juce::Rectangle<int> inputInfoArea;        // For sample count info
+    EditorLayoutMode editorLayoutMode = EditorLayoutMode::Compact;
 
     // ========== TAB SYSTEM ==========
     enum class ModelTab
@@ -158,7 +167,7 @@ private:
 
     // Jerry sub-tabs: Stable Audio 3 beta, the original SAOS model, and Foundation-1
     enum class JerrySubTab { SA3 = 0, SAOS, Foundation };
-    JerrySubTab jerrySubTab = JerrySubTab::SAOS;
+    JerrySubTab jerrySubTab = JerrySubTab::SA3;
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
     enum class ActiveOp
@@ -194,7 +203,7 @@ private:
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
     juce::Rectangle<int> fullTabAreaRect;  // Store the calculated tab area
-    ModelTab initialTab = ModelTab::Gary;
+    ModelTab initialTab = ModelTab::Jerry;
 
     juce::String serializePersistentState() const;
     void restorePersistentState(const juce::String& json);

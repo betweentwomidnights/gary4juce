@@ -765,10 +765,11 @@ bool Gary4juceAudioProcessorEditor::writeCurrentOutputToFile(const juce::File& f
 
 void Gary4juceAudioProcessorEditor::updateStorageButtonState()
 {
-    storageButton.setButtonStyle(usingGaryDataFallback
+    settingsButton.setButtonStyle(usingGaryDataFallback
         ? CustomButton::ButtonStyle::Terry
         : CustomButton::ButtonStyle::Standard);
-    storageButton.setTooltip((usingGaryDataFallback ? "using recovery storage: " : "audio storage: ")
+    settingsButton.setTooltip("gary settings: layout & storage\n"
+        + juce::String(usingGaryDataFallback ? "recovery storage: " : "audio storage: ")
         + activeGaryDataDirectory.getFullPathName());
 }
 
@@ -896,7 +897,7 @@ void Gary4juceAudioProcessorEditor::migrateGaryDataDirectory(const juce::File& d
     }
 
     showStatusMessage("copying gary4juce storage...", 60000);
-    storageButton.setEnabled(false);
+    settingsButton.setEnabled(false);
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
@@ -912,7 +913,7 @@ void Gary4juceAudioProcessorEditor::migrateGaryDataDirectory(const juce::File& d
         auto finishWithError = [editor](const juce::String& error)
         {
             editor->storageMigrationInProgress.store(false);
-            editor->storageButton.setEnabled(true);
+            editor->settingsButton.setEnabled(true);
             editor->showStatusMessage(
                 "migration incomplete - original folder remains active: " + error, 12000);
         };
@@ -951,7 +952,7 @@ void Gary4juceAudioProcessorEditor::migrateGaryDataDirectory(const juce::File& d
         editor->activateGaryDataDirectory(destination, false);
         editor->recoverCurrentAudioFiles();
         editor->storageMigrationInProgress.store(false);
-        editor->storageButton.setEnabled(true);
+        editor->settingsButton.setEnabled(true);
         editor->showStatusMessage("storage migration complete - original folder retained", 7000);
     };
 

@@ -3,6 +3,12 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.9 - wide mode for our friends who hate scroll bars
+
+v4.0.9 adds an optional wide layout with the input and output audio on the
+left and model controls on the right. compact mode is still available from the
+new settings menu, and the selected layout is remembered.
+
 ## v4.0.8 - input playback, standalone polish, and movable storage
 
 v4.0.8 adds input-buffer playback in both the plugin and standalone app, plus

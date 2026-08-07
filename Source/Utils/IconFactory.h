@@ -11,6 +11,7 @@ public:
     // Static factory methods for each icon type
     static std::unique_ptr<juce::Drawable> createCropIcon();
     static std::unique_ptr<juce::Drawable> createCheckConnectionIcon();
+    static std::unique_ptr<juce::Drawable> createSettingsIcon();
     static std::unique_ptr<juce::Drawable> createTrashIcon();
     static std::unique_ptr<juce::Drawable> createPlayIcon();
     static std::unique_ptr<juce::Drawable> createPauseIcon();
