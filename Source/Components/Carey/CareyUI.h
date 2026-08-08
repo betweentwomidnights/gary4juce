@@ -531,6 +531,7 @@ public:
     }
 
     std::function<void(SubTab)> onSubTabChanged;
+    std::function<void()> onLayoutHeightChanged;
     std::function<void(const juce::String&)> onCaptionChanged;
     std::function<void(const juce::String&)> onTrackChanged;
     std::function<void(int)> onStepsChanged;

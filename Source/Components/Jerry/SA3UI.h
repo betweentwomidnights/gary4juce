@@ -120,6 +120,7 @@ public:
     std::function<void(const juce::String&)> onShiftChanged;
     std::function<void(const juce::String&)> onKeyScaleChanged;
     std::function<void(SubTab)> onSubTabChanged;
+    std::function<void()> onLayoutHeightChanged;
     std::function<void()> onGenerate;
     std::function<void()> onGenerateDiceRequested;
     std::function<void(const juce::String&)> onTransformPromptChanged;

@@ -23,12 +23,20 @@ using plugin_editor_detail::stripAnsiAndControlChars;
 namespace
 {
     constexpr int kStartupNetworkGraceMs = 750;
+    constexpr int kCompactEditorWidth = 400;
+    constexpr int kCompactEditorHeight = 850;
+    constexpr int kWideEditorWidth = 1040;
+    constexpr int kWideEditorHeight = 720;
+    constexpr int kWideInputSectionHeight = 440;
+    constexpr int kWideLeftColumnWidth = 470;
+    constexpr int kWideColumnGap = 10;
 }
 
 juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
 {
     auto state = std::make_unique<juce::DynamicObject>();
-    state->setProperty("version", 2);
+    state->setProperty("version", 3);
+    state->setProperty("layoutMode", static_cast<int>(editorLayoutMode));
     state->setProperty("modelTab", static_cast<int>(currentTab));
     state->setProperty("jerrySubTab", static_cast<int>(jerrySubTab));
     state->setProperty("inputSourceFile", lastDraggedAudioFile.getFullPathName());
@@ -201,8 +209,12 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
         return has(name) ? static_cast<bool>(get(name)) : fallback;
     };
 
-    initialTab = static_cast<ModelTab>(juce::jlimit(0, 4, readInt("modelTab", 0)));
-    jerrySubTab = static_cast<JerrySubTab>(juce::jlimit(0, 2, readInt("jerrySubTab", 1)));
+    editorLayoutMode = static_cast<EditorLayoutMode>(
+        juce::jlimit(0, 1, readInt("layoutMode", 0)));
+    initialTab = static_cast<ModelTab>(juce::jlimit(0, 4,
+        readInt("modelTab", static_cast<int>(ModelTab::Jerry))));
+    jerrySubTab = static_cast<JerrySubTab>(juce::jlimit(0, 2,
+        readInt("jerrySubTab", static_cast<int>(JerrySubTab::SA3))));
     const auto inputSourcePath = readString("inputSourceFile", {});
     if (inputSourcePath.isNotEmpty())
         lastDraggedAudioFile = juce::File(inputSourcePath);
@@ -370,6 +382,60 @@ void Gary4juceAudioProcessorEditor::persistEditorState()
     audioProcessor.setEditorState(serializePersistentState());
 }
 
+void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
+{
+    enum MenuItem
+    {
+        compactLayout = 1,
+        wideLayout,
+        audioStorage
+    };
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader("layout");
+    menu.addItem(compactLayout, "compact", true,
+        editorLayoutMode == EditorLayoutMode::Compact);
+    menu.addItem(wideLayout, "wide", true,
+        editorLayoutMode == EditorLayoutMode::Wide);
+    menu.addSeparator();
+    menu.addItem(audioStorage,
+        usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    menu.showMenuAsync(
+        juce::PopupMenu::Options()
+            .withTargetComponent(&settingsButton)
+            .withMinimumWidth(190),
+        [safeThis](int result)
+        {
+            if (safeThis == nullptr || result == 0)
+                return;
+
+            if (result == compactLayout)
+                safeThis->setEditorLayoutMode(EditorLayoutMode::Compact);
+            else if (result == wideLayout)
+                safeThis->setEditorLayoutMode(EditorLayoutMode::Wide);
+            else if (result == audioStorage)
+                safeThis->showStorageSettings();
+        });
+}
+
+void Gary4juceAudioProcessorEditor::setEditorLayoutMode(EditorLayoutMode mode)
+{
+    if (editorLayoutMode == mode)
+        return;
+
+    editorLayoutMode = mode;
+    setSize(mode == EditorLayoutMode::Wide
+        ? kWideEditorWidth : kCompactEditorWidth,
+        mode == EditorLayoutMode::Wide
+            ? kWideEditorHeight : kCompactEditorHeight);
+    persistEditorState();
+    showStatusMessage(mode == EditorLayoutMode::Wide
+        ? "wide layout" : "compact layout", 1500);
+    repaint();
+}
+
 void Gary4juceAudioProcessorEditor::setStandaloneBpm(double bpm)
 {
     currentStandaloneBpm = juce::jlimit(40.0, 240.0, bpm);
@@ -409,7 +475,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     restorePersistentState(audioProcessor.getEditorState());
     audioProcessor.setTransformRecording(transformRecording);
 
-    setSize(400, 850);  // Made taller to accommodate controls
+    setSize(editorLayoutMode == EditorLayoutMode::Wide
+        ? kWideEditorWidth : kCompactEditorWidth,
+        editorLayoutMode == EditorLayoutMode::Wide
+            ? kWideEditorHeight : kCompactEditorHeight);
 
 #if JUCE_MAC
     applyStandaloneDockIconIfAvailable();
@@ -708,6 +777,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentSA3SubTab = subTab;
         updateSA3EnablementSnapshot();
     };
+    sa3UI->onLayoutHeightChanged = [this]()
+    {
+        resized();
+        repaint();
+    };
     sa3UI->onGenerate = [this]() { sendToSA3(); };
     sa3UI->onGenerateDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Generate); };
     sa3UI->onTransformPromptChanged = [this](const juce::String& text)
@@ -948,6 +1022,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             || tab == CareyUI::SubTab::Complete
             || tab == CareyUI::SubTab::Cover)
             refreshCareyAvailableLoras(true);
+        resized();
+        repaint();
+    };
+    careyUI->onLayoutHeightChanged = [this]()
+    {
+        resized();
+        repaint();
     };
     careyUI->onCaptionChanged = [this](const juce::String& text) { currentCareyCaption = text; };
     careyUI->onTrackChanged = [this](const juce::String& track) { currentCareyTrackName = track.trim().toLowerCase(); };
@@ -1222,10 +1303,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         }));
     };
 
-    storageButton.setButtonText("storage");
-    storageButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    storageButton.setTooltip("choose or migrate the gary4juce audio storage folder");
-    storageButton.onClick = [this]() { showStorageSettings(); };
+    settingsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    settingsButton.setIcon(IconFactory::createSettingsIcon());
+    settingsButton.setTooltip("gary settings: layout & storage");
+    settingsButton.onClick = [this]() { showGarySettingsMenu(); };
 
     // Backend toggle button setup
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
@@ -1271,7 +1352,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(checkConnectionButton);
     addAndMakeVisible(checkUpdatesButton);
     addAndMakeVisible(licenseButton);
-    addAndMakeVisible(storageButton);
+    addAndMakeVisible(settingsButton);
     addAndMakeVisible(backendToggleButton);
 
     initializeGaryDataDirectory();
@@ -7591,7 +7672,8 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     {
         g.setColour(juce::Colour(0x30, 0x30, 0x30));
     }
-    g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
+    if (editorLayoutMode == EditorLayoutMode::Compact)
+        g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
 
     // Draw the OUTPUT waveform
     drawOutputWaveform(g, outputWaveformArea);
@@ -7633,6 +7715,29 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 void Gary4juceAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
+
+    if (editorLayoutMode == EditorLayoutMode::Wide)
+    {
+        auto leftColumn = bounds.removeFromLeft(kWideLeftColumnWidth);
+        bounds.removeFromLeft(kWideColumnGap);
+
+        layoutInputSection(leftColumn.removeFromTop(kWideInputSectionHeight));
+        layoutOutputSection(leftColumn);
+        layoutModelSection(bounds);
+        return;
+    }
+
+    const auto availableHeight = bounds.getHeight();
+    const auto inputSectionHeight = juce::jmin(320, availableHeight - 380);
+
+    layoutInputSection(bounds.removeFromTop(inputSectionHeight));
+    layoutModelSection(bounds.removeFromTop(320));
+    layoutOutputSection(bounds.removeFromTop(200));
+}
+
+void Gary4juceAudioProcessorEditor::layoutInputSection(juce::Rectangle<int> sectionBounds)
+{
+    auto topSectionBounds = sectionBounds;
 
     // ========== TOP SECTION (FlexBox Implementation) ==========
 // This replaces the manual "removeFromTop(300)" approach
@@ -7695,12 +7800,6 @@ void Gary4juceAudioProcessorEditor::resized()
     topSectionFlexBox.items.add(inputInfoItem);
     topSectionFlexBox.items.add(bufferControlsItem);
 
-    // Calculate how much space the top section needs (flexible based on content)
-    auto availableHeight = bounds.getHeight();
-    auto estimatedTopSectionHeight = juce::jmin(320, availableHeight - 380);  // Leave 380px for tabs+output
-
-    auto topSectionBounds = bounds.removeFromTop(estimatedTopSectionHeight);
-
     // Perform the layout for top section
     topSectionFlexBox.performLayout(topSectionBounds);
 
@@ -7724,12 +7823,12 @@ void Gary4juceAudioProcessorEditor::resized()
         24);
     licenseButton.setBounds(licenseButtonBounds);
 
-    auto storageButtonBounds = juce::Rectangle<int>(
-        licenseButtonBounds.getX() - 76,
-        licenseButtonBounds.getY(),
-        68,
-        24);
-    storageButton.setBounds(storageButtonBounds);
+    auto settingsButtonBounds = juce::Rectangle<int>(
+        licenseButtonBounds.getX() - 38,
+        titleArea.getY() + (titleArea.getHeight() - 30) / 2,
+        30,
+        30);
+    settingsButton.setBounds(settingsButtonBounds);
 
     // Upload button overlay on recording waveform (top-right corner, matching crop button style)
     auto uploadOverlayArea = juce::Rectangle<int>(
@@ -7797,8 +7896,52 @@ void Gary4juceAudioProcessorEditor::resized()
     bufferButtonsFlexBox.items.add(clearBufferItem);
     bufferButtonsFlexBox.performLayout(bufferControlsBounds);
 
+}
+
+void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sectionBounds)
+{
     // ========== TAB AREA ==========
-    auto tabSectionBounds = bounds.removeFromTop(320).reduced(20, 10);
+    auto tabSectionBounds = sectionBounds.reduced(20, 10);
+
+    if (editorLayoutMode == EditorLayoutMode::Wide)
+    {
+        int preferredHeight = tabSectionBounds.getHeight();
+
+        switch (currentTab)
+        {
+        case ModelTab::Gary:   preferredHeight = 310; break;
+        case ModelTab::Carey:
+        {
+            bool advancedOpen = false;
+            if (careyUI != nullptr)
+            {
+                switch (careyUI->getCurrentSubTab())
+                {
+                case CareyUI::SubTab::Lego:     advancedOpen = careyUI->getLegoAdvancedOpen(); break;
+                case CareyUI::SubTab::Complete: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
+                case CareyUI::SubTab::Cover:    advancedOpen = careyUI->getCoverAdvancedOpen(); break;
+                case CareyUI::SubTab::Extract:  advancedOpen = careyUI->getExtractAdvancedOpen(); break;
+                }
+            }
+            preferredHeight = advancedOpen ? tabSectionBounds.getHeight() : 560;
+            break;
+        }
+        case ModelTab::Terry:  preferredHeight = 430; break;
+        case ModelTab::Darius: break;
+        case ModelTab::Jerry:
+            if (jerrySubTab == JerrySubTab::SA3)
+                preferredHeight = sa3UI != nullptr && sa3UI->getAdvancedOpen()
+                    ? tabSectionBounds.getHeight() : 560;
+            else if (jerrySubTab == JerrySubTab::SAOS)
+                preferredHeight = tabSectionBounds.getHeight();
+            break;
+        }
+
+        preferredHeight = juce::jmin(preferredHeight, tabSectionBounds.getHeight());
+        tabSectionBounds = tabSectionBounds.withSizeKeepingCentre(
+            tabSectionBounds.getWidth(), preferredHeight);
+    }
+
     fullTabAreaRect = tabSectionBounds.expanded(20, 10); // Expand back to account for the reduced margins
 
     // Tab buttons area (5 main tabs)
@@ -7952,8 +8095,12 @@ void Gary4juceAudioProcessorEditor::resized()
         foundationUI->setBounds(modelControlsArea);
     // Foundation help button is positioned alongside Jerry sub-tab buttons (handled above)
 
-// ========== OUTPUT SECTION (FlexBox Implementation) ==========
-    auto outputSection = bounds.removeFromTop(200).reduced(20, 10);
+}
+
+void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sectionBounds)
+{
+    // ========== OUTPUT SECTION (FlexBox Implementation) ==========
+    auto outputSection = sectionBounds.reduced(20, 10);
 
     // Create main FlexBox for output section (vertical layout)
     juce::FlexBox outputFlexBox;

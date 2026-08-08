@@ -1,14 +1,16 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.7-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.7-mac",
+  "latest_version": "4.0.8-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8-mac",
   "sha256": null,
-  "published_at": "2026-07-25T03:54:51Z",
+  "published_at": "2026-08-06T21:03:15Z",
   "notes": [
-    "Popups and dialogs now close cleanly with the plugin instead of lingering.",
-    "Backend outage messages now tell local gary4local and the remote backend apart, with the right recovery steps for each.",
-    "SA3 defaults changed: logsnr distribution shift, 0.5 transform strength.",
+    "Input-buffer playback is now available in the AU, VST3, and standalone app, with better exact selection for inputs shorter than 30 seconds.",
+    "Standalone BPM controls now share one persistent, editable wheel across the tabs that need it.",
+    "The gary4juce audio folder can move out of Documents or onto an external drive, with progress, conflict preservation, and safe fallback.",
+    "The standalone app is now included as a regular macOS download alongside AU and VST3.",
+    "All three downloads contain universal x86_64/arm64 binaries and license information.",
     "Recommended gary4local-mac: v0.2.0.",
-    "Close your DAW before replacing plugin files with a downloaded update."
+    "Close your DAW and the standalone app before replacing files with a downloaded update."
   ]
 }
