@@ -1,12 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.9",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9",
-  "sha256": "41606152fc27bf632d7a9c67ed08def471ccf6acb87900e75c5a134528e69484",
-  "published_at": "2026-08-07T17:29:19Z",
+  "latest_version": "4.0.10",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.10",
+  "sha256": "5dcae99adb7c9699e98f2bafc80e3695d5a320148bcfea9feb7d680089e85b08",
+  "published_at": "2026-08-14T01:49:45Z",
   "notes": [
-    "Added an optional wide mode for our friends who hate scroll bars.",
-    "If the current layout works fine for you, you can skip this update.",
+    "The recorded-audio file picker now remembers the last folder you used.",
+    "Saved presets in REAPER now update open plugin instances like they should.",
     "Recommended gary4local: v0.2.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]

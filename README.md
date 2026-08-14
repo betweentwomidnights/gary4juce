@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.9 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9)
+- [gary4juce v4.0.10 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.10)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
@@ -52,7 +52,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v4.0.10 - file picker and preset fixes
+### v4.0.10 - file picker and preset fixes
 
 the recorded-audio file picker now remembers the last folder you used.
 saved presets in REAPER now update open plugin instances like they should.
