@@ -374,8 +374,185 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     DBG("Restored versioned editor state");
 }
 
+void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
+{
+    if (applyingProcessorState)
+        return;
+
+    const juce::ScopedValueSetter<bool> applyingState(applyingProcessorState, true);
+
+    restorePersistentState(audioProcessor.getEditorState());
+    savedSamples = audioProcessor.getSavedSamples();
+    transformRecording = audioProcessor.getTransformRecording();
+    currentCareyLyrics = audioProcessor.getCareyLyrics();
+    currentCareyLanguage = audioProcessor.getCareyLanguage();
+    isUsingLocalhost = audioProcessor.getIsUsingLocalhost();
+
+    setSize(editorLayoutMode == EditorLayoutMode::Wide
+        ? kWideEditorWidth : kCompactEditorWidth,
+        editorLayoutMode == EditorLayoutMode::Wide
+            ? kWideEditorHeight : kCompactEditorHeight);
+
+    if (garyUI != nullptr)
+    {
+        garyUI->setPromptDuration(currentPromptDuration);
+
+        if (auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox()))
+        {
+            for (size_t i = 0; i < garyModelList.size(); ++i)
+            {
+                if (garyModelList[i].fullPath == preferredGaryModelPath)
+                {
+                    modelComboBox->setSelectedId(
+                        garyModelList[i].dropdownId, juce::dontSendNotification);
+                    currentModelIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (jerryUI != nullptr)
+    {
+        jerryUI->selectModelByIdentity(currentJerryModelKey,
+                                       currentJerryFinetuneRepo,
+                                       currentJerryFinetuneCheckpoint);
+        jerryUI->setSelectedSamplerType(currentJerrySamplerType);
+        jerryUI->setPromptText(currentJerryPrompt);
+        jerryUI->setCfg(currentJerryCfg);
+        jerryUI->setSteps(currentJerrySteps);
+        jerryUI->setSmartLoop(generateAsLoop);
+        jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
+        jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
+        jerryUI->setUsingLocalhost(isUsingLocalhost);
+        jerryUI->restoreCustomFinetuneState(currentJerryCustomFinetuneOpen,
+                                            currentJerryCustomFinetuneRepo,
+                                            currentJerryCustomFinetuneCheckpoint);
+    }
+
+    if (sa3UI != nullptr)
+    {
+        sa3UI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
+        sa3UI->setPromptText(currentSA3Prompt);
+        sa3UI->setTransformPromptText(currentSA3TransformPrompt);
+        sa3UI->setTransformStrength(currentSA3TransformStrength);
+        sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
+        sa3UI->setContinueTotalSeconds(currentSA3ContinueTotalSeconds);
+        sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+        sa3UI->setDurationSeconds(currentSA3DurationSeconds);
+        sa3UI->setLoopEnabled(currentSA3LoopEnabled);
+        sa3UI->setBars(currentSA3Bars);
+        sa3UI->setSteps(currentSA3Steps);
+        sa3UI->setCfgScale(currentSA3Cfg);
+        sa3UI->setShift(currentSA3Shift);
+        sa3UI->setKeyScale(currentSA3KeyScale);
+        sa3UI->setNegativePromptText(currentSA3NegativePrompt);
+        sa3UI->setCurrentSubTab(currentSA3SubTab);
+        sa3UI->setAdvancedOpen(currentSA3AdvancedOpen);
+        sa3UI->setLastSeed(currentSA3LastSeed);
+        sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
+        sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+    }
+
+    if (terryUI != nullptr)
+    {
+        terryUI->setVariations(terryVariationNames, currentTerryVariation);
+        terryUI->setCustomPrompt(currentTerryCustomPrompt);
+        terryUI->setFlowstep(currentTerryFlowstep);
+        terryUI->setUseMidpointSolver(useMidpointSolver);
+    }
+
+    if (dariusUI != nullptr)
+    {
+        dariusUI->restoreState(pendingDariusState);
+        dariusBackendUrl = dariusUI->getBackendUrl();
+        dariusUseBaseModel = dariusUI->getUsingBaseModel();
+        dariusFinetuneRepo = dariusUI->getFinetuneRepo();
+        dariusSelectedStepStr = dariusUI->getSelectedCheckpointStep();
+        dariusCentroidWeights = dariusUI->getCentroidWeights();
+    }
+
+    if (careyUI != nullptr)
+    {
+        careyUI->setCaptionText(currentCareyCaption);
+        careyUI->setTrackName(currentCareyTrackName);
+        careyUI->setSteps(currentCareySteps);
+        careyUI->setLegoCfg(currentLegoCfg);
+        careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
+        careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+        careyUI->setExtractTrackName(currentCareyExtractTrackName);
+        careyUI->setExtractBpm(currentCareyExtractBpm);
+        careyUI->setExtractSteps(currentCareyExtractSteps);
+        careyUI->setExtractCfg(currentCareyExtractCfg);
+        careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
+        careyUI->setCompleteModel(currentCareyCompleteModel);
+        careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
+        careyUI->setCompleteSteps(currentCareyCompleteSteps);
+        careyUI->setCompleteCfg(currentCompleteCfg);
+        careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+        careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
+        careyUI->setCoverCaptionText(currentCoverCaption);
+        careyUI->setCoverModel(currentCoverModel);
+        careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
+        careyUI->setCoverAudioStrength(currentCoverAudioStrength);
+        careyUI->setCoverSteps(currentCoverSteps);
+        careyUI->setCoverCfg(currentCoverCfg);
+        careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
+        careyUI->setCoverLoopAssistEnabled(currentCoverLoopAssistEnabled);
+        careyUI->setCoverTrimToInputEnabled(currentCoverTrimToInputEnabled);
+        careyUI->setKeyScale(currentCareyKeyScale);
+        careyUI->setTimeSig(currentCareyTimeSig);
+        careyUI->setCurrentSubTab(currentCareySubTab);
+        careyUI->setLegoAdvancedOpen(currentCareyLegoAdvancedOpen);
+        careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
+        careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
+        careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+        careyUI->setLastSeed(currentCareyLastSeed);
+        careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
+        careyUI->setLyricsText(currentCareyLyrics);
+        careyUI->setLyricsLanguage(currentCareyLanguage);
+        syncCareyLoraUi();
+    }
+
+    if (foundationUI != nullptr)
+    {
+        const auto foundationState = audioProcessor.getFoundationState();
+        if (foundationState.isNotEmpty())
+            foundationUI->restoreState(foundationState);
+
+        foundationUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentStandaloneBpm
+            : (audioProcessor.getCurrentBPM() > 0.0
+                ? audioProcessor.getCurrentBPM() : 120.0));
+    }
+
+    setTerryAudioSource(transformRecording);
+    updateBackendToggleButton();
+    updateCareyTabAvailability();
+    updateAllGenerationButtonStates();
+
+    const auto restoredTab = initialTab;
+    currentTab = restoredTab == ModelTab::Gary ? ModelTab::Terry : ModelTab::Gary;
+    switchToTab(restoredTab);
+
+    DBG("Applied host-loaded state to open editor");
+}
+
 void Gary4juceAudioProcessorEditor::persistEditorState()
 {
+    if (applyingProcessorState)
+        return;
+
+    const auto hostStateRevision = audioProcessor.getHostStateRevision();
+    if (hostStateRevision != lastAppliedHostStateRevision)
+    {
+        lastAppliedHostStateRevision = hostStateRevision;
+        applyProcessorStateToEditor();
+        return;
+    }
+
     if (foundationUI != nullptr)
         audioProcessor.setFoundationState(foundationUI->serializeState());
 
@@ -473,6 +650,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     editorCreatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
     transformRecording = audioProcessor.getTransformRecording();
     restorePersistentState(audioProcessor.getEditorState());
+    lastAppliedHostStateRevision = audioProcessor.getHostStateRevision();
     audioProcessor.setTransformRecording(transformRecording);
 
     setSize(editorLayoutMode == EditorLayoutMode::Wide
@@ -5406,6 +5584,13 @@ void Gary4juceAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcast
 {
     if (source != &audioProcessor || !isEditorValid.load())
         return;
+
+    const auto hostStateRevision = audioProcessor.getHostStateRevision();
+    if (hostStateRevision != lastAppliedHostStateRevision)
+    {
+        lastAppliedHostStateRevision = hostStateRevision;
+        applyProcessorStateToEditor();
+    }
 
     updateConnectionStatus(audioProcessor.isBackendConnected());
 }

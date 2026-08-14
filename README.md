@@ -52,12 +52,10 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.9 - wide mode for our friends who hate scroll bars
+### upcoming v4.0.10 - file picker and preset fixes
 
-v4.0.9 adds an optional wide layout with audio on the left and model controls
-on the right. switch between wide and compact mode from the new settings menu.
-
-if the current layout already works fine for you, you can skip this one.
+the recorded-audio file picker now remembers the last folder you used.
+saved presets in REAPER now update open plugin instances like they should.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

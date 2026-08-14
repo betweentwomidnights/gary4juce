@@ -9,6 +9,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>  // ADD THIS FOR ATOMIC TYPES
+#include <cstdint>
 #include <memory>
 
 //==============================================================================
@@ -141,6 +142,10 @@ public:
     // view, so durable control state must live with the processor.
     void setEditorState(const juce::String& json);
     juce::String getEditorState() const;
+    std::uint64_t getHostStateRevision() const noexcept
+    {
+        return hostStateRevision.load(std::memory_order_acquire);
+    }
 
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
@@ -217,6 +222,7 @@ private:
 
     mutable juce::CriticalSection editorStateLock;
     juce::String editorState;
+    std::atomic<std::uint64_t> hostStateRevision { 0 };
 
     struct OutputPlaybackData
     {

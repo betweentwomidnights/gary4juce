@@ -375,6 +375,8 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
             const juce::String desiredRepo = preferredJerryFinetuneRepo;
             const juce::String desiredCheckpoint = preferredJerryFinetuneCheckpoint;
             const juce::String desiredSampler = currentJerrySamplerType;
+            const float desiredCfg = currentJerryCfg;
+            const int desiredSteps = currentJerrySteps;
 
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
                 modelTypes, modelRepos, modelCheckpoints);
@@ -408,6 +410,13 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
                 preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
                 preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
             }
+
+            // Selecting a model adjusts its slider ranges and defaults. Restore
+            // the host-loaded values after that adjustment.
+            jerryUI->setCfg(desiredCfg);
+            jerryUI->setSteps(desiredSteps);
+            currentJerryCfg = jerryUI->getCfg();
+            currentJerrySteps = jerryUI->getSteps();
 
             DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
         }

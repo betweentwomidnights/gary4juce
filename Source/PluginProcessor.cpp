@@ -1222,6 +1222,12 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
 
         // Restore as unknown until the editor or a manual check revalidates backend status.
         setBackendConnectionStatus(false);
+
+        // Hosts may restore a preset while the editor is already open. Publish a
+        // distinct revision so the existing editor can apply the newly loaded
+        // state instead of overwriting it on its next persistence timer tick.
+        hostStateRevision.fetch_add(1, std::memory_order_release);
+        sendChangeMessage();
     }
 }
 

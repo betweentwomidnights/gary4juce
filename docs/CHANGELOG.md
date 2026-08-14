@@ -3,6 +3,11 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.10 - file picker and preset fixes
+
+the recorded-audio file picker now remembers the last folder you used.
+saved presets in REAPER now update open plugin instances like they should.
+
 ## v4.0.9 - wide mode for our friends who hate scroll bars
 
 v4.0.9 adds an optional wide layout with the input and output audio on the

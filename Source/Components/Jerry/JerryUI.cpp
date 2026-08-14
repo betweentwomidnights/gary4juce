@@ -916,6 +916,34 @@ void JerryUI::setSelectedModel(int index)
     }
 }
 
+bool JerryUI::selectModelByIdentity(const juce::String& key,
+                                    const juce::String& repo,
+                                    const juce::String& checkpoint)
+{
+    int desiredIndex = -1;
+
+    if (repo.isNotEmpty() || checkpoint.isNotEmpty())
+    {
+        for (int i = 0; i < modelNames.size(); ++i)
+        {
+            if (modelRepos[i] == repo && modelCheckpoints[i] == checkpoint)
+            {
+                desiredIndex = i;
+                break;
+            }
+        }
+    }
+
+    if (desiredIndex < 0 && key.isNotEmpty())
+        desiredIndex = modelKeys.indexOf(key);
+
+    if (desiredIndex < 0)
+        return false;
+
+    setSelectedModel(desiredIndex);
+    return true;
+}
+
 int JerryUI::getSelectedModelIndex() const
 {
     return selectedModelIndex;

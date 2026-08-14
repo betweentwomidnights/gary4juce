@@ -207,6 +207,7 @@ private:
 
     juce::String serializePersistentState() const;
     void restorePersistentState(const juce::String& json);
+    void applyProcessorStateToEditor();
     void persistEditorState();
 
     // Global user-data location (shared by every plugin/standalone instance).
@@ -761,6 +762,8 @@ private:
     std::atomic<bool> garyModelFetchScheduled{ false };
     std::atomic<bool> garyModelFetchInFlight{ false };
     int persistentStateTimerTicks = 0;
+    std::uint64_t lastAppliedHostStateRevision = 0;
+    bool applyingProcessorState = false;
 
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);
