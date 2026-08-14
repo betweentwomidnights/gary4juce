@@ -1,12 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.10",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.10",
-  "sha256": "5dcae99adb7c9699e98f2bafc80e3695d5a320148bcfea9feb7d680089e85b08",
-  "published_at": "2026-08-14T01:49:45Z",
+  "latest_version": "4.0.11",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.11",
+  "sha256": "56fc9fb594080379b61a16645a6c78f97cab7ae1e7e216ec47c738eacc55275a",
+  "published_at": "2026-08-14T08:26:07Z",
   "notes": [
-    "The recorded-audio file picker now remembers the last folder you used.",
-    "Saved presets in REAPER now update open plugin instances like they should.",
+    "Double-click the output waveform to select an exact start and end point.",
+    "Storage settings can now create lossless FLAC files in dragged_audio; WAV remains the compatibility default.",
+    "REAPER preset restores now refresh backend health instead of leaving a stale disconnected status.",
     "Recommended gary4local: v0.2.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
