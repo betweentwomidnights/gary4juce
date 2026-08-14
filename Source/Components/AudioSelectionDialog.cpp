@@ -136,9 +136,10 @@ void AudioSelectionDialog::updateInstructionText()
     else
         rangeText = juce::String(selectionMinDuration, 0) + "-" + juce::String(selectionMaxDuration, 0) + "s";
 
-    instructionLabel.setText(
-        "Drag the selection window to choose your starting point (" + rangeText + "), then click Confirm",
-        juce::dontSendNotification);
+    const auto instruction = std::abs(selectionMinDuration - selectionMaxDuration) < 0.001
+        ? "Drag the selection window to choose your starting point (" + rangeText + "), then click Confirm"
+        : "Drag the window or its handles to set the start and end (" + rangeText + "), then click Confirm";
+    instructionLabel.setText(instruction, juce::dontSendNotification);
 }
 
 bool AudioSelectionDialog::loadAudioFile(const juce::File& audioFile)

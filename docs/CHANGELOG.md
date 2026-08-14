@@ -3,6 +3,19 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.11 - waveform ranges and FLAC drag storage
+
+the recording buffer and output waveform now share the same double-click
+start/end range editor, making it possible to trim either source directly in
+gary4juce.
+
+storage settings can now create lossless FLAC files in `dragged_audio` while
+keeping WAV as the compatibility default and as the internal/backend format.
+the FLAC option includes guidance for DAWs that do not document FLAC import.
+
+REAPER preset restores now revalidate backend health so an open plugin does
+not remain stuck on a stale disconnected status.
+
 ## v4.0.10 - file picker and preset fixes
 
 the recorded-audio file picker now remembers the last folder you used.

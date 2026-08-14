@@ -1158,6 +1158,8 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml != nullptr && xml->hasTagName("GARY_STATE"))
     {
+        const bool wasUsingLocalhost = isUsingLocalhost;
+
         savedSamples = xml->getIntAttribute("savedSamples");
         transformRecording = xml->getBoolAttribute("transformRecording");
         currentSessionId = xml->getStringAttribute("currentSessionId");
@@ -1220,8 +1222,11 @@ void Gary4juceAudioProcessor::setStateInformation(const void* data, int sizeInBy
             DBG("Legacy session cleared");
         }
 
-        // Restore as unknown until the editor or a manual check revalidates backend status.
-        setBackendConnectionStatus(false);
+        // Connection health is live process state, not preset state. Preserve a
+        // known-good result when the preset keeps the same backend so loading it
+        // does not flash "disconnected". A backend switch must be revalidated.
+        if (wasUsingLocalhost != isUsingLocalhost)
+            setBackendConnectionStatus(false);
 
         // Hosts may restore a preset while the editor is already open. Publish a
         // distinct revision so the existing editor can apply the newly loaded

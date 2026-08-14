@@ -52,10 +52,16 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.10 - file picker and preset fixes
+### upcoming v4.0.11 - waveform ranges and FLAC drag storage
 
-the recorded-audio file picker now remembers the last folder you used.
-saved presets in REAPER now update open plugin instances like they should.
+double-click the output waveform to open the same selectable start/end window
+available for recorded audio.
+
+storage settings can now create `dragged_audio` handoff files as FLAC. WAV
+remains the compatibility default and the format used with every backend.
+
+REAPER preset restores now refresh connection status instead of leaving an
+open plugin instance showing a stale disconnected state.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

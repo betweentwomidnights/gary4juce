@@ -2266,6 +2266,8 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
 
         inputPlaybackSnapshotSamples = 0;
         inputPlaybackDuration = 0.0;
+        lastDraggedAudioFile = {};
+        lastSelectionStartTime = 0.0;
     }
 
     // Update save button state (only in plugin mode)
@@ -2541,16 +2543,15 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
             g.drawVerticalLine(cursorX + 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
     }
 
-    // Show reselection hint for standalone mode when file is available
-    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
-    if (isStandalone && recordedSamples > 0 && getInputReselectionFile().existsAsFile())
+    // The same range editor is available in plugin and standalone builds.
+    if (recordedSamples > 0 && !isRecording)
     {
         // Draw hint text at bottom-right of waveform
         g.setFont(juce::FontOptions(13.0f));
         g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
         // Create hint area from bottom-right of waveform without modifying original area
         auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
-        g.drawText("double-click to reselect", hintArea, juce::Justification::centredRight);
+        g.drawText("double-click to select range", hintArea, juce::Justification::centredRight);
     }
 }
 
@@ -5575,6 +5576,8 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     }
     inputPlaybackDuration = 0.0;
     inputPlaybackSnapshotSamples = 0;
+    lastDraggedAudioFile = {};
+    lastSelectionStartTime = 0.0;
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
     updateRecordingStatus();
@@ -5590,6 +5593,16 @@ void Gary4juceAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcast
     {
         lastAppliedHostStateRevision = hostStateRevision;
         applyProcessorStateToEditor();
+
+        // Host preset loading deliberately resets connectivity to unknown.
+        // Revalidate immediately so an open editor does not remain stuck on
+        // "disconnected" after the restored controls have been applied.
+        audioProcessor.checkBackendHealth();
+        if (audioProcessor.getIsUsingLocalhost())
+        {
+            resetLocalServiceHealthSnapshot();
+            triggerLocalServiceHealthPoll(true);
+        }
     }
 
     updateConnectionStatus(audioProcessor.isBackendConnected());
@@ -5871,6 +5884,15 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
             g.setColour(juce::Colours::white);
             g.drawText("dragging to DAW...", area, juce::Justification::centred);
+        }
+        else
+        {
+            g.setFont(juce::FontOptions(13.0f));
+            g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+            auto hintArea = juce::Rectangle<int>(
+                area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
+            g.drawText("double-click to select range", hintArea,
+                       juce::Justification::centredRight);
         }
     }
     else
@@ -6413,7 +6435,27 @@ void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& eve
     // Check if double-click is on the recorded audio waveform area
     if (waveformArea.contains(event.getPosition()))
     {
-        const auto selectionSource = getInputReselectionFile();
+        if (recordedSamples <= 0 || isRecording)
+        {
+            showStatusMessage("finish recording before selecting a range", 2500);
+            return;
+        }
+
+        auto selectionSource = getInputReselectionFile();
+        if (!lastDraggedAudioFile.existsAsFile())
+        {
+            if (!ensureGaryDataDirectoryAvailable())
+                return;
+
+            selectionSource = getGaryBufferFile();
+            if (!audioProcessor.saveRecordingToFile(selectionSource))
+            {
+                showStatusMessage("could not prepare the recording buffer for editing", 4000);
+                return;
+            }
+            savedSamples = audioProcessor.getSavedSamples();
+        }
+
         if (selectionSource.existsAsFile())
         {
             DBG("Double-click on waveform - reopening selection dialog for: " +
@@ -6427,8 +6469,97 @@ void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& eve
         return;
     }
 
+    if (outputWaveformArea.contains(event.getPosition()) && hasOutputAudio)
+    {
+        showOutputAudioSelectionDialog();
+        return;
+    }
+
     // Call parent implementation for other areas
     juce::Component::mouseDoubleClick(event);
+}
+
+void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
+{
+    if (!hasOutputAudio || !outputAudioFile.existsAsFile() || totalAudioDuration <= 0.0)
+    {
+        showStatusMessage("output audio is no longer available", 2500);
+        return;
+    }
+
+    auto* dialog = new AudioSelectionDialog();
+    dialog->setSelectionWindowConstraints(1.0, totalAudioDuration, totalAudioDuration);
+
+    if (!dialog->loadAudioFile(outputAudioFile))
+    {
+        delete dialog;
+        showStatusMessage("failed to load output audio", 3000);
+        return;
+    }
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(dialog);
+    options.dialogTitle = "Select Output Audio Range";
+    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.useBottomRightCornerResizer = false;
+
+    auto dialogWindow = options.launchAsync();
+    trackEditorModalWindow(dialogWindow);
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    dialog->onConfirm = [asyncAlive, editor, dialogWindow](
+        const juce::AudioBuffer<float>& selectedBuffer,
+        double sourceSampleRate,
+        double selectionStartTime) mutable
+    {
+        const auto alive = asyncAlive.lock();
+        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+            return;
+
+        editor->fullStopOutputPlayback();
+
+        if (!editor->writeAudioBufferToFileSafely(
+                selectedBuffer, sourceSampleRate, editor->outputAudioFile))
+        {
+            editor->showStatusMessage("failed to save selected output range", 4000);
+            return;
+        }
+
+        editor->loadOutputAudioFile();
+        editor->audioProcessor.clearCurrentSessionId();
+        editor->audioProcessor.setUndoTransformAvailable(false);
+        editor->audioProcessor.setRetryAvailable(false);
+        editor->updateRetryButtonState();
+        editor->updateTerryEnablementSnapshot();
+
+        const double selectedDuration = selectedBuffer.getNumSamples()
+            / juce::jmax(1.0, sourceSampleRate);
+        editor->showStatusMessage(
+            "selected " + juce::String(selectionStartTime, 1) + "s to "
+                + juce::String(selectionStartTime + selectedDuration, 1) + "s from output",
+            3500);
+        editor->repaint();
+
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState(0);
+            dialogWindow->setVisible(false);
+        }
+    };
+
+    dialog->onCancel = [dialogWindow]() mutable
+    {
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState(0);
+            dialogWindow->setVisible(false);
+        }
+    };
 }
 
 // ============================================================================
@@ -6621,8 +6752,14 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         // Create the AudioSelectionDialog
         auto* dialog = new AudioSelectionDialog();
 
-        // Set selection window constraints based on current tab
-        if (isSA3Tab)
+        // Double-click editing exposes free start/end handles. File-import
+        // selection keeps the model-specific conditioning limits below.
+        if (forceSelectionDialog)
+        {
+            const double editableDuration = juce::jmin(fileDuration, maxBufferDuration);
+            dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
+        }
+        else if (isSA3Tab)
             dialog->setSelectionWindowConstraints(10.0, 180.0, 180.0);  // SA3: long conditioning
         else if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
             dialog->setSelectionWindowConstraints(10.0, 180.0, 30.0);   // Complete: short preferred
@@ -6889,7 +7026,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
 
         // Create a unique filename with timestamp for the drag
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+        auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
         uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
 
         // SAFETY: More robust file copy with validation
@@ -6900,17 +7037,20 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             return;
         }
 
-        // Copy the current output file to the unique drag file
-        if (!outputAudioFile.copyFileTo(uniqueDragFile))
+        // The canonical output remains WAV. Only this user-facing drag artifact
+        // is converted when FLAC has explicitly been selected in storage settings.
+        if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
-            DBG("Failed to create unique copy for dragging");
-            showStatusMessage("drag failed - file copy error", 2000);
+            DBG("Failed to create dragged audio file");
+            showStatusMessage("drag failed - could not create "
+                + getDraggedAudioFileExtension().substring(1).toUpperCase()
+                + " file", 3000);
             isDragInProgress.store(false);
             return;
         }
 
         // SAFETY: Validate the copy was successful
-        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() <= 0)
         {
             DBG("Copy validation failed");
             uniqueDragFile.deleteFile();
@@ -7018,43 +7158,18 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 
         // Create unique filename with timestamp
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+        auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
         auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
 
-        // THREAD SAFETY: Use a more robust file copy approach
-        juce::FileInputStream sourceStream(outputAudioFile);
-        if (!sourceStream.openedOk())
+        if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
-            DBG("Failed to open source file for reading");
-            postDragFailure("drag failed - source file locked");
+            DBG("Failed to create dragged audio file");
+            postDragFailure("drag failed - audio conversion error");
             return { false, juce::File{} };
         }
-
-        juce::FileOutputStream destStream(uniqueDragFile);
-        if (!destStream.openedOk())
-        {
-            DBG("Failed to open destination file for writing");
-            postDragFailure("drag failed - destination error");
-            return { false, juce::File{} };
-        }
-
-        // Copy file data in chunks to avoid locking issues
-        const int bufferSize = 8192;
-        char buffer[bufferSize];
-
-        while (!sourceStream.isExhausted())
-        {
-            auto bytesRead = sourceStream.read(buffer, bufferSize);
-            if (bytesRead > 0)
-            {
-                destStream.write(buffer, bytesRead);
-            }
-        }
-
-        destStream.flush();
 
         // Verify the copy worked
-        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() <= 0)
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();

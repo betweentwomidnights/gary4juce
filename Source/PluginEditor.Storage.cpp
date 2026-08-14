@@ -12,6 +12,8 @@ namespace
     constexpr auto kDataDirectoryKey = "dataDirectory";
     constexpr auto kFallbackDirtyKey = "dataDirectoryFallbackDirty";
     constexpr auto kStorageInitializedKey = "dataDirectoryInitialized";
+    constexpr auto kDraggedAudioFormatKey = "draggedAudioFormat";
+    constexpr auto kDraggedAudioFormatComboName = "draggedAudioFormat";
 
     juce::File storageTestDirectoryOverride()
     {
@@ -540,6 +542,11 @@ namespace
 void Gary4juceAudioProcessorEditor::initializeGaryDataDirectory()
 {
     auto& preferences = getUpdatePreferences();
+    draggedAudioFormat = preferences.getValue(kDraggedAudioFormatKey, "wav")
+            .equalsIgnoreCase("flac")
+        ? DraggedAudioFormat::Flac
+        : DraggedAudioFormat::Wav;
+
     const auto testDirectory = storageTestDirectoryOverride();
     const bool testMode = testDirectory != juce::File{};
     const auto configuredPath = testMode
@@ -717,7 +724,92 @@ bool Gary4juceAudioProcessorEditor::writeDataToFileSafely(const juce::File& file
 
 bool Gary4juceAudioProcessorEditor::writeCurrentOutputToFile(const juce::File& file) const
 {
-    if (outputAudioBuffer.getNumChannels() <= 0 || outputAudioBuffer.getNumSamples() <= 0)
+    return writeAudioBufferToFileSafely(outputAudioBuffer, currentAudioSampleRate, file);
+}
+
+juce::String Gary4juceAudioProcessorEditor::getDraggedAudioFileExtension() const
+{
+    return draggedAudioFormat == DraggedAudioFormat::Flac ? ".flac" : ".wav";
+}
+
+void Gary4juceAudioProcessorEditor::setDraggedAudioFormat(DraggedAudioFormat format)
+{
+    if (draggedAudioFormat == format)
+        return;
+
+    draggedAudioFormat = format;
+    auto& preferences = getUpdatePreferences();
+    preferences.setValue(kDraggedAudioFormatKey,
+        format == DraggedAudioFormat::Flac ? "flac" : "wav");
+    preferences.saveIfNeeded();
+}
+
+bool Gary4juceAudioProcessorEditor::createDraggedAudioFile(
+    const juce::File& source,
+    const juce::File& destination) const
+{
+    if (!source.existsAsFile())
+        return false;
+
+    if (draggedAudioFormat == DraggedAudioFormat::Wav)
+        return copyFileSafely(source, destination);
+
+   #if JUCE_USE_FLAC
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(source));
+    if (reader == nullptr || reader->sampleRate <= 0.0
+        || reader->numChannels == 0 || reader->lengthInSamples <= 0)
+        return false;
+
+    const auto parentResult = destination.getParentDirectory().createDirectory();
+    if (!parentResult.wasOk())
+        return false;
+
+    const auto temporaryFile = destination.getParentDirectory().getNonexistentChildFile(
+        destination.getFileNameWithoutExtension() + ".encoding",
+        destination.getFileExtension(), true);
+    auto stream = temporaryFile.createOutputStream();
+    if (stream == nullptr || !stream->openedOk())
+    {
+        temporaryFile.deleteFile();
+        return false;
+    }
+
+    juce::FlacAudioFormat flacFormat;
+    const auto bitDepth = reader->bitsPerSample > 16 ? 24 : 16;
+    std::unique_ptr<juce::AudioFormatWriter> writer(flacFormat.createWriterFor(
+        stream.release(), reader->sampleRate, reader->numChannels,
+        bitDepth, {}, 5));
+    if (writer == nullptr)
+    {
+        temporaryFile.deleteFile();
+        return false;
+    }
+
+    const bool written = writer->writeFromAudioReader(*reader, 0, -1);
+    writer.reset();
+    if (!written || temporaryFile.getSize() <= 0)
+    {
+        temporaryFile.deleteFile();
+        return false;
+    }
+
+    const bool installed = copyFileSafely(temporaryFile, destination);
+    temporaryFile.deleteFile();
+    return installed;
+   #else
+    juce::ignoreUnused(destination);
+    return false;
+   #endif
+}
+
+bool Gary4juceAudioProcessorEditor::writeAudioBufferToFileSafely(
+    const juce::AudioBuffer<float>& buffer,
+    double sampleRate,
+    const juce::File& file) const
+{
+    if (buffer.getNumChannels() <= 0 || buffer.getNumSamples() <= 0)
         return false;
 
     const auto parentResult = file.getParentDirectory().createDirectory();
@@ -736,8 +828,8 @@ bool Gary4juceAudioProcessorEditor::writeCurrentOutputToFile(const juce::File& f
 
     juce::WavAudioFormat format;
     std::unique_ptr<juce::AudioFormatWriter> writer(format.createWriterFor(
-        stream.release(), juce::jmax(1.0, currentAudioSampleRate),
-        outputAudioBuffer.getNumChannels(), 16, {}, 0));
+        stream.release(), juce::jmax(1.0, sampleRate),
+        buffer.getNumChannels(), 16, {}, 0));
     if (writer == nullptr)
     {
         temporaryFile.deleteFile();
@@ -745,7 +837,7 @@ bool Gary4juceAudioProcessorEditor::writeCurrentOutputToFile(const juce::File& f
     }
 
     const bool written = writer->writeFromAudioSampleBuffer(
-        outputAudioBuffer, 0, outputAudioBuffer.getNumSamples());
+        buffer, 0, buffer.getNumSamples());
     writer.reset();
     if (!written)
     {
@@ -788,6 +880,19 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
         usingGaryDataFallback ? juce::MessageBoxIconType::WarningIcon
                               : juce::MessageBoxIconType::InfoIcon,
         this);
+    alert->addComboBox(kDraggedAudioFormatComboName,
+        { "wav - maximum DAW compatibility",
+          "flac - smaller, lossless; DAW support required" },
+        "dragged audio format");
+    if (auto* formatBox = alert->getComboBoxComponent(kDraggedAudioFormatComboName))
+    {
+        formatBox->setSelectedId(
+            draggedAudioFormat == DraggedAudioFormat::Flac ? 2 : 1,
+            juce::dontSendNotification);
+    }
+    alert->addTextBlock(
+        "FLAC works with Ableton Live, Bitwig, and REAPER. "
+        "Use WAV for Logic Pro, GarageBand, and Fender Studio.");
     alert->addButton("change / migrate", 1);
     if (usingGaryDataFallback && configuredGaryDataDirectory != juce::File{})
         alert->addButton("retry configured", 2);
@@ -802,10 +907,18 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
     alert->enterModalState(true, juce::ModalCallbackFunction::create(
         [asyncAlive, editor, alert](int result)
         {
+            auto selectedFormatId = 1;
+            if (const auto* formatBox = alert->getComboBoxComponent(
+                    kDraggedAudioFormatComboName))
+                selectedFormatId = formatBox->getSelectedId();
             std::unique_ptr<juce::AlertWindow> cleanup(alert);
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
+
+            editor->setDraggedAudioFormat(selectedFormatId == 2
+                ? DraggedAudioFormat::Flac
+                : DraggedAudioFormat::Wav);
 
             if (result == 1)
                 editor->chooseGaryDataDirectory();

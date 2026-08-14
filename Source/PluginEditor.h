@@ -213,16 +213,27 @@ private:
     // Global user-data location (shared by every plugin/standalone instance).
     void initializeGaryDataDirectory();
     bool ensureGaryDataDirectoryAvailable(bool notifyUser = true);
+    enum class DraggedAudioFormat
+    {
+        Wav,
+        Flac
+    };
     juce::File getGaryDataDirectory() const { return activeGaryDataDirectory; }
     juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
     juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
     juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    juce::String getDraggedAudioFileExtension() const;
+    void setDraggedAudioFormat(DraggedAudioFormat format);
+    bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
     void showStorageSettings();
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);
     void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
     void recoverCurrentAudioFiles();
     bool writeDataToFileSafely(const juce::File& file, const void* data, size_t dataSize) const;
+    bool writeAudioBufferToFileSafely(const juce::AudioBuffer<float>& buffer,
+                                      double sampleRate,
+                                      const juce::File& file) const;
     bool writeCurrentOutputToFile(const juce::File& file) const;
     void updateStorageButtonState();
 
@@ -709,6 +720,7 @@ private:
     // Drag and drop functionality (input)
     bool isDragHoveringInput = false;
     void loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog = false);
+    void showOutputAudioSelectionDialog();
     juce::File lastDraggedAudioFile;  // Stores path for double-click reselection
     double lastSelectionStartTime = 0.0;  // Stores last selection position for reopening dialog
 
@@ -783,6 +795,7 @@ private:
     std::unique_ptr<juce::ThreadWithProgressWindow> storageMigrationTask;
     juce::File configuredGaryDataDirectory;
     juce::File activeGaryDataDirectory;
+    DraggedAudioFormat draggedAudioFormat = DraggedAudioFormat::Wav;
     bool usingGaryDataFallback = false;
     bool garyDataFallbackDirty = false;
     std::atomic<bool> storageMigrationInProgress { false };
