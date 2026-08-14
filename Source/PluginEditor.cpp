@@ -29,6 +29,7 @@ namespace
     constexpr int kWideInputSectionHeight = 440;
     constexpr int kWideLeftColumnWidth = 470;
     constexpr int kWideColumnGap = 10;
+    constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
 }
 
 juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
@@ -1411,9 +1412,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton.setTooltip("load an audio file into the recording buffer");
     uploadButton.onClick = [this]()
     {
+        const auto savedDirectory = juce::File(
+            getUpdatePreferences().getValue(kRecordingBufferFileChooserDirectoryKey));
+        const auto initialDirectory = savedDirectory.isDirectory()
+            ? savedDirectory
+            : juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
+
         uploadFileChooser = std::make_unique<juce::FileChooser>(
             "load audio into recording buffer",
-            juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+            initialDirectory,
             "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a",
             true,
             false,
@@ -1431,7 +1438,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
                 auto result = fc.getResult();
                 if (result.existsAsFile())
+                {
+                    auto& preferences = editor->getUpdatePreferences();
+                    preferences.setValue(kRecordingBufferFileChooserDirectoryKey,
+                                         result.getParentDirectory().getFullPathName());
+                    preferences.saveIfNeeded();
                     editor->loadAudioFileIntoBuffer(result);
+                }
             });
     };
     uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
