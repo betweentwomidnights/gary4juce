@@ -1,14 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.11",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.11",
-  "sha256": "56fc9fb594080379b61a16645a6c78f97cab7ae1e7e216ec47c738eacc55275a",
-  "published_at": "2026-08-14T08:26:07Z",
+  "latest_version": "4.0.12",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.12",
+  "sha256": "d2cb68c7e6e2df519b6e2d32ce478fbe37b6b3b60276823f424793950c4f5408",
+  "published_at": "2026-08-16T10:56:55Z",
   "notes": [
-    "Double-click the output waveform to select an exact start and end point.",
-    "Storage settings can now create lossless FLAC files in dragged_audio; WAV remains the compatibility default.",
-    "REAPER preset restores now refresh backend health instead of leaving a stale disconnected status.",
-    "Recommended gary4local: v0.2.0.",
+    "Terry can now reuse an exact seed.",
+    "Jerry's SAOS model dropdown now refreshes after loading presets.",
+    "Recommended gary4local: v0.2.1.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

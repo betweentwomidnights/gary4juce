@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.11 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.11)
+- [gary4juce v4.0.12 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.12)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0)
+- windows: [gary4local v0.2.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.1)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -52,7 +52,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v4.0.12 - minor Terry and preset fixes
+### v4.0.12 - minor Terry and preset fixes
 
 Terry can now reuse an exact seed. Jerry's SAOS model list now refreshes
 correctly after loading presets.
