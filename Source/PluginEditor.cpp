@@ -7788,9 +7788,15 @@ void Gary4juceAudioProcessorEditor::resized()
     const auto availableHeight = bounds.getHeight();
     const auto inputSectionHeight = juce::jmin(320, availableHeight - 380);
 
+    // The model section takes whatever is left rather than a fixed 320, so the
+    // slack under the panel goes to the panel instead of sitting empty above
+    // the output divider. Output is pinned to its own minimum (waveform
+    // minHeight 80 plus 100 of fixed rows), so it is claimed from the bottom
+    // first and never squeezed.
     layoutInputSection(bounds.removeFromTop(inputSectionHeight));
-    layoutModelSection(bounds.removeFromTop(320));
-    layoutOutputSection(bounds.removeFromTop(200));
+    auto outputSectionBounds = bounds.removeFromBottom(200);
+    layoutModelSection(bounds);
+    layoutOutputSection(outputSectionBounds);
 }
 
 void Gary4juceAudioProcessorEditor::layoutInputSection(juce::Rectangle<int> sectionBounds)

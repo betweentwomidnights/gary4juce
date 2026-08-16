@@ -235,6 +235,10 @@ void TerryUI::resized()
     juce::FlexItem promptLabelItem(terryCustomPromptLabel);
     promptLabelItem.height = 18;  // Changed from 15
     promptLabelItem.margin = juce::FlexItem::Margin(2, 0, 4, 0);
+    // In compact the column overflows and flexbox shrinks every item to fit.
+    // 18px is already the minimum this 12pt label can draw in, so exempt it
+    // and let the taller rows absorb the difference.
+    promptLabelItem.flexShrink = 0.0f;
 
     juce::FlexItem promptEditorItem(terryCustomPromptEditor);
     promptEditorItem.height = 28;
@@ -260,13 +264,13 @@ void TerryUI::resized()
     seedRowItem.height = 25;
     seedRowItem.margin = juce::FlexItem::Margin(3, 0, 6, 0);
 
-    juce::FlexItem transformItem(transformWithTerryButton);
-    transformItem.height = 35;
-    transformItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
-
-    juce::FlexItem undoItem(undoTransformButton);
-    undoItem.height = 35;
-    undoItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+    // Transform and undo share one row. Stacked they cost 90px of column for
+    // 35px of button, which is the difference between the panel fitting in
+    // compact and flexbox shrinking every row to squeeze it in.
+    juce::Component buttonRowComponent;
+    juce::FlexItem buttonRowItem(buttonRowComponent);
+    buttonRowItem.height = 35;
+    buttonRowItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
 
     column.items.add(titleItem);
     column.items.add(variationRowItem);
@@ -276,8 +280,7 @@ void TerryUI::resized()
     column.items.add(solverRowItem);
     column.items.add(sourceRowItem);
     column.items.add(seedRowItem);
-    column.items.add(transformItem);
-    column.items.add(undoItem);
+    column.items.add(buttonRowItem);
 
     column.performLayout(terryBounds);
 
@@ -388,14 +391,18 @@ void TerryUI::resized()
     seedRow.items.add(lastSeedItem);
     seedRow.performLayout(seedRowBounds);
 
-    auto transformBounds = column.items[8].currentBounds.toNearestInt();
-    auto transformButtonArea = transformBounds.withWidth(juce::jmin(220, transformBounds.getWidth()))
-        .withCentre(transformBounds.getCentre());
+    auto buttonRowBounds = column.items[8].currentBounds.toNearestInt();
+    constexpr int kButtonGap = 10;
+    auto transformHalf = buttonRowBounds.removeFromLeft((buttonRowBounds.getWidth() - kButtonGap) / 2);
+    buttonRowBounds.removeFromLeft(kButtonGap);
+    auto undoHalf = buttonRowBounds;
+
+    auto transformButtonArea = transformHalf.withWidth(juce::jmin(220, transformHalf.getWidth()))
+        .withCentre(transformHalf.getCentre());
     transformWithTerryButton.setBounds(transformButtonArea);
 
-    auto undoBounds = column.items[9].currentBounds.toNearestInt();
-    auto undoButtonArea = undoBounds.withWidth(juce::jmin(170, undoBounds.getWidth()))
-        .withCentre(undoBounds.getCentre());
+    auto undoButtonArea = undoHalf.withWidth(juce::jmin(170, undoHalf.getWidth()))
+        .withCentre(undoHalf.getCentre());
     undoTransformButton.setBounds(undoButtonArea);
 }
 
