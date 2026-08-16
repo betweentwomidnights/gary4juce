@@ -127,23 +127,13 @@ TerryUI::TerryUI()
 
     seedEditor.setMultiLine(false);
     seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
-    seedEditor.setTooltip("seed for repeatable terry transforms. melodyflow isn't bit-identical run to run "
-                          "(the gpu picks its own convolution algorithms), but the same seed gets you very, "
-                          "very close - close enough to compare two machines");
+    seedEditor.setTooltip("fills in with the seed terry just used - tick \"use seed\" to run that one again. "
+                          "melodyflow isn't bit-identical run to run (the gpu picks its own convolution "
+                          "algorithms), but the same seed gets you very, very close");
     seedEditor.setInputRestrictions(20, "0123456789");
     seedEditor.setEnabled(false);
     seedEditor.setAlpha(0.45f);
     addAndMakeVisible(seedEditor);
-
-    lastSeedLabel.setText("last seed: -", juce::dontSendNotification);
-    lastSeedLabel.setFont(juce::FontOptions(11.0f));
-    lastSeedLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
-    lastSeedLabel.setJustificationType(juce::Justification::centredLeft);
-    lastSeedLabel.setTooltip("the seed terry actually used. tick \"use seed\" to run it again - you'll get "
-                            "very nearly the same audio, though not bit for bit");
-    // labels don't take mouse events by default, and the tooltip needs them
-    lastSeedLabel.setInterceptsMouseClicks(true, false);
-    addAndMakeVisible(lastSeedLabel);
 
     terrySourceLabel.setText("transform", juce::dontSendNotification);
     terrySourceLabel.setFont(juce::FontOptions(12.0f));
@@ -383,17 +373,9 @@ void TerryUI::resized()
     seedEditorItem.height = 21;
     seedEditorItem.alignSelf = juce::FlexItem::AlignSelf::center;
     seedEditorItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-    // No alignSelf here: FlexItem::height defaults to notAssigned, so opting
-    // out of the container's stretch leaves the item with no height at all.
-    // Stretching to the row is what makes it visible; the label centres its
-    // own text vertically.
-    juce::FlexItem lastSeedItem(lastSeedLabel);
-    lastSeedItem.flexGrow = 1;
-    lastSeedItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
     seedRow.items.add(seedLabelItem);
     seedRow.items.add(useSeedItem);
     seedRow.items.add(seedEditorItem);
-    seedRow.items.add(lastSeedItem);
     seedRow.performLayout(seedRowBounds);
 
     auto buttonRowBounds = column.items[8].currentBounds.toNearestInt();
@@ -501,8 +483,9 @@ void TerryUI::setLastSeed(const juce::String& seed)
     if (trimmed.isEmpty())
         return;
 
+    // The editor is the readout. It keeps showing the seed while greyed out,
+    // so ticking "use seed" runs the last one back without retyping it.
     lastSeed = trimmed;
-    lastSeedLabel.setText("last seed: " + trimmed, juce::dontSendNotification);
     seedEditor.setText(trimmed, false);
 }
 

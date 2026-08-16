@@ -68,7 +68,6 @@ private:
     juce::Label terrySeedLabel;
     juce::ToggleButton useSeedToggle;
     CustomTextEditor seedEditor;
-    juce::Label lastSeedLabel;
     juce::String lastSeed;
     juce::Label terrySourceLabel;
     juce::ToggleButton transformRecordingButton;
