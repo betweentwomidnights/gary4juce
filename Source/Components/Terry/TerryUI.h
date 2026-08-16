@@ -36,6 +36,13 @@ public:
     bool getUseMidpointSolver() const;
     bool getAudioSourceRecording() const;
 
+    juce::int64 getSeed() const;
+    bool getUseSeedEnabled() const { return useSeedToggle.getToggleState(); }
+    juce::String getSeedText() const { return seedEditor.getText().trim(); }
+    void setSeedState(bool enabled, const juce::String& seedText);
+    juce::String getLastSeed() const { return lastSeed; }
+    void setLastSeed(const juce::String& seed);
+
     juce::Rectangle<int> getTitleBounds() const;
 
     std::function<void(int)> onVariationChanged;
@@ -58,6 +65,11 @@ private:
     CustomSlider terryFlowstepSlider;
     juce::Label terrySolverLabel;
     juce::ToggleButton terrySolverToggle;
+    juce::Label terrySeedLabel;
+    juce::ToggleButton useSeedToggle;
+    CustomTextEditor seedEditor;
+    juce::Label lastSeedLabel;
+    juce::String lastSeed;
     juce::Label terrySourceLabel;
     juce::ToggleButton transformRecordingButton;
     juce::ToggleButton transformOutputButton;

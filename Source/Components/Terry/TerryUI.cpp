@@ -105,6 +105,45 @@ TerryUI::TerryUI()
     };
     addAndMakeVisible(terrySolverToggle);
 
+    terrySeedLabel.setText("seed", juce::dontSendNotification);
+    terrySeedLabel.setFont(juce::FontOptions(12.0f));
+    terrySeedLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    terrySeedLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terrySeedLabel);
+
+    useSeedToggle.setButtonText("use seed");
+    useSeedToggle.setToggleState(false, juce::dontSendNotification);
+    useSeedToggle.setTooltip("when enabled, submit the seed value below instead of asking the backend for a random seed");
+    useSeedToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    useSeedToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+    useSeedToggle.onClick = [this]()
+    {
+        const bool on = useSeedToggle.getToggleState();
+        seedEditor.setEnabled(on);
+        seedEditor.setAlpha(on ? 1.0f : 0.45f);
+    };
+    addAndMakeVisible(useSeedToggle);
+
+    seedEditor.setMultiLine(false);
+    seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
+    seedEditor.setTooltip("seed for repeatable terry transforms. melodyflow isn't bit-identical run to run "
+                          "(the gpu picks its own convolution algorithms), but the same seed gets you very, "
+                          "very close - close enough to compare two machines");
+    seedEditor.setInputRestrictions(20, "0123456789");
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.45f);
+    addAndMakeVisible(seedEditor);
+
+    lastSeedLabel.setText("last seed: -", juce::dontSendNotification);
+    lastSeedLabel.setFont(juce::FontOptions(11.0f));
+    lastSeedLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+    lastSeedLabel.setJustificationType(juce::Justification::centredLeft);
+    lastSeedLabel.setTooltip("the seed terry actually used. tick \"use seed\" to run it again - you'll get "
+                            "very nearly the same audio, though not bit for bit");
+    // labels don't take mouse events by default, and the tooltip needs them
+    lastSeedLabel.setInterceptsMouseClicks(true, false);
+    addAndMakeVisible(lastSeedLabel);
+
     terrySourceLabel.setText("transform", juce::dontSendNotification);
     terrySourceLabel.setFont(juce::FontOptions(12.0f));
     terrySourceLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -211,6 +250,11 @@ void TerryUI::resized()
     solverRowItem.height = 25;
     solverRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
 
+    juce::Component seedRowComponent;
+    juce::FlexItem seedRowItem(seedRowComponent);
+    seedRowItem.height = 25;
+    seedRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
     juce::Component sourceRowComponent;
     juce::FlexItem sourceRowItem(sourceRowComponent);
     sourceRowItem.height = 25;
@@ -230,6 +274,7 @@ void TerryUI::resized()
     column.items.add(promptEditorItem);
     column.items.add(flowRowItem);
     column.items.add(solverRowItem);
+    column.items.add(seedRowItem);
     column.items.add(sourceRowItem);
     column.items.add(transformItem);
     column.items.add(undoItem);
@@ -298,7 +343,30 @@ void TerryUI::resized()
     if (!bpmLabel.isVisible())
         bpmLabel.setBounds({});
 
-    auto sourceRowBounds = column.items[6].currentBounds.toNearestInt();
+    auto seedRowBounds = column.items[6].currentBounds.toNearestInt();
+    juce::FlexBox seedRow;
+    seedRow.flexDirection = juce::FlexBox::Direction::row;
+    seedRow.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+    juce::FlexItem seedLabelItem(terrySeedLabel);
+    seedLabelItem.width = 80;
+    seedLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    juce::FlexItem useSeedItem(useSeedToggle);
+    useSeedItem.width = 92;
+    useSeedItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    juce::FlexItem seedEditorItem(seedEditor);
+    seedEditorItem.width = 100;
+    seedEditorItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    juce::FlexItem lastSeedItem(lastSeedLabel);
+    lastSeedItem.flexGrow = 1;
+    lastSeedItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
+    lastSeedItem.alignSelf = juce::FlexItem::AlignSelf::center;
+    seedRow.items.add(seedLabelItem);
+    seedRow.items.add(useSeedItem);
+    seedRow.items.add(seedEditorItem);
+    seedRow.items.add(lastSeedItem);
+    seedRow.performLayout(seedRowBounds);
+
+    auto sourceRowBounds = column.items[7].currentBounds.toNearestInt();
     juce::FlexBox sourceRow;
     sourceRow.flexDirection = juce::FlexBox::Direction::row;
     sourceRow.justifyContent = juce::FlexBox::JustifyContent::flexStart;
@@ -316,12 +384,12 @@ void TerryUI::resized()
     sourceRow.items.add(outputItem);
     sourceRow.performLayout(sourceRowBounds);
 
-    auto transformBounds = column.items[7].currentBounds.toNearestInt();
+    auto transformBounds = column.items[8].currentBounds.toNearestInt();
     auto transformButtonArea = transformBounds.withWidth(juce::jmin(220, transformBounds.getWidth()))
         .withCentre(transformBounds.getCentre());
     transformWithTerryButton.setBounds(transformButtonArea);
 
-    auto undoBounds = column.items[8].currentBounds.toNearestInt();
+    auto undoBounds = column.items[9].currentBounds.toNearestInt();
     auto undoButtonArea = undoBounds.withWidth(juce::jmin(170, undoBounds.getWidth()))
         .withCentre(undoBounds.getCentre());
     undoTransformButton.setBounds(undoButtonArea);
@@ -389,6 +457,37 @@ void TerryUI::setTransformButtonText(const juce::String& text)
 void TerryUI::setUndoButtonText(const juce::String& text)
 {
     undoTransformButton.setButtonText(text);
+}
+
+juce::int64 TerryUI::getSeed() const
+{
+    if (!useSeedToggle.getToggleState())
+        return -1;
+
+    const auto text = seedEditor.getText().trim();
+    if (text.isEmpty())
+        return -1;
+
+    return text.getLargeIntValue();
+}
+
+void TerryUI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
+void TerryUI::setLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    lastSeed = trimmed;
+    lastSeedLabel.setText("last seed: " + trimmed, juce::dontSendNotification);
+    seedEditor.setText(trimmed, false);
 }
 
 void TerryUI::setVisibleForTab(bool visible)

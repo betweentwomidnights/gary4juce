@@ -116,6 +116,12 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("terryFlowstep", currentTerryFlowstep);
     state->setProperty("terryMidpoint", useMidpointSolver);
     state->setProperty("transformRecording", transformRecording);
+    state->setProperty("terryLastSeed",
+        terryUI != nullptr ? terryUI->getLastSeed() : currentTerryLastSeed);
+    state->setProperty("terryUseSeed",
+        terryUI != nullptr ? terryUI->getUseSeedEnabled() : currentTerryUseSeed);
+    state->setProperty("terrySeedText",
+        terryUI != nullptr ? terryUI->getSeedText() : currentTerrySeedText);
 
     state->setProperty("careySubTab", static_cast<int>(
         careyUI != nullptr ? careyUI->getCurrentSubTab() : currentCareySubTab));
@@ -295,6 +301,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentTerryFlowstep = static_cast<float>(readDouble("terryFlowstep", currentTerryFlowstep));
     useMidpointSolver = readBool("terryMidpoint", useMidpointSolver);
     transformRecording = readBool("transformRecording", transformRecording);
+    currentTerryLastSeed = readString("terryLastSeed", currentTerryLastSeed);
+    currentTerryUseSeed = readBool("terryUseSeed", currentTerryUseSeed);
+    currentTerrySeedText = readString("terrySeedText", currentTerrySeedText);
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
         juce::jlimit(0, 3, readInt("careySubTab", 0)));
@@ -462,6 +471,8 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         terryUI->setCustomPrompt(currentTerryCustomPrompt);
         terryUI->setFlowstep(currentTerryFlowstep);
         terryUI->setUseMidpointSolver(useMidpointSolver);
+        terryUI->setLastSeed(currentTerryLastSeed);
+        terryUI->setSeedState(currentTerryUseSeed, currentTerrySeedText);
     }
 
     if (dariusUI != nullptr)

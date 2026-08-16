@@ -34,6 +34,18 @@ void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
     updateSA3EnablementSnapshot();
 }
 
+void Gary4juceAudioProcessorEditor::setTerryLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    currentTerryLastSeed = trimmed;
+    currentTerrySeedText = trimmed;
+    if (terryUI)
+        terryUI->setLastSeed(trimmed);
+}
+
 void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()
 {
     if (!terryUI)
@@ -199,12 +211,14 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     const bool useMidpoint = useMidpointSolver;
     const juce::String customPrompt = currentTerryCustomPrompt;
     const int selectedVariation = currentTerryVariation;
+    const juce::int64 requestSeed = terryUI != nullptr ? terryUI->getSeed() : -1;
+    DBG("Terry seed: " + (requestSeed >= 0 ? juce::String(requestSeed) : juce::String("random")));
     const juce::URL requestUrl(getServiceUrl(ServiceType::Terry, "/api/juce/transform_audio"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
-    juce::Thread::launch([safeThis, generationToken, base64Audio, variationNames, hasVariation, hasCustomPrompt, flowstep, useMidpoint, customPrompt, selectedVariation, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, base64Audio, variationNames, hasVariation, hasCustomPrompt, flowstep, useMidpoint, customPrompt, selectedVariation, requestSeed, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Terry request aborted - generation stopped");
             return;
@@ -217,6 +231,8 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
         jsonRequest->setProperty("audio_data", base64Audio);
         jsonRequest->setProperty("flowstep", flowstep);
         jsonRequest->setProperty("solver", useMidpoint ? "midpoint" : "euler");
+        // -1 tells the backend to pick one and hand it back as the last seed.
+        jsonRequest->setProperty("seed", requestSeed);
 
         // FIXED: Always send a variation (required by backend), custom_prompt overrides it
         if (hasCustomPrompt)
@@ -320,6 +336,11 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
                         safeThis->showStatusMessage("sent to terry. processing...", 2000);
                         DBG("Terry session ID: " + sessionId);
+
+                        // The backend echoes the seed it actually ran, whether we
+                        // asked for one or let it choose.
+                        if (responseObj->hasProperty("seed"))
+                            safeThis->setTerryLastSeed(responseObj->getProperty("seed").toString());
 
                         // START POLLING FOR RESULTS (same as Gary)
                         safeThis->startPollingForResults(sessionId);  // This sets currentSessionId = sessionId

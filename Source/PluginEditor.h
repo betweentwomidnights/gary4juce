@@ -539,10 +539,14 @@ private:
     float currentTerryFlowstep = 0.130f;
     bool useMidpointSolver = false;  // false = euler, true = midpoint
     bool transformRecording = false; // false = transform output, true = transform recording
+    juce::String currentTerryLastSeed;
+    bool currentTerryUseSeed = false;
+    juce::String currentTerrySeedText;
     juce::String pendingDariusState;
 
     // Terry helper methods
     void updateTerryEnablementSnapshot();
+    void setTerryLastSeed(const juce::String& seed);
     void setTerryAudioSource(bool useRecording);
     void sendToTerry();
     void undoTerryTransform();
