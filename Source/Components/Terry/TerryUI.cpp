@@ -336,10 +336,11 @@ void TerryUI::resized()
     solverRow.items.add(solverToggleItem);
     if (bpmLabel.isVisible())
     {
+        // Same as the last seed label: alignSelf without an explicit height
+        // leaves the item unsized, so let it stretch to the row instead.
         juce::FlexItem bpmFlex(bpmLabel);
         bpmFlex.width = 120;
         bpmFlex.margin = juce::FlexItem::Margin(0, 0, 0, 0);
-        bpmFlex.alignSelf = juce::FlexItem::AlignSelf::center;
         solverRow.items.add(bpmFlex);
     }
     solverRow.performLayout(solverRowBounds);
@@ -382,10 +383,13 @@ void TerryUI::resized()
     seedEditorItem.height = 21;
     seedEditorItem.alignSelf = juce::FlexItem::AlignSelf::center;
     seedEditorItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    // No alignSelf here: FlexItem::height defaults to notAssigned, so opting
+    // out of the container's stretch leaves the item with no height at all.
+    // Stretching to the row is what makes it visible; the label centres its
+    // own text vertically.
     juce::FlexItem lastSeedItem(lastSeedLabel);
     lastSeedItem.flexGrow = 1;
     lastSeedItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
-    lastSeedItem.alignSelf = juce::FlexItem::AlignSelf::center;
     seedRow.items.add(seedLabelItem);
     seedRow.items.add(useSeedItem);
     seedRow.items.add(seedEditorItem);
