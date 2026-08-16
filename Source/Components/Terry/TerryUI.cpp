@@ -250,15 +250,15 @@ void TerryUI::resized()
     solverRowItem.height = 25;
     solverRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
 
-    juce::Component seedRowComponent;
-    juce::FlexItem seedRowItem(seedRowComponent);
-    seedRowItem.height = 25;
-    seedRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
-
     juce::Component sourceRowComponent;
     juce::FlexItem sourceRowItem(sourceRowComponent);
     sourceRowItem.height = 25;
-    sourceRowItem.margin = juce::FlexItem::Margin(3, 0, 6, 0);
+    sourceRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
+
+    juce::Component seedRowComponent;
+    juce::FlexItem seedRowItem(seedRowComponent);
+    seedRowItem.height = 25;
+    seedRowItem.margin = juce::FlexItem::Margin(3, 0, 6, 0);
 
     juce::FlexItem transformItem(transformWithTerryButton);
     transformItem.height = 35;
@@ -274,8 +274,8 @@ void TerryUI::resized()
     column.items.add(promptEditorItem);
     column.items.add(flowRowItem);
     column.items.add(solverRowItem);
-    column.items.add(seedRowItem);
     column.items.add(sourceRowItem);
+    column.items.add(seedRowItem);
     column.items.add(transformItem);
     column.items.add(undoItem);
 
@@ -343,30 +343,7 @@ void TerryUI::resized()
     if (!bpmLabel.isVisible())
         bpmLabel.setBounds({});
 
-    auto seedRowBounds = column.items[6].currentBounds.toNearestInt();
-    juce::FlexBox seedRow;
-    seedRow.flexDirection = juce::FlexBox::Direction::row;
-    seedRow.justifyContent = juce::FlexBox::JustifyContent::flexStart;
-    juce::FlexItem seedLabelItem(terrySeedLabel);
-    seedLabelItem.width = 80;
-    seedLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-    juce::FlexItem useSeedItem(useSeedToggle);
-    useSeedItem.width = 92;
-    useSeedItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-    juce::FlexItem seedEditorItem(seedEditor);
-    seedEditorItem.width = 100;
-    seedEditorItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
-    juce::FlexItem lastSeedItem(lastSeedLabel);
-    lastSeedItem.flexGrow = 1;
-    lastSeedItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
-    lastSeedItem.alignSelf = juce::FlexItem::AlignSelf::center;
-    seedRow.items.add(seedLabelItem);
-    seedRow.items.add(useSeedItem);
-    seedRow.items.add(seedEditorItem);
-    seedRow.items.add(lastSeedItem);
-    seedRow.performLayout(seedRowBounds);
-
-    auto sourceRowBounds = column.items[7].currentBounds.toNearestInt();
+    auto sourceRowBounds = column.items[6].currentBounds.toNearestInt();
     juce::FlexBox sourceRow;
     sourceRow.flexDirection = juce::FlexBox::Direction::row;
     sourceRow.justifyContent = juce::FlexBox::JustifyContent::flexStart;
@@ -383,6 +360,33 @@ void TerryUI::resized()
     sourceRow.items.add(recordingItem);
     sourceRow.items.add(outputItem);
     sourceRow.performLayout(sourceRowBounds);
+
+    auto seedRowBounds = column.items[7].currentBounds.toNearestInt();
+    juce::FlexBox seedRow;
+    seedRow.flexDirection = juce::FlexBox::Direction::row;
+    seedRow.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+    juce::FlexItem seedLabelItem(terrySeedLabel);
+    seedLabelItem.width = 80;
+    seedLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    juce::FlexItem useSeedItem(useSeedToggle);
+    useSeedItem.width = 92;
+    useSeedItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    // fixed height centred in the row, so the editor never sits flush against
+    // the row edge and lose its border
+    juce::FlexItem seedEditorItem(seedEditor);
+    seedEditorItem.width = 100;
+    seedEditorItem.height = 21;
+    seedEditorItem.alignSelf = juce::FlexItem::AlignSelf::center;
+    seedEditorItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    juce::FlexItem lastSeedItem(lastSeedLabel);
+    lastSeedItem.flexGrow = 1;
+    lastSeedItem.margin = juce::FlexItem::Margin(0, 0, 0, 0);
+    lastSeedItem.alignSelf = juce::FlexItem::AlignSelf::center;
+    seedRow.items.add(seedLabelItem);
+    seedRow.items.add(useSeedItem);
+    seedRow.items.add(seedEditorItem);
+    seedRow.items.add(lastSeedItem);
+    seedRow.performLayout(seedRowBounds);
 
     auto transformBounds = column.items[8].currentBounds.toNearestInt();
     auto transformButtonArea = transformBounds.withWidth(juce::jmin(220, transformBounds.getWidth()))
