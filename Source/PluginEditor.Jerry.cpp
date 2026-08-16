@@ -201,12 +201,17 @@ void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
     }
 }
 
-void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
+void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels(bool force)
 {
-    if (!isServiceReachable(ServiceType::Jerry))
+    if (!force && !isServiceReachable(ServiceType::Jerry))
     {
         DBG("Jerry not reachable - skipping model fetch");
         return;
+    }
+
+    if (force && !isServiceReachable(ServiceType::Jerry))
+    {
+        DBG("Forcing Jerry model fetch after host preset restore");
     }
 
     const juce::String endpoint = audioProcessor.getIsUsingLocalhost()

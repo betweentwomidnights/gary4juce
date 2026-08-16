@@ -1038,7 +1038,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     terryUI->setUseMidpointSolver(useMidpointSolver);
     terryUI->setAudioSourceRecording(transformRecording);
     terryUI->setVisibleForTab(false);
-    terryUI->setBpm(audioProcessor.getCurrentBPM());
 
     terryUI->onVariationChanged = [this](int index)
     {
@@ -2130,9 +2129,6 @@ void Gary4juceAudioProcessorEditor::timerCallback()
 
     if (sa3UI && !juce::JUCEApplicationBase::isStandaloneApp())
         sa3UI->setBpm(currentBPM);
-
-    if (terryUI)
-        terryUI->setBpm(currentBPM);
 
     if (dariusUI)
     {
@@ -5605,6 +5601,11 @@ void Gary4juceAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcast
         lastAppliedHostStateRevision = hostStateRevision;
         applyProcessorStateToEditor();
 
+        // The model list is backend-owned rather than preset state. Refresh it
+        // explicitly after a host restore so Jerry cannot remain on the combo
+        // box's initial "loading models..." placeholder.
+        fetchJerryAvailableModels(true);
+
         // Host preset loading deliberately resets connectivity to unknown.
         // Revalidate immediately so an open editor does not remain stuck on
         // "disconnected" after the restored controls have been applied.
@@ -5634,6 +5635,12 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         if (connected)
         {
             fetchGaryAvailableModels();
+
+            // A preset may also switch the remote backend while Jerry is
+            // visible. Its first refresh is skipped while connectivity is
+            // unknown, so retry as soon as that backend is confirmed healthy.
+            if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SAOS)
+                fetchJerryAvailableModels();
 
             if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
             {

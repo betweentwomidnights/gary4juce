@@ -192,12 +192,6 @@ TerryUI::TerryUI()
     };
     addAndMakeVisible(undoTransformButton);
 
-    bpmLabel.setFont(juce::FontOptions(11.0f));
-    bpmLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
-    bpmLabel.setJustificationType(juce::Justification::centredLeft);
-    bpmLabel.setVisible(false);
-    addAndMakeVisible(bpmLabel);
-
     applyEnablement(false, false, false);
     setAudioSourceAvailability(false, false);
 }
@@ -324,19 +318,7 @@ void TerryUI::resized()
     solverToggleItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
     solverRow.items.add(solverLabelItem);
     solverRow.items.add(solverToggleItem);
-    if (bpmLabel.isVisible())
-    {
-        // Same as the last seed label: alignSelf without an explicit height
-        // leaves the item unsized, so let it stretch to the row instead.
-        juce::FlexItem bpmFlex(bpmLabel);
-        bpmFlex.width = 120;
-        bpmFlex.margin = juce::FlexItem::Margin(0, 0, 0, 0);
-        solverRow.items.add(bpmFlex);
-    }
     solverRow.performLayout(solverRowBounds);
-
-    if (!bpmLabel.isVisible())
-        bpmLabel.setBounds({});
 
     auto sourceRowBounds = column.items[6].currentBounds.toNearestInt();
     juce::FlexBox sourceRow;
@@ -493,22 +475,6 @@ void TerryUI::setVisibleForTab(bool visible)
 {
     setVisible(visible);
     setInterceptsMouseClicks(visible, visible);
-}
-
-void TerryUI::setBpm(double bpm)
-{
-    bpmValue = bpm;
-    if (bpmValue > 0.0)
-    {
-        bpmLabel.setText("bpm: " + juce::String(juce::roundToInt(bpmValue)) + " (from daw)", juce::dontSendNotification);
-        bpmLabel.setVisible(true);
-    }
-    else
-    {
-        bpmLabel.setText("", juce::dontSendNotification);
-        bpmLabel.setVisible(false);
-    }
-    resized();
 }
 
 int TerryUI::getSelectedVariationIndex() const

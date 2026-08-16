@@ -496,7 +496,7 @@ private:
     void handleGaryModelsResponse(const juce::String& responseText);
     juce::String getSelectedGaryModelPath() const;
 
-    void fetchJerryAvailableModels();
+    void fetchJerryAvailableModels(bool force = false);
     void handleJerryModelsResponse(const juce::String& responseText);
 
     // Custom finetune methods

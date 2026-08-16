@@ -52,16 +52,10 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.11 - waveform ranges and FLAC drag storage
+### upcoming v4.0.12 - minor Terry and preset fixes
 
-double-click the output waveform to open the same selectable start/end window
-available for recorded audio.
-
-storage settings can now create `dragged_audio` handoff files as FLAC. WAV
-remains the compatibility default and the format used with every backend.
-
-REAPER preset restores now refresh connection status instead of leaving an
-open plugin instance showing a stale disconnected state.
+Terry can now reuse an exact seed. Jerry's SAOS model list now refreshes
+correctly after loading presets.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

@@ -3,6 +3,12 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.12 - minor Terry and preset fixes
+
+Terry can now reuse an exact seed. Jerry's SAOS model list now refreshes
+correctly after loading presets, including older presets saved while models
+were still loading.
+
 ## v4.0.11 - waveform ranges and FLAC drag storage
 
 the recording buffer and output waveform now share the same double-click

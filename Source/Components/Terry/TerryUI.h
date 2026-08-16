@@ -28,7 +28,6 @@ public:
     void setTransformButtonText(const juce::String& text);
     void setUndoButtonText(const juce::String& text);
     void setVisibleForTab(bool visible);
-    void setBpm(double bpm);
 
     int getSelectedVariationIndex() const;
     juce::String getCustomPrompt() const;
@@ -74,7 +73,6 @@ private:
     juce::ToggleButton transformOutputButton;
     CustomButton transformWithTerryButton;
     CustomButton undoTransformButton;
-    juce::Label bpmLabel;
 
     int variationIndex { -1 }; // -1 indicates custom prompt
     juce::String customPrompt;
@@ -87,8 +85,6 @@ private:
     bool lastCanTransform { false };
     bool lastIsGenerating { false };
     bool lastUndoAvailable { false };
-
-    double bpmValue { 0.0 };
 
     juce::Rectangle<int> titleBounds;
 };
