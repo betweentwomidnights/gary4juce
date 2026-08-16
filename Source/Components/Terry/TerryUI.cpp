@@ -76,6 +76,7 @@ TerryUI::TerryUI()
     terryFlowstepLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(terryFlowstepLabel);
 
+    terryFlowstepSlider.setTooltip("higher = closer to your input audio, lower = more transformation");
     terryFlowstepSlider.setRange(0.050, 0.150, 0.001);
     terryFlowstepSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     terryFlowstepSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
