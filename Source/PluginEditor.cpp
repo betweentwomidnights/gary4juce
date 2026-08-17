@@ -2912,22 +2912,29 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 // If we were previously in warmup, keep UI responsive and prevent stall
                 if (withinWarmup)
                 {
-                    // Heuristics to exit warmup: any server progress > 0, or explicit queue ready
+                    // Heuristics to exit warmup: any server progress > 0, or a status past warming
                     int warmProgressCheck = responseObj->getProperty("progress");
                     juce::String warmQueueStatus;
+                    juce::String warmQueueMessage;
                     if (auto* warmQueueObj = responseObj->getProperty("queue_status").getDynamicObject())
-                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
-
-                    if (warmProgressCheck > 0 || warmQueueStatus == "ready")
                     {
-                        DBG("Exiting warmup state (progress or ready observed)");
+                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
+                        warmQueueMessage = warmQueueObj->getProperty("message").toString();
+                    }
+
+                    // Any progress, or any backend status that is no longer "warming", means the
+                    // model is loaded and the run proper has started.
+                    if (warmProgressCheck > 0
+                        || (warmQueueStatus.isNotEmpty() && warmQueueStatus != "warming"))
+                    {
+                        DBG("Exiting warmup state (progress or non-warming status observed)");
                         withinWarmup = false;
                     }
                     else
                     {
                         // Stay in warmup: keep resetting the stall timer and show a gentle status
                         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                        showStatusMessage("warming up...", 3000);
+                        showStatusMessage(warmQueueMessage.isNotEmpty() ? warmQueueMessage : "warming up...", 3000);
                         // Don't early-return: allow the rest of the block to parse queue info etc.
                     }
                 }
@@ -2948,6 +2955,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     queueMessage = queueStatusObj->getProperty("message").toString();
                     hasValidQueueStatus = !queueStatus.isEmpty();
                     isQueuedForProcessing = (queueStatus == "queued");
+
+                    // A cold start reports "warming" over a perfectly healthy 200 with no error
+                    // field, so this is the only place we learn a model is still downloading.
+                    // Without it a multi-GB hub download reads as an ordinary stalled generation.
+                    if (queueStatus == "warming")
+                        withinWarmup = true;
 
                     DBG("Queue status found - Status: " + queueStatus + ", Message: " + queueMessage);
                 }
@@ -3018,6 +3031,15 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                         // Fallback if queue data is missing
                         showStatusMessage("queued for processing...", 5000);
                     }
+                }
+                else if (queueStatus == "warming")
+                {
+                    // Backend already wrote a useful line ("loading <model> (first run / hub
+                    // download)") - show it instead of a generic progress message.
+                    showStatusMessage(queueMessage.isNotEmpty()
+                        ? queueMessage
+                        : "warming up (loading model)...", 5000);
+                    DBG("Warming: " + queueMessage);
                 }
                 else if (serverProgress > 0 || queueStatus == "ready")
                 {
