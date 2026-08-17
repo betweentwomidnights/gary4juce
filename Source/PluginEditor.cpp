@@ -49,6 +49,12 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("garyCfg", currentGaryCfg);
     state->setProperty("garyDescription", currentGaryDescription);
     state->setProperty("garyAdvancedOpen", currentGaryAdvancedOpen);
+    state->setProperty("garyLastSeed",
+        garyUI != nullptr ? garyUI->getLastSeed() : currentGaryLastSeed);
+    state->setProperty("garyUseSeed",
+        garyUI != nullptr ? garyUI->getUseSeedEnabled() : currentGaryUseSeed);
+    state->setProperty("garySeedText",
+        garyUI != nullptr ? garyUI->getSeedText() : currentGarySeedText);
 
     state->setProperty("jerryPrompt", currentJerryPrompt);
     state->setProperty("jerryCfg", currentJerryCfg);
@@ -237,6 +243,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
         juce::jlimit(1.0, 5.0, readDouble("garyCfg", currentGaryCfg)));
     currentGaryDescription = readString("garyDescription", currentGaryDescription);
     currentGaryAdvancedOpen = readBool("garyAdvancedOpen", currentGaryAdvancedOpen);
+    currentGaryLastSeed = readString("garyLastSeed", currentGaryLastSeed);
+    currentGaryUseSeed = readBool("garyUseSeed", currentGaryUseSeed);
+    currentGarySeedText = readString("garySeedText", currentGarySeedText);
 
     currentJerryPrompt = readString("jerryPrompt", currentJerryPrompt);
     currentJerryCfg = static_cast<float>(readDouble("jerryCfg", currentJerryCfg));
@@ -418,6 +427,8 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         garyUI->setCfgCoef(currentGaryCfg);
         garyUI->setDescription(currentGaryDescription);
         garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
+        garyUI->setLastSeed(currentGaryLastSeed);
+        garyUI->setSeedState(currentGaryUseSeed, currentGarySeedText);
 
         if (auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox()))
         {
@@ -808,6 +819,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     garyUI->setCfgCoef(currentGaryCfg);
     garyUI->setDescription(currentGaryDescription);
     garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
+    garyUI->setLastSeed(currentGaryLastSeed);
+    garyUI->setSeedState(currentGaryUseSeed, currentGarySeedText);
 
     // Fetch available models from backend (will populate dropdown when response arrives)
     if (isConnected)
@@ -2115,6 +2128,18 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
     updateSA3EnablementSnapshot();
 }
 
+void Gary4juceAudioProcessorEditor::setGaryLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    currentGaryLastSeed = trimmed;
+    currentGarySeedText = trimmed;
+    if (garyUI)
+        garyUI->setLastSeed(trimmed);
+}
+
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 {
     if (!garyUI)
@@ -2946,6 +2971,11 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             bool generationInProgress = responseObj->getProperty("generation_in_progress");
             bool transformInProgress = responseObj->getProperty("transform_in_progress");
 
+            // Musicgen's seed rides under its own key: plain "seed" on a poll is
+            // the last terry transform's, and both can share one session.
+            if (responseObj->hasProperty("generation_seed"))
+                setGaryLastSeed(responseObj->getProperty("generation_seed").toString());
+
             if (generationInProgress || transformInProgress)
             {
                 // If we were previously in warmup, keep UI responsive and prevent stall
@@ -3455,12 +3485,13 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     const int topK = currentGaryTopK;
     const double cfgCoef = (double)currentGaryCfg;
     const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
-    juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio, topK, cfgCoef, description, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio, topK, cfgCoef, description, requestSeed, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Gary request aborted - generation stopped");
             return;
@@ -3477,6 +3508,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", cfgCoef);
         jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -3568,6 +3600,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
                         safeThis->showStatusMessage("sent to gary. processing...", 2000);
                         DBG("Session ID: " + sessionId);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (responseObj->hasProperty("seed"))
+                            safeThis->setGaryLastSeed(responseObj->getProperty("seed").toString());
 
                         // START POLLING FOR RESULTS
                         safeThis->startPollingForResults(sessionId);
@@ -3717,12 +3754,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     const int topK = currentGaryTopK;
     const double cfgCoef = (double)currentGaryCfg;
     const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
-    juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration, topK, cfgCoef, description, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration, topK, cfgCoef, description, requestSeed, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Continue request aborted - generation stopped");
             return;
@@ -3741,6 +3779,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", cfgCoef);
         jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -3820,6 +3859,11 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                         auto sessionId = obj->getProperty("session_id").toString();
                         DBG("Continue request queued, session ID: " + sessionId);
                         safeThis->showStatusMessage("continuation queued...", 2000);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (obj->hasProperty("seed"))
+                            safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
 
                         // Start polling for results (will replace current output audio when complete)
                         safeThis->startPollingForResults(sessionId);
@@ -3953,13 +3997,14 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     const int topK = currentGaryTopK;
     const double cfgCoef = (double)currentGaryCfg;
     const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
     const juce::String selectedModel = getSelectedGaryModelPath();
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel, topK, cfgCoef, description, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel, topK, cfgCoef, description, requestSeed, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Retry request aborted - generation stopped");
             return;
@@ -3978,6 +4023,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         jsonRequest->setProperty("temperature", 1.0);
         jsonRequest->setProperty("cfg_coef", cfgCoef);
         jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -4040,6 +4086,11 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                         auto newSessionId = obj->getProperty("session_id").toString();
                         DBG("Retry request queued, session ID: " + newSessionId);
                         safeThis->showStatusMessage("retry queued...", 2000);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (obj->hasProperty("seed"))
+                            safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
 
                         // Start polling for results (will replace current output when complete)
                         safeThis->startPollingForResults(newSessionId);

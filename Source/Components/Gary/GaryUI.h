@@ -47,6 +47,13 @@ public:
     juce::String getDescription() const { return descriptionEditor.getText().trim(); }
     void setDescription(const juce::String& text);
 
+    juce::int64 getSeed() const;
+    bool getUseSeedEnabled() const { return useSeedToggle.getToggleState(); }
+    juce::String getSeedText() const { return seedEditor.getText().trim(); }
+    void setSeedState(bool enabled, const juce::String& seedText);
+    juce::String getLastSeed() const { return lastSeed; }
+    void setLastSeed(const juce::String& seed);
+
     bool getAdvancedOpen() const { return advancedOpen; }
     void setAdvancedOpen(bool open);
 
@@ -102,6 +109,10 @@ private:
     CustomSlider topKSlider;
     juce::Label descriptionLabel;
     CustomTextEditor descriptionEditor;
+    juce::Label seedLabel;
+    juce::ToggleButton useSeedToggle;
+    CustomTextEditor seedEditor;
+    juce::String lastSeed;
 
     float promptDuration { 6.0f };
     int modelIndex { 0 };

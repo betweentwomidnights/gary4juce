@@ -260,6 +260,9 @@ private:
     float currentGaryCfg = 3.0f;
     juce::String currentGaryDescription;
     bool currentGaryAdvancedOpen = false;
+    juce::String currentGaryLastSeed;
+    bool currentGaryUseSeed = false;
+    juce::String currentGarySeedText;
 
     std::unique_ptr<JerryUI> jerryUI;
     std::unique_ptr<SA3UI> sa3UI;
@@ -551,6 +554,7 @@ private:
     // Terry helper methods
     void updateTerryEnablementSnapshot();
     void setTerryLastSeed(const juce::String& seed);
+    void setGaryLastSeed(const juce::String& seed);
     void setTerryAudioSource(bool useRecording);
     void sendToTerry();
     void undoTerryTransform();

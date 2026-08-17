@@ -166,6 +166,34 @@ GaryUI::GaryUI()
     };
     addToContent(descriptionEditor);
 
+    seedLabel.setText("seed", juce::dontSendNotification);
+    seedLabel.setFont(juce::FontOptions(12.0f));
+    seedLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    seedLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(seedLabel);
+
+    useSeedToggle.setButtonText("use seed");
+    useSeedToggle.setToggleState(false, juce::dontSendNotification);
+    useSeedToggle.setTooltip("when enabled, submit the seed value below instead of asking the backend for a random seed");
+    useSeedToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    useSeedToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Gary);
+    useSeedToggle.onClick = [this]()
+    {
+        const bool on = useSeedToggle.getToggleState();
+        seedEditor.setEnabled(on);
+        seedEditor.setAlpha(on ? 1.0f : 0.45f);
+    };
+    addToContent(useSeedToggle);
+
+    seedEditor.setMultiLine(false);
+    seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
+    seedEditor.setTooltip("fills in with the seed gary just used - tick \"use seed\" to run that one again "
+                          "with the same input audio, model and prompt duration");
+    seedEditor.setInputRestrictions(20, "0123456789");
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.45f);
+    addToContent(seedEditor);
+
     promptDurationSlider.setValue(promptDuration, juce::dontSendNotification);
     refreshTooltips();
 }
@@ -255,6 +283,9 @@ void GaryUI::updateContentLayout()
     topKSlider.setVisible(advancedOpen);
     descriptionLabel.setVisible(advancedOpen);
     descriptionEditor.setVisible(advancedOpen);
+    seedLabel.setVisible(advancedOpen);
+    useSeedToggle.setVisible(advancedOpen);
+    seedEditor.setVisible(advancedOpen);
 
     if (advancedOpen)
     {
@@ -273,6 +304,13 @@ void GaryUI::updateContentLayout()
 
         descriptionEditor.setBounds(fullRow(26));
         y += 26 + kInterRowGap;
+
+        auto seedRow = fullRow(22);
+        seedLabel.setBounds(seedRow.removeFromLeft(juce::jmin(44, labelWidth)));
+        useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+        seedRow.removeFromLeft(kInterRowGap);
+        seedEditor.setBounds(seedRow.removeFromLeft(juce::jmax(70, seedRow.getWidth())));
+        y += 22 + kInterRowGap;
     }
 
     auto sendRow = fullRow(kButtonHeight);
@@ -399,6 +437,38 @@ void GaryUI::setCfgCoef(double value)
 void GaryUI::setDescription(const juce::String& text)
 {
     descriptionEditor.setText(text, juce::dontSendNotification);
+}
+
+juce::int64 GaryUI::getSeed() const
+{
+    if (!useSeedToggle.getToggleState())
+        return -1;
+
+    const auto text = seedEditor.getText().trim();
+    if (text.isEmpty())
+        return -1;
+
+    return text.getLargeIntValue();
+}
+
+void GaryUI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
+void GaryUI::setLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    // The editor is the readout. It keeps showing the seed while greyed out,
+    // so ticking "use seed" runs the last one back without retyping it.
+    lastSeed = trimmed;
+    seedEditor.setText(trimmed, false);
 }
 
 juce::Rectangle<int> GaryUI::getTitleBounds() const
