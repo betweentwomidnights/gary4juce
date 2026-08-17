@@ -3,6 +3,19 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.13 - gary's advanced controls
+
+gary's tab has an advanced section now: cfg, top k, a description box, and a
+seed that works the same way terry's does. the defaults match what the plugin
+used to send, so nothing changes unless you open it.
+
+gary also says when it's downloading a model instead of sitting on
+'processing audio...' for the length of a multi-gigabyte pull.
+
+jerry's SAOS tab used to sit on 'loading models...' on a fresh instance until
+you left the tab and came back, and then drove a finetune with the standard
+model's cfg and steps. both fixed.
+
 ## v4.0.12 - minor Terry and preset fixes
 
 Terry can now reuse an exact seed. Jerry's SAOS model list now refreshes
