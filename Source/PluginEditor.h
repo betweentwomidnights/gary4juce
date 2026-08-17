@@ -256,6 +256,10 @@ private:
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
     juce::String preferredGaryModelPath;
+    int currentGaryTopK = 250;
+    float currentGaryCfg = 3.0f;
+    juce::String currentGaryDescription;
+    bool currentGaryAdvancedOpen = false;
 
     std::unique_ptr<JerryUI> jerryUI;
     std::unique_ptr<SA3UI> sa3UI;

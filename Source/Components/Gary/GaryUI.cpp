@@ -23,11 +23,19 @@ GaryUI::GaryUI()
     garyLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(garyLabel);
 
+    contentComponent = std::make_unique<juce::Component>();
+    contentViewport = std::make_unique<juce::Viewport>();
+    contentViewport->setViewedComponent(contentComponent.get(), false);
+    contentViewport->setScrollBarsShown(true, false);
+    customLookAndFeel.setScrollbarAccentColour(Theme::Colors::Gary);
+    contentViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
+    addAndMakeVisible(contentViewport.get());
+
     promptDurationLabel.setText("prompt duration", juce::dontSendNotification);
     promptDurationLabel.setFont(juce::FontOptions(12.0f));
     promptDurationLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     promptDurationLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(promptDurationLabel);
+    addToContent(promptDurationLabel);
 
     promptDurationSlider.setRange(1.0, 15.0, 1.0);
     promptDurationSlider.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -40,13 +48,13 @@ GaryUI::GaryUI()
         if (onPromptDurationChanged)
             onPromptDurationChanged(promptDuration);
     };
-    addAndMakeVisible(promptDurationSlider);
+    addToContent(promptDurationSlider);
 
     modelLabel.setText("model", juce::dontSendNotification);
     modelLabel.setFont(juce::FontOptions(12.0f));
     modelLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     modelLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(modelLabel);
+    addToContent(modelLabel);
 
     modelComboBox.onChange = [this]()
     {
@@ -58,7 +66,7 @@ GaryUI::GaryUI()
         if (onModelChanged)
             onModelChanged(modelIndex);
     };
-    addAndMakeVisible(modelComboBox);
+    addToContent(modelComboBox);
 
     sendToGaryButton.setButtonText("send to gary");
     sendToGaryButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
@@ -67,7 +75,7 @@ GaryUI::GaryUI()
         if (onSendToGary)
             onSendToGary();
     };
-    addAndMakeVisible(sendToGaryButton);
+    addToContent(sendToGaryButton);
 
     continueButton.setButtonText("continue");
     continueButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -76,7 +84,7 @@ GaryUI::GaryUI()
         if (onContinue)
             onContinue();
     };
-    addAndMakeVisible(continueButton);
+    addToContent(continueButton);
 
     retryButton.setButtonText("retry");
     retryButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -85,10 +93,83 @@ GaryUI::GaryUI()
         if (onRetry)
             onRetry();
     };
-    addAndMakeVisible(retryButton);
+    addToContent(retryButton);
+
+    advancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+    advancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    advancedToggle.onClick = [this]()
+    {
+        advancedOpen = !advancedOpen;
+        updateAdvancedToggleText();
+        updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
+    };
+    addToContent(advancedToggle);
+
+    cfgLabel.setText("cfg", juce::dontSendNotification);
+    cfgLabel.setFont(juce::FontOptions(12.0f));
+    cfgLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    cfgLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(cfgLabel);
+
+    cfgSlider.setRange(1.0, 5.0, 0.1);
+    cfgSlider.setValue(3.0, juce::dontSendNotification);
+    cfgSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    cfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
+    cfgSlider.setTooltip("classifier-free guidance - higher = follows the description more literally");
+    cfgSlider.onValueChange = [this]()
+    {
+        if (onCfgChanged)
+            onCfgChanged(getCfgCoef());
+    };
+    addToContent(cfgSlider);
+
+    topKLabel.setText("top k", juce::dontSendNotification);
+    topKLabel.setFont(juce::FontOptions(12.0f));
+    topKLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    topKLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(topKLabel);
+
+    topKSlider.setRange(50.0, 300.0, 1.0);
+    topKSlider.setValue(250.0, juce::dontSendNotification);
+    topKSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    topKSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
+    topKSlider.setTooltip("how many tokens gary picks from - lower = safer and more repetitive");
+    topKSlider.onValueChange = [this]()
+    {
+        if (onTopKChanged)
+            onTopKChanged(getTopK());
+    };
+    addToContent(topKSlider);
+
+    descriptionLabel.setText("description", juce::dontSendNotification);
+    descriptionLabel.setFont(juce::FontOptions(12.0f));
+    descriptionLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    descriptionLabel.setJustificationType(juce::Justification::centredLeft);
+    descriptionLabel.setTooltip("optional text conditioning - leave blank to let the audio prompt speak for itself");
+    addToContent(descriptionLabel);
+
+    descriptionEditor.setTextToShowWhenEmpty("e.g. drums, percussion", juce::Colour(0xff666666));
+    descriptionEditor.setMultiLine(false);
+    descriptionEditor.setReturnKeyStartsNewLine(false);
+    descriptionEditor.setScrollbarsShown(false);
+    descriptionEditor.setBorder(juce::BorderSize<int>(2));
+    descriptionEditor.onTextChange = [this]()
+    {
+        if (onDescriptionChanged)
+            onDescriptionChanged(getDescription());
+    };
+    addToContent(descriptionEditor);
 
     promptDurationSlider.setValue(promptDuration, juce::dontSendNotification);
     refreshTooltips();
+}
+
+GaryUI::~GaryUI()
+{
+    if (contentViewport)
+        contentViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
 
 void GaryUI::paint(juce::Graphics&)
@@ -103,29 +184,105 @@ void GaryUI::resized()
     garyLabel.setBounds(titleBounds);
     area.removeFromTop(kInterRowGap);
 
-    auto promptRow = area.removeFromTop(kRowHeight);
-    auto promptLabelArea = promptRow.removeFromLeft(kLabelWidth);
-    promptDurationLabel.setBounds(promptLabelArea);
+    if (contentViewport)
+        contentViewport->setBounds(area);
+
+    updateContentLayout();
+}
+
+void GaryUI::addToContent(juce::Component& component)
+{
+    if (contentComponent)
+        contentComponent->addAndMakeVisible(component);
+}
+
+void GaryUI::updateAdvancedToggleText()
+{
+    advancedToggle.setButtonText(advancedOpen
+        ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
+        : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+}
+
+void GaryUI::setAdvancedOpen(bool open)
+{
+    if (advancedOpen == open)
+        return;
+
+    advancedOpen = open;
+    updateAdvancedToggleText();
+    updateContentLayout();
+}
+
+void GaryUI::updateContentLayout()
+{
+    if (contentComponent == nullptr || contentViewport == nullptr)
+        return;
+
+    const int viewportWidth = juce::jmax(220, contentViewport->getWidth());
+    const int scrollbarWidth = contentViewport->getVerticalScrollBar().isVisible()
+        ? contentViewport->getVerticalScrollBar().getWidth() : 0;
+    const int contentWidth = juce::jmax(220, viewportWidth - scrollbarWidth - 4);
+
+    // The label column has to give way on narrow layouts or the sliders vanish.
+    const int labelWidth = juce::jmin(kLabelWidth, contentWidth / 3);
+
+    int y = 0;
+    const auto fullRow = [&](int height)
+    {
+        return juce::Rectangle<int>(0, y, contentWidth, height);
+    };
+
+    auto promptRow = fullRow(kRowHeight);
+    promptDurationLabel.setBounds(promptRow.removeFromLeft(labelWidth));
     promptDurationSlider.setBounds(promptRow);
-    area.removeFromTop(kInterRowGap);
+    y += kRowHeight + kInterRowGap;
 
-    auto modelRow = area.removeFromTop(kRowHeight);
-    auto modelLabelArea = modelRow.removeFromLeft(kLabelWidth);
-    modelLabel.setBounds(modelLabelArea);
+    auto modelRow = fullRow(kRowHeight);
+    modelLabel.setBounds(modelRow.removeFromLeft(labelWidth));
     modelComboBox.setBounds(modelRow);
-    area.removeFromTop(kInterRowGap);
+    y += kRowHeight + kInterRowGap;
 
-    auto sendRow = area.removeFromTop(kButtonHeight);
-    auto sendWidth = juce::jmin(sendRow.getWidth(), 240);
-    auto sendBounds = sendRow.withWidth(sendWidth).withCentre(sendRow.getCentre());
-    sendToGaryButton.setBounds(sendBounds);
-    area.removeFromTop(kInterRowGap);
+    advancedToggle.setBounds(fullRow(24));
+    y += 24 + kInterRowGap;
 
-    auto buttonRow = area.removeFromTop(kButtonHeight);
-    auto continueBounds = buttonRow.removeFromLeft((buttonRow.getWidth() - kButtonGap) / 2);
-    continueButton.setBounds(continueBounds);
+    cfgLabel.setVisible(advancedOpen);
+    cfgSlider.setVisible(advancedOpen);
+    topKLabel.setVisible(advancedOpen);
+    topKSlider.setVisible(advancedOpen);
+    descriptionLabel.setVisible(advancedOpen);
+    descriptionEditor.setVisible(advancedOpen);
+
+    if (advancedOpen)
+    {
+        auto cfgRow = fullRow(kRowHeight);
+        cfgLabel.setBounds(cfgRow.removeFromLeft(labelWidth));
+        cfgSlider.setBounds(cfgRow);
+        y += kRowHeight + kInterRowGap;
+
+        auto topKRow = fullRow(kRowHeight);
+        topKLabel.setBounds(topKRow.removeFromLeft(labelWidth));
+        topKSlider.setBounds(topKRow);
+        y += kRowHeight + kInterRowGap;
+
+        descriptionLabel.setBounds(fullRow(16));
+        y += 16 + 2;
+
+        descriptionEditor.setBounds(fullRow(26));
+        y += 26 + kInterRowGap;
+    }
+
+    auto sendRow = fullRow(kButtonHeight);
+    const int sendWidth = juce::jmin(sendRow.getWidth(), 240);
+    sendToGaryButton.setBounds(sendRow.withWidth(sendWidth).withCentre(sendRow.getCentre()));
+    y += kButtonHeight + kInterRowGap;
+
+    auto buttonRow = fullRow(kButtonHeight);
+    continueButton.setBounds(buttonRow.removeFromLeft((buttonRow.getWidth() - kButtonGap) / 2));
     buttonRow.removeFromLeft(kButtonGap);
     retryButton.setBounds(buttonRow);
+    y += kButtonHeight;
+
+    contentComponent->setSize(contentWidth, y + 4);
 }
 
 void GaryUI::setVisibleForTab(bool visible)
@@ -206,6 +363,31 @@ float GaryUI::getPromptDuration() const
 int GaryUI::getSelectedModelIndex() const
 {
     return modelIndex;
+}
+
+int GaryUI::getTopK() const
+{
+    return juce::roundToInt(topKSlider.getValue());
+}
+
+void GaryUI::setTopK(int value)
+{
+    topKSlider.setValue((double)value, juce::dontSendNotification);
+}
+
+double GaryUI::getCfgCoef() const
+{
+    return cfgSlider.getValue();
+}
+
+void GaryUI::setCfgCoef(double value)
+{
+    cfgSlider.setValue(value, juce::dontSendNotification);
+}
+
+void GaryUI::setDescription(const juce::String& text)
+{
+    descriptionEditor.setText(text, juce::dontSendNotification);
 }
 
 juce::Rectangle<int> GaryUI::getTitleBounds() const

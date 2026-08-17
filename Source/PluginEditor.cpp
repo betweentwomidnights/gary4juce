@@ -45,6 +45,10 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("garyPromptDuration", currentPromptDuration);
     state->setProperty("garyModelPath",
         garyUI != nullptr && !garyModelList.empty() ? getSelectedGaryModelPath() : preferredGaryModelPath);
+    state->setProperty("garyTopK", currentGaryTopK);
+    state->setProperty("garyCfg", currentGaryCfg);
+    state->setProperty("garyDescription", currentGaryDescription);
+    state->setProperty("garyAdvancedOpen", currentGaryAdvancedOpen);
 
     state->setProperty("jerryPrompt", currentJerryPrompt);
     state->setProperty("jerryCfg", currentJerryCfg);
@@ -228,6 +232,11 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentPromptDuration = static_cast<float>(
         juce::jlimit(1.0, 30.0, readDouble("garyPromptDuration", currentPromptDuration)));
     preferredGaryModelPath = readString("garyModelPath", preferredGaryModelPath);
+    currentGaryTopK = juce::jlimit(50, 300, readInt("garyTopK", currentGaryTopK));
+    currentGaryCfg = static_cast<float>(
+        juce::jlimit(1.0, 5.0, readDouble("garyCfg", currentGaryCfg)));
+    currentGaryDescription = readString("garyDescription", currentGaryDescription);
+    currentGaryAdvancedOpen = readBool("garyAdvancedOpen", currentGaryAdvancedOpen);
 
     currentJerryPrompt = readString("jerryPrompt", currentJerryPrompt);
     currentJerryCfg = static_cast<float>(readDouble("jerryCfg", currentJerryCfg));
@@ -405,6 +414,10 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
     if (garyUI != nullptr)
     {
         garyUI->setPromptDuration(currentPromptDuration);
+        garyUI->setTopK(currentGaryTopK);
+        garyUI->setCfgCoef(currentGaryCfg);
+        garyUI->setDescription(currentGaryDescription);
+        garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
 
         if (auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox()))
         {
@@ -768,7 +781,33 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         retryLastContinuation();
     };
 
+    garyUI->onTopKChanged = [this](int value)
+    {
+        currentGaryTopK = value;
+    };
+
+    garyUI->onCfgChanged = [this](double value)
+    {
+        currentGaryCfg = static_cast<float>(value);
+    };
+
+    garyUI->onDescriptionChanged = [this](const juce::String& text)
+    {
+        currentGaryDescription = text;
+    };
+
+    garyUI->onLayoutHeightChanged = [this]()
+    {
+        currentGaryAdvancedOpen = garyUI->getAdvancedOpen();
+        resized();
+        repaint();
+    };
+
     garyUI->setPromptDuration(currentPromptDuration);
+    garyUI->setTopK(currentGaryTopK);
+    garyUI->setCfgCoef(currentGaryCfg);
+    garyUI->setDescription(currentGaryDescription);
+    garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
 
     // Fetch available models from backend (will populate dropdown when response arrives)
     if (isConnected)
@@ -3413,12 +3452,15 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     repaint(); // Force immediate UI update
 
     const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
-    juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio, topK, cfgCoef, description, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Gary request aborted - generation stopped");
             return;
@@ -3431,10 +3473,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         jsonRequest->setProperty("model_name", selectedModel);
         jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("audio_data", base64Audio);
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -3672,12 +3714,15 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     juce::String capturedModelPath = getSelectedGaryModelPath();
     DBG("Captured model path for continue: " + capturedModelPath);
     const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
-    juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration, topK, cfgCoef, description, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Continue request aborted - generation stopped");
             return;
@@ -3692,10 +3737,10 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         jsonRequest->setProperty("audio_data", audioData);
         jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("model_name", capturedModelPath); // Use captured model path
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -3905,13 +3950,16 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     
     showStatusMessage("retrying last continuation...", 2000);
     const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
     const juce::String selectedModel = getSelectedGaryModelPath();
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel, requestUrl]() {
+    juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel, topK, cfgCoef, description, requestUrl]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Retry request aborted - generation stopped");
             return;
@@ -3926,10 +3974,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
         // Get current model selection from dynamic list
         jsonRequest->setProperty("model_name", selectedModel);
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
 
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -8002,7 +8050,10 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
 
         switch (currentTab)
         {
-        case ModelTab::Gary:   preferredHeight = 310; break;
+        case ModelTab::Gary:
+            preferredHeight = garyUI != nullptr && garyUI->getAdvancedOpen()
+                ? tabSectionBounds.getHeight() : 310;
+            break;
         case ModelTab::Carey:
         {
             bool advancedOpen = false;
