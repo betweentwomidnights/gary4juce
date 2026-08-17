@@ -31,6 +31,22 @@ This ordering prevents a public updater manifest from linking to a missing
 release and keeps checksum-only metadata changes out of the tagged build
 source.
 
+### Pre-releases
+
+A pre-release — a build handed to a tester directly, usually paired with a
+gary4local ROCm preview — runs steps 1 through 4 and **stops there**. Package
+and verify the archives exactly as a stable release: same staging, same legal
+material, same checks. What it skips is the promotion in step 5.
+
+Concretely, a pre-release does not touch `README.md`, `SHA256SUMS.txt`, or
+`docs/updates/gary4juce/stable.json`. Those describe the current *stable*
+release, and pointing them at a pre-release would offer it to everyone through
+the updater. Mark the GitHub release as a prerelease (`gh release create
+--prerelease`) and record the asset hashes in the release notes only.
+
+The changelog entry and the version bump still belong in the source-release
+commit, so the tag identifies the build.
+
 ## Windows VST3 Package
 
 After creating the source-release commit and local tag, build the Release VST3
@@ -70,6 +86,15 @@ For each release:
 3. Copy the repository `LICENSE` and `THIRD_PARTY_NOTICES.md` into `Legal/`.
 4. Create `SOURCE.md` with exact links to the release tag, source archive,
    build instructions, pinned JUCE source, and pinned JUCE license.
+
+   **Rewrite this file every release. It does not come from the build.** The
+   `Legal/` folder inside
+   `Builds/VisualStudio2022/x64/Release/VST3/gary4juce.vst3/Contents/Resources/`
+   survives rebuilds, so the freshly built bundle copied in step 1 still carries
+   whatever `SOURCE.md` was staged there last — during the v4.0.13 release it
+   was still naming the `v4.0.3` tag. Copying the bundle without regenerating
+   this file ships an AGPL Corresponding Source offer pointing at the wrong
+   source tree. Check the version inside the file, not just that it exists.
 5. Copy the applicable JUCE and dependency license texts into
    `Legal/licenses/`. Refresh these whenever JUCE or another bundled dependency
    changes; do not blindly reuse an older set.
@@ -111,7 +136,17 @@ foreach ($path in $required) {
 
 Also verify that `moduleinfo.json` contains the release version, `SOURCE.md`
 names the release tag, and `Legal/licenses/` contains actual files rather than
-only an empty directory.
+only an empty directory. The staleness above is quiet enough to be worth
+checking mechanically rather than by eye:
+
+```powershell
+$stage = ".release\package-v$version-vst3"
+$src = Get-Content "$stage\gary4juce.vst3\Contents\Resources\Legal\SOURCE.md" -Raw
+if ($src -notmatch [regex]::Escape("v$version")) { throw "SOURCE.md does not name v$version" }
+if ((Get-ChildItem "$stage\gary4juce.vst3\Contents\Resources\Legal\licenses" -File).Count -eq 0) {
+    throw "Legal/licenses is empty"
+}
+```
 
 Also extract the ZIP into a clean temporary directory, confirm the bundle
 loads in a DAW, and confirm that **Extract All** can target a VST3 directory
