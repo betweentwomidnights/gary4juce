@@ -161,7 +161,20 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
             updateSA3EnablementSnapshot();
         }
     }
-    if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+    if (jerryUI)
+    {
+        jerryUI->setVisibleForTab(showSAOS);
+        if (showSAOS)
+        {
+            // The sub-tab row is the one route onto SAOS that doesn't go through
+            // switchToTab, so without this the combo box sits on "loading
+            // models..." until you leave the tab and come back.
+            fetchJerryAvailableModels();
+
+            if (!audioProcessor.getIsUsingLocalhost())
+                maybeFetchRemoteJerryPrompts();
+        }
+    }
     if (foundationUI)
     {
         foundationUI->setVisibleForTab(sub == JerrySubTab::Foundation);
@@ -374,6 +387,15 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
             }
         }
 
+        // Which model the backend actually has live. usage_order is LRU, so the
+        // last entry is the current one - the same rule /models/prompts uses to
+        // resolve "active".
+        juce::String activeKey;
+        if (auto* cacheStatus = obj->getProperty("cache_status").getDynamicObject())
+            if (auto* order = cacheStatus->getProperty("usage_order").getArray())
+                if (!order->isEmpty())
+                    activeKey = order->getLast().toString();
+
         if (jerryUI && modelNames.size() > 0)
         {
             const juce::String desiredKey = preferredJerryModelKey;
@@ -382,6 +404,7 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
             const juce::String desiredSampler = currentJerrySamplerType;
             const float desiredCfg = currentJerryCfg;
             const int desiredSteps = currentJerrySteps;
+            const bool hadStoredSelection = desiredKey.isNotEmpty() || desiredRepo.isNotEmpty();
 
             jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
                 modelTypes, modelRepos, modelCheckpoints);
@@ -400,26 +423,42 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
                 }
             }
 
-            if (desiredIndex >= 0)
-            {
-                jerryUI->setSelectedModel(desiredIndex);
+            // Nothing stored yet (fresh instance): follow whatever the backend
+            // has loaded rather than leaving the state blank while the combo box
+            // sits on entry 0, which is how a finetune ended up being driven with
+            // the standard model's cfg and steps.
+            if (desiredIndex < 0 && activeKey.isNotEmpty())
+                desiredIndex = modelKeys.indexOf(activeKey);
+
+            // setAvailableModels already selected entry 0; adopt it explicitly so
+            // the model type is recorded either way.
+            if (desiredIndex < 0)
+                desiredIndex = 0;
+
+            jerryUI->setSelectedModel(desiredIndex);
+            if (desiredSampler.isNotEmpty())
                 jerryUI->setSelectedSamplerType(desiredSampler);
-                currentJerryModelIndex = desiredIndex;
-                currentJerryModelKey = modelKeys[desiredIndex];
-                currentJerryModelType = modelTypes[desiredIndex];
-                currentJerryFinetuneRepo = modelRepos[desiredIndex];
-                currentJerryFinetuneCheckpoint = modelCheckpoints[desiredIndex];
-                currentJerryIsFinetune = isFinetune[desiredIndex];
-                currentJerrySamplerType = jerryUI->getSelectedSamplerType();
-                preferredJerryModelKey = currentJerryModelKey;
-                preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
-                preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
-            }
+            currentJerryModelIndex = desiredIndex;
+            currentJerryModelKey = modelKeys[desiredIndex];
+            currentJerryModelType = modelTypes[desiredIndex];
+            currentJerryFinetuneRepo = modelRepos[desiredIndex];
+            currentJerryFinetuneCheckpoint = modelCheckpoints[desiredIndex];
+            currentJerryIsFinetune = isFinetune[desiredIndex];
+            currentJerrySamplerType = jerryUI->getSelectedSamplerType();
+            preferredJerryModelKey = currentJerryModelKey;
+            preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
+            preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
 
             // Selecting a model adjusts its slider ranges and defaults. Restore
-            // the host-loaded values after that adjustment.
-            jerryUI->setCfg(desiredCfg);
-            jerryUI->setSteps(desiredSteps);
+            // the host-loaded values after that adjustment - but only when there
+            // were any. With nothing stored, those "values" are just this class's
+            // initialisers, which happen to be the standard model's 1.0 / 8 and
+            // would silently overwrite a finetune's 4.0 / 30.
+            if (hadStoredSelection)
+            {
+                jerryUI->setCfg(desiredCfg);
+                jerryUI->setSteps(desiredSteps);
+            }
             currentJerryCfg = jerryUI->getCfg();
             currentJerrySteps = jerryUI->getSteps();
 
