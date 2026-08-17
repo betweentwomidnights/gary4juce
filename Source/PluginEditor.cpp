@@ -8051,8 +8051,12 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
         switch (currentTab)
         {
         case ModelTab::Gary:
-            preferredHeight = garyUI != nullptr && garyUI->getAdvancedOpen()
-                ? tabSectionBounds.getHeight() : 310;
+            // Gary's advanced block is only three rows, so grow to fit it rather than
+            // swallowing the whole section the way sa3 and carey do. The 45 covers the
+            // tab row and the vertical inset taken off below.
+            preferredHeight = garyUI != nullptr
+                ? juce::jmax(310, garyUI->getPreferredHeight() + 45)
+                : 310;
             break;
         case ModelTab::Carey:
         {

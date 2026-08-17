@@ -50,6 +50,9 @@ public:
     bool getAdvancedOpen() const { return advancedOpen; }
     void setAdvancedOpen(bool open);
 
+    // Height this panel needs to show its content without scrolling.
+    int getPreferredHeight() const;
+
     juce::Rectangle<int> getTitleBounds() const;
 
     // Access to model ComboBox for hierarchical menu setup
@@ -102,6 +105,7 @@ private:
 
     float promptDuration { 6.0f };
     int modelIndex { 0 };
+    int contentHeight { 0 };
 
     juce::Rectangle<int> titleBounds;
 };

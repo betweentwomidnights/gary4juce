@@ -111,13 +111,14 @@ GaryUI::GaryUI()
     cfgLabel.setFont(juce::FontOptions(12.0f));
     cfgLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     cfgLabel.setJustificationType(juce::Justification::centredLeft);
+    cfgLabel.setTooltip("higher = it listens to your description more");
     addToContent(cfgLabel);
 
     cfgSlider.setRange(1.0, 5.0, 0.1);
     cfgSlider.setValue(3.0, juce::dontSendNotification);
     cfgSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     cfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
-    cfgSlider.setTooltip("classifier-free guidance - higher = follows the description more literally");
+    cfgSlider.setTooltip("higher = it listens to your description more");
     cfgSlider.onValueChange = [this]()
     {
         if (onCfgChanged)
@@ -129,13 +130,16 @@ GaryUI::GaryUI()
     topKLabel.setFont(juce::FontOptions(12.0f));
     topKLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     topKLabel.setJustificationType(juce::Justification::centredLeft);
+    topKLabel.setTooltip("lower = more repetitive but sticks to your input audio more, "
+                         "too high and it will get absurd and lose the bpm");
     addToContent(topKLabel);
 
     topKSlider.setRange(50.0, 300.0, 1.0);
     topKSlider.setValue(250.0, juce::dontSendNotification);
     topKSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     topKSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
-    topKSlider.setTooltip("how many tokens gary picks from - lower = safer and more repetitive");
+    topKSlider.setTooltip("lower = more repetitive but sticks to your input audio more, "
+                          "too high and it will get absurd and lose the bpm");
     topKSlider.onValueChange = [this]()
     {
         if (onTopKChanged)
@@ -282,7 +286,14 @@ void GaryUI::updateContentLayout()
     retryButton.setBounds(buttonRow);
     y += kButtonHeight;
 
-    contentComponent->setSize(contentWidth, y + 4);
+    contentHeight = y + 4;
+    contentComponent->setSize(contentWidth, contentHeight);
+}
+
+int GaryUI::getPreferredHeight() const
+{
+    // Everything resized() takes off the top before the viewport gets what's left.
+    return (kOuterMargin * 2) + kTitleHeight + kInterRowGap + contentHeight;
 }
 
 void GaryUI::setVisibleForTab(bool visible)
