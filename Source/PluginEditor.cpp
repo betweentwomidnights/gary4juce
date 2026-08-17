@@ -7780,35 +7780,13 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0x15, 0x15, 0x15));
     g.fillRoundedRectangle(fullTabArea.toFloat(), 5.0f);
 
-    // Tab section border (color depends on current tab and connection)
+    // Tab section border - gary's red for every tab. Giving each model its own colour
+    // meant wide mode drew, say, a green divider down the middle of a red plugin.
     const bool tabBorderOnline = audioProcessor.getIsUsingLocalhost() ? isActiveLocalServiceOnline() : isConnected;
-    if (tabBorderOnline)
-    {
-        switch (currentTab)
-        {
-        case ModelTab::Gary:
-            g.setColour(juce::Colours::darkred.withAlpha(0.6f));
-            break;
-        case ModelTab::Jerry:
-            g.setColour(juce::Colours::darkgreen.withAlpha(0.6f));
-            break;
-        case ModelTab::Carey:
-            g.setColour(juce::Colours::darkorange.withAlpha(0.6f));
-            break;
-        case ModelTab::Terry:
-            g.setColour(juce::Colours::darkblue.withAlpha(0.6f));
-            break;
-        case ModelTab::Darius:
-            g.setColour(juce::Colour(0x80, 0x00, 0x80).withAlpha(0.6f));
-            break;
-        }
-    }
-    else
-    {
-        g.setColour(juce::Colour(0x30, 0x30, 0x30));
-    }
-    if (editorLayoutMode == EditorLayoutMode::Compact)
-        g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
+    g.setColour(tabBorderOnline
+        ? juce::Colours::darkred.withAlpha(0.6f)
+        : juce::Colour(0x30, 0x30, 0x30));
+    g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
 
     // Draw the OUTPUT waveform
     drawOutputWaveform(g, outputWaveformArea);
