@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.12 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.12)
+- [gary4juce v4.0.13 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.13)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.2.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.1)
+- windows: [gary4local v0.3.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.0)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -52,10 +52,14 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.12 - minor Terry and preset fixes
+### v4.0.13 - gary's advanced controls
 
-Terry can now reuse an exact seed. Jerry's SAOS model list now refreshes
-correctly after loading presets.
+gary's tab has an advanced section now: cfg, top k, a description box, and a
+seed that works the same way terry's does. gary also says when it is downloading
+a model instead of sitting on `processing audio...` for the whole pull.
+
+jerry's SAOS tab now loads correctly on a fresh instance and keeps the standard
+model and finetunes on their own cfg and step settings.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

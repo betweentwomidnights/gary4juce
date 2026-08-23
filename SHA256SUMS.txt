@@ -1,2 +1,2 @@
-d2cb68c7e6e2df519b6e2d32ce478fbe37b6b3b60276823f424793950c4f5408  gary4juce-v4.0.12-win-vst3.zip
-67278f815fd5b59c30130c678c945b63ad60faab9e43406bc4aac34ab41d437a  gary4juce-v4.0.12-win-standalone.zip
+46761c5ea262ccf9575fe3deff3ccb3971f8b060d9233f6543b9dd9ddc286299  gary4juce-v4.0.13-win-vst3.zip
+93546bda460a1dbbbaa0c0611e6b8f793ddffeb14cbd585057eb1d41c384cdaf  gary4juce-v4.0.13-win-standalone.zip

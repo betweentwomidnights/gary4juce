@@ -1,13 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.12",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.12",
-  "sha256": "d2cb68c7e6e2df519b6e2d32ce478fbe37b6b3b60276823f424793950c4f5408",
-  "published_at": "2026-08-16T10:56:55Z",
+  "latest_version": "4.0.13",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.13",
+  "sha256": "46761c5ea262ccf9575fe3deff3ccb3971f8b060d9233f6543b9dd9ddc286299",
+  "published_at": "2026-08-17T13:20:29Z",
   "notes": [
-    "Terry can now reuse an exact seed.",
-    "Jerry's SAOS model dropdown now refreshes after loading presets.",
-    "Recommended gary4local: v0.2.1.",
+    "Gary gets advanced cfg, top k, description, and seed controls, and reports when it is downloading a model.",
+    "Jerry's SAOS tab now loads correctly on a fresh instance and keeps standard and finetune settings separate.",
+    "Recommended gary4local: v0.3.0.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
