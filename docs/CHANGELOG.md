@@ -3,6 +3,12 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.14 - clearer SA3 continuations
+
+SA3's continue slider now chooses how many seconds of new audio to add and
+tracks the selected recording or output source. This pairs with the backend
+continuation improvements in gary4local v0.3.1.
+
 ## v4.0.13 - gary's advanced controls
 
 gary's tab has an advanced section now: cfg, top k, a description box, and a

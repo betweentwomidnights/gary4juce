@@ -52,14 +52,11 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.13 - gary's advanced controls
+### upcoming v4.0.14 - clearer SA3 continuations
 
-gary's tab has an advanced section now: cfg, top k, a description box, and a
-seed that works the same way terry's does. gary also says when it is downloading
-a model instead of sitting on `processing audio...` for the whole pull.
-
-jerry's SAOS tab now loads correctly on a fresh instance and keeps the standard
-model and finetunes on their own cfg and step settings.
+SA3's continue slider now chooses how many seconds of new audio to add and
+tracks the selected recording or output source. This pairs with the backend
+continuation improvements in gary4local v0.3.1.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

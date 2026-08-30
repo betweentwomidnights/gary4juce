@@ -94,7 +94,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("sa3TransformPrompt", currentSA3TransformPrompt);
     state->setProperty("sa3TransformStrength", currentSA3TransformStrength);
     state->setProperty("sa3ContinuePrompt", currentSA3ContinuePrompt);
-    state->setProperty("sa3ContinueSeconds", currentSA3ContinueTotalSeconds);
+    state->setProperty("sa3ContinueAddSeconds", currentSA3ContinueAddSeconds);
     state->setProperty("sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
     state->setProperty("sa3SubTab", static_cast<int>(
         sa3UI != nullptr ? sa3UI->getCurrentSubTab() : currentSA3SubTab));
@@ -284,8 +284,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentSA3TransformStrength = juce::jlimit(
         0.01, 1.0, readDouble("sa3TransformStrength", currentSA3TransformStrength));
     currentSA3ContinuePrompt = readString("sa3ContinuePrompt", currentSA3ContinuePrompt);
-    currentSA3ContinueTotalSeconds = juce::jlimit(
-        1, 300, readInt("sa3ContinueSeconds", currentSA3ContinueTotalSeconds));
+    currentSA3ContinueAddSeconds = juce::jlimit(
+        1, 300, readInt("sa3ContinueAddSeconds",
+            readInt("sa3ContinueSeconds", currentSA3ContinueAddSeconds)));
     currentSA3ContinueLatentPrefix = readBool(
         "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
     currentSA3SubTab = static_cast<SA3UI::SubTab>(
@@ -471,7 +472,7 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         sa3UI->setTransformPromptText(currentSA3TransformPrompt);
         sa3UI->setTransformStrength(currentSA3TransformStrength);
         sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
-        sa3UI->setContinueTotalSeconds(currentSA3ContinueTotalSeconds);
+        sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
         sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
         sa3UI->setDurationSeconds(currentSA3DurationSeconds);
         sa3UI->setLoopEnabled(currentSA3LoopEnabled);
@@ -1029,9 +1030,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentSA3ContinuePrompt = text;
         updateSA3EnablementSnapshot();
     };
-    sa3UI->onContinueTotalSecondsChanged = [this](int seconds)
+    sa3UI->onContinueAddSecondsChanged = [this](int seconds)
     {
-        currentSA3ContinueTotalSeconds = juce::jlimit(1, 300, seconds);
+        currentSA3ContinueAddSeconds = juce::jlimit(1, 300, seconds);
     };
     sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
     {
@@ -1054,7 +1055,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setTransformPromptText(currentSA3TransformPrompt);
     sa3UI->setTransformStrength(currentSA3TransformStrength);
     sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
-    sa3UI->setContinueTotalSeconds(currentSA3ContinueTotalSeconds);
+    sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
     sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
     sa3UI->setTransformAudioSourceRecording(transformRecording);
     sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
@@ -5799,6 +5800,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
         return;
     }
 
@@ -5845,6 +5847,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
             juce::String(reader->sampleRate) + " Hz");
 
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
     }
     else
     {
@@ -5862,6 +5865,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
     }
 }
 
@@ -6415,6 +6419,7 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
     // Reset playback tracking
     currentPlaybackPosition = 0.0;
     totalAudioDuration = 0.0;
+    updateSA3EnablementSnapshot();
 
     // Optionally delete the file
     if (outputAudioFile.exists())

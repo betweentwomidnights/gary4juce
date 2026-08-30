@@ -68,8 +68,10 @@ public:
 
     juce::String getContinuePromptText() const { return continuePromptEditor.getText().trim(); }
     void setContinuePromptText(const juce::String& text);
-    int getContinueTotalSeconds() const { return juce::roundToInt(continuationSlider.getValue()); }
-    void setContinueTotalSeconds(int seconds);
+    int getContinueAddSeconds() const { return juce::roundToInt(continuationSlider.getValue()); }
+    void setContinueAddSeconds(int seconds);
+    void setContinueSourceDuration(double sourceDurationSeconds, bool sourceAvailable);
+    int getContinueMaximumAddSeconds() const { return continuationMaximumAddSeconds; }
     bool getContinueLatentPrefixEnabled() const { return continueModeLatentPrefixButton.getToggleState(); }
     void setContinueLatentPrefixEnabled(bool enabled);
     bool getContinueAudioSourceRecording() const { return transformAudioSourceRecording; }
@@ -129,7 +131,7 @@ public:
     std::function<void()> onTransform;
     std::function<void()> onTransformDiceRequested;
     std::function<void(const juce::String&)> onContinuePromptChanged;
-    std::function<void(int)> onContinueTotalSecondsChanged;
+    std::function<void(int)> onContinueAddSecondsChanged;
     std::function<void(bool)> onContinueLatentPrefixChanged;
     std::function<void(bool)> onContinueAudioSourceChanged; // true=recording, false=output
     std::function<void()> onContinue;
@@ -213,6 +215,7 @@ private:
     juce::ToggleButton continueOutputButton;
     juce::Label continuationLabel;
     CustomSlider continuationSlider;
+    int continuationMaximumAddSeconds = 300;
 
     juce::Label durationLabel;
     CustomSlider durationSlider;

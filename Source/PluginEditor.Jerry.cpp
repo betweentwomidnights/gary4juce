@@ -1165,6 +1165,14 @@ void Gary4juceAudioProcessorEditor::updateSA3EnablementSnapshot()
     sa3UI->setContinueAudioSourceRecording(transformRecording);
     sa3UI->setContinueAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
 
+    const double recordingDuration = savedSamples > 0
+        ? (double)savedSamples / juce::jmax(1.0, audioProcessor.getCurrentSampleRate())
+        : 0.0;
+    const bool selectedAudioAvailable = transformRecording ? savedSamples > 0 : hasOutputAudio;
+    sa3UI->setContinueSourceDuration(
+        transformRecording ? recordingDuration : totalAudioDuration,
+        selectedAudioAvailable);
+
     bool canSubmit = false;
     if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Generate)
     {
@@ -1172,15 +1180,14 @@ void Gary4juceAudioProcessorEditor::updateSA3EnablementSnapshot()
     }
     else if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Transform)
     {
-        const bool selectedAudioAvailable = transformRecording ? savedSamples > 0 : hasOutputAudio;
         canSubmit = serviceReady
             && selectedAudioAvailable;
     }
     else if (sa3UI->getCurrentSubTab() == SA3UI::SubTab::Continue)
     {
-        const bool selectedAudioAvailable = transformRecording ? savedSamples > 0 : hasOutputAudio;
         canSubmit = serviceReady
-            && selectedAudioAvailable;
+            && selectedAudioAvailable
+            && sa3UI->getContinueMaximumAddSeconds() >= 1;
     }
 
     sa3UI->setGenerateButtonEnabled(canSubmit, isGenerating);
@@ -1902,7 +1909,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     const juce::String prompt = sa3UI->getContinuePromptText().trim();
 
     currentSA3ContinuePrompt = prompt;
-    currentSA3ContinueTotalSeconds = juce::jlimit(1, 300, sa3UI->getContinueTotalSeconds());
+    currentSA3ContinueAddSeconds = juce::jlimit(0, 300, sa3UI->getContinueAddSeconds());
     transformRecording = sa3UI->getContinueAudioSourceRecording();
     audioProcessor.setTransformRecording(transformRecording);
     currentSA3Steps = sa3UI->getSteps();
@@ -1932,11 +1939,11 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     const double sourceSeconds = transformRecording
         ? (double)savedSamples / juce::jmax(1.0, audioProcessor.getCurrentSampleRate())
         : totalAudioDuration;
-    const double requestedTotalSeconds = (double)currentSA3ContinueTotalSeconds;
-    const double continuationSecondsForRequest = requestedTotalSeconds - sourceSeconds;
+    const double continuationSecondsForRequest = (double)currentSA3ContinueAddSeconds;
+    const double requestedTotalSeconds = sourceSeconds + continuationSecondsForRequest;
     if (sourceSeconds <= 0.0 || continuationSecondsForRequest <= 0.0)
     {
-        showStatusMessage("duration must be longer than the source audio", 4000);
+        showStatusMessage("choose at least one second of audio to add", 4000);
         updateSA3EnablementSnapshot();
         return;
     }

@@ -452,7 +452,7 @@ private:
     juce::String currentSA3TransformPrompt = "";
     double currentSA3TransformStrength = 0.5;
     juce::String currentSA3ContinuePrompt = "";
-    int currentSA3ContinueTotalSeconds = 30;
+    int currentSA3ContinueAddSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;
     SA3UI::SubTab currentSA3SubTab = SA3UI::SubTab::Generate;
     bool currentSA3AdvancedOpen = false;
