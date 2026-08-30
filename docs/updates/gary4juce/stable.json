@@ -1,13 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.13",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.13",
-  "sha256": "46761c5ea262ccf9575fe3deff3ccb3971f8b060d9233f6543b9dd9ddc286299",
-  "published_at": "2026-08-17T13:20:29Z",
+  "latest_version": "4.0.14",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.14",
+  "sha256": "09c18fe332cf2b11b3a60539f2fbaa68230e0de6130ccdbcc7a3420d87c363ee",
+  "published_at": "2026-08-30T12:03:53Z",
   "notes": [
-    "Gary gets advanced cfg, top k, description, and seed controls, and reports when it is downloading a model.",
-    "Jerry's SAOS tab now loads correctly on a fresh instance and keeps standard and finetune settings separate.",
-    "Recommended gary4local: v0.3.0.",
+    "SA3's continue slider now chooses how many seconds of new audio to add and follows the selected recording or output source.",
+    "Recommended gary4local: v0.3.1.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }
