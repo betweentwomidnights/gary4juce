@@ -30,6 +30,7 @@ namespace
     constexpr int kWideInputSectionHeight = 440;
     constexpr int kWideLeftColumnWidth = 470;
     constexpr int kWideColumnGap = 10;
+    constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
 }
 
 juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
@@ -45,6 +46,16 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("garyPromptDuration", currentPromptDuration);
     state->setProperty("garyModelPath",
         garyUI != nullptr && !garyModelList.empty() ? getSelectedGaryModelPath() : preferredGaryModelPath);
+    state->setProperty("garyTopK", currentGaryTopK);
+    state->setProperty("garyCfg", currentGaryCfg);
+    state->setProperty("garyDescription", currentGaryDescription);
+    state->setProperty("garyAdvancedOpen", currentGaryAdvancedOpen);
+    state->setProperty("garyLastSeed",
+        garyUI != nullptr ? garyUI->getLastSeed() : currentGaryLastSeed);
+    state->setProperty("garyUseSeed",
+        garyUI != nullptr ? garyUI->getUseSeedEnabled() : currentGaryUseSeed);
+    state->setProperty("garySeedText",
+        garyUI != nullptr ? garyUI->getSeedText() : currentGarySeedText);
 
     state->setProperty("jerryPrompt", currentJerryPrompt);
     state->setProperty("jerryCfg", currentJerryCfg);
@@ -84,7 +95,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("sa3TransformPrompt", currentSA3TransformPrompt);
     state->setProperty("sa3TransformStrength", currentSA3TransformStrength);
     state->setProperty("sa3ContinuePrompt", currentSA3ContinuePrompt);
-    state->setProperty("sa3ContinueSeconds", currentSA3ContinueTotalSeconds);
+    state->setProperty("sa3ContinueAddSeconds", currentSA3ContinueAddSeconds);
     state->setProperty("sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
     state->setProperty("sa3SubTab", static_cast<int>(
         sa3UI != nullptr ? sa3UI->getCurrentSubTab() : currentSA3SubTab));
@@ -116,6 +127,12 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("terryFlowstep", currentTerryFlowstep);
     state->setProperty("terryMidpoint", useMidpointSolver);
     state->setProperty("transformRecording", transformRecording);
+    state->setProperty("terryLastSeed",
+        terryUI != nullptr ? terryUI->getLastSeed() : currentTerryLastSeed);
+    state->setProperty("terryUseSeed",
+        terryUI != nullptr ? terryUI->getUseSeedEnabled() : currentTerryUseSeed);
+    state->setProperty("terrySeedText",
+        terryUI != nullptr ? terryUI->getSeedText() : currentTerrySeedText);
 
     state->setProperty("careySubTab", static_cast<int>(
         careyUI != nullptr ? careyUI->getCurrentSubTab() : currentCareySubTab));
@@ -222,6 +239,14 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentPromptDuration = static_cast<float>(
         juce::jlimit(1.0, 30.0, readDouble("garyPromptDuration", currentPromptDuration)));
     preferredGaryModelPath = readString("garyModelPath", preferredGaryModelPath);
+    currentGaryTopK = juce::jlimit(50, 300, readInt("garyTopK", currentGaryTopK));
+    currentGaryCfg = static_cast<float>(
+        juce::jlimit(1.0, 5.0, readDouble("garyCfg", currentGaryCfg)));
+    currentGaryDescription = readString("garyDescription", currentGaryDescription);
+    currentGaryAdvancedOpen = readBool("garyAdvancedOpen", currentGaryAdvancedOpen);
+    currentGaryLastSeed = readString("garyLastSeed", currentGaryLastSeed);
+    currentGaryUseSeed = readBool("garyUseSeed", currentGaryUseSeed);
+    currentGarySeedText = readString("garySeedText", currentGarySeedText);
 
     currentJerryPrompt = readString("jerryPrompt", currentJerryPrompt);
     currentJerryCfg = static_cast<float>(readDouble("jerryCfg", currentJerryCfg));
@@ -260,8 +285,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentSA3TransformStrength = juce::jlimit(
         0.01, 1.0, readDouble("sa3TransformStrength", currentSA3TransformStrength));
     currentSA3ContinuePrompt = readString("sa3ContinuePrompt", currentSA3ContinuePrompt);
-    currentSA3ContinueTotalSeconds = juce::jlimit(
-        1, 300, readInt("sa3ContinueSeconds", currentSA3ContinueTotalSeconds));
+    currentSA3ContinueAddSeconds = juce::jlimit(
+        1, 300, readInt("sa3ContinueAddSeconds",
+            readInt("sa3ContinueSeconds", currentSA3ContinueAddSeconds)));
     currentSA3ContinueLatentPrefix = readBool(
         "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
     currentSA3SubTab = static_cast<SA3UI::SubTab>(
@@ -295,6 +321,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentTerryFlowstep = static_cast<float>(readDouble("terryFlowstep", currentTerryFlowstep));
     useMidpointSolver = readBool("terryMidpoint", useMidpointSolver);
     transformRecording = readBool("transformRecording", transformRecording);
+    currentTerryLastSeed = readString("terryLastSeed", currentTerryLastSeed);
+    currentTerryUseSeed = readBool("terryUseSeed", currentTerryUseSeed);
+    currentTerrySeedText = readString("terrySeedText", currentTerrySeedText);
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
         juce::jlimit(0, 3, readInt("careySubTab", 0)));
@@ -374,8 +403,193 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     DBG("Restored versioned editor state");
 }
 
+void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
+{
+    if (applyingProcessorState)
+        return;
+
+    const juce::ScopedValueSetter<bool> applyingState(applyingProcessorState, true);
+
+    restorePersistentState(audioProcessor.getEditorState());
+    savedSamples = audioProcessor.getSavedSamples();
+    transformRecording = audioProcessor.getTransformRecording();
+    currentCareyLyrics = audioProcessor.getCareyLyrics();
+    currentCareyLanguage = audioProcessor.getCareyLanguage();
+    isUsingLocalhost = audioProcessor.getIsUsingLocalhost();
+
+    setSize(editorLayoutMode == EditorLayoutMode::Wide
+        ? kWideEditorWidth : kCompactEditorWidth,
+        editorLayoutMode == EditorLayoutMode::Wide
+            ? kWideEditorHeight : kCompactEditorHeight);
+
+    if (garyUI != nullptr)
+    {
+        garyUI->setPromptDuration(currentPromptDuration);
+        garyUI->setTopK(currentGaryTopK);
+        garyUI->setCfgCoef(currentGaryCfg);
+        garyUI->setDescription(currentGaryDescription);
+        garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
+        garyUI->setLastSeed(currentGaryLastSeed);
+        garyUI->setSeedState(currentGaryUseSeed, currentGarySeedText);
+
+        if (auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox()))
+        {
+            for (size_t i = 0; i < garyModelList.size(); ++i)
+            {
+                if (garyModelList[i].fullPath == preferredGaryModelPath)
+                {
+                    modelComboBox->setSelectedId(
+                        garyModelList[i].dropdownId, juce::dontSendNotification);
+                    currentModelIndex = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (jerryUI != nullptr)
+    {
+        jerryUI->selectModelByIdentity(currentJerryModelKey,
+                                       currentJerryFinetuneRepo,
+                                       currentJerryFinetuneCheckpoint);
+        jerryUI->setSelectedSamplerType(currentJerrySamplerType);
+        jerryUI->setPromptText(currentJerryPrompt);
+        jerryUI->setCfg(currentJerryCfg);
+        jerryUI->setSteps(currentJerrySteps);
+        jerryUI->setSmartLoop(generateAsLoop);
+        jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
+        jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
+        jerryUI->setUsingLocalhost(isUsingLocalhost);
+        jerryUI->restoreCustomFinetuneState(currentJerryCustomFinetuneOpen,
+                                            currentJerryCustomFinetuneRepo,
+                                            currentJerryCustomFinetuneCheckpoint);
+    }
+
+    if (sa3UI != nullptr)
+    {
+        sa3UI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
+        sa3UI->setPromptText(currentSA3Prompt);
+        sa3UI->setTransformPromptText(currentSA3TransformPrompt);
+        sa3UI->setTransformStrength(currentSA3TransformStrength);
+        sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
+        sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
+        sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+        sa3UI->setDurationSeconds(currentSA3DurationSeconds);
+        sa3UI->setLoopEnabled(currentSA3LoopEnabled);
+        sa3UI->setBars(currentSA3Bars);
+        sa3UI->setSteps(currentSA3Steps);
+        sa3UI->setCfgScale(currentSA3Cfg);
+        sa3UI->setShift(currentSA3Shift);
+        sa3UI->setKeyScale(currentSA3KeyScale);
+        sa3UI->setNegativePromptText(currentSA3NegativePrompt);
+        sa3UI->setCurrentSubTab(currentSA3SubTab);
+        sa3UI->setAdvancedOpen(currentSA3AdvancedOpen);
+        sa3UI->setLastSeed(currentSA3LastSeed);
+        sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
+        sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+    }
+
+    if (terryUI != nullptr)
+    {
+        terryUI->setVariations(terryVariationNames, currentTerryVariation);
+        terryUI->setCustomPrompt(currentTerryCustomPrompt);
+        terryUI->setFlowstep(currentTerryFlowstep);
+        terryUI->setUseMidpointSolver(useMidpointSolver);
+        terryUI->setLastSeed(currentTerryLastSeed);
+        terryUI->setSeedState(currentTerryUseSeed, currentTerrySeedText);
+    }
+
+    if (dariusUI != nullptr)
+    {
+        dariusUI->restoreState(pendingDariusState);
+        dariusBackendUrl = dariusUI->getBackendUrl();
+        dariusUseBaseModel = dariusUI->getUsingBaseModel();
+        dariusFinetuneRepo = dariusUI->getFinetuneRepo();
+        dariusSelectedStepStr = dariusUI->getSelectedCheckpointStep();
+        dariusCentroidWeights = dariusUI->getCentroidWeights();
+    }
+
+    if (careyUI != nullptr)
+    {
+        careyUI->setCaptionText(currentCareyCaption);
+        careyUI->setTrackName(currentCareyTrackName);
+        careyUI->setSteps(currentCareySteps);
+        careyUI->setLegoCfg(currentLegoCfg);
+        careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
+        careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+        careyUI->setExtractTrackName(currentCareyExtractTrackName);
+        careyUI->setExtractBpm(currentCareyExtractBpm);
+        careyUI->setExtractSteps(currentCareyExtractSteps);
+        careyUI->setExtractCfg(currentCareyExtractCfg);
+        careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
+        careyUI->setCompleteModel(currentCareyCompleteModel);
+        careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
+        careyUI->setCompleteSteps(currentCareyCompleteSteps);
+        careyUI->setCompleteCfg(currentCompleteCfg);
+        careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+        careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
+        careyUI->setCoverCaptionText(currentCoverCaption);
+        careyUI->setCoverModel(currentCoverModel);
+        careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
+        careyUI->setCoverAudioStrength(currentCoverAudioStrength);
+        careyUI->setCoverSteps(currentCoverSteps);
+        careyUI->setCoverCfg(currentCoverCfg);
+        careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
+        careyUI->setCoverLoopAssistEnabled(currentCoverLoopAssistEnabled);
+        careyUI->setCoverTrimToInputEnabled(currentCoverTrimToInputEnabled);
+        careyUI->setKeyScale(currentCareyKeyScale);
+        careyUI->setTimeSig(currentCareyTimeSig);
+        careyUI->setCurrentSubTab(currentCareySubTab);
+        careyUI->setLegoAdvancedOpen(currentCareyLegoAdvancedOpen);
+        careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
+        careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
+        careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+        careyUI->setLastSeed(currentCareyLastSeed);
+        careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
+        careyUI->setLyricsText(currentCareyLyrics);
+        careyUI->setLyricsLanguage(currentCareyLanguage);
+        syncCareyLoraUi();
+    }
+
+    if (foundationUI != nullptr)
+    {
+        const auto foundationState = audioProcessor.getFoundationState();
+        if (foundationState.isNotEmpty())
+            foundationUI->restoreState(foundationState);
+
+        foundationUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentStandaloneBpm
+            : (audioProcessor.getCurrentBPM() > 0.0
+                ? audioProcessor.getCurrentBPM() : 120.0));
+    }
+
+    setTerryAudioSource(transformRecording);
+    updateBackendToggleButton();
+    updateCareyTabAvailability();
+    updateAllGenerationButtonStates();
+
+    const auto restoredTab = initialTab;
+    currentTab = restoredTab == ModelTab::Gary ? ModelTab::Terry : ModelTab::Gary;
+    switchToTab(restoredTab);
+
+    DBG("Applied host-loaded state to open editor");
+}
+
 void Gary4juceAudioProcessorEditor::persistEditorState()
 {
+    if (applyingProcessorState)
+        return;
+
+    const auto hostStateRevision = audioProcessor.getHostStateRevision();
+    if (hostStateRevision != lastAppliedHostStateRevision)
+    {
+        lastAppliedHostStateRevision = hostStateRevision;
+        applyProcessorStateToEditor();
+        return;
+    }
+
     if (foundationUI != nullptr)
         audioProcessor.setFoundationState(foundationUI->serializeState());
 
@@ -473,6 +687,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     editorCreatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
     transformRecording = audioProcessor.getTransformRecording();
     restorePersistentState(audioProcessor.getEditorState());
+    lastAppliedHostStateRevision = audioProcessor.getHostStateRevision();
     audioProcessor.setTransformRecording(transformRecording);
 
     setSize(editorLayoutMode == EditorLayoutMode::Wide
@@ -582,9 +797,37 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         retryLastContinuation();
     };
 
+    garyUI->onTopKChanged = [this](int value)
+    {
+        currentGaryTopK = value;
+    };
+
+    garyUI->onCfgChanged = [this](double value)
+    {
+        currentGaryCfg = static_cast<float>(value);
+    };
+
+    garyUI->onDescriptionChanged = [this](const juce::String& text)
+    {
+        currentGaryDescription = text;
+    };
+
+    garyUI->onLayoutHeightChanged = [this]()
+    {
+        currentGaryAdvancedOpen = garyUI->getAdvancedOpen();
+        resized();
+        repaint();
+    };
+
     garyUI->setPromptDuration(currentPromptDuration);
     garyUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
     garyUI->setQuantizationMode(currentGaryQuantizationMode, juce::dontSendNotification);
+    garyUI->setTopK(currentGaryTopK);
+    garyUI->setCfgCoef(currentGaryCfg);
+    garyUI->setDescription(currentGaryDescription);
+    garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
+    garyUI->setLastSeed(currentGaryLastSeed);
+    garyUI->setSeedState(currentGaryUseSeed, currentGarySeedText);
 
     // Fetch available models from backend (will populate dropdown when response arrives)
     if (isConnected)
@@ -804,9 +1047,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentSA3ContinuePrompt = text;
         updateSA3EnablementSnapshot();
     };
-    sa3UI->onContinueTotalSecondsChanged = [this](int seconds)
+    sa3UI->onContinueAddSecondsChanged = [this](int seconds)
     {
-        currentSA3ContinueTotalSeconds = juce::jlimit(1, 300, seconds);
+        currentSA3ContinueAddSeconds = juce::jlimit(1, 300, seconds);
     };
     sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
     {
@@ -829,7 +1072,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setTransformPromptText(currentSA3TransformPrompt);
     sa3UI->setTransformStrength(currentSA3TransformStrength);
     sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
-    sa3UI->setContinueTotalSeconds(currentSA3ContinueTotalSeconds);
+    sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
     sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
     sa3UI->setTransformAudioSourceRecording(transformRecording);
     sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
@@ -865,7 +1108,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     terryUI->setUseMidpointSolver(useMidpointSolver);
     terryUI->setAudioSourceRecording(transformRecording);
     terryUI->setVisibleForTab(false);
-    terryUI->setBpm(audioProcessor.getCurrentBPM());
 
     terryUI->onVariationChanged = [this](int index)
     {
@@ -1428,9 +1670,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     uploadButton.setTooltip("load an audio file into the recording buffer");
     uploadButton.onClick = [this]()
     {
+        const auto savedDirectory = juce::File(
+            getUpdatePreferences().getValue(kRecordingBufferFileChooserDirectoryKey));
+        const auto initialDirectory = savedDirectory.isDirectory()
+            ? savedDirectory
+            : juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
+
         uploadFileChooser = std::make_unique<juce::FileChooser>(
             "load audio into recording buffer",
-            juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+            initialDirectory,
             "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a",
             true,
             false,
@@ -1448,7 +1696,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
                 auto result = fc.getResult();
                 if (result.existsAsFile())
+                {
+                    auto& preferences = editor->getUpdatePreferences();
+                    preferences.setValue(kRecordingBufferFileChooserDirectoryKey,
+                                         result.getParentDirectory().getFullPathName());
+                    preferences.saveIfNeeded();
                     editor->loadAudioFileIntoBuffer(result);
+                }
             });
     };
     uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
@@ -1893,6 +2147,18 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
     updateSA3EnablementSnapshot();
 }
 
+void Gary4juceAudioProcessorEditor::setGaryLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    currentGaryLastSeed = trimmed;
+    currentGarySeedText = trimmed;
+    if (garyUI)
+        garyUI->setLastSeed(trimmed);
+}
+
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 {
     if (!garyUI)
@@ -1946,9 +2212,6 @@ void Gary4juceAudioProcessorEditor::timerCallback()
 
     if (sa3UI && !juce::JUCEApplicationBase::isStandaloneApp())
         sa3UI->setBpm(currentBPM);
-
-    if (terryUI)
-        terryUI->setBpm(currentBPM);
 
     if (dariusUI)
     {
@@ -2093,6 +2356,8 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
 
         inputPlaybackSnapshotSamples = 0;
         inputPlaybackDuration = 0.0;
+        lastDraggedAudioFile = juce::File();
+        lastSelectionStartTime = 0.0;
     }
 
     // Update save button state (only in plugin mode)
@@ -2368,16 +2633,15 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
             g.drawVerticalLine(cursorX + 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
     }
 
-    // Show reselection hint for standalone mode when file is available
-    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
-    if (isStandalone && recordedSamples > 0 && getInputReselectionFile().existsAsFile())
+    // The same range editor is available in plugin and standalone builds.
+    if (recordedSamples > 0 && !isRecording)
     {
         // Draw hint text at bottom-right of waveform
         g.setFont(juce::FontOptions(13.0f));
         g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
         // Create hint area from bottom-right of waveform without modifying original area
         auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
-        g.drawText("double-click to reselect", hintArea, juce::Justification::centredRight);
+        g.drawText("double-click to select range", hintArea, juce::Justification::centredRight);
     }
 }
 
@@ -2767,27 +3031,39 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             bool generationInProgress = responseObj->getProperty("generation_in_progress");
             bool transformInProgress = responseObj->getProperty("transform_in_progress");
 
+            // Musicgen's seed rides under its own key: plain "seed" on a poll is
+            // the last terry transform's, and both can share one session.
+            if (responseObj->hasProperty("generation_seed"))
+                setGaryLastSeed(responseObj->getProperty("generation_seed").toString());
+
             if (generationInProgress || transformInProgress)
             {
                 // If we were previously in warmup, keep UI responsive and prevent stall
                 if (withinWarmup)
                 {
-                    // Heuristics to exit warmup: any server progress > 0, or explicit queue ready
+                    // Heuristics to exit warmup: any server progress > 0, or a status past warming
                     int warmProgressCheck = responseObj->getProperty("progress");
                     juce::String warmQueueStatus;
+                    juce::String warmQueueMessage;
                     if (auto* warmQueueObj = responseObj->getProperty("queue_status").getDynamicObject())
-                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
-
-                    if (warmProgressCheck > 0 || warmQueueStatus == "ready")
                     {
-                        DBG("Exiting warmup state (progress or ready observed)");
+                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
+                        warmQueueMessage = warmQueueObj->getProperty("message").toString();
+                    }
+
+                    // Any progress, or any backend status that is no longer "warming", means the
+                    // model is loaded and the run proper has started.
+                    if (warmProgressCheck > 0
+                        || (warmQueueStatus.isNotEmpty() && warmQueueStatus != "warming"))
+                    {
+                        DBG("Exiting warmup state (progress or non-warming status observed)");
                         withinWarmup = false;
                     }
                     else
                     {
                         // Stay in warmup: keep resetting the stall timer and show a gentle status
                         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                        showStatusMessage("warming up...", 3000);
+                        showStatusMessage(warmQueueMessage.isNotEmpty() ? warmQueueMessage : "warming up...", 3000);
                         // Don't early-return: allow the rest of the block to parse queue info etc.
                     }
                 }
@@ -2808,6 +3084,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     queueMessage = queueStatusObj->getProperty("message").toString();
                     hasValidQueueStatus = !queueStatus.isEmpty();
                     isQueuedForProcessing = (queueStatus == "queued");
+
+                    // A cold start reports "warming" over a perfectly healthy 200 with no error
+                    // field, so this is the only place we learn a model is still downloading.
+                    // Without it a multi-GB hub download reads as an ordinary stalled generation.
+                    if (queueStatus == "warming")
+                        withinWarmup = true;
 
                     DBG("Queue status found - Status: " + queueStatus + ", Message: " + queueMessage);
                 }
@@ -2878,6 +3160,15 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                         // Fallback if queue data is missing
                         showStatusMessage("queued for processing...", 5000);
                     }
+                }
+                else if (queueStatus == "warming")
+                {
+                    // Backend already wrote a useful line ("loading <model> (first run / hub
+                    // download)") - show it instead of a generic progress message.
+                    showStatusMessage(queueMessage.isNotEmpty()
+                        ? queueMessage
+                        : "warming up (loading model)...", 5000);
+                    DBG("Warming: " + queueMessage);
                 }
                 else if (serverProgress > 0 || queueStatus == "ready")
                 {
@@ -3310,13 +3601,18 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     repaint(); // Force immediate UI update
 
     const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
     juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio,
-                          requestUrl, isLocalhostRequest, capturedQuantizationMode]() {
+                          topK, cfgCoef, description, requestSeed, requestUrl,
+                          isLocalhostRequest, capturedQuantizationMode]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Gary request aborted - generation stopped");
             return;
@@ -3329,10 +3625,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         jsonRequest->setProperty("model_name", selectedModel);
         jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("audio_data", base64Audio);
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
         if (isLocalhostRequest)
             jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
@@ -3426,6 +3723,11 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
                         safeThis->showStatusMessage("sent to gary. processing...", 2000);
                         DBG("Session ID: " + sessionId);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (responseObj->hasProperty("seed"))
+                            safeThis->setGaryLastSeed(responseObj->getProperty("seed").toString());
 
                         // START POLLING FOR RESULTS
                         safeThis->startPollingForResults(sessionId);
@@ -3574,13 +3876,18 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
     DBG("Captured model path for continue: " + capturedModelPath);
     const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
     juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration,
-                          requestUrl, isLocalhostRequest, capturedQuantizationMode]() {
+                          topK, cfgCoef, description, requestSeed, requestUrl,
+                          isLocalhostRequest, capturedQuantizationMode]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Continue request aborted - generation stopped");
             return;
@@ -3595,10 +3902,11 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         jsonRequest->setProperty("audio_data", audioData);
         jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("model_name", capturedModelPath); // Use captured model path
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
         if (isLocalhostRequest)
             jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
@@ -3680,6 +3988,11 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                         auto sessionId = obj->getProperty("session_id").toString();
                         DBG("Continue request queued, session ID: " + sessionId);
                         safeThis->showStatusMessage("continuation queued...", 2000);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (obj->hasProperty("seed"))
+                            safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
 
                         // Start polling for results (will replace current output audio when complete)
                         safeThis->startPollingForResults(sessionId);
@@ -3811,6 +4124,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     const bool isLocalhostRequest = audioProcessor.getIsUsingLocalhost();
     const juce::String capturedQuantizationMode = currentGaryQuantizationMode;
     const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
     const juce::String selectedModel = getSelectedGaryModelPath();
     const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
@@ -3818,7 +4135,8 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
     // Create HTTP request in background thread (same pattern as other requests)
     juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel,
-                          requestUrl, isLocalhostRequest, capturedQuantizationMode]() {
+                          topK, cfgCoef, description, requestSeed, requestUrl,
+                          isLocalhostRequest, capturedQuantizationMode]() {
         if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Retry request aborted - generation stopped");
             return;
@@ -3833,10 +4151,11 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
         // Get current model selection from dynamic list
         jsonRequest->setProperty("model_name", selectedModel);
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
         if (isLocalhostRequest)
             jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
@@ -3901,6 +4220,11 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                         auto newSessionId = obj->getProperty("session_id").toString();
                         DBG("Retry request queued, session ID: " + newSessionId);
                         safeThis->showStatusMessage("retry queued...", 2000);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (obj->hasProperty("seed"))
+                            safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
 
                         // Start polling for results (will replace current output when complete)
                         safeThis->startPollingForResults(newSessionId);
@@ -5572,6 +5896,8 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     }
     inputPlaybackDuration = 0.0;
     inputPlaybackSnapshotSamples = 0;
+    lastDraggedAudioFile = juce::File();
+    lastSelectionStartTime = 0.0;
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
     updateRecordingStatus();
@@ -5581,6 +5907,28 @@ void Gary4juceAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcast
 {
     if (source != &audioProcessor || !isEditorValid.load())
         return;
+
+    const auto hostStateRevision = audioProcessor.getHostStateRevision();
+    if (hostStateRevision != lastAppliedHostStateRevision)
+    {
+        lastAppliedHostStateRevision = hostStateRevision;
+        applyProcessorStateToEditor();
+
+        // The model list is backend-owned rather than preset state. Refresh it
+        // explicitly after a host restore so Jerry cannot remain on the combo
+        // box's initial "loading models..." placeholder.
+        fetchJerryAvailableModels(true);
+
+        // Host preset loading deliberately resets connectivity to unknown.
+        // Revalidate immediately so an open editor does not remain stuck on
+        // "disconnected" after the restored controls have been applied.
+        audioProcessor.checkBackendHealth();
+        if (audioProcessor.getIsUsingLocalhost())
+        {
+            resetLocalServiceHealthSnapshot();
+            triggerLocalServiceHealthPoll(true);
+        }
+    }
 
     updateConnectionStatus(audioProcessor.isBackendConnected());
 }
@@ -5600,6 +5948,12 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         if (connected)
         {
             fetchGaryAvailableModels();
+
+            // A preset may also switch the remote backend while Jerry is
+            // visible. Its first refresh is skipped while connectivity is
+            // unknown, so retry as soon as that backend is confirmed healthy.
+            if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SAOS)
+                fetchJerryAvailableModels();
 
             if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
             {
@@ -5637,6 +5991,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
         return;
     }
 
@@ -5683,6 +6038,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
             juce::String(reader->sampleRate) + " Hz");
 
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
     }
     else
     {
@@ -5700,6 +6056,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
     }
 }
 
@@ -5881,6 +6238,15 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
             g.setColour(juce::Colours::white);
             g.drawText("dragging to DAW...", area, juce::Justification::centred);
+        }
+        else
+        {
+            g.setFont(juce::FontOptions(13.0f));
+            g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+            auto hintArea = juce::Rectangle<int>(
+                area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
+            g.drawText("double-click to select range", hintArea,
+                       juce::Justification::centredRight);
         }
     }
     else
@@ -6320,6 +6686,7 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
     hasShownPlaybackPendingHint = false;
     currentPlaybackPosition = 0.0;
     totalAudioDuration = 0.0;
+    updateSA3EnablementSnapshot();
 
     // Optionally delete the file
     if (outputAudioFile.exists())
@@ -6479,7 +6846,27 @@ void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& eve
     // Check if double-click is on the recorded audio waveform area
     if (waveformArea.contains(event.getPosition()))
     {
-        const auto selectionSource = getInputReselectionFile();
+        if (recordedSamples <= 0 || isRecording)
+        {
+            showStatusMessage("finish recording before selecting a range", 2500);
+            return;
+        }
+
+        auto selectionSource = getInputReselectionFile();
+        if (!lastDraggedAudioFile.existsAsFile())
+        {
+            if (!ensureGaryDataDirectoryAvailable())
+                return;
+
+            selectionSource = getGaryBufferFile();
+            if (!audioProcessor.saveRecordingToFile(selectionSource))
+            {
+                showStatusMessage("could not prepare the recording buffer for editing", 4000);
+                return;
+            }
+            savedSamples = audioProcessor.getSavedSamples();
+        }
+
         if (selectionSource.existsAsFile())
         {
             DBG("Double-click on waveform - reopening selection dialog for: " +
@@ -6493,8 +6880,97 @@ void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& eve
         return;
     }
 
+    if (outputWaveformArea.contains(event.getPosition()) && hasOutputAudio)
+    {
+        showOutputAudioSelectionDialog();
+        return;
+    }
+
     // Call parent implementation for other areas
     juce::Component::mouseDoubleClick(event);
+}
+
+void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
+{
+    if (!hasOutputAudio || !outputAudioFile.existsAsFile() || totalAudioDuration <= 0.0)
+    {
+        showStatusMessage("output audio is no longer available", 2500);
+        return;
+    }
+
+    auto* dialog = new AudioSelectionDialog();
+    dialog->setSelectionWindowConstraints(1.0, totalAudioDuration, totalAudioDuration);
+
+    if (!dialog->loadAudioFile(outputAudioFile))
+    {
+        delete dialog;
+        showStatusMessage("failed to load output audio", 3000);
+        return;
+    }
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(dialog);
+    options.dialogTitle = "Select Output Audio Range";
+    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.useBottomRightCornerResizer = false;
+
+    auto dialogWindow = options.launchAsync();
+    trackEditorModalWindow(dialogWindow);
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    dialog->onConfirm = [asyncAlive, editor, dialogWindow](
+        const juce::AudioBuffer<float>& selectedBuffer,
+        double sourceSampleRate,
+        double selectionStartTime) mutable
+    {
+        const auto alive = asyncAlive.lock();
+        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+            return;
+
+        editor->fullStopOutputPlayback();
+
+        if (!editor->writeAudioBufferToFileSafely(
+                selectedBuffer, sourceSampleRate, editor->outputAudioFile))
+        {
+            editor->showStatusMessage("failed to save selected output range", 4000);
+            return;
+        }
+
+        editor->loadOutputAudioFile();
+        editor->audioProcessor.clearCurrentSessionId();
+        editor->audioProcessor.setUndoTransformAvailable(false);
+        editor->audioProcessor.setRetryAvailable(false);
+        editor->updateRetryButtonState();
+        editor->updateTerryEnablementSnapshot();
+
+        const double selectedDuration = selectedBuffer.getNumSamples()
+            / juce::jmax(1.0, sourceSampleRate);
+        editor->showStatusMessage(
+            "selected " + juce::String(selectionStartTime, 1) + "s to "
+                + juce::String(selectionStartTime + selectedDuration, 1) + "s from output",
+            3500);
+        editor->repaint();
+
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState(0);
+            dialogWindow->setVisible(false);
+        }
+    };
+
+    dialog->onCancel = [dialogWindow]() mutable
+    {
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState(0);
+            dialogWindow->setVisible(false);
+        }
+    };
 }
 
 // ============================================================================
@@ -6687,8 +7163,14 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         // Create the AudioSelectionDialog
         auto* dialog = new AudioSelectionDialog();
 
-        // Set selection window constraints based on current tab
-        if (isSA3Tab)
+        // Double-click editing exposes free start/end handles. File-import
+        // selection keeps the model-specific conditioning limits below.
+        if (forceSelectionDialog)
+        {
+            const double editableDuration = juce::jmin(fileDuration, maxBufferDuration);
+            dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
+        }
+        else if (isSA3Tab)
             dialog->setSelectionWindowConstraints(10.0, 180.0, 180.0);  // SA3: long conditioning
         else if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
             dialog->setSelectionWindowConstraints(10.0, 180.0, 30.0);   // Complete: short preferred
@@ -6955,7 +7437,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
 
         // Create a unique filename with timestamp for the drag
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+        auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
         uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
 
         // SAFETY: More robust file copy with validation
@@ -6966,17 +7448,20 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             return;
         }
 
-        // Copy the current output file to the unique drag file
-        if (!outputAudioFile.copyFileTo(uniqueDragFile))
+        // The canonical output remains WAV. Only this user-facing drag artifact
+        // is converted when FLAC has explicitly been selected in storage settings.
+        if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
-            DBG("Failed to create unique copy for dragging");
-            showStatusMessage("drag failed - file copy error", 2000);
+            DBG("Failed to create dragged audio file");
+            showStatusMessage("drag failed - could not create "
+                + getDraggedAudioFileExtension().substring(1).toUpperCase()
+                + " file", 3000);
             isDragInProgress.store(false);
             return;
         }
 
         // SAFETY: Validate the copy was successful
-        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() <= 0)
         {
             DBG("Copy validation failed");
             uniqueDragFile.deleteFile();
@@ -7084,43 +7569,18 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 
         // Create unique filename with timestamp
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
+        auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
         auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
 
-        // THREAD SAFETY: Use a more robust file copy approach
-        juce::FileInputStream sourceStream(outputAudioFile);
-        if (!sourceStream.openedOk())
+        if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
-            DBG("Failed to open source file for reading");
-            postDragFailure("drag failed - source file locked");
+            DBG("Failed to create dragged audio file");
+            postDragFailure("drag failed - audio conversion error");
             return { false, juce::File{} };
         }
-
-        juce::FileOutputStream destStream(uniqueDragFile);
-        if (!destStream.openedOk())
-        {
-            DBG("Failed to open destination file for writing");
-            postDragFailure("drag failed - destination error");
-            return { false, juce::File{} };
-        }
-
-        // Copy file data in chunks to avoid locking issues
-        const int bufferSize = 8192;
-        char buffer[bufferSize];
-
-        while (!sourceStream.isExhausted())
-        {
-            auto bytesRead = sourceStream.read(buffer, bufferSize);
-            if (bytesRead > 0)
-            {
-                destStream.write(buffer, bytesRead);
-            }
-        }
-
-        destStream.flush();
 
         // Verify the copy worked
-        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() <= 0)
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();
@@ -7645,35 +8105,13 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0x15, 0x15, 0x15));
     g.fillRoundedRectangle(fullTabArea.toFloat(), 5.0f);
 
-    // Tab section border (color depends on current tab and connection)
+    // Tab section border - gary's red for every tab. Giving each model its own colour
+    // meant wide mode drew, say, a green divider down the middle of a red plugin.
     const bool tabBorderOnline = audioProcessor.getIsUsingLocalhost() ? isActiveLocalServiceOnline() : isConnected;
-    if (tabBorderOnline)
-    {
-        switch (currentTab)
-        {
-        case ModelTab::Gary:
-            g.setColour(juce::Colours::darkred.withAlpha(0.6f));
-            break;
-        case ModelTab::Jerry:
-            g.setColour(juce::Colours::darkgreen.withAlpha(0.6f));
-            break;
-        case ModelTab::Carey:
-            g.setColour(juce::Colours::darkorange.withAlpha(0.6f));
-            break;
-        case ModelTab::Terry:
-            g.setColour(juce::Colours::darkblue.withAlpha(0.6f));
-            break;
-        case ModelTab::Darius:
-            g.setColour(juce::Colour(0x80, 0x00, 0x80).withAlpha(0.6f));
-            break;
-        }
-    }
-    else
-    {
-        g.setColour(juce::Colour(0x30, 0x30, 0x30));
-    }
-    if (editorLayoutMode == EditorLayoutMode::Compact)
-        g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
+    g.setColour(tabBorderOnline
+        ? juce::Colours::darkred.withAlpha(0.6f)
+        : juce::Colour(0x30, 0x30, 0x30));
+    g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
 
     // Draw the OUTPUT waveform
     drawOutputWaveform(g, outputWaveformArea);
@@ -7730,9 +8168,15 @@ void Gary4juceAudioProcessorEditor::resized()
     const auto availableHeight = bounds.getHeight();
     const auto inputSectionHeight = juce::jmin(320, availableHeight - 380);
 
+    // The model section takes whatever is left rather than a fixed 320, so the
+    // slack under the panel goes to the panel instead of sitting empty above
+    // the output divider. Output is pinned to its own minimum (waveform
+    // minHeight 80 plus 100 of fixed rows), so it is claimed from the bottom
+    // first and never squeezed.
     layoutInputSection(bounds.removeFromTop(inputSectionHeight));
-    layoutModelSection(bounds.removeFromTop(320));
-    layoutOutputSection(bounds.removeFromTop(200));
+    auto outputSectionBounds = bounds.removeFromBottom(200);
+    layoutModelSection(bounds);
+    layoutOutputSection(outputSectionBounds);
 }
 
 void Gary4juceAudioProcessorEditor::layoutInputSection(juce::Rectangle<int> sectionBounds)
@@ -7909,7 +8353,14 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
 
         switch (currentTab)
         {
-        case ModelTab::Gary:   preferredHeight = 310; break;
+        case ModelTab::Gary:
+            // Gary's advanced block is only three rows, so grow to fit it rather than
+            // swallowing the whole section the way sa3 and carey do. The 45 covers the
+            // tab row and the vertical inset taken off below.
+            preferredHeight = garyUI != nullptr
+                ? juce::jmax(310, garyUI->getPreferredHeight() + 45)
+                : 310;
+            break;
         case ModelTab::Carey:
         {
             bool advancedOpen = false;

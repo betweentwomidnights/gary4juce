@@ -431,7 +431,7 @@ SA3UI::SA3UI()
     };
     addToContent(continueOutputButton);
 
-    continuationLabel.setText("duration", juce::dontSendNotification);
+    continuationLabel.setText("add (sec)", juce::dontSendNotification);
     continuationLabel.setFont(juce::FontOptions(12.0f));
     continuationLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     continuationLabel.setJustificationType(juce::Justification::centredLeft);
@@ -441,11 +441,11 @@ SA3UI::SA3UI()
     continuationSlider.setValue(30.0, juce::dontSendNotification);
     continuationSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     continuationSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
-    continuationSlider.setTooltip("total output length including the source audio");
+    continuationSlider.setTooltip("seconds of new audio to add after the source");
     continuationSlider.onValueChange = [this]()
     {
-        if (onContinueTotalSecondsChanged)
-            onContinueTotalSecondsChanged(getContinueTotalSeconds());
+        if (onContinueAddSecondsChanged)
+            onContinueAddSecondsChanged(getContinueAddSeconds());
     };
     addToContent(continuationSlider);
 
@@ -862,9 +862,45 @@ void SA3UI::setContinuePromptText(const juce::String& text)
     syncActivePromptPopout(PromptPopoutTarget::Continue, text);
 }
 
-void SA3UI::setContinueTotalSeconds(int seconds)
+void SA3UI::setContinueAddSeconds(int seconds)
 {
     continuationSlider.setValue(juce::jlimit(1, 300, seconds), juce::dontSendNotification);
+}
+
+void SA3UI::setContinueSourceDuration(double sourceDurationSeconds, bool sourceAvailable)
+{
+    const double safeSourceDuration = juce::jmax(0.0, sourceDurationSeconds);
+    continuationMaximumAddSeconds = sourceAvailable
+        ? juce::jmax(0, (int)std::floor(300.0 - safeSourceDuration))
+        : 0;
+
+    const bool canContinue = sourceAvailable && continuationMaximumAddSeconds >= 1;
+    continuationSlider.setEnabled(canContinue);
+    continuationSlider.setAlpha(canContinue ? 1.0f : 0.45f);
+    continuationLabel.setAlpha(canContinue ? 1.0f : 0.45f);
+
+    if (canContinue)
+    {
+        const int previousValue = getContinueAddSeconds();
+        continuationSlider.setRange(1.0, (double)continuationMaximumAddSeconds, 1.0);
+        const int clampedValue = juce::jlimit(1, continuationMaximumAddSeconds, previousValue);
+        continuationSlider.setValue(clampedValue, juce::dontSendNotification);
+
+        if (clampedValue != previousValue && onContinueAddSecondsChanged)
+            onContinueAddSecondsChanged(clampedValue);
+
+        continuationSlider.setTooltip(
+            "seconds of new audio to add after the " + juce::String(safeSourceDuration, 1)
+            + " second source (maximum " + juce::String(continuationMaximumAddSeconds) + ")");
+    }
+    else if (sourceAvailable)
+    {
+        continuationSlider.setTooltip("the selected source is already at the 300 second limit");
+    }
+    else
+    {
+        continuationSlider.setTooltip("select an available recording or output to continue");
+    }
 }
 
 void SA3UI::setContinueLatentPrefixEnabled(bool enabled)

@@ -3,6 +3,49 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.14 - clearer SA3 continuations
+
+SA3's continue slider now chooses how many seconds of new audio to add and
+tracks the selected recording or output source. This pairs with the backend
+continuation improvements in gary4local v0.3.1.
+
+## v4.0.13 - gary's advanced controls
+
+gary's tab has an advanced section now: cfg, top k, a description box, and a
+seed that works the same way terry's does. the defaults match what the plugin
+used to send, so nothing changes unless you open it.
+
+gary also says when it's downloading a model instead of sitting on
+'processing audio...' for the length of a multi-gigabyte pull.
+
+jerry's SAOS tab used to sit on 'loading models...' on a fresh instance until
+you left the tab and came back, and then drove a finetune with the standard
+model's cfg and steps. both fixed.
+
+## v4.0.12 - minor Terry and preset fixes
+
+Terry can now reuse an exact seed. Jerry's SAOS model list now refreshes
+correctly after loading presets, including older presets saved while models
+were still loading.
+
+## v4.0.11 - waveform ranges and FLAC drag storage
+
+the recording buffer and output waveform now share the same double-click
+start/end range editor, making it possible to trim either source directly in
+gary4juce.
+
+storage settings can now create lossless FLAC files in `dragged_audio` while
+keeping WAV as the compatibility default and as the internal/backend format.
+the FLAC option includes guidance for DAWs that do not document FLAC import.
+
+REAPER preset restores now revalidate backend health so an open plugin does
+not remain stuck on a stale disconnected status.
+
+## v4.0.10 - file picker and preset fixes
+
+the recorded-audio file picker now remembers the last folder you used.
+saved presets in REAPER now update open plugin instances like they should.
+
 ## v4.0.9 - wide mode for our friends who hate scroll bars
 
 v4.0.9 adds an optional wide layout with the input and output audio on the

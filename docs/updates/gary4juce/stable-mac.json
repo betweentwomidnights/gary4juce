@@ -1,14 +1,13 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.8-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8-mac",
+  "latest_version": "4.0.9-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac",
   "sha256": null,
-  "published_at": "2026-08-06T21:03:15Z",
+  "published_at": "2026-08-08T04:20:29Z",
   "notes": [
-    "Input-buffer playback is now available in the AU, VST3, and standalone app, with better exact selection for inputs shorter than 30 seconds.",
-    "Standalone BPM controls now share one persistent, editable wheel across the tabs that need it.",
-    "The gary4juce audio folder can move out of Documents or onto an external drive, with progress, conflict preservation, and safe fallback.",
-    "The standalone app is now included as a regular macOS download alongside AU and VST3.",
+    "An optional wide layout puts the input and output audio on the left and model controls on the right.",
+    "Open gary settings with the gear button to switch between wide and compact mode; the layout you pick is remembered.",
+    "The gear button replaces the storage button, and moving the gary4juce audio folder now lives in that same settings menu.",
     "All three downloads contain universal x86_64/arm64 binaries and license information.",
     "Recommended gary4local-mac: v0.2.0.",
     "Close your DAW and the standalone app before replacing files with a downloaded update."

@@ -1,13 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.9",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9",
-  "sha256": "41606152fc27bf632d7a9c67ed08def471ccf6acb87900e75c5a134528e69484",
-  "published_at": "2026-08-07T17:29:19Z",
+  "latest_version": "4.0.14",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.14",
+  "sha256": "09c18fe332cf2b11b3a60539f2fbaa68230e0de6130ccdbcc7a3420d87c363ee",
+  "published_at": "2026-08-30T12:03:53Z",
   "notes": [
-    "Added an optional wide mode for our friends who hate scroll bars.",
-    "If the current layout works fine for you, you can skip this update.",
-    "Recommended gary4local: v0.2.0.",
+    "SA3's continue slider now chooses how many seconds of new audio to add and follows the selected recording or output source.",
+    "Recommended gary4local: v0.3.1.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

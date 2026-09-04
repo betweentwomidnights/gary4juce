@@ -76,6 +76,7 @@ TerryUI::TerryUI()
     terryFlowstepLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(terryFlowstepLabel);
 
+    terryFlowstepSlider.setTooltip("higher = closer to your input audio, lower = more transformation");
     terryFlowstepSlider.setRange(0.050, 0.150, 0.001);
     terryFlowstepSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     terryFlowstepSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 20);
@@ -104,6 +105,35 @@ TerryUI::TerryUI()
             onSolverChanged(useMidpoint);
     };
     addAndMakeVisible(terrySolverToggle);
+
+    terrySeedLabel.setText("seed", juce::dontSendNotification);
+    terrySeedLabel.setFont(juce::FontOptions(12.0f));
+    terrySeedLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    terrySeedLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(terrySeedLabel);
+
+    useSeedToggle.setButtonText("use seed");
+    useSeedToggle.setToggleState(false, juce::dontSendNotification);
+    useSeedToggle.setTooltip("when enabled, submit the seed value below instead of asking the backend for a random seed");
+    useSeedToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    useSeedToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+    useSeedToggle.onClick = [this]()
+    {
+        const bool on = useSeedToggle.getToggleState();
+        seedEditor.setEnabled(on);
+        seedEditor.setAlpha(on ? 1.0f : 0.45f);
+    };
+    addAndMakeVisible(useSeedToggle);
+
+    seedEditor.setMultiLine(false);
+    seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
+    seedEditor.setTooltip("fills in with the seed terry just used - tick \"use seed\" to run that one again. "
+                          "melodyflow isn't bit-identical run to run (the gpu picks its own convolution "
+                          "algorithms), but the same seed gets you very, very close");
+    seedEditor.setInputRestrictions(20, "0123456789");
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.45f);
+    addAndMakeVisible(seedEditor);
 
     terrySourceLabel.setText("transform", juce::dontSendNotification);
     terrySourceLabel.setFont(juce::FontOptions(12.0f));
@@ -162,12 +192,6 @@ TerryUI::TerryUI()
     };
     addAndMakeVisible(undoTransformButton);
 
-    bpmLabel.setFont(juce::FontOptions(11.0f));
-    bpmLabel.setColour(juce::Label::textColourId, juce::Colours::yellow);
-    bpmLabel.setJustificationType(juce::Justification::centredLeft);
-    bpmLabel.setVisible(false);
-    addAndMakeVisible(bpmLabel);
-
     applyEnablement(false, false, false);
     setAudioSourceAvailability(false, false);
 }
@@ -196,6 +220,10 @@ void TerryUI::resized()
     juce::FlexItem promptLabelItem(terryCustomPromptLabel);
     promptLabelItem.height = 18;  // Changed from 15
     promptLabelItem.margin = juce::FlexItem::Margin(2, 0, 4, 0);
+    // In compact the column overflows and flexbox shrinks every item to fit.
+    // 18px is already the minimum this 12pt label can draw in, so exempt it
+    // and let the taller rows absorb the difference.
+    promptLabelItem.flexShrink = 0.0f;
 
     juce::FlexItem promptEditorItem(terryCustomPromptEditor);
     promptEditorItem.height = 28;
@@ -214,15 +242,20 @@ void TerryUI::resized()
     juce::Component sourceRowComponent;
     juce::FlexItem sourceRowItem(sourceRowComponent);
     sourceRowItem.height = 25;
-    sourceRowItem.margin = juce::FlexItem::Margin(3, 0, 6, 0);
+    sourceRowItem.margin = juce::FlexItem::Margin(3, 0, 3, 0);
 
-    juce::FlexItem transformItem(transformWithTerryButton);
-    transformItem.height = 35;
-    transformItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+    juce::Component seedRowComponent;
+    juce::FlexItem seedRowItem(seedRowComponent);
+    seedRowItem.height = 25;
+    seedRowItem.margin = juce::FlexItem::Margin(3, 0, 6, 0);
 
-    juce::FlexItem undoItem(undoTransformButton);
-    undoItem.height = 35;
-    undoItem.margin = juce::FlexItem::Margin(5, 50, 5, 50);
+    // Transform and undo share one row. Stacked they cost 90px of column for
+    // 35px of button, which is the difference between the panel fitting in
+    // compact and flexbox shrinking every row to squeeze it in.
+    juce::Component buttonRowComponent;
+    juce::FlexItem buttonRowItem(buttonRowComponent);
+    buttonRowItem.height = 35;
+    buttonRowItem.margin = juce::FlexItem::Margin(5, 0, 5, 0);
 
     column.items.add(titleItem);
     column.items.add(variationRowItem);
@@ -231,8 +264,8 @@ void TerryUI::resized()
     column.items.add(flowRowItem);
     column.items.add(solverRowItem);
     column.items.add(sourceRowItem);
-    column.items.add(transformItem);
-    column.items.add(undoItem);
+    column.items.add(seedRowItem);
+    column.items.add(buttonRowItem);
 
     column.performLayout(terryBounds);
 
@@ -285,18 +318,7 @@ void TerryUI::resized()
     solverToggleItem.margin = juce::FlexItem::Margin(0, 0, 0, 5);
     solverRow.items.add(solverLabelItem);
     solverRow.items.add(solverToggleItem);
-    if (bpmLabel.isVisible())
-    {
-        juce::FlexItem bpmFlex(bpmLabel);
-        bpmFlex.width = 120;
-        bpmFlex.margin = juce::FlexItem::Margin(0, 0, 0, 0);
-        bpmFlex.alignSelf = juce::FlexItem::AlignSelf::center;
-        solverRow.items.add(bpmFlex);
-    }
     solverRow.performLayout(solverRowBounds);
-
-    if (!bpmLabel.isVisible())
-        bpmLabel.setBounds({});
 
     auto sourceRowBounds = column.items[6].currentBounds.toNearestInt();
     juce::FlexBox sourceRow;
@@ -316,14 +338,40 @@ void TerryUI::resized()
     sourceRow.items.add(outputItem);
     sourceRow.performLayout(sourceRowBounds);
 
-    auto transformBounds = column.items[7].currentBounds.toNearestInt();
-    auto transformButtonArea = transformBounds.withWidth(juce::jmin(220, transformBounds.getWidth()))
-        .withCentre(transformBounds.getCentre());
+    auto seedRowBounds = column.items[7].currentBounds.toNearestInt();
+    juce::FlexBox seedRow;
+    seedRow.flexDirection = juce::FlexBox::Direction::row;
+    seedRow.justifyContent = juce::FlexBox::JustifyContent::flexStart;
+    juce::FlexItem seedLabelItem(terrySeedLabel);
+    seedLabelItem.width = 80;
+    seedLabelItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    juce::FlexItem useSeedItem(useSeedToggle);
+    useSeedItem.width = 92;
+    useSeedItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    // fixed height centred in the row, so the editor never sits flush against
+    // the row edge and lose its border
+    juce::FlexItem seedEditorItem(seedEditor);
+    seedEditorItem.width = 100;
+    seedEditorItem.height = 21;
+    seedEditorItem.alignSelf = juce::FlexItem::AlignSelf::center;
+    seedEditorItem.margin = juce::FlexItem::Margin(0, 5, 0, 0);
+    seedRow.items.add(seedLabelItem);
+    seedRow.items.add(useSeedItem);
+    seedRow.items.add(seedEditorItem);
+    seedRow.performLayout(seedRowBounds);
+
+    auto buttonRowBounds = column.items[8].currentBounds.toNearestInt();
+    constexpr int kButtonGap = 10;
+    auto transformHalf = buttonRowBounds.removeFromLeft((buttonRowBounds.getWidth() - kButtonGap) / 2);
+    buttonRowBounds.removeFromLeft(kButtonGap);
+    auto undoHalf = buttonRowBounds;
+
+    auto transformButtonArea = transformHalf.withWidth(juce::jmin(220, transformHalf.getWidth()))
+        .withCentre(transformHalf.getCentre());
     transformWithTerryButton.setBounds(transformButtonArea);
 
-    auto undoBounds = column.items[8].currentBounds.toNearestInt();
-    auto undoButtonArea = undoBounds.withWidth(juce::jmin(170, undoBounds.getWidth()))
-        .withCentre(undoBounds.getCentre());
+    auto undoButtonArea = undoHalf.withWidth(juce::jmin(170, undoHalf.getWidth()))
+        .withCentre(undoHalf.getCentre());
     undoTransformButton.setBounds(undoButtonArea);
 }
 
@@ -391,26 +439,42 @@ void TerryUI::setUndoButtonText(const juce::String& text)
     undoTransformButton.setButtonText(text);
 }
 
+juce::int64 TerryUI::getSeed() const
+{
+    if (!useSeedToggle.getToggleState())
+        return -1;
+
+    const auto text = seedEditor.getText().trim();
+    if (text.isEmpty())
+        return -1;
+
+    return text.getLargeIntValue();
+}
+
+void TerryUI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
+void TerryUI::setLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    // The editor is the readout. It keeps showing the seed while greyed out,
+    // so ticking "use seed" runs the last one back without retyping it.
+    lastSeed = trimmed;
+    seedEditor.setText(trimmed, false);
+}
+
 void TerryUI::setVisibleForTab(bool visible)
 {
     setVisible(visible);
     setInterceptsMouseClicks(visible, visible);
-}
-
-void TerryUI::setBpm(double bpm)
-{
-    bpmValue = bpm;
-    if (bpmValue > 0.0)
-    {
-        bpmLabel.setText("bpm: " + juce::String(juce::roundToInt(bpmValue)) + " (from daw)", juce::dontSendNotification);
-        bpmLabel.setVisible(true);
-    }
-    else
-    {
-        bpmLabel.setText("", juce::dontSendNotification);
-        bpmLabel.setVisible(false);
-    }
-    resized();
 }
 
 int TerryUI::getSelectedVariationIndex() const

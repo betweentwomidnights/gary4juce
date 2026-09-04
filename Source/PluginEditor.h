@@ -206,21 +206,33 @@ private:
 
     juce::String serializePersistentState() const;
     void restorePersistentState(const juce::String& json);
+    void applyProcessorStateToEditor();
     void persistEditorState();
 
     // Global user-data location (shared by every plugin/standalone instance).
     void initializeGaryDataDirectory();
     bool ensureGaryDataDirectoryAvailable(bool notifyUser = true);
+    enum class DraggedAudioFormat
+    {
+        Wav,
+        Flac
+    };
     juce::File getGaryDataDirectory() const { return activeGaryDataDirectory; }
     juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
     juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
     juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    juce::String getDraggedAudioFileExtension() const;
+    void setDraggedAudioFormat(DraggedAudioFormat format);
+    bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
     void showStorageSettings();
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);
     void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
     void recoverCurrentAudioFiles();
     bool writeDataToFileSafely(const juce::File& file, const void* data, size_t dataSize) const;
+    bool writeAudioBufferToFileSafely(const juce::AudioBuffer<float>& buffer,
+                                      double sampleRate,
+                                      const juce::File& file) const;
     bool writeCurrentOutputToFile(const juce::File& file) const;
     void updateStorageButtonState();
 
@@ -245,6 +257,13 @@ private:
     int currentModelIndex = 0;
     juce::String currentGaryQuantizationMode = "q4_decoder_linears";
     juce::String preferredGaryModelPath;
+    int currentGaryTopK = 250;
+    float currentGaryCfg = 3.0f;
+    juce::String currentGaryDescription;
+    bool currentGaryAdvancedOpen = false;
+    juce::String currentGaryLastSeed;
+    bool currentGaryUseSeed = false;
+    juce::String currentGarySeedText;
 
     std::unique_ptr<JerryUI> jerryUI;
     std::unique_ptr<SA3UI> sa3UI;
@@ -434,7 +453,7 @@ private:
     juce::String currentSA3TransformPrompt = "";
     double currentSA3TransformStrength = 0.5;
     juce::String currentSA3ContinuePrompt = "";
-    int currentSA3ContinueTotalSeconds = 30;
+    int currentSA3ContinueAddSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;
     SA3UI::SubTab currentSA3SubTab = SA3UI::SubTab::Generate;
     bool currentSA3AdvancedOpen = false;
@@ -488,7 +507,7 @@ private:
     juce::String getDefaultGaryQuantizationForSize(const juce::String& sizeCategory) const;
     void applyGaryQuantizationDefaultForCurrentModel();
 
-    void fetchJerryAvailableModels();
+    void fetchJerryAvailableModels(bool force = false);
     void handleJerryModelsResponse(const juce::String& responseText);
 
     // Custom finetune methods
@@ -532,10 +551,15 @@ private:
     float currentTerryFlowstep = 0.130f;
     bool useMidpointSolver = false;  // false = euler, true = midpoint
     bool transformRecording = false; // false = transform output, true = transform recording
+    juce::String currentTerryLastSeed;
+    bool currentTerryUseSeed = false;
+    juce::String currentTerrySeedText;
     juce::String pendingDariusState;
 
     // Terry helper methods
     void updateTerryEnablementSnapshot();
+    void setTerryLastSeed(const juce::String& seed);
+    void setGaryLastSeed(const juce::String& seed);
     void setTerryAudioSource(bool useRecording);
     void sendToTerry();
     void undoTerryTransform();
@@ -718,6 +742,7 @@ private:
     // Drag and drop functionality (input)
     bool isDragHoveringInput = false;
     void loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog = false);
+    void showOutputAudioSelectionDialog();
     juce::File lastDraggedAudioFile;  // Stores path for double-click reselection
     double lastSelectionStartTime = 0.0;  // Stores last selection position for reopening dialog
 
@@ -771,6 +796,8 @@ private:
     std::atomic<bool> garyModelFetchScheduled{ false };
     std::atomic<bool> garyModelFetchInFlight{ false };
     int persistentStateTimerTicks = 0;
+    std::uint64_t lastAppliedHostStateRevision = 0;
+    bool applyingProcessorState = false;
 
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);
@@ -790,6 +817,7 @@ private:
     std::unique_ptr<juce::ThreadWithProgressWindow> storageMigrationTask;
     juce::File configuredGaryDataDirectory;
     juce::File activeGaryDataDirectory;
+    DraggedAudioFormat draggedAudioFormat = DraggedAudioFormat::Wav;
     bool usingGaryDataFallback = false;
     bool garyDataFallbackDirty = false;
     std::atomic<bool> storageMigrationInProgress { false };

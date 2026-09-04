@@ -26,11 +26,19 @@ GaryUI::GaryUI()
     garyLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(garyLabel);
 
+    contentComponent = std::make_unique<juce::Component>();
+    contentViewport = std::make_unique<juce::Viewport>();
+    contentViewport->setViewedComponent(contentComponent.get(), false);
+    contentViewport->setScrollBarsShown(true, false);
+    customLookAndFeel.setScrollbarAccentColour(Theme::Colors::Gary);
+    contentViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
+    addAndMakeVisible(contentViewport.get());
+
     promptDurationLabel.setText("prompt duration", juce::dontSendNotification);
     promptDurationLabel.setFont(juce::FontOptions(12.0f));
     promptDurationLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     promptDurationLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(promptDurationLabel);
+    addToContent(promptDurationLabel);
 
     promptDurationSlider.setRange(1.0, 15.0, 1.0);
     promptDurationSlider.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -43,13 +51,13 @@ GaryUI::GaryUI()
         if (onPromptDurationChanged)
             onPromptDurationChanged(promptDuration);
     };
-    addAndMakeVisible(promptDurationSlider);
+    addToContent(promptDurationSlider);
 
     modelLabel.setText("model", juce::dontSendNotification);
     modelLabel.setFont(juce::FontOptions(12.0f));
     modelLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     modelLabel.setJustificationType(juce::Justification::centredLeft);
-    addAndMakeVisible(modelLabel);
+    addToContent(modelLabel);
 
     modelComboBox.onChange = [this]()
     {
@@ -61,14 +69,14 @@ GaryUI::GaryUI()
         if (onModelChanged)
             onModelChanged(modelIndex);
     };
-    addAndMakeVisible(modelComboBox);
+    addToContent(modelComboBox);
 
     quantizationLabel.setText("quantization", juce::dontSendNotification);
     quantizationLabel.setFont(juce::FontOptions(12.0f));
     quantizationLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     quantizationLabel.setJustificationType(juce::Justification::centredLeft);
     quantizationLabel.setVisible(false);
-    addAndMakeVisible(quantizationLabel);
+    addToContent(quantizationLabel);
 
     auto setupQuantizationButton = [this](CustomButton& button,
                                           const juce::String& text,
@@ -88,7 +96,7 @@ GaryUI::GaryUI()
 
             setQuantizationMode(mode, juce::sendNotification);
         };
-        addAndMakeVisible(button);
+        addToContent(button);
     };
 
     setupQuantizationButton(quantizationNoneButton,
@@ -115,7 +123,7 @@ GaryUI::GaryUI()
         if (onSendToGary)
             onSendToGary();
     };
-    addAndMakeVisible(sendToGaryButton);
+    addToContent(sendToGaryButton);
 
     continueButton.setButtonText("continue");
     continueButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -124,7 +132,7 @@ GaryUI::GaryUI()
         if (onContinue)
             onContinue();
     };
-    addAndMakeVisible(continueButton);
+    addToContent(continueButton);
 
     retryButton.setButtonText("retry");
     retryButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -133,11 +141,116 @@ GaryUI::GaryUI()
         if (onRetry)
             onRetry();
     };
-    addAndMakeVisible(retryButton);
+    addToContent(retryButton);
+
+    advancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+    advancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    advancedToggle.onClick = [this]()
+    {
+        advancedOpen = !advancedOpen;
+        updateAdvancedToggleText();
+        updateContentLayout();
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
+    };
+    addToContent(advancedToggle);
+
+    cfgLabel.setText("cfg", juce::dontSendNotification);
+    cfgLabel.setFont(juce::FontOptions(12.0f));
+    cfgLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    cfgLabel.setJustificationType(juce::Justification::centredLeft);
+    cfgLabel.setTooltip("higher = it listens to your description more");
+    addToContent(cfgLabel);
+
+    cfgSlider.setRange(1.0, 5.0, 0.1);
+    cfgSlider.setValue(3.0, juce::dontSendNotification);
+    cfgSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    cfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
+    cfgSlider.setTooltip("higher = it listens to your description more");
+    cfgSlider.onValueChange = [this]()
+    {
+        if (onCfgChanged)
+            onCfgChanged(getCfgCoef());
+    };
+    addToContent(cfgSlider);
+
+    topKLabel.setText("top k", juce::dontSendNotification);
+    topKLabel.setFont(juce::FontOptions(12.0f));
+    topKLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    topKLabel.setJustificationType(juce::Justification::centredLeft);
+    topKLabel.setTooltip("lower = more repetitive but sticks to your input audio more, "
+                         "too high and it will get absurd and lose the bpm");
+    addToContent(topKLabel);
+
+    topKSlider.setRange(50.0, 300.0, 1.0);
+    topKSlider.setValue(250.0, juce::dontSendNotification);
+    topKSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    topKSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
+    topKSlider.setTooltip("lower = more repetitive but sticks to your input audio more, "
+                          "too high and it will get absurd and lose the bpm");
+    topKSlider.onValueChange = [this]()
+    {
+        if (onTopKChanged)
+            onTopKChanged(getTopK());
+    };
+    addToContent(topKSlider);
+
+    descriptionLabel.setText("description", juce::dontSendNotification);
+    descriptionLabel.setFont(juce::FontOptions(12.0f));
+    descriptionLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    descriptionLabel.setJustificationType(juce::Justification::centredLeft);
+    descriptionLabel.setTooltip("optional text conditioning - leave blank to let the audio prompt speak for itself");
+    addToContent(descriptionLabel);
+
+    descriptionEditor.setTextToShowWhenEmpty("e.g. drums, percussion", juce::Colour(0xff666666));
+    descriptionEditor.setMultiLine(false);
+    descriptionEditor.setReturnKeyStartsNewLine(false);
+    descriptionEditor.setScrollbarsShown(false);
+    descriptionEditor.setBorder(juce::BorderSize<int>(2));
+    descriptionEditor.onTextChange = [this]()
+    {
+        if (onDescriptionChanged)
+            onDescriptionChanged(getDescription());
+    };
+    addToContent(descriptionEditor);
+
+    seedLabel.setText("seed", juce::dontSendNotification);
+    seedLabel.setFont(juce::FontOptions(12.0f));
+    seedLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    seedLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(seedLabel);
+
+    useSeedToggle.setButtonText("use seed");
+    useSeedToggle.setToggleState(false, juce::dontSendNotification);
+    useSeedToggle.setTooltip("when enabled, submit the seed value below instead of asking the backend for a random seed");
+    useSeedToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    useSeedToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Gary);
+    useSeedToggle.onClick = [this]()
+    {
+        const bool on = useSeedToggle.getToggleState();
+        seedEditor.setEnabled(on);
+        seedEditor.setAlpha(on ? 1.0f : 0.45f);
+    };
+    addToContent(useSeedToggle);
+
+    seedEditor.setMultiLine(false);
+    seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
+    seedEditor.setTooltip("fills in with the seed gary just used - tick \"use seed\" to run that one again "
+                          "with the same input audio, model and prompt duration");
+    seedEditor.setInputRestrictions(20, "0123456789");
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.45f);
+    addToContent(seedEditor);
 
     promptDurationSlider.setValue(promptDuration, juce::dontSendNotification);
     setQuantizationMode(quantizationMode, juce::dontSendNotification);
     refreshTooltips();
+}
+
+GaryUI::~GaryUI()
+{
+    if (contentViewport)
+        contentViewport->getVerticalScrollBar().setLookAndFeel(nullptr);
 }
 
 void GaryUI::paint(juce::Graphics&)
@@ -152,23 +265,76 @@ void GaryUI::resized()
     garyLabel.setBounds(titleBounds);
     area.removeFromTop(kInterRowGap);
 
-    auto promptRow = area.removeFromTop(kRowHeight);
-    auto promptLabelArea = promptRow.removeFromLeft(kLabelWidth);
-    promptDurationLabel.setBounds(promptLabelArea);
-    promptDurationSlider.setBounds(promptRow);
-    area.removeFromTop(kInterRowGap);
+    if (contentViewport)
+        contentViewport->setBounds(area);
 
-    auto modelRow = area.removeFromTop(kRowHeight);
-    auto modelLabelArea = modelRow.removeFromLeft(kLabelWidth);
-    modelLabel.setBounds(modelLabelArea);
+    updateContentLayout();
+}
+
+void GaryUI::addToContent(juce::Component& component)
+{
+    if (contentComponent)
+        contentComponent->addAndMakeVisible(component);
+}
+
+void GaryUI::updateAdvancedToggleText()
+{
+    advancedToggle.setButtonText(advancedOpen
+        ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
+        : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+}
+
+void GaryUI::setAdvancedOpen(bool open)
+{
+    if (advancedOpen == open)
+        return;
+
+    advancedOpen = open;
+    updateAdvancedToggleText();
+    updateContentLayout();
+}
+
+void GaryUI::updateContentLayout()
+{
+    if (contentComponent == nullptr || contentViewport == nullptr)
+        return;
+
+    const int viewportWidth = juce::jmax(220, contentViewport->getWidth());
+    const int scrollbarWidth = contentViewport->getVerticalScrollBar().isVisible()
+        ? contentViewport->getVerticalScrollBar().getWidth() : 0;
+    const int contentWidth = juce::jmax(220, viewportWidth - scrollbarWidth - 4);
+
+    // The label column has to give way on narrow layouts or the sliders vanish.
+    const int labelWidth = juce::jmin(kLabelWidth, contentWidth / 3);
+
+    int y = 0;
+    const auto fullRow = [&](int height)
+    {
+        return juce::Rectangle<int>(0, y, contentWidth, height);
+    };
+
+    auto promptRow = fullRow(kRowHeight);
+    promptDurationLabel.setBounds(promptRow.removeFromLeft(labelWidth));
+    promptDurationSlider.setBounds(promptRow);
+    y += kRowHeight + kInterRowGap;
+
+    auto modelRow = fullRow(kRowHeight);
+    modelLabel.setBounds(modelRow.removeFromLeft(labelWidth));
     modelComboBox.setBounds(modelRow);
-    area.removeFromTop(kInterRowGap);
+    y += kRowHeight + kInterRowGap;
+
+    const bool showQuantization = isUsingLocalhostMode;
+    quantizationLabel.setVisible(showQuantization);
+    quantizationNoneButton.setVisible(showQuantization);
+    quantizationQ8Button.setVisible(showQuantization);
+    quantizationQ4Button.setVisible(showQuantization);
+    quantizationQ4EmbButton.setVisible(showQuantization);
 
     if (isUsingLocalhostMode)
     {
-        auto quantizationRow = area.removeFromTop(kRowHeight);
-        auto quantizationLabelArea = quantizationRow.removeFromLeft(kQuantizationLabelWidth);
-        quantizationLabel.setBounds(quantizationLabelArea);
+        auto quantizationRow = fullRow(kRowHeight);
+        quantizationLabel.setBounds(quantizationRow.removeFromLeft(
+            juce::jmin(kQuantizationLabelWidth, labelWidth)));
 
         const int totalGap = kQuantizationButtonGap * 3;
         const int totalButtonSpace = juce::jmax(0, quantizationRow.getWidth() - totalGap);
@@ -193,7 +359,7 @@ void GaryUI::resized()
         buttonRow.removeFromLeft(kQuantizationButtonGap);
         quantizationQ4EmbButton.setBounds(buttonRow);
 
-        area.removeFromTop(kInterRowGap);
+        y += kRowHeight + kInterRowGap;
     }
     else
     {
@@ -204,17 +370,64 @@ void GaryUI::resized()
         quantizationQ4EmbButton.setBounds({});
     }
 
-    auto sendRow = area.removeFromTop(kButtonHeight);
-    auto sendWidth = juce::jmin(sendRow.getWidth(), 240);
-    auto sendBounds = sendRow.withWidth(sendWidth).withCentre(sendRow.getCentre());
-    sendToGaryButton.setBounds(sendBounds);
-    area.removeFromTop(kInterRowGap);
+    advancedToggle.setBounds(fullRow(24));
+    y += 24 + kInterRowGap;
 
-    auto buttonRow = area.removeFromTop(kButtonHeight);
-    auto continueBounds = buttonRow.removeFromLeft((buttonRow.getWidth() - kButtonGap) / 2);
-    continueButton.setBounds(continueBounds);
+    cfgLabel.setVisible(advancedOpen);
+    cfgSlider.setVisible(advancedOpen);
+    topKLabel.setVisible(advancedOpen);
+    topKSlider.setVisible(advancedOpen);
+    descriptionLabel.setVisible(advancedOpen);
+    descriptionEditor.setVisible(advancedOpen);
+    seedLabel.setVisible(advancedOpen);
+    useSeedToggle.setVisible(advancedOpen);
+    seedEditor.setVisible(advancedOpen);
+
+    if (advancedOpen)
+    {
+        auto cfgRow = fullRow(kRowHeight);
+        cfgLabel.setBounds(cfgRow.removeFromLeft(labelWidth));
+        cfgSlider.setBounds(cfgRow);
+        y += kRowHeight + kInterRowGap;
+
+        auto topKRow = fullRow(kRowHeight);
+        topKLabel.setBounds(topKRow.removeFromLeft(labelWidth));
+        topKSlider.setBounds(topKRow);
+        y += kRowHeight + kInterRowGap;
+
+        descriptionLabel.setBounds(fullRow(16));
+        y += 16 + 2;
+
+        descriptionEditor.setBounds(fullRow(26));
+        y += 26 + kInterRowGap;
+
+        auto seedRow = fullRow(22);
+        seedLabel.setBounds(seedRow.removeFromLeft(juce::jmin(44, labelWidth)));
+        useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+        seedRow.removeFromLeft(kInterRowGap);
+        seedEditor.setBounds(seedRow.removeFromLeft(juce::jmax(70, seedRow.getWidth())));
+        y += 22 + kInterRowGap;
+    }
+
+    auto sendRow = fullRow(kButtonHeight);
+    const int sendWidth = juce::jmin(sendRow.getWidth(), 240);
+    sendToGaryButton.setBounds(sendRow.withWidth(sendWidth).withCentre(sendRow.getCentre()));
+    y += kButtonHeight + kInterRowGap;
+
+    auto buttonRow = fullRow(kButtonHeight);
+    continueButton.setBounds(buttonRow.removeFromLeft((buttonRow.getWidth() - kButtonGap) / 2));
     buttonRow.removeFromLeft(kButtonGap);
     retryButton.setBounds(buttonRow);
+    y += kButtonHeight;
+
+    contentHeight = y + 4;
+    contentComponent->setSize(contentWidth, contentHeight);
+}
+
+int GaryUI::getPreferredHeight() const
+{
+    // Everything resized() takes off the top before the viewport gets what's left.
+    return (kOuterMargin * 2) + kTitleHeight + kInterRowGap + contentHeight;
 }
 
 void GaryUI::setVisibleForTab(bool visible)
@@ -346,6 +559,63 @@ int GaryUI::getSelectedModelIndex() const
 juce::String GaryUI::getQuantizationMode() const
 {
     return quantizationMode;
+}
+
+int GaryUI::getTopK() const
+{
+    return juce::roundToInt(topKSlider.getValue());
+}
+
+void GaryUI::setTopK(int value)
+{
+    topKSlider.setValue((double)value, juce::dontSendNotification);
+}
+
+double GaryUI::getCfgCoef() const
+{
+    return cfgSlider.getValue();
+}
+
+void GaryUI::setCfgCoef(double value)
+{
+    cfgSlider.setValue(value, juce::dontSendNotification);
+}
+
+void GaryUI::setDescription(const juce::String& text)
+{
+    descriptionEditor.setText(text, juce::dontSendNotification);
+}
+
+juce::int64 GaryUI::getSeed() const
+{
+    if (!useSeedToggle.getToggleState())
+        return -1;
+
+    const auto text = seedEditor.getText().trim();
+    if (text.isEmpty())
+        return -1;
+
+    return text.getLargeIntValue();
+}
+
+void GaryUI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
+void GaryUI::setLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    // The editor is the readout. It keeps showing the seed while greyed out,
+    // so ticking "use seed" runs the last one back without retyping it.
+    lastSeed = trimmed;
+    seedEditor.setText(trimmed, false);
 }
 
 juce::Rectangle<int> GaryUI::getTitleBounds() const

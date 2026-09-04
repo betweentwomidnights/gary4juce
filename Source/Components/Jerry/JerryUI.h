@@ -65,6 +65,9 @@ public:
         const juce::StringArray& checkpoints,
         const juce::StringArray& samplerProfiles);
     void setSelectedModel(int index);
+    bool selectModelByIdentity(const juce::String& key,
+                               const juce::String& repo,
+                               const juce::String& checkpoint);
     int getSelectedModelIndex() const;
     juce::String getSelectedModelKey() const;
     bool getSelectedModelIsFinetune() const;

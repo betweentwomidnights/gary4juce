@@ -95,13 +95,14 @@ Controls:
 
 - `recording` - continue the saved recording buffer.
 - `output` - continue the current output waveform.
-- `duration` - total target output length, including the source audio.
+- `add seconds` - how much new audio to append after the source.
 - `continuation mode` - advanced `standard` / `latent_prefix` selector.
 - prompt/dice/key/advanced controls work the same as generate.
 
-Important: the continue duration is the final total length. If the source is
-21 seconds and the slider is set to 100 seconds, the backend receives a request
-for roughly 79 seconds of new continuation.
+The slider's maximum follows the selected source so the combined result stays
+within SA3's 300-second limit. If the recording is 21 seconds, you can add up to
+279 seconds. Switching to `output` recalculates that limit from the output's
+duration instead.
 
 Current launch note:
 

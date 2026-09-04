@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.9 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9)
-- [gary4juce v4.0.8-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.8-mac)
+- [gary4juce v4.0.14 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.14)
+- [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.2.0)
+- windows: [gary4local v0.3.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.1)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -52,12 +52,11 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.9 - wide mode for our friends who hate scroll bars
+### v4.0.14 - clearer SA3 continuations
 
-v4.0.9 adds an optional wide layout with audio on the left and model controls
-on the right. switch between wide and compact mode from the new settings menu.
-
-if the current layout already works fine for you, you can skip this one.
+SA3's continue slider now chooses how many seconds of new audio to add and
+tracks the selected recording or output source. This pairs with the backend
+continuation improvements in gary4local v0.3.1.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
