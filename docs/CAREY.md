@@ -48,7 +48,7 @@ the model doesn't perform well with audio shorter than ~1 minute. loop assist du
 ### tips
 
 - **as of april 22, 2026, this mode is much more reliable.** older complete-mode builds were more unhinged and could sometimes create very wild, interesting continuations, but the current backend uses the repainting branch of ace-step and lands in a more controllable place.
-- **duration slider** controls how long the output will be (30-180 seconds). the model generates the full duration including your input audio as the beginning. just like the other modes, longer duration is better even if you only want a 20 second sample to use.
+- **duration slider** controls how long the output will be. remote generation supports 30-240 seconds, while localhost supports up to 300 seconds. the model generates the full duration including your input audio as the beginning. just like the other modes, longer duration is better even if you only want a 20 second sample to use.
 - **use source as reference** passes your audio as both the conditioning input and a style reference, encouraging the continuation to stay closer to your original timbre and feel. i actually think this should be discontinued, tbh. it kind of lowers output fidelity even though it does help the model stick to your notes better.
 
 ### remote xl models

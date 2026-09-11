@@ -272,7 +272,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentSA3Prompt = readString("sa3Prompt", currentSA3Prompt);
     currentSA3Bpm = juce::jlimit(40.0, 300.0,
         readDouble("sa3ManualBpm", currentSA3Bpm));
-    currentSA3DurationSeconds = juce::jlimit(1, 300, readInt("sa3Duration", currentSA3DurationSeconds));
+    currentSA3DurationSeconds = juce::jlimit(1, SA3UI::kMaximumDurationSeconds,
+        readInt("sa3Duration", currentSA3DurationSeconds));
     currentSA3LoopEnabled = readBool("sa3Loop", currentSA3LoopEnabled);
     currentSA3Bars = readInt("sa3Bars", currentSA3Bars);
     currentSA3Steps = juce::jlimit(1, 50, readInt("sa3Steps", currentSA3Steps));
@@ -285,7 +286,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
         0.01, 1.0, readDouble("sa3TransformStrength", currentSA3TransformStrength));
     currentSA3ContinuePrompt = readString("sa3ContinuePrompt", currentSA3ContinuePrompt);
     currentSA3ContinueAddSeconds = juce::jlimit(
-        1, 300, readInt("sa3ContinueAddSeconds",
+        1, SA3UI::kMaximumDurationSeconds, readInt("sa3ContinueAddSeconds",
             readInt("sa3ContinueSeconds", currentSA3ContinueAddSeconds)));
     currentSA3ContinueLatentPrefix = readBool(
         "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
@@ -527,6 +528,9 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
         careyUI->setCompleteSteps(currentCareyCompleteSteps);
         careyUI->setCompleteCfg(currentCompleteCfg);
+        careyUI->setCompleteMaximumDurationSeconds(audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds
+            : CareyUI::kRemoteMaximumDurationSeconds);
         careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
         careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
         careyUI->setCoverCaptionText(currentCoverCaption);
@@ -965,7 +969,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     sa3UI->onDurationChanged = [this](int seconds)
     {
-        currentSA3DurationSeconds = juce::jlimit(1, 300, seconds);
+        currentSA3DurationSeconds = juce::jlimit(1, SA3UI::kMaximumDurationSeconds, seconds);
     };
     sa3UI->onLoopChanged = [this](bool enabled)
     {
@@ -1032,7 +1036,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     sa3UI->onContinueAddSecondsChanged = [this](int seconds)
     {
-        currentSA3ContinueAddSeconds = juce::jlimit(1, 300, seconds);
+        currentSA3ContinueAddSeconds = juce::jlimit(1, SA3UI::kMaximumDurationSeconds, seconds);
     };
     sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
     {
@@ -1314,7 +1318,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->onCompleteBpmChanged = [this](int bpm) { setStandaloneBpm(bpm); };
     careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(8, 100, steps); };
     careyUI->onCompleteCfgChanged = [this](double val) { currentCompleteCfg = juce::jlimit(1.0, 10.0, val); };
-    careyUI->onCompleteDurationChanged = [this](int seconds) { currentCareyCompleteDurationSeconds = juce::jlimit(30, 180, seconds); };
+    careyUI->onCompleteDurationChanged = [this](int seconds)
+    {
+        const int maximumSeconds = audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds
+            : CareyUI::kRemoteMaximumDurationSeconds;
+        currentCareyCompleteDurationSeconds = juce::jlimit(30, maximumSeconds, seconds);
+    };
     careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
     // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
@@ -1372,6 +1382,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
     careyUI->setCompleteSteps(currentCareyCompleteSteps);
     careyUI->setCompleteCfg(currentCompleteCfg);
+    careyUI->setCompleteMaximumDurationSeconds(audioProcessor.getIsUsingLocalhost()
+        ? CareyUI::kLocalMaximumDurationSeconds
+        : CareyUI::kRemoteMaximumDurationSeconds);
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
     careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
@@ -6805,9 +6818,16 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
     const bool shortWindowPreferred = (currentTab == ModelTab::Gary ||
                                        currentTab == ModelTab::Terry ||
                                        currentTab == ModelTab::Darius);
+    const double careyDurationLimit = audioProcessor.getIsUsingLocalhost()
+        ? (double)CareyUI::kLocalMaximumDurationSeconds
+        : (double)CareyUI::kRemoteMaximumDurationSeconds;
+    const double longWindowLimit = isCareyTab
+        ? careyDurationLimit
+        : (isSA3Tab ? (double)SA3UI::kMaximumDurationSeconds
+                    : (double)CareyUI::kRemoteMaximumDurationSeconds);
     const double directLoadLimit = shortWindowPreferred
         ? juce::jmin(maxBufferDuration, 30.0)
-        : maxBufferDuration;
+        : juce::jmin(maxBufferDuration, longWindowLimit);
 
     if (fileDuration <= directLoadLimit && !forceSelectionDialog)
     {
@@ -6904,11 +6924,12 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
         }
         else if (isSA3Tab)
-            dialog->setSelectionWindowConstraints(10.0, 180.0, 180.0);  // SA3: long conditioning
+            dialog->setSelectionWindowConstraints(10.0, SA3UI::kMaximumDurationSeconds,
+                SA3UI::kMaximumDurationSeconds);  // SA3: long conditioning
         else if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
-            dialog->setSelectionWindowConstraints(10.0, 180.0, 30.0);   // Complete: short preferred
+            dialog->setSelectionWindowConstraints(10.0, careyDurationLimit, 30.0);  // Complete: short preferred
         else if (isCareyTab)
-            dialog->setSelectionWindowConstraints(30.0, 180.0, 180.0);  // Lego: long preferred
+            dialog->setSelectionWindowConstraints(30.0, careyDurationLimit, careyDurationLimit);  // Carey: long preferred
         else
             dialog->setSelectionWindowConstraints(10.0, 30.0, 30.0);    // Gary/Terry/Darius: standard
 

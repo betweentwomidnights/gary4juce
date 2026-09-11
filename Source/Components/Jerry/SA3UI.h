@@ -19,6 +19,8 @@
 class SA3UI : public juce::Component
 {
 public:
+    static constexpr int kMaximumDurationSeconds = 240;
+
     enum class SubTab
     {
         Generate = 0,
@@ -215,7 +217,7 @@ private:
     juce::ToggleButton continueOutputButton;
     juce::Label continuationLabel;
     CustomSlider continuationSlider;
-    int continuationMaximumAddSeconds = 300;
+    int continuationMaximumAddSeconds = kMaximumDurationSeconds;
 
     juce::Label durationLabel;
     CustomSlider durationSlider;

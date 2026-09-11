@@ -132,6 +132,9 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
 
     if (careyUI)
     {
+        careyUI->setCompleteMaximumDurationSeconds(audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds
+            : CareyUI::kRemoteMaximumDurationSeconds);
         careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
         careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
         careyUI->setCoverRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
@@ -1639,7 +1642,10 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const juce::String keyScale = currentCareyKeyScale;
     const juce::String timeSig = currentCareyTimeSig;
     const juce::String language = currentCareyLanguage;
-    const int targetDurationSeconds = juce::jlimit(30, 180, currentCareyCompleteDurationSeconds);
+    const int maximumDurationSeconds = isUsingLocalhost
+        ? CareyUI::kLocalMaximumDurationSeconds
+        : CareyUI::kRemoteMaximumDurationSeconds;
+    const int targetDurationSeconds = juce::jlimit(30, maximumDurationSeconds, currentCareyCompleteDurationSeconds);
     const juce::String selectedLora = getSelectedCareyCompleteLora();
     const double loraScale = selectedLora.isNotEmpty()
         ? juce::jlimit(0.0, 1.0, currentCareyCompleteLoraScale)

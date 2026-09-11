@@ -52,11 +52,13 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v4.0.14 - clearer SA3 continuations
+### upcoming v4.0.15
 
-SA3's continue slider now chooses how many seconds of new audio to add and
-tracks the selected recording or output source. This pairs with the backend
-continuation improvements in gary4local v0.3.1.
+adjusted duration limits for sa3 and ace-step.
+added the official RoyalCities sampler type to foundation-1.
+
+if you were fine with durations and don't use foundation-1 much, you can go
+ahead and skip this release.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

@@ -196,7 +196,7 @@ private:
     double currentSampleRate = 44100.0;  // Default fallback, updated in prepareToPlay()
 
     // Recording settings
-    static constexpr double recordingLengthSeconds = 180.0;  // Extended for full-song Carey conditioning
+    static constexpr double recordingLengthSeconds = 300.0;  // Supports localhost Carey generation up to five minutes
     static constexpr double deferredRecordingLengthSeconds = 2.0;
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
 

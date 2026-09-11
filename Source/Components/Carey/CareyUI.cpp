@@ -723,10 +723,10 @@ CareyUI::CareyUI()
     completeDurationLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(completeDurationLabel);
 
-    completeDurationSlider.setRange(30, 180, 1);
+    completeDurationSlider.setRange(30, kRemoteMaximumDurationSeconds, 1);
     completeDurationSlider.setValue(120);
     completeDurationSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
-    completeDurationSlider.setTooltip("output duration in seconds (30-180). includes your input audio at the start");
+    completeDurationSlider.setTooltip("output duration in seconds (30-240). includes your input audio at the start");
     completeDurationSlider.onValueChange = [this]()
     {
         if (onCompleteDurationChanged)
@@ -1165,6 +1165,22 @@ void CareyUI::setCompleteModel(const juce::String& model)
     }
 
     updateCompleteModelControls(true);
+}
+
+void CareyUI::setCompleteMaximumDurationSeconds(int seconds)
+{
+    const int maximumSeconds = juce::jmax(30, seconds);
+    const int previousValue = getCompleteDurationSeconds();
+    const int clampedValue = juce::jlimit(30, maximumSeconds, previousValue);
+
+    completeDurationSlider.setRange(30, maximumSeconds, 1);
+    completeDurationSlider.setValue(clampedValue, juce::dontSendNotification);
+    completeDurationSlider.setTooltip(
+        "output duration in seconds (30-" + juce::String(maximumSeconds)
+        + "). includes your input audio at the start");
+
+    if (clampedValue != previousValue && onCompleteDurationChanged)
+        onCompleteDurationChanged(clampedValue);
 }
 
 void CareyUI::updateCompleteModelSelectorCopy()

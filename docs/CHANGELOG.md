@@ -3,6 +3,14 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v4.0.15
+
+adjusted duration limits for sa3 and ace-step.
+added the official RoyalCities sampler type to foundation-1.
+
+if you were fine with durations and don't use foundation-1 much, you can go
+ahead and skip this release.
+
 ## v4.0.14 - clearer SA3 continuations
 
 SA3's continue slider now chooses how many seconds of new audio to add and

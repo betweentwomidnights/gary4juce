@@ -376,6 +376,16 @@ FoundationUI::FoundationUI()
     };
     addToContent(advancedToggle);
 
+    // Keep the sampler selector in the advanced header row so it costs no
+    // additional vertical space in this already-dense panel.
+    samplerProfileToggle.setClickingTogglesState(true);
+    samplerProfileToggle.setToggleState(false, juce::dontSendNotification);
+    samplerProfileToggle.setTooltip(
+        "switch between Gary's original sampler defaults and the RoyalCities UI defaults");
+    samplerProfileToggle.onClick = [this]() { updateSamplerProfileButton(); };
+    updateSamplerProfileButton();
+    addToContent(samplerProfileToggle);
+
     // Steps
     sectionLabel(stepsLabel, "steps");
     stepsSlider.setRange(50, 200, 10);
@@ -850,6 +860,7 @@ juce::String FoundationUI::serializeState() const
 
     // Advanced
     state->setProperty("advancedOpen", advancedOpen);
+    state->setProperty("inferenceProfile", getInferenceProfile());
     state->setProperty("steps", juce::roundToInt(stepsSlider.getValue()));
     state->setProperty("guidance", guidanceSlider.getValue());
     state->setProperty("seed", seedEditor.getText().trim());
@@ -981,6 +992,10 @@ void FoundationUI::restoreState(const juce::String& jsonString)
     // Advanced
     if (obj->hasProperty("advancedOpen"))
         setAdvancedOpen((bool)obj->getProperty("advancedOpen"));
+    const bool useRoyalCitiesSampler = obj->hasProperty("inferenceProfile")
+        && obj->getProperty("inferenceProfile").toString() == "royalcities";
+    samplerProfileToggle.setToggleState(useRoyalCitiesSampler, juce::dontSendNotification);
+    updateSamplerProfileButton();
     stepsSlider.setValue((double)(int)obj->getProperty("steps"), juce::dontSendNotification);
     guidanceSlider.setValue((double)obj->getProperty("guidance"), juce::dontSendNotification);
     seedEditor.setText(obj->getProperty("seed").toString(), juce::dontSendNotification);
@@ -1251,6 +1266,16 @@ void FoundationUI::applyRandomizeResponse(const juce::var& response)
 void FoundationUI::setRandomizeEnabled(bool enabled)
 {
     randomizeButton.setEnabled(enabled);
+}
+
+void FoundationUI::updateSamplerProfileButton()
+{
+    const bool useRoyalCitiesSampler = samplerProfileToggle.getToggleState();
+    samplerProfileToggle.setButtonText(
+        useRoyalCitiesSampler ? "sampler: RC UI" : "sampler: Gary");
+    samplerProfileToggle.setButtonStyle(useRoyalCitiesSampler
+        ? CustomButton::ButtonStyle::Jerry
+        : CustomButton::ButtonStyle::Inactive);
 }
 
 void FoundationUI::addToContent(juce::Component& component)
@@ -2307,7 +2332,17 @@ void FoundationUI::updateContentLayout()
     }
 
     // ---- ADVANCED ----
-    advancedToggle.setBounds(fullRow(26)); y += 32;
+    {
+        auto advancedRow = fullRow(26);
+        if (advancedOpen)
+        {
+            const int samplerWidth = juce::jmin(124, advancedRow.getWidth() / 2);
+            samplerProfileToggle.setBounds(advancedRow.removeFromRight(samplerWidth));
+            advancedRow.removeFromRight(4);
+        }
+        advancedToggle.setBounds(advancedRow);
+    }
+    y += 32;
 
     if (advancedOpen)
     {
@@ -2348,6 +2383,7 @@ void FoundationUI::updateContentLayout()
     stepsSlider.setVisible(advancedOpen);
     guidanceLabel.setVisible(advancedOpen);
     guidanceSlider.setVisible(advancedOpen);
+    samplerProfileToggle.setVisible(advancedOpen);
     seedToggle.setVisible(advancedOpen);
     seedEditor.setVisible(advancedOpen);
     audio2audioToggle.setVisible(advancedOpen);

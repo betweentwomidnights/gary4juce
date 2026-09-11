@@ -28,6 +28,8 @@ private:
     };
 
 public:
+    static constexpr int kRemoteMaximumDurationSeconds = 240;
+    static constexpr int kLocalMaximumDurationSeconds = 300;
     static constexpr int kFixedCoverSteps = 8;
     static constexpr double kFixedCoverCfg = 1.0;
     static constexpr int kDefaultCoverBaseSteps = 50;
@@ -280,8 +282,12 @@ public:
 
     void setCompleteDurationSeconds(int seconds)
     {
-        completeDurationSlider.setValue(juce::jlimit(30, 180, seconds), juce::dontSendNotification);
+        completeDurationSlider.setValue(
+            juce::jlimit(30, juce::roundToInt(completeDurationSlider.getMaximum()), seconds),
+            juce::dontSendNotification);
     }
+
+    void setCompleteMaximumDurationSeconds(int seconds);
 
     void setCompleteBpm(int bpm)
     {
