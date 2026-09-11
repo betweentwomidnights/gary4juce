@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.14 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.14)
+- [gary4juce v4.0.15 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.15)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.3.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.1)
+- windows: [gary4local v0.3.2](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.2)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -52,13 +52,15 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v4.0.15
+### v4.0.15
 
 adjusted duration limits for sa3 and ace-step.
 added the official RoyalCities sampler type to foundation-1.
 
 if you were fine with durations and don't use foundation-1 much, you can go
 ahead and skip this release.
+
+recommended local companion: [gary4local v0.3.2](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.2).
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
