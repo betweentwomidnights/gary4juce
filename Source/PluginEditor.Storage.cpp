@@ -697,6 +697,11 @@ void Gary4juceAudioProcessorEditor::recoverCurrentAudioFiles()
     if (outputAudioBuffer.getNumSamples() > 0)
         writeCurrentOutputToFile(outputAudioFile);
 
+    // A fallback activation moves the active folder without copying anything,
+    // so rewrite the score beside the audio it describes rather than leaving it
+    // behind in the folder we just stopped using.
+    persistYueyScore();
+
     updateAllGenerationButtonStates();
     repaint();
 }

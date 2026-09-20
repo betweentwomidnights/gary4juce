@@ -75,7 +75,9 @@ public:
 
     void setGenerateButtonEnabled(bool canCreate, bool canRemix, bool canContinue,
                                   bool generating);
-    void applyPlanMetadata(const juce::String& abc);
+    // adoptTempo is false inside a host: the project owns the tempo, and the
+    // score is retimed to it rather than the other way round.
+    void applyPlanMetadata(const juce::String& abc, bool adoptTempo);
 
     std::function<void(SubTab)> onSubTabChanged;
     std::function<void(ContinuationMethod)> onContinuationMethodChanged;

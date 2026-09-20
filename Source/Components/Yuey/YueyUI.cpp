@@ -912,7 +912,7 @@ void YueyUI::closeAuxiliaryWindows()
     auxiliaryWindows.clear();
 }
 
-void YueyUI::applyPlanMetadata(const juce::String& abc)
+void YueyUI::applyPlanMetadata(const juce::String& abc, bool adoptTempo)
 {
     juce::StringArray lines;
     lines.addLines(abc);
@@ -922,7 +922,7 @@ void YueyUI::applyPlanMetadata(const juce::String& abc)
         if (line.startsWith("Q:"))
         {
             const auto rhs = line.fromFirstOccurrenceOf("=", false, false).trim();
-            if (rhs.containsOnly("0123456789.")) setBpm(rhs.getDoubleValue());
+            if (adoptTempo && rhs.containsOnly("0123456789.")) setBpm(rhs.getDoubleValue());
         }
         else if (line.startsWith("M:"))
         {

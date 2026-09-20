@@ -53,7 +53,9 @@ public:
     void stopPolling();
     void pollForResults();
     void handlePollingResponse(const juce::String& responseText);
-    void saveGeneratedAudio(const juce::String& base64Audio);
+    // Returns false when the render never reached disk, so callers do not
+    // attach metadata to audio the user is not actually hearing.
+    bool saveGeneratedAudio(const juce::String& base64Audio);
 
     void loadOutputAudioFile();
     void drawOutputWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
@@ -230,6 +232,9 @@ private:
     juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
     juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
     juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    // The score sidecar sits beside myOutput.wav because it describes that
+    // render. Anything replacing the output audio must drop this with it.
+    juce::File getYueyScoreDirectory() const { return activeGaryDataDirectory.getChildFile("myOutput.score"); }
     juce::String getDraggedAudioFileExtension() const;
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
@@ -462,6 +467,38 @@ private:
     void updateYueyEnablementSnapshot();
     void applyYueyPlanMetadata(const juce::String& abc);
     void continueYueyFromTranscription(const juce::String& abc);
+
+    // ---------- yuey score: owned by the output audio, not by the tab ----------
+    struct YueyMidiLane
+    {
+        juce::String name;      // e.g. "melody.mid", as the server keys it
+        juce::MemoryBlock bytes;
+    };
+
+    struct YueyScore
+    {
+        juce::String originalAbc;   // exactly what the server returned
+        juce::String workingAbc;    // editable copy; Q: may be retimed to the host
+        juce::String sourceOp;      // generate | remix | continue
+        double originalTempo = 0.0; // the Q: the server sent
+        double workingTempo = 0.0;  // the Q: currently in workingAbc
+        bool syncedToHost = false;  // workingAbc's Q: came from the DAW, not the model
+        bool alignedToAudio = true; // false once the output is cropped or trimmed
+        int bars = 0;
+        std::vector<YueyMidiLane> midi; // lanes with notes, in display order
+
+        bool isValid() const { return originalAbc.isNotEmpty(); }
+    };
+
+    YueyScore yueyScore;
+
+    bool hasYueyScore() const { return yueyScore.isValid(); }
+    void attachYueyScore(juce::DynamicObject* completedResponse, const juce::String& sourceOp);
+    void clearYueyScore();
+    void persistYueyScore();
+    void markYueyScoreUnaligned();
+    bool loadYueyScoreFromDisk();
+    juce::File getYueyMidiFile(const juce::String& laneName) const;
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;

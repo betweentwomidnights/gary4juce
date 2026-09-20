@@ -1859,6 +1859,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     if (outputAudioFile.exists())
     {
         loadOutputAudioFile();
+        // The score sidecar outlives this editor, exactly as the audio does.
+        loadYueyScoreFromDisk();
     }
 
     // Enable drag and drop for this component
@@ -1960,6 +1962,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     if (outputAudioFile.exists())
     {
         loadOutputAudioFile();  // This sets hasOutputAudio = true
+        loadYueyScoreFromDisk();
         DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName());
     }
     else
@@ -3404,9 +3407,15 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                                       : "audio generation complete!", 3000);
                     audioProcessor.setUndoTransformAvailable(false);
                     audioProcessor.setRetryAvailable(true);
-                    saveGeneratedAudio(audioData);
-                    if (isYueyOp)
+                    const bool savedOutput = saveGeneratedAudio(audioData);
+                    if (isYueyOp && savedOutput)
+                    {
+                        attachYueyScore(responseObj,
+                            activeOperation == ActiveOp::YueyRemix ? "remix"
+                            : activeOperation == ActiveOp::YueyContinue ? "continue"
+                            : "generate");
                         applyYueyPlanMetadata(responseObj->getProperty("abc").toString());
+                    }
                     DBG(juce::String(isSA3TransformOp ? "Successfully received SA3 transformed audio: "
                                                        : isSA3ContinueOp ? "Successfully received SA3 continuation audio: "
                                                        : "Successfully received generated audio: ")
@@ -3542,7 +3551,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 }
 
 
-void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
+bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
 {
     try
     {
@@ -3552,14 +3561,14 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         if (!juce::Base64::convertFromBase64(outputStream, base64Audio))
         {
             DBG("Failed to decode base64 audio");
-            return;
+            return false;
         }
 
         // Get the decoded data
         const juce::MemoryBlock& audioData = outputStream.getMemoryBlock();
 
         if (!ensureGaryDataDirectoryAvailable())
-            return;
+            return false;
 
         // FIXED: Always save as myOutput.wav
         outputAudioFile = getGaryOutputFile();
@@ -3567,6 +3576,10 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         // Write to file
         if (writeDataToFileSafely(outputAudioFile, audioData.getData(), audioData.getSize()))
         {
+            // Every service writes output through here, so this is where a score
+            // stops matching what the user is hearing. The yuey path re-attaches
+            // immediately after this call returns.
+            clearYueyScore();
             showStatusMessage("generated audio ready", 3000);
             DBG("Generated audio saved to: " + outputAudioFile.getFullPathName());
 
@@ -3597,6 +3610,7 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
             // Update UI
             repaint();
+            return true;
         }
         else
         {
@@ -3607,6 +3621,7 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
     {
         DBG("Exception saving generated audio");
     }
+    return false;
 }
 
 void Gary4juceAudioProcessorEditor::sendToGary()
@@ -6660,6 +6675,8 @@ void Gary4juceAudioProcessorEditor::clearOutputAudio()
         outputAudioFile.deleteFile();
     }
 
+    clearYueyScore();
+
     showStatusMessage("output cleared", 2000);
     repaint();
 }
@@ -6908,6 +6925,7 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
         }
 
         editor->loadOutputAudioFile();
+        editor->markYueyScoreUnaligned();
         editor->audioProcessor.clearCurrentSessionId();
         editor->audioProcessor.setUndoTransformAvailable(false);
         editor->audioProcessor.setRetryAvailable(false);
@@ -7872,6 +7890,10 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     showStatusMessage("audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
     DBG("Crop operation completed successfully");
+
+    // The composition is still the one the user rendered, but bar 1 has moved,
+    // so the midi no longer lines up with what they will hear.
+    markYueyScoreUnaligned();
 
     // Store previous state for logging
     juce::String previousSessionId = audioProcessor.getCurrentSessionId();

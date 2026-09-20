@@ -19,6 +19,56 @@ juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
     return payload;
 }
 
+
+// The planning header carries "Q:1/4=95". Only the right-hand side is the
+// tempo; the left is the beat unit the tempo counts, and we leave it alone.
+double readAbcTempo(const juce::String& abc)
+{
+    juce::StringArray lines;
+    lines.addLines(abc);
+    for (const auto& raw : lines)
+    {
+        const auto line = raw.trim();
+        if (!line.startsWith("Q:"))
+            continue;
+        const auto rhs = line.fromFirstOccurrenceOf("=", false, false).trim();
+        if (rhs.isNotEmpty() && rhs.containsOnly("0123456789."))
+            return rhs.getDoubleValue();
+    }
+    return 0.0;
+}
+
+// Rewrites Q: in place, keeping the beat unit and every other line byte-exact.
+// We adapt the score to the host; we never ask the host to move.
+juce::String retimeAbcTempo(const juce::String& abc, double bpm)
+{
+    if (bpm <= 0.0)
+        return abc;
+
+    juce::StringArray lines;
+    lines.addLines(abc);
+    bool rewrote = false;
+    for (auto& line : lines)
+    {
+        if (rewrote || !line.trim().startsWith("Q:") || !line.contains("="))
+            continue;
+        const auto unit = line.upToFirstOccurrenceOf("=", false, false);
+        if (!unit.contains("Q:"))
+            continue;
+        line = unit + "=" + juce::String(juce::roundToInt(bpm));
+        rewrote = true;
+    }
+    return rewrote ? lines.joinIntoString("\n") : abc;
+}
+
+// The server always emits melody_vocal and melody_instrumental keys, but their
+// values are empty when that lane has no notes. Writing those out would hand
+// the DAW a zero-byte .mid, so an empty value counts as absent.
+const char* const kYueyMidiLanes[] = {
+    "transcription.mid", "melody.mid", "melody_vocal.mid",
+    "melody_instrumental.mid", "chords.mid"
+};
+
 int countYueyScoreBars(const juce::String& abc)
 {
     juce::StringArray lines;
@@ -314,10 +364,222 @@ void Gary4juceAudioProcessorEditor::applyYueyPlanMetadata(const juce::String& ab
         return;
     if (yueyUI)
     {
-        yueyUI->applyPlanMetadata(abc);
+        // Meter and key are the model's to report. Tempo is not: in a host the
+        // project owns it, and sendToYuey overrides the control from the host on
+        // the next submit anyway, so adopting it here would only make the box
+        // flicker between the two values.
+        const bool hostOwnsTempo = !juce::JUCEApplicationBase::isStandaloneApp()
+            && audioProcessor.getCurrentBPM() > 0.0;
+        yueyUI->applyPlanMetadata(abc, !hostOwnsTempo);
         currentYueyBpm = yueyUI->getBpm();
         currentYueyKey = yueyUI->getKey();
         currentYueyMeter = yueyUI->getMeter();
     }
     persistEditorState();
+}
+
+// ============================================================================
+// yuey score lifecycle
+//
+// The score describes one specific render, so it is stored beside that render
+// rather than in the Yuey tab or in the editor's saved state. The output
+// waveform is shared chrome: gary, jerry, terry, carey and sa3 all write to
+// myOutput.wav, and the editor is destroyed and rebuilt every time the plugin
+// window closes. Keeping the score next to the audio it belongs to is what
+// makes "this midi matches what you are hearing" true in both cases.
+//
+// The midi lanes are also held in memory. They are a few kilobytes each, and
+// owning the bytes means the score can be rewritten into a different storage
+// folder after a migration or a fallback without reaching back to the old one.
+// ============================================================================
+
+juce::File Gary4juceAudioProcessorEditor::getYueyMidiFile(const juce::String& laneName) const
+{
+    return getYueyScoreDirectory().getChildFile(laneName);
+}
+
+void Gary4juceAudioProcessorEditor::clearYueyScore()
+{
+    yueyScore = YueyScore{};
+
+    auto directory = getYueyScoreDirectory();
+    if (directory.isDirectory())
+        directory.deleteRecursively();
+}
+
+void Gary4juceAudioProcessorEditor::markYueyScoreUnaligned()
+{
+    if (!hasYueyScore() || !yueyScore.alignedToAudio)
+        return;
+
+    yueyScore.alignedToAudio = false;
+    persistYueyScore();
+}
+
+void Gary4juceAudioProcessorEditor::persistYueyScore()
+{
+    if (!hasYueyScore())
+        return;
+    if (!ensureGaryDataDirectoryAvailable(false))
+        return;
+
+    auto directory = getYueyScoreDirectory();
+    const auto created = directory.createDirectory();
+    if (!created.wasOk())
+    {
+        DBG("Failed to create yuey score directory: " + created.getErrorMessage());
+        return;
+    }
+
+    directory.getChildFile("original.abc").replaceWithText(yueyScore.originalAbc);
+    directory.getChildFile("working.abc").replaceWithText(yueyScore.workingAbc);
+
+    juce::StringArray laneNames;
+    for (const auto& lane : yueyScore.midi)
+    {
+        writeDataToFileSafely(directory.getChildFile(lane.name),
+                              lane.bytes.getData(), lane.bytes.getSize());
+        laneNames.add(lane.name);
+    }
+
+    juce::DynamicObject::Ptr meta = new juce::DynamicObject();
+    meta->setProperty("sourceOp", yueyScore.sourceOp);
+    meta->setProperty("originalTempo", yueyScore.originalTempo);
+    meta->setProperty("workingTempo", yueyScore.workingTempo);
+    meta->setProperty("syncedToHost", yueyScore.syncedToHost);
+    meta->setProperty("alignedToAudio", yueyScore.alignedToAudio);
+    meta->setProperty("bars", yueyScore.bars);
+    meta->setProperty("midiNames", laneNames.joinIntoString(","));
+    directory.getChildFile("meta.json")
+        .replaceWithText(juce::JSON::toString(juce::var(meta.get())));
+}
+
+void Gary4juceAudioProcessorEditor::attachYueyScore(juce::DynamicObject* completedResponse,
+                                                    const juce::String& sourceOp)
+{
+    if (completedResponse == nullptr)
+        return;
+
+    const auto abc = completedResponse->getProperty("abc").toString();
+    if (abc.trim().isEmpty())
+    {
+        // A render without a score is not worth interrupting the user over, but
+        // it does mean there is no score to offer for this audio.
+        DBG("Yuey " + sourceOp + " completed without an abc score");
+        return;
+    }
+
+    YueyScore score;
+    score.originalAbc = abc;
+    score.sourceOp = sourceOp;
+    score.originalTempo = readAbcTempo(abc);
+    score.bars = countYueyScoreBars(abc);
+
+    // The score keeps a required Q: so it stays portable on its own. Inside a
+    // host we retime the working copy to the project instead, because the render
+    // has to sit on the grid the user is working to. The original is untouched.
+    const double hostBpm = juce::JUCEApplicationBase::isStandaloneApp()
+        ? 0.0 : audioProcessor.getCurrentBPM();
+    score.workingAbc = hostBpm > 0.0 ? retimeAbcTempo(abc, hostBpm) : abc;
+    score.workingTempo = readAbcTempo(score.workingAbc);
+    score.syncedToHost = hostBpm > 0.0
+        && score.workingTempo == (double) juce::roundToInt(hostBpm);
+
+    if (auto* midiFiles = completedResponse->getProperty("midi_files").getDynamicObject())
+    {
+        for (const auto* laneName : kYueyMidiLanes)
+        {
+            const juce::String name(laneName);
+            if (!midiFiles->hasProperty(name))
+                continue;
+
+            const auto encoded = midiFiles->getProperty(name).toString();
+            if (encoded.isEmpty())
+                continue; // the key is always sent; an empty value means no notes
+
+            juce::MemoryOutputStream decoded;
+            if (!juce::Base64::convertFromBase64(decoded, encoded))
+            {
+                DBG("Failed to decode yuey midi lane: " + name);
+                continue;
+            }
+
+            if (decoded.getDataSize() == 0)
+                continue;
+
+            score.midi.push_back({ name, decoded.getMemoryBlock() });
+        }
+    }
+
+    yueyScore = std::move(score);
+    persistYueyScore();
+
+    DBG("Attached yuey score: " + juce::String(yueyScore.bars) + " bars, "
+        + juce::String((int) yueyScore.midi.size()) + " midi lanes, tempo "
+        + juce::String(yueyScore.workingTempo)
+        + (yueyScore.syncedToHost ? " (synced to project)" : ""));
+}
+
+bool Gary4juceAudioProcessorEditor::loadYueyScoreFromDisk()
+{
+    yueyScore = YueyScore{};
+
+    auto directory = getYueyScoreDirectory();
+    if (!directory.isDirectory())
+        return false;
+
+    // A score only means anything while the audio it describes is still there.
+    // A sidecar next to a missing render is just stale bytes.
+    if (!getGaryOutputFile().existsAsFile())
+    {
+        directory.deleteRecursively();
+        return false;
+    }
+
+    YueyScore score;
+    score.originalAbc = directory.getChildFile("original.abc").loadFileAsString();
+    if (score.originalAbc.trim().isEmpty())
+    {
+        directory.deleteRecursively();
+        return false;
+    }
+
+    score.workingAbc = directory.getChildFile("working.abc").loadFileAsString();
+    if (score.workingAbc.trim().isEmpty())
+        score.workingAbc = score.originalAbc;
+
+    const auto meta = juce::JSON::parse(directory.getChildFile("meta.json").loadFileAsString());
+    if (auto* object = meta.getDynamicObject())
+    {
+        score.sourceOp = object->getProperty("sourceOp").toString();
+        score.originalTempo = (double) object->getProperty("originalTempo");
+        score.workingTempo = (double) object->getProperty("workingTempo");
+        score.syncedToHost = (bool) object->getProperty("syncedToHost");
+        score.bars = (int) object->getProperty("bars");
+        if (object->hasProperty("alignedToAudio"))
+            score.alignedToAudio = (bool) object->getProperty("alignedToAudio");
+    }
+
+    if (score.originalTempo <= 0.0)
+        score.originalTempo = readAbcTempo(score.originalAbc);
+    if (score.workingTempo <= 0.0)
+        score.workingTempo = readAbcTempo(score.workingAbc);
+    if (score.bars <= 0)
+        score.bars = countYueyScoreBars(score.workingAbc);
+
+    // Trust the files over the manifest: a lane is available only if its bytes
+    // are still readable.
+    for (const auto* laneName : kYueyMidiLanes)
+    {
+        const juce::String name(laneName);
+        juce::MemoryBlock bytes;
+        const auto file = directory.getChildFile(name);
+        if (file.existsAsFile() && file.loadFileAsData(bytes) && bytes.getSize() > 0)
+            score.midi.push_back({ name, std::move(bytes) });
+    }
+
+    yueyScore = std::move(score);
+    DBG("Restored yuey score from disk: " + juce::String(yueyScore.bars) + " bars, "
+        + juce::String((int) yueyScore.midi.size()) + " midi lanes");
+    return true;
 }
