@@ -16,6 +16,7 @@
 #include "Components/Jerry/JerryUI.h"
 #include "Components/Jerry/SA3UI.h"
 #include "Components/Carey/CareyUI.h"
+#include "Components/Yuey/YueyUI.h"
 #include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
@@ -107,6 +108,7 @@ private:
     bool localCareyOnline = false;
     bool localFoundationOnline = false;
     bool localSA3Online = false;
+    bool localYueyOnline = false;
     int localOnlineCount = 0;
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;
@@ -118,7 +120,7 @@ private:
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3, Yuey };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -162,7 +164,8 @@ private:
         Jerry,    // encompasses both Jerry SAOS and Foundation sub-tabs
         Carey,
         Terry,
-        Darius    // magenta
+        Darius,   // magenta
+        Yuey      // appended to preserve saved enum values from earlier versions
     };
 
     // Jerry sub-tabs: Stable Audio 3 beta, the original SAOS model, and Foundation-1
@@ -183,7 +186,11 @@ private:
         FoundationGenerate,
         SA3Generate,
         SA3Transform,
-        SA3Continue
+        SA3Continue,
+        YueyGenerate,
+        YueyRemix,
+        YueyContinue,
+        YueyScoreTranscribe
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -191,6 +198,7 @@ private:
     CustomButton jerryTabButton;
     CustomButton careyTabButton;
     CustomButton terryTabButton;
+    CustomButton yueyTabButton;
 
     // Jerry sub-tab buttons (replace the title area when Jerry tab is active)
     CustomButton jerrySubTabSAOS;      // "jerry (SAOS)"
@@ -428,6 +436,32 @@ private:
     juce::String getSelectedCareyLegoLora() const;
     juce::String getSelectedCareyCompleteLora() const;
     juce::String getSelectedCareyCoverLora() const;
+
+    // ========== YUEY ==========
+    std::unique_ptr<YueyUI> yueyUI;
+    YueyUI::SubTab currentYueySubTab = YueyUI::SubTab::Create;
+    YueyUI::ContinuationMethod currentYueyContinuationMethod = YueyUI::ContinuationMethod::Score;
+    juce::String currentYueyCreatePrompt;
+    juce::String currentYueyRemixPrompt;
+    juce::String currentYueyContinuePrompt;
+    bool currentYueyCreateInstrumental = false;
+    bool currentYueyRemixInstrumental = true;
+    double currentYueyBpm = 120.0;
+    juce::String currentYueyKey = "C major";
+    juce::String currentYueyMeter = "4/4";
+    bool currentYueyFixedBars = false;
+    int currentYueyBars = 16;
+    bool currentYueyContinueFixedBars = false;
+    int currentYueyContinueBars = 8;
+    juce::String currentYueyTranscriptionMode = "melody";
+    void sendToYuey();
+    void submitYueyJson(const juce::String& endpoint,
+                        const juce::String& json,
+                        ActiveOp operation,
+                        const juce::String& activity);
+    void updateYueyEnablementSnapshot();
+    void applyYueyPlanMetadata(const juce::String& abc);
+    void continueYueyFromTranscription(const juce::String& abc);
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
@@ -764,7 +798,7 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton, sa3HelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton, sa3HelpButton, yueyHelpButton;
     // foundationHelpButton is reused — visible when Jerry sub-tab is Foundation
 
     // Allow an extended grace period when we're at 0% but still receiving polls

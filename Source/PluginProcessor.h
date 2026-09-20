@@ -30,7 +30,7 @@ public:
     void stopHealthChecks();
 
     // Service type enum for different ports
-    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3, Yuey };
 
     struct LocalServiceHealthSnapshot
     {
@@ -41,13 +41,15 @@ public:
         bool careyOnline = false;
         bool foundationOnline = false;
         bool sa3Online = false;
+        bool yueyOnline = false;
         juce::int64 updatedAtMs = 0;
 
         int getOnlineCount() const
         {
             return (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
                 + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0)
-                + (foundationOnline ? 1 : 0) + (sa3Online ? 1 : 0);
+                + (foundationOnline ? 1 : 0) + (sa3Online ? 1 : 0)
+                + (yueyOnline ? 1 : 0);
         }
     };
 

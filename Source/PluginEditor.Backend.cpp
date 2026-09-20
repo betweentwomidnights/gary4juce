@@ -22,6 +22,7 @@ juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, c
         case ServiceType::Carey:      processorService = Gary4juceAudioProcessor::ServiceType::Carey; break;
         case ServiceType::Foundation: processorService = Gary4juceAudioProcessor::ServiceType::Foundation; break;
         case ServiceType::SA3:        processorService = Gary4juceAudioProcessor::ServiceType::SA3; break;
+        case ServiceType::Yuey:       processorService = Gary4juceAudioProcessor::ServiceType::Yuey; break;
         default: processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
     }
 
@@ -99,7 +100,7 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 sa3:8006 carey:8003 foundation:8015) - click to switch to remote");
+        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 sa3:8006 yuey:8007 carey:8003 foundation:8015) - click to switch to remote");
     }
     else
     {
@@ -282,6 +283,7 @@ bool Gary4juceAudioProcessorEditor::isLocalServiceOnline(ServiceType service) co
     case ServiceType::Carey:      return localCareyOnline;
     case ServiceType::Foundation: return localFoundationOnline;
     case ServiceType::SA3:        return localSA3Online;
+    case ServiceType::Yuey:       return localYueyOnline;
     }
     return false;
 }
@@ -298,6 +300,7 @@ Gary4juceAudioProcessorEditor::ServiceType Gary4juceAudioProcessorEditor::getAct
         return ServiceType::Jerry;
     case ModelTab::Terry:  return ServiceType::Terry;
     case ModelTab::Carey:  return ServiceType::Carey;
+    case ModelTab::Yuey:   return ServiceType::Yuey;
     case ModelTab::Gary:
     case ModelTab::Darius:
     default:
@@ -336,6 +339,7 @@ void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
     localCareyOnline = false;
     localFoundationOnline = false;
     localSA3Online = false;
+    localYueyOnline = false;
     localOnlineCount = 0;
     localHealthLastPollMs = 0;
     localHealthPollCounter = 0;
@@ -356,6 +360,7 @@ void Gary4juceAudioProcessorEditor::restoreLocalServiceHealthSnapshot()
     localCareyOnline = snapshot.careyOnline;
     localFoundationOnline = snapshot.foundationOnline;
     localSA3Online = snapshot.sa3Online;
+    localYueyOnline = snapshot.yueyOnline;
     localOnlineCount = snapshot.getOnlineCount();
     localHealthLastPollMs = snapshot.updatedAtMs;
 }
@@ -373,11 +378,13 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
     case ServiceType::Carey:      localCareyOnline = online; break;
     case ServiceType::Foundation: localFoundationOnline = online; break;
     case ServiceType::SA3:        localSA3Online = online; break;
+    case ServiceType::Yuey:       localYueyOnline = online; break;
     }
 
     localOnlineCount = (localGaryOnline ? 1 : 0) + (localTerryOnline ? 1 : 0)
         + (localJerryOnline ? 1 : 0) + (localCareyOnline ? 1 : 0)
-        + (localFoundationOnline ? 1 : 0) + (localSA3Online ? 1 : 0);
+        + (localFoundationOnline ? 1 : 0) + (localSA3Online ? 1 : 0)
+        + (localYueyOnline ? 1 : 0);
 
     Gary4juceAudioProcessor::LocalServiceHealthSnapshot snapshot;
     snapshot.valid = true;
@@ -387,6 +394,7 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
     snapshot.careyOnline = localCareyOnline;
     snapshot.foundationOnline = localFoundationOnline;
     snapshot.sa3Online = localSA3Online;
+    snapshot.yueyOnline = localYueyOnline;
     snapshot.updatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
     audioProcessor.setLocalServiceHealthSnapshot(snapshot);
 
@@ -421,6 +429,9 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
         }
         updateSA3EnablementSnapshot();
     }
+
+    if (service == ServiceType::Yuey)
+        updateYueyEnablementSnapshot();
 
     if (pollComplete)
     {
@@ -465,7 +476,7 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
                     || !editor->audioProcessor.getIsUsingLocalhost())
                     return;
 
-                const bool pollComplete = completedProbes->fetch_add(1) + 1 == 6;
+                const bool pollComplete = completedProbes->fetch_add(1) + 1 == 7;
                 editor->applyLocalServiceHealthResult(service, online, pollComplete);
             });
         });
@@ -481,6 +492,7 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         case ServiceType::Carey:      return 8003;
         case ServiceType::Foundation: return 8015;
         case ServiceType::SA3:        return 8006;
+        case ServiceType::Yuey:       return 8007;
         }
         return 0;
     };
@@ -494,7 +506,8 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         ServiceType::Jerry,
         ServiceType::Carey,
         ServiceType::Foundation,
-        ServiceType::SA3
+        ServiceType::SA3,
+        ServiceType::Yuey
     };
 
     for (const auto service : services)

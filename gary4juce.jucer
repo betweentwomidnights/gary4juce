@@ -48,6 +48,10 @@
         <FILE id="CrUiCp" name="CareyUI.cpp" compile="1" resource="0" file="Source/Components/Carey/CareyUI.cpp"/>
         <FILE id="u2yVAk" name="CareyUI.h" compile="0" resource="0" file="Source/Components/Carey/CareyUI.h"/>
       </GROUP>
+      <GROUP id="{4E70B11B-8D7F-4D97-9B62-659A6A594559}" name="Yuey">
+        <FILE id="YuUiCp" name="YueyUI.cpp" compile="1" resource="0" file="Source/Components/Yuey/YueyUI.cpp"/>
+        <FILE id="YuUiHp" name="YueyUI.h" compile="0" resource="0" file="Source/Components/Yuey/YueyUI.h"/>
+      </GROUP>
       <GROUP id="{F1D2E3A4-B5C6-7890-ABCD-EF1234567890}" name="Foundation">
         <FILE id="fndUI1" name="FoundationUI.cpp" compile="1" resource="0"
               file="Source/Components/Foundation/FoundationUI.cpp"/>
@@ -82,6 +86,8 @@
             file="Source/PluginEditor.cpp"/>
       <FILE id="PECrC0" name="PluginEditor.Carey.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Carey.cpp"/>
+      <FILE id="PEYue0" name="PluginEditor.Yuey.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Yuey.cpp"/>
       <FILE id="PEJry0" name="PluginEditor.Jerry.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Jerry.cpp"/>
       <FILE id="PETry0" name="PluginEditor.Terry.cpp" compile="1" resource="0"
