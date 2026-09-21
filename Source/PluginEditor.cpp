@@ -744,6 +744,7 @@ void Gary4juceAudioProcessorEditor::setStandaloneBpm(double bpm)
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p),
     cropButton("Crop", juce::DrawableButton::ImageFitted),
+    yueyMidiButton("YueyMidi", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     sa3HelpButton("sa3 help", juce::DrawableButton::ImageFitted),
@@ -1803,6 +1804,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     
     cropButton.setTooltip("crop audio at current playback position");
     cropButton.onClick = [this]() { cropAudioAtCurrentPosition(); };
+
+    yueyMidiButton.setTooltip("drag the midi yuey rendered into your daw");
+    yueyMidiButton.onClick = [this]() { toggleYueyMidiPanel(); };
+    yueyMidiButton.setVisible(false);
+    yueyMidiButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    yueyMidiButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(yueyMidiButton);
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
@@ -6067,6 +6075,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         updatePlayButtonIcon();
 
         hasOutputAudio = true;
+        updateYueyScoreOverlayState();
         playOutputButton.setEnabled(true);
         stopOutputButton.setEnabled(true);
         clearOutputButton.setEnabled(true);
@@ -8141,6 +8150,33 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         cropIcon->drawWithin(g, iconArea.toFloat(),
             juce::RectanglePlacement::centred, 1.0f);
     }
+
+    // The midi handle, drawn the same way as the crop overlay opposite it.
+    if (yueyMidiButton.isVisible())
+    {
+        auto midiBounds = yueyMidiButton.getBounds();
+        const bool active = yueyMidiButton.isOver() || yueyMidiButton.isDown()
+            || yueyMidiPanel != nullptr;
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(midiBounds.toFloat(), 3.0f);
+        g.setColour(active ? juce::Colours::orange.withAlpha(0.85f)
+                           : juce::Colours::white.withAlpha(0.35f));
+        g.drawRoundedRectangle(midiBounds.toFloat(), 3.0f, 1.0f);
+
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.setColour(active ? juce::Colours::orange : juce::Colours::white.withAlpha(0.85f));
+        g.drawText("midi", midiBounds, juce::Justification::centred);
+
+        // A score that no longer lines up with the audio is still draggable,
+        // but the dot says the bars have moved.
+        if (hasYueyScore() && !yueyScore.alignedToAudio)
+        {
+            g.setColour(juce::Colours::orange);
+            g.fillEllipse((float) midiBounds.getRight() - 4.0f,
+                          (float) midiBounds.getY() - 1.0f, 5.0f, 5.0f);
+        }
+    }
 }
 
 // ========== UPDATED RESIZED METHOD ==========
@@ -8641,6 +8677,12 @@ void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sec
         45, 25
     );
     cropButton.setBounds(cropOverlayArea);
+
+    // Mirrors the crop overlay at the opposite corner. The score belongs to the
+    // render, so it sits on the waveform rather than in the yuey tab.
+    yueyMidiButton.setBounds(outputWaveformArea.getX() + 5,
+                             outputWaveformArea.getY() + 5, 42, 25);
+    positionYueyMidiPanel();
 }
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()

@@ -232,6 +232,7 @@ private:
     juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
     juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
     juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    juce::File getGaryDraggedMidiDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_midi"); }
     // The score sidecar sits beside myOutput.wav because it describes that
     // render. Anything replacing the output audio must drop this with it.
     juce::File getYueyScoreDirectory() const { return activeGaryDataDirectory.getChildFile("myOutput.score"); }
@@ -508,6 +509,16 @@ private:
     void markYueyScoreUnaligned();
     bool loadYueyScoreFromDisk();
     juce::File getYueyMidiFile(const juce::String& laneName) const;
+
+    // The lane panel lives over the output waveform rather than in the tab,
+    // because the midi belongs to the render rather than to the request.
+    std::unique_ptr<juce::Component> yueyMidiPanel;
+    juce::DrawableButton yueyMidiButton;
+    void toggleYueyMidiPanel();
+    void closeYueyMidiPanel();
+    void positionYueyMidiPanel();
+    void dragYueyMidiLane(const juce::String& laneName, juce::Component* source);
+    void updateYueyScoreOverlayState();
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;

@@ -64,6 +64,32 @@ juce::String retimeAbcTempo(const juce::String& abc, double bpm)
 // The server always emits melody_vocal and melody_instrumental keys, but their
 // values are empty when that lane has no notes. Writing those out would hand
 // the DAW a zero-byte .mid, so an empty value counts as absent.
+// A rested lane still arrives as a structurally valid MIDI file: the server
+// writes the header and an empty track rather than sending nothing. Offering
+// that as a drag chip hands the DAW an empty clip, so ask the parser whether
+// the lane actually plays anything.
+bool midiHasNotes(const juce::MemoryBlock& bytes)
+{
+    if (bytes.getSize() == 0)
+        return false;
+
+    juce::MemoryInputStream stream(bytes, false);
+    juce::MidiFile file;
+    if (!file.readFrom(stream))
+        return false;
+
+    for (int trackIndex = 0; trackIndex < file.getNumTracks(); ++trackIndex)
+    {
+        const auto* track = file.getTrack(trackIndex);
+        if (track == nullptr)
+            continue;
+        for (int eventIndex = 0; eventIndex < track->getNumEvents(); ++eventIndex)
+            if (track->getEventPointer(eventIndex)->message.isNoteOn())
+                return true;
+    }
+    return false;
+}
+
 const char* const kYueyMidiLanes[] = {
     "transcription.mid", "melody.mid", "melody_vocal.mid",
     "melody_instrumental.mid", "chords.mid"
@@ -408,6 +434,8 @@ void Gary4juceAudioProcessorEditor::clearYueyScore()
     auto directory = getYueyScoreDirectory();
     if (directory.isDirectory())
         directory.deleteRecursively();
+
+    updateYueyScoreOverlayState();
 }
 
 void Gary4juceAudioProcessorEditor::markYueyScoreUnaligned()
@@ -417,6 +445,7 @@ void Gary4juceAudioProcessorEditor::markYueyScoreUnaligned()
 
     yueyScore.alignedToAudio = false;
     persistYueyScore();
+    repaint(); // the stale-alignment marker on the midi handle
 }
 
 void Gary4juceAudioProcessorEditor::persistYueyScore()
@@ -507,8 +536,8 @@ void Gary4juceAudioProcessorEditor::attachYueyScore(juce::DynamicObject* complet
                 continue;
             }
 
-            if (decoded.getDataSize() == 0)
-                continue;
+            if (!midiHasNotes(decoded.getMemoryBlock()))
+                continue; // a rested lane parses fine but plays nothing
 
             score.midi.push_back({ name, decoded.getMemoryBlock() });
         }
@@ -521,6 +550,7 @@ void Gary4juceAudioProcessorEditor::attachYueyScore(juce::DynamicObject* complet
         + juce::String((int) yueyScore.midi.size()) + " midi lanes, tempo "
         + juce::String(yueyScore.workingTempo)
         + (yueyScore.syncedToHost ? " (synced to project)" : ""));
+    updateYueyScoreOverlayState();
 }
 
 bool Gary4juceAudioProcessorEditor::loadYueyScoreFromDisk()
@@ -577,13 +607,14 @@ bool Gary4juceAudioProcessorEditor::loadYueyScoreFromDisk()
         const juce::String name(laneName);
         juce::MemoryBlock bytes;
         const auto file = directory.getChildFile(name);
-        if (file.existsAsFile() && file.loadFileAsData(bytes) && bytes.getSize() > 0)
+        if (file.existsAsFile() && file.loadFileAsData(bytes) && midiHasNotes(bytes))
             score.midi.push_back({ name, std::move(bytes) });
     }
 
     yueyScore = std::move(score);
     DBG("Restored yuey score from disk: " + juce::String(yueyScore.bars) + " bars, "
         + juce::String((int) yueyScore.midi.size()) + " midi lanes");
+    updateYueyScoreOverlayState();
     return true;
 }
 
@@ -656,4 +687,294 @@ void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
                 + juce::String(editor->yueyNaturalMaxSeconds) + "s from " + requestUrl);
         });
     });
+}
+
+// ============================================================================
+// yuey midi lanes
+//
+// The lanes are dragged out of a small panel rather than off the waveform.
+// The waveform's own drag already means "the audio", and the set of lanes
+// varies per render: chords only exist in full mode, and a rested lane is
+// not sent at all. An unlabelled drag would be a guess.
+// ============================================================================
+
+namespace
+{
+juce::String yueyLaneLabel(const juce::String& laneName)
+{
+    if (laneName == "transcription.mid")          return "all";
+    if (laneName == "melody.mid")                 return "melody";
+    if (laneName == "melody_vocal.mid")           return "vocal";
+    if (laneName == "melody_instrumental.mid")    return "instrument";
+    if (laneName == "chords.mid")                 return "chords";
+    return laneName.upToLastOccurrenceOf(".mid", false, false);
+}
+
+juce::String yueyLaneHint(const juce::String& laneName)
+{
+    if (laneName == "transcription.mid")
+        return "every lane, one track each";
+    if (laneName == "melody.mid")
+        return "both melody lanes together";
+    if (laneName == "melody_vocal.mid")
+        return "the vocal line alone";
+    if (laneName == "melody_instrumental.mid")
+        return "the instrument line alone";
+    if (laneName == "chords.mid")
+        return "the chord voicings";
+    return {};
+}
+
+// One draggable row. It is its own drag source so the DAW gets a sensible
+// highlight, and it asks the editor for the file only once a drag starts.
+class YueyLaneRow final : public juce::Component
+{
+public:
+    YueyLaneRow(juce::String lane, std::function<void(const juce::String&, juce::Component*)> drag)
+        : laneName(std::move(lane)), onDrag(std::move(drag))
+    {
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(1.0f);
+        const bool active = isMouseOverOrDragging();
+        g.setColour(active ? juce::Colours::orange.withAlpha(0.22f)
+                           : juce::Colours::white.withAlpha(0.06f));
+        g.fillRoundedRectangle(bounds, 3.0f);
+        g.setColour(active ? juce::Colours::orange.withAlpha(0.8f)
+                           : juce::Colours::white.withAlpha(0.18f));
+        g.drawRoundedRectangle(bounds, 3.0f, 1.0f);
+
+        auto text = bounds.reduced(8.0f, 0.0f).toNearestInt();
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.setColour(juce::Colours::white.withAlpha(active ? 1.0f : 0.85f));
+        g.drawText(yueyLaneLabel(laneName), text, juce::Justification::centredLeft);
+
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(juce::Colours::lightgrey.withAlpha(0.65f));
+        g.drawText(yueyLaneHint(laneName), text, juce::Justification::centredRight);
+    }
+
+    void mouseEnter(const juce::MouseEvent&) override { repaint(); }
+    void mouseExit(const juce::MouseEvent&) override { repaint(); }
+
+    void mouseDrag(const juce::MouseEvent& event) override
+    {
+        if (dragging || event.getDistanceFromDragStart() < 6)
+            return;
+        dragging = true;
+        if (onDrag)
+            onDrag(laneName, this);
+    }
+
+    void mouseUp(const juce::MouseEvent&) override { dragging = false; }
+
+private:
+    juce::String laneName;
+    std::function<void(const juce::String&, juce::Component*)> onDrag;
+    bool dragging = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(YueyLaneRow)
+};
+
+class YueyMidiPanel final : public juce::Component
+{
+public:
+    YueyMidiPanel(const juce::StringArray& lanes,
+                  bool aligned,
+                  std::function<void(const juce::String&, juce::Component*)> drag)
+    {
+        title.setText("drag midi into your daw", juce::dontSendNotification);
+        title.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        title.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.9f));
+        title.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(title);
+
+        if (!aligned)
+        {
+            // The score still describes the composition, but the audio was
+            // cropped or trimmed after it was rendered, so bar 1 has moved.
+            warning.setText("the output was edited; this no longer lines up",
+                            juce::dontSendNotification);
+            warning.setFont(juce::FontOptions(10.0f));
+            warning.setColour(juce::Label::textColourId, juce::Colours::orange.withAlpha(0.9f));
+            warning.setJustificationType(juce::Justification::centredLeft);
+            addAndMakeVisible(warning);
+            showWarning = true;
+        }
+
+        for (const auto& lane : lanes)
+        {
+            auto row = std::make_unique<YueyLaneRow>(lane, drag);
+            addAndMakeVisible(*row);
+            rows.push_back(std::move(row));
+        }
+    }
+
+    int preferredHeight() const
+    {
+        return 8 + 16 + (showWarning ? 14 : 0) + (int)rows.size() * 24 + 8;
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat();
+        g.setColour(juce::Colour(0x1a, 0x1a, 0x1a).withAlpha(0.97f));
+        g.fillRoundedRectangle(bounds, 5.0f);
+        g.setColour(juce::Colours::orange.withAlpha(0.45f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8, 4);
+        title.setBounds(area.removeFromTop(16));
+        if (showWarning)
+            warning.setBounds(area.removeFromTop(14));
+        for (auto& row : rows)
+            row->setBounds(area.removeFromTop(24).reduced(0, 1));
+    }
+
+private:
+    juce::Label title;
+    juce::Label warning;
+    bool showWarning = false;
+    std::vector<std::unique_ptr<YueyLaneRow>> rows;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(YueyMidiPanel)
+};
+} // namespace
+
+void Gary4juceAudioProcessorEditor::toggleYueyMidiPanel()
+{
+    if (yueyMidiPanel != nullptr)
+    {
+        closeYueyMidiPanel();
+        return;
+    }
+    if (!hasYueyScore() || yueyScore.midi.empty())
+        return;
+
+    juce::StringArray lanes;
+    for (const auto& lane : yueyScore.midi)
+        lanes.add(lane.name);
+
+    auto* editor = this;
+    auto panel = std::make_unique<YueyMidiPanel>(
+        lanes, yueyScore.alignedToAudio,
+        [editor](const juce::String& laneName, juce::Component* source)
+        {
+            editor->dragYueyMidiLane(laneName, source);
+        });
+
+    panel->setSize(
+        juce::jmin(260, juce::jmax(180, outputWaveformArea.getWidth() - 20)),
+        panel->preferredHeight());
+    yueyMidiPanel = std::move(panel);
+    positionYueyMidiPanel();
+    addAndMakeVisible(*yueyMidiPanel);
+    yueyMidiPanel->toFront(false);
+    repaint();
+}
+
+// The waveform can be as short as 80px while the panel needs more, so the
+// panel is clamped to the editor rather than to the waveform. Otherwise a
+// compact layout would push it over the transport buttons or off the bottom.
+void Gary4juceAudioProcessorEditor::positionYueyMidiPanel()
+{
+    if (yueyMidiPanel == nullptr)
+        return;
+
+    const int width = yueyMidiPanel->getWidth();
+    const int height = yueyMidiPanel->getHeight();
+    const int x = juce::jlimit(4, juce::jmax(4, getWidth() - width - 4),
+                               outputWaveformArea.getX() + 6);
+    const int y = juce::jlimit(4, juce::jmax(4, getHeight() - height - 4),
+                               outputWaveformArea.getY() + 6);
+    yueyMidiPanel->setBounds(x, y, width, height);
+}
+
+void Gary4juceAudioProcessorEditor::closeYueyMidiPanel()
+{
+    yueyMidiPanel.reset();
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::dragYueyMidiLane(const juce::String& laneName,
+                                                     juce::Component* source)
+{
+    const auto lane = std::find_if(
+        yueyScore.midi.begin(), yueyScore.midi.end(),
+        [&laneName](const YueyMidiLane& entry) { return entry.name == laneName; });
+    if (lane == yueyScore.midi.end() || lane->bytes.getSize() == 0)
+    {
+        showStatusMessage("that midi lane is no longer available", 3000);
+        return;
+    }
+
+    auto directory = getGaryDraggedMidiDirectory();
+    const auto created = directory.createDirectory();
+    if (!created.wasOk())
+    {
+        showStatusMessage("midi drag failed - could not create folder", 3000);
+        return;
+    }
+
+    // A fresh name per drag: the DAW may keep the file, and a lane name on its
+    // own would collide with every previous render.
+    const auto stamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
+    const auto dragFile = directory.getChildFile(
+        "yuey_" + yueyLaneLabel(laneName) + "_" + stamp + ".mid");
+
+    if (!writeDataToFileSafely(dragFile, lane->bytes.getData(), lane->bytes.getSize())
+        || !dragFile.existsAsFile() || dragFile.getSize() <= 0)
+    {
+        showStatusMessage("midi drag failed - could not write the file", 3000);
+        return;
+    }
+
+    juce::StringArray files;
+    files.add(dragFile.getFullPathName());
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
+    const auto label = yueyLaneLabel(laneName);
+    const bool aligned = yueyScore.alignedToAudio;
+
+    const bool started = juce::DragAndDropContainer::performExternalDragDropOfFiles(
+        files, true, source != nullptr ? source : this,
+        [safeThis, label, aligned]()
+        {
+            juce::MessageManager::callAsync([safeThis, label, aligned]()
+            {
+                if (auto* editor = safeThis.getComponent())
+                {
+                    editor->showStatusMessage(
+                        aligned ? label + " midi dragged!"
+                                : label + " midi dragged - check the alignment", 2500);
+                    editor->closeYueyMidiPanel();
+                }
+            });
+        });
+
+    if (!started)
+    {
+        dragFile.deleteFile();
+        showStatusMessage("midi drag failed - try again", 2500);
+    }
+}
+
+void Gary4juceAudioProcessorEditor::updateYueyScoreOverlayState()
+{
+    const bool haveLanes = hasOutputAudio && hasYueyScore() && !yueyScore.midi.empty();
+
+    if (!haveLanes && yueyMidiPanel != nullptr)
+        closeYueyMidiPanel();
+
+    if (yueyMidiButton.isVisible() != haveLanes)
+    {
+        yueyMidiButton.setVisible(haveLanes);
+        repaint();
+    }
 }
