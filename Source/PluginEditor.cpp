@@ -3426,6 +3426,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     const bool savedOutput = saveGeneratedAudio(audioData);
                     if (isYueyOp && savedOutput)
                     {
+                        reportYueyWarnings(responseObj);
                         attachYueyScore(responseObj,
                             activeOperation == ActiveOp::YueyRemix ? "remix"
                             : activeOperation == ActiveOp::YueyContinue ? "continue"

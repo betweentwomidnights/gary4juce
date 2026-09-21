@@ -1403,3 +1403,34 @@ void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, boo
     submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
                    ActiveOp::YueyGenerate, "rendering the edited score");
 }
+
+void Gary4juceAudioProcessorEditor::reportYueyWarnings(juce::DynamicObject* completedResponse)
+{
+    if (completedResponse == nullptr)
+        return;
+
+    // The backend already says when a render ran out of semantic budget before
+    // the model ended the song. Without surfacing it, a truncated result is
+    // indistinguishable from a short one that simply finished.
+    const auto warnings = completedResponse->getProperty("warnings");
+    const auto* entries = warnings.getArray();
+    if (entries == nullptr || entries->isEmpty())
+        return;
+
+    juce::StringArray notable;
+    for (const auto& entry : *entries)
+    {
+        const auto text = entry.toString().trim();
+        // The best-effort instrumental note fires on every instrumental job and
+        // says nothing about this one, so it stays out of the status line.
+        if (text.isEmpty() || text.containsIgnoreCase("best-effort"))
+            continue;
+        notable.add(text);
+    }
+
+    if (notable.isEmpty())
+        return;
+
+    showStatusMessage("yuey: " + notable.joinIntoString("; "), 9000);
+    DBG("Yuey warnings: " + notable.joinIntoString(" | "));
+}

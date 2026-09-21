@@ -523,6 +523,7 @@ private:
     void openYueyScoreEditor();
     void saveYueyWorkingScore(const juce::String& abc);
     void renderYueyScore(const juce::String& abc, bool fullScore);
+    void reportYueyWarnings(juce::DynamicObject* completedResponse);
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
