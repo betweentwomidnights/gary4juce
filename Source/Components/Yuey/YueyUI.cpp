@@ -385,6 +385,8 @@ YueyUI::YueyUI()
     updateSubTabState();
     updateSourceState();
     setGenerateButtonEnabled(false, false, false, false);
+    // Generic wording until a backend tells us its ceiling.
+    setNaturalLengthCeiling(-1.0);
 }
 
 YueyUI::~YueyUI()
@@ -910,6 +912,37 @@ void YueyUI::closeAuxiliaryWindows()
     for (auto& window : auxiliaryWindows)
         if (window != nullptr) window->exitModalState(0);
     auxiliaryWindows.clear();
+}
+
+void YueyUI::setNaturalLengthCeiling(double seconds)
+{
+    naturalLengthCeiling = seconds;
+
+    const auto clock = [](double value)
+    {
+        const int whole = juce::roundToInt(value);
+        return juce::String(whole / 60) + ":" + juce::String(whole % 60).paddedLeft('0', 2);
+    };
+
+    juce::String createTip = "yuey picks the form and the length";
+    juce::String continueTip = "yuey picks how far to carry the source";
+
+    if (seconds > 0.0)
+    {
+        // The ceiling holds the score, not the audio, so a capped song still
+        // ends on its own terms rather than stopping partway.
+        createTip += ", up to " + clock(seconds) + " on this backend";
+        // A continuation's length comes from the audio it extends, so the
+        // create ceiling deliberately does not apply to it.
+        continueTip += "; a continuation isn't held to the " + clock(seconds) + " limit";
+    }
+    else if (seconds == 0.0)
+    {
+        createTip += ", with no limit on this backend";
+    }
+
+    naturalLengthButton.setTooltip(createTip);
+    continueNaturalButton.setTooltip(continueTip);
 }
 
 void YueyUI::applyPlanMetadata(const juce::String& abc, bool adoptTempo)

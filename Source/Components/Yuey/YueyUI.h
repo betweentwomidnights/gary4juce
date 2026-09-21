@@ -79,6 +79,12 @@ public:
     // score is retimed to it rather than the other way round.
     void applyPlanMetadata(const juce::String& abc, bool adoptTempo);
 
+    // The backend holds a planner-chosen score to a ceiling. Seconds, where 0
+    // means that backend is unbounded and a negative value means we have not
+    // heard back yet. It only reaches the tooltips: the buttons are 128px and
+    // "let yuey choose" already fills them.
+    void setNaturalLengthCeiling(double seconds);
+
     std::function<void(SubTab)> onSubTabChanged;
     std::function<void(ContinuationMethod)> onContinuationMethodChanged;
     std::function<void(SubTab, const juce::String&)> onPromptChanged;
@@ -169,6 +175,7 @@ private:
     CustomButton continueFixedButton;
     CustomComboBox continueBarsComboBox;
     bool continueFixedBars = false;
+    double naturalLengthCeiling = -1.0;
 
     CustomButton actionButton;
     juce::Label infoLabel;

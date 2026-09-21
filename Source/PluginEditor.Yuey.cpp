@@ -110,6 +110,9 @@ void Gary4juceAudioProcessorEditor::updateYueyEnablementSnapshot()
     const bool continueReady = reachable && selectedSourceReady
         && !currentYueyContinuePrompt.trim().isEmpty();
     yueyUI->setGenerateButtonEnabled(createReady, remixReady, continueReady, isGenerating);
+
+    if (reachable)
+        refreshYueyNaturalMax();
 }
 
 void Gary4juceAudioProcessorEditor::sendToYuey()
@@ -582,4 +585,75 @@ bool Gary4juceAudioProcessorEditor::loadYueyScoreFromDisk()
     DBG("Restored yuey score from disk: " + juce::String(yueyScore.bars) + " bars, "
         + juce::String((int) yueyScore.midi.size()) + " midi lanes");
     return true;
+}
+
+void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
+{
+    if (!yueyUI || !isServiceReachable(ServiceType::Yuey))
+        return;
+
+    const auto requestUrl = getServiceUrl(ServiceType::Yuey, "/health");
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    if (requestUrl == yueyNaturalMaxSource)
+        return; // already answered for this backend
+    if (nowMs - yueyNaturalMaxLastAttemptMs < 15000)
+        return; // a backend that did not answer gets asked again, but not often
+
+    yueyNaturalMaxSource = requestUrl;
+    yueyNaturalMaxLastAttemptMs = nowMs;
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, requestUrl]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(4000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+            if (auto stream = juce::URL(requestUrl).createInputStream(options))
+                responseText = stream->readEntireStreamAsString();
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, requestUrl, responseText, statusCode]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+            if (editor->yueyNaturalMaxSource != requestUrl)
+                return; // the backend changed under us
+
+            if (statusCode < 200 || statusCode >= 300 || responseText.isEmpty())
+            {
+                // Let a later poll try again rather than caching a failure.
+                editor->yueyNaturalMaxSource = {};
+                return;
+            }
+
+            const auto response = juce::JSON::parse(responseText);
+            auto* object = response.getDynamicObject();
+            if (object == nullptr || !object->hasProperty("natural_max_seconds"))
+            {
+                // An older backend simply does not report one. Leave the
+                // tooltip generic instead of inventing a number, and stop
+                // asking this url.
+                editor->yueyNaturalMaxSeconds = -1.0;
+                if (editor->yueyUI)
+                    editor->yueyUI->setNaturalLengthCeiling(-1.0);
+                return;
+            }
+
+            editor->yueyNaturalMaxSeconds =
+                static_cast<double>(object->getProperty("natural_max_seconds"));
+            if (editor->yueyUI)
+                editor->yueyUI->setNaturalLengthCeiling(editor->yueyNaturalMaxSeconds);
+            DBG("Yuey natural-length ceiling: "
+                + juce::String(editor->yueyNaturalMaxSeconds) + "s from " + requestUrl);
+        });
+    });
 }

@@ -468,6 +468,15 @@ private:
     void applyYueyPlanMetadata(const juce::String& abc);
     void continueYueyFromTranscription(const juce::String& abc);
 
+    // Ceiling the active yuey backend puts on a planner-chosen score. Seconds,
+    // where 0 is unbounded and a negative value means unknown. Remembering the
+    // url it came from means switching between localhost and remote refetches
+    // it without any extra bookkeeping.
+    double yueyNaturalMaxSeconds = -1.0;
+    juce::String yueyNaturalMaxSource;
+    juce::int64 yueyNaturalMaxLastAttemptMs = 0;
+    void refreshYueyNaturalMax();
+
     // ---------- yuey score: owned by the output audio, not by the tab ----------
     struct YueyMidiLane
     {
