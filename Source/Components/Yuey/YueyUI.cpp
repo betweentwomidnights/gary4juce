@@ -255,6 +255,18 @@ YueyUI::YueyUI()
     };
     addToContent(instrumentalToggle);
 
+    letYueyPlanToggle.setButtonText("let yuey plan");
+    letYueyPlanToggle.setTooltip(
+        "yuey composes the score first. Musically freer, but it can take "
+        "anywhere from 40 seconds to over four minutes. Off, we write a score "
+        "from the tempo and key above and it renders straight away.");
+    letYueyPlanToggle.onClick = [this]()
+    {
+        createLetYueyPlan = letYueyPlanToggle.getToggleState();
+        if (onPlanningChanged) onPlanningChanged();
+    };
+    addToContent(letYueyPlanToggle);
+
     styleLabel(planningLabel, "plan");
     addAndMakeVisible(planningLabel);
     const juce::StringArray roots { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
@@ -417,6 +429,10 @@ void YueyUI::resized()
     chrome.removeFromTop(5);
 
     const bool showPlanning = currentSubTab == SubTab::Create;
+    // The tempo and key controls drive both paths: they seed yuey's planning
+    // header when it plans, and our own score when it does not.
+    letYueyPlanToggle.setVisible(showPlanning);
+    letYueyPlanToggle.setToggleState(createLetYueyPlan, juce::dontSendNotification);
     planningLabel.setVisible(showPlanning);
     keyRootComboBox.setVisible(showPlanning);
     keyModeComboBox.setVisible(showPlanning);
@@ -465,6 +481,8 @@ void YueyUI::resized()
     lyricsButton.setBounds(vocalRow.removeFromLeft(64).withHeight(24).withY(vocalRow.getY() + 2));
     vocalRow.removeFromLeft(4);
     instrumentalToggle.setBounds(vocalRow.removeFromLeft(135).reduced(4, 0));
+    if (currentSubTab == SubTab::Create)
+        letYueyPlanToggle.setBounds(vocalRow.removeFromLeft(140).reduced(4, 0));
     area.removeFromTop(4);
 
     if (currentSubTab == SubTab::Create)
@@ -557,7 +575,7 @@ void YueyUI::updateSubTabState()
     juce::Component* createComponents[] = {
         &planningLabel, &keyRootComboBox, &keyModeComboBox, &meterComboBox,
         &bpmControl, &lengthLabel, &naturalLengthButton, &fixedLengthButton,
-        &createBarsComboBox
+        &createBarsComboBox, &letYueyPlanToggle
     };
     for (auto* component : createComponents)
         component->setVisible(create);
@@ -718,6 +736,12 @@ void YueyUI::setCreateInstrumental(bool enabled)
 {
     createInstrumental = enabled;
     updateInstrumentalState();
+}
+
+void YueyUI::setCreateLetYueyPlan(bool enabled)
+{
+    createLetYueyPlan = enabled;
+    letYueyPlanToggle.setToggleState(enabled, juce::dontSendNotification);
 }
 
 void YueyUI::setRemixInstrumental(bool enabled)

@@ -451,6 +451,9 @@ private:
     juce::String currentYueyRemixPrompt;
     juce::String currentYueyContinuePrompt;
     bool currentYueyCreateInstrumental = false;
+    // Off by default: we write the score rather than paying yuey to plan one.
+    bool currentYueyLetYueyPlan = false;
+    int currentYueyScaffoldVariation = 0;
     bool currentYueyRemixInstrumental = true;
     double currentYueyBpm = 120.0;
     juce::String currentYueyKey = "C major";

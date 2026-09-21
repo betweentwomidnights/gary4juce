@@ -47,6 +47,9 @@ public:
     void setLyricsText(const juce::String& text);
 
     bool getCreateInstrumental() const { return createInstrumental; }
+    // Off means we write the score ourselves and the model never plans one.
+    bool getCreateLetYueyPlan() const { return createLetYueyPlan; }
+    void setCreateLetYueyPlan(bool enabled);
     bool getRemixInstrumental() const { return remixInstrumental; }
     void setCreateInstrumental(bool enabled);
     void setRemixInstrumental(bool enabled);
@@ -139,8 +142,10 @@ private:
 
     CustomButton lyricsButton;
     juce::ToggleButton instrumentalToggle;
+    juce::ToggleButton letYueyPlanToggle;
     juce::String lyricsText;
     bool createInstrumental = false;
+    bool createLetYueyPlan = false;
     bool remixInstrumental = true;
 
     juce::Label planningLabel;

@@ -20,6 +20,179 @@ juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
 }
 
 
+// Builds a YuE2 score from nothing but the controls the user already sets:
+// tempo, key, meter and bar count. This is what `create` sends instead of a
+// planning header, so the model never spends 40-260 unpredictable seconds
+// composing a score we then throw most of away.
+//
+// The shape is the one the instrumental adapter was trained inside: chord
+// symbols over whole-bar rests in the Vocal lane, and the Ins lane left as
+// rests. Measured on the backend, each part earns its place:
+//   - Resting Ins is what keeps the melody the model's own. Writing a melody
+//     in makes it fight the line: renders overran their budget and the pulse
+//     wandered 86-128bpm against a 100bpm score.
+//   - Chord symbols are structure, not just harmony. Without them the model
+//     does not reliably know when to stop.
+//   - It is the chord *changes* that lock the grid. Restating one chord per
+//     bar drifts exactly like writing no chords at all, so no two adjacent
+//     bars may carry the same chord.
+// The progression is derived from the key, not composed: it is the key's
+// diatonic anchors written where the model can see them.
+struct YueyScaffoldChord
+{
+    int semitonesAboveTonic;
+    bool minor;
+};
+
+const char* const kYueySharpNames[] = { "C", "C#", "D", "D#", "E", "F",
+                                        "F#", "G", "G#", "A", "A#", "B" };
+const char* const kYueyFlatNames[] = { "C", "Db", "D", "Eb", "E", "F",
+                                       "Gb", "G", "Ab", "A", "Bb", "B" };
+
+// Eb major's fourth degree is Ab, not G#. Spell every chord the way the key the
+// user picked is spelled, so the score reads as music rather than as pitch
+// classes.
+juce::String yueyPitchName(int pitchClass, bool preferFlats)
+{
+    const int pc = ((pitchClass % 12) + 12) % 12;
+    return juce::String(preferFlats ? kYueyFlatNames[pc] : kYueySharpNames[pc]);
+}
+
+juce::String yueyChordName(int tonicPitchClass, const YueyScaffoldChord& chord,
+                           bool preferFlats)
+{
+    return yueyPitchName(tonicPitchClass + chord.semitonesAboveTonic, preferFlats)
+         + (chord.minor ? "m" : "");
+}
+
+juce::String yueyKeyRoot(const juce::String& key)
+{
+    auto root = key.trim().upToFirstOccurrenceOf(" ", false, false).trim();
+    // "Am" spells its quality onto the root; "A minor" does not.
+    if (root.length() > 1 && root.endsWith("m")) root = root.dropLastCharacters(1);
+    return root;
+}
+
+bool yueyKeyPrefersFlats(const juce::String& key)
+{
+    return yueyKeyRoot(key).endsWithIgnoreCase("b");
+}
+
+int yueyTonicPitchClass(const juce::String& key)
+{
+    const auto root = yueyKeyRoot(key);
+    for (int i = 0; i < 12; ++i)
+        if (root.equalsIgnoreCase(kYueySharpNames[i]) ||
+            root.equalsIgnoreCase(kYueyFlatNames[i]))
+            return i;
+    return 0;
+}
+
+
+bool yueyKeyIsMinor(const juce::String& key)
+{
+    const auto clean = key.trim();
+    return clean.containsIgnoreCase("minor") || clean.endsWith("m");
+}
+
+juce::String makeYueyScaffoldAbc(double bpm,
+                                 const juce::String& key,
+                                 const juce::String& meter,
+                                 int bars,
+                                 int variation)
+{
+    // i-VI-III-VII and its diatonic neighbours. Every set changes chord on
+    // every bar, including across the wrap, which is the property that locks
+    // the grid.
+    static const YueyScaffoldChord kMinor[][4] = {
+        { {0,true}, {8,false}, {3,false}, {10,false} },   // i  VI III VII
+        { {0,true}, {5,true},  {10,false}, {3,false} },   // i  iv VII III
+        { {0,true}, {10,false},{8,false}, {7,true}   },   // i  VII VI v
+        { {0,true}, {3,false}, {10,false},{5,true}   },   // i  III VII iv
+        { {0,true}, {8,false}, {5,true},  {10,false} },   // i  VI iv VII
+        { {0,true}, {7,true},  {8,false}, {3,false}  },   // i  v  VI III
+    };
+    static const YueyScaffoldChord kMajor[][4] = {
+        { {0,false}, {7,false}, {9,true},  {5,false} },   // I  V  vi IV
+        { {0,false}, {9,true},  {5,false}, {7,false} },   // I  vi IV V
+        { {0,false}, {5,false}, {9,true},  {7,false} },   // I  IV vi V
+        { {0,false}, {4,true},  {5,false}, {7,false} },   // I  iii IV V
+        { {9,true},  {5,false}, {0,false}, {7,false} },   // vi IV I  V
+        { {0,false}, {7,false}, {5,false}, {9,true}  },   // I  V  IV vi
+    };
+
+    const bool minor = yueyKeyIsMinor(key);
+    const int tonic = yueyTonicPitchClass(key);
+    const bool flats = yueyKeyPrefersFlats(key);
+    const int sets = 6;
+    const int verseSet = ((variation % sets) + sets) % sets;
+    // A different set for the chorus, so the section markers mean something.
+    const int chorusSet = (verseSet + 1 + (juce::jmax(0, variation) / sets) % (sets - 1)) % sets;
+
+    auto meterParts = juce::StringArray::fromTokens(meter, "/", "");
+    int num = meterParts.size() == 2 ? meterParts[0].getIntValue() : 4;
+    int den = meterParts.size() == 2 ? meterParts[1].getIntValue() : 4;
+    if (num <= 0) num = 4;
+    if (den <= 0) den = 4;
+    // L:1/16, so a bar is 16 sixteenths scaled by the meter.
+    const int unitsPerBar = juce::jmax(1, 16 * num / den);
+    const int total = juce::jlimit(1, 512, bars);
+    const int tempo = juce::jlimit(20, 400, juce::roundToInt(bpm));
+
+    juce::StringArray out;
+    out.add("X:1");
+    out.add("T:");
+    out.add("M:" + juce::String(num) + "/" + juce::String(den));
+    out.add("L:1/16");
+    out.add("Q:1/4=" + juce::String(tempo));
+    out.add("V: Vocal clef=treble name=\"Vocal Melody\" snm=\"Vocal\"");
+    out.add("V: Ins clef=treble name=\"Ins Melody\" snm=\"Inst.\"");
+    out.add("K:" + yueyPitchName(tonic, flats) + (minor ? "m" : ""));
+
+    const juce::String restBar = "z" + juce::String(unitsPerBar) + "|";
+    static const char* kSections[] = { "intro", "verse", "chorus", "outro" };
+
+    int bar = 0;
+    int block = 0;
+    juce::String lastChord;
+    while (bar < total)
+    {
+        const int n = juce::jmin(4, total - bar);
+        // Intro first, outro last, verse and chorus alternating between.
+        const char* section = kSections[0];
+        if (block > 0)
+            section = (bar + n >= total) ? kSections[3]
+                                         : kSections[1 + (block % 2 == 0 ? 1 : 0)];
+        const bool chorus = juce::String(section) == "chorus";
+        const auto* set = minor ? kMinor[chorus ? chorusSet : verseSet]
+                                : kMajor[chorus ? chorusSet : verseSet];
+
+        juce::String vocal, ins;
+        for (int i = 0; i < n; ++i)
+        {
+            const int index = (bar + i) % 4;
+            auto chord = yueyChordName(tonic, set[index], flats);
+            // A repeated chord is not a change, and it is the change that holds
+            // the grid. Two sets can meet on the same chord at a section
+            // boundary, so step to the next chord of the set instead.
+            if (chord == lastChord)
+                chord = yueyChordName(tonic, set[(index + 1) % 4], flats);
+            lastChord = chord;
+            vocal << "\"" << chord << "\"" << restBar;
+            ins << restBar;
+        }
+
+        out.add(juce::String("% ") + section);
+        out.add("V: Vocal");
+        out.add(vocal);
+        out.add("V: Ins");
+        out.add(ins);
+        bar += n;
+        ++block;
+    }
+    return out.joinIntoString("\n") + "\n";
+}
+
 // The planning header carries "Q:1/4=95". Only the right-hand side is the
 // tempo; the left is the beat unit the tempo counts, and we leave it alone.
 double readAbcTempo(const juce::String& abc)
@@ -157,6 +330,7 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     currentYueyRemixPrompt = yueyUI->getRemixPrompt();
     currentYueyContinuePrompt = yueyUI->getContinuePrompt();
     currentYueyCreateInstrumental = yueyUI->getCreateInstrumental();
+    currentYueyLetYueyPlan = yueyUI->getCreateLetYueyPlan();
     currentYueyRemixInstrumental = yueyUI->getRemixInstrumental();
     currentYueyBpm = yueyUI->getBpm();
     if (!juce::JUCEApplicationBase::isStandaloneApp() && audioProcessor.getCurrentBPM() > 0.0)
@@ -183,16 +357,44 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
         auto payload = makeYueySongPayload(currentYueyCreatePrompt,
                                             currentCareyLyrics,
                                             currentYueyCreateInstrumental);
-        auto planning = std::make_unique<juce::DynamicObject>();
-        planning->setProperty("bpm", juce::roundToInt(currentYueyBpm));
-        planning->setProperty("key", currentYueyKey);
-        const auto meterParts = juce::StringArray::fromTokens(currentYueyMeter, "/", "");
-        planning->setProperty("meter_numerator", meterParts.size() == 2 ? meterParts[0].getIntValue() : 4);
-        planning->setProperty("meter_denominator", meterParts.size() == 2 ? meterParts[1].getIntValue() : 4);
-        payload->setProperty("planning", juce::var(planning.release()));
-        payload->setProperty("ending", currentYueyFixedBars ? "outro" : "natural");
-        payload->setProperty("target_bars", currentYueyFixedBars ? currentYueyBars : 0);
-        payload->setProperty("outro_bars", juce::jmin(4, currentYueyBars));
+        if (currentYueyLetYueyPlan)
+        {
+            // yuey composes the score first. Musically freer, but the cost is
+            // whatever it decides the song's length is: measured between 42s
+            // and over four minutes on the same prompt and seed, driven by
+            // nothing but the tempo and key it is handed.
+            auto planning = std::make_unique<juce::DynamicObject>();
+            planning->setProperty("bpm", juce::roundToInt(currentYueyBpm));
+            planning->setProperty("key", currentYueyKey);
+            const auto meterParts = juce::StringArray::fromTokens(currentYueyMeter, "/", "");
+            planning->setProperty("meter_numerator", meterParts.size() == 2 ? meterParts[0].getIntValue() : 4);
+            planning->setProperty("meter_denominator", meterParts.size() == 2 ? meterParts[1].getIntValue() : 4);
+            payload->setProperty("planning", juce::var(planning.release()));
+            payload->setProperty("ending", currentYueyFixedBars ? "outro" : "natural");
+            payload->setProperty("target_bars", currentYueyFixedBars ? currentYueyBars : 0);
+            payload->setProperty("outro_bars", juce::jmin(4, currentYueyBars));
+        }
+        else
+        {
+            // We write the score, so nothing is planned and nothing is fitted:
+            // tempo, key, meter and bar count are exact by construction and the
+            // render starts immediately. A written score always has a bar
+            // count, so the natural-length option does not apply here.
+            const int bars = juce::jmax(1, currentYueyBars);
+            // Vary the progression between takes so repeated clicks are not
+            // the same four chords. The score comes back with the render, so
+            // anything worth keeping can still be edited and re-rendered.
+            currentYueyScaffoldVariation =
+                juce::Random::getSystemRandom().nextInt(36);
+            payload->setProperty("abc", makeYueyScaffoldAbc(currentYueyBpm,
+                                                            currentYueyKey,
+                                                            currentYueyMeter,
+                                                            bars,
+                                                            currentYueyScaffoldVariation));
+            // melody, not full: the chord grid is an anchor, not a transcript
+            // the render has to match note for note.
+            payload->setProperty("symbolic_mode", "melody");
+        }
         payload->setProperty("seed", -1);
 
         submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
