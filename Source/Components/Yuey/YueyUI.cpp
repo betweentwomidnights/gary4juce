@@ -5,6 +5,22 @@
 
 namespace
 {
+// Every key surface in the plugin names pitches with sharps. Saved sessions and
+// hand-edited scores can still carry a flat spelling, so resolve a root to its
+// pitch class rather than matching the combo text letter for letter.
+int yueyRootPitchClass(const juce::String& root)
+{
+    static const char* const sharps[] = { "C", "C#", "D", "D#", "E", "F",
+                                          "F#", "G", "G#", "A", "A#", "B" };
+    static const char* const flats[] = { "C", "Db", "D", "Eb", "E", "F",
+                                         "Gb", "G", "Ab", "A", "Bb", "B" };
+    const auto clean = root.trim();
+    for (int i = 0; i < 12; ++i)
+        if (clean.equalsIgnoreCase(sharps[i]) || clean.equalsIgnoreCase(flats[i]))
+            return i;
+    return -1;
+}
+
 void styleLabel(juce::Label& label, const juce::String& text, float size = 11.0f)
 {
     label.setText(text, juce::dontSendNotification);
@@ -269,7 +285,7 @@ YueyUI::YueyUI()
 
     styleLabel(planningLabel, "plan");
     addAndMakeVisible(planningLabel);
-    const juce::StringArray roots { "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B" };
+    const juce::StringArray roots { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
     for (int i = 0; i < roots.size(); ++i) keyRootComboBox.addItem(roots[i], i + 1);
     keyRootComboBox.setSelectedId(1, juce::dontSendNotification);
     keyModeComboBox.addItem("major", 1);
@@ -765,9 +781,10 @@ void YueyUI::setKey(const juce::String& key)
     const auto clean = key.trim();
     const bool minor = clean.endsWithIgnoreCase("minor") || clean.endsWith("m");
     auto root = clean.upToFirstOccurrenceOf(" ", false, false).trim();
-    if (root.endsWith("m")) root = root.dropLastCharacters(1);
+    if (root.length() > 1 && root.endsWith("m")) root = root.dropLastCharacters(1);
+    const int wanted = yueyRootPitchClass(root);
     for (int i = 0; i < keyRootComboBox.getNumItems(); ++i)
-        if (keyRootComboBox.getItemText(i).equalsIgnoreCase(root))
+        if (yueyRootPitchClass(keyRootComboBox.getItemText(i)) == wanted && wanted >= 0)
             keyRootComboBox.setSelectedItemIndex(i, juce::dontSendNotification);
     keyModeComboBox.setSelectedId(minor ? 2 : 1, juce::dontSendNotification);
 }

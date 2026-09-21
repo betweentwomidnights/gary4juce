@@ -44,24 +44,22 @@ struct YueyScaffoldChord
     bool minor;
 };
 
+// Every key surface in the plugin names pitches with sharps, so the score does
+// too. Flat spellings are still accepted on the way in, because saved sessions
+// and hand-edited scores may carry them, but nothing we generate emits one.
 const char* const kYueySharpNames[] = { "C", "C#", "D", "D#", "E", "F",
                                         "F#", "G", "G#", "A", "A#", "B" };
 const char* const kYueyFlatNames[] = { "C", "Db", "D", "Eb", "E", "F",
                                        "Gb", "G", "Ab", "A", "Bb", "B" };
 
-// Eb major's fourth degree is Ab, not G#. Spell every chord the way the key the
-// user picked is spelled, so the score reads as music rather than as pitch
-// classes.
-juce::String yueyPitchName(int pitchClass, bool preferFlats)
+juce::String yueyPitchName(int pitchClass)
 {
-    const int pc = ((pitchClass % 12) + 12) % 12;
-    return juce::String(preferFlats ? kYueyFlatNames[pc] : kYueySharpNames[pc]);
+    return juce::String(kYueySharpNames[((pitchClass % 12) + 12) % 12]);
 }
 
-juce::String yueyChordName(int tonicPitchClass, const YueyScaffoldChord& chord,
-                           bool preferFlats)
+juce::String yueyChordName(int tonicPitchClass, const YueyScaffoldChord& chord)
 {
-    return yueyPitchName(tonicPitchClass + chord.semitonesAboveTonic, preferFlats)
+    return yueyPitchName(tonicPitchClass + chord.semitonesAboveTonic)
          + (chord.minor ? "m" : "");
 }
 
@@ -71,11 +69,6 @@ juce::String yueyKeyRoot(const juce::String& key)
     // "Am" spells its quality onto the root; "A minor" does not.
     if (root.length() > 1 && root.endsWith("m")) root = root.dropLastCharacters(1);
     return root;
-}
-
-bool yueyKeyPrefersFlats(const juce::String& key)
-{
-    return yueyKeyRoot(key).endsWithIgnoreCase("b");
 }
 
 int yueyTonicPitchClass(const juce::String& key)
@@ -123,7 +116,6 @@ juce::String makeYueyScaffoldAbc(double bpm,
 
     const bool minor = yueyKeyIsMinor(key);
     const int tonic = yueyTonicPitchClass(key);
-    const bool flats = yueyKeyPrefersFlats(key);
     const int sets = 6;
     const int verseSet = ((variation % sets) + sets) % sets;
     // A different set for the chorus, so the section markers mean something.
@@ -147,7 +139,7 @@ juce::String makeYueyScaffoldAbc(double bpm,
     out.add("Q:1/4=" + juce::String(tempo));
     out.add("V: Vocal clef=treble name=\"Vocal Melody\" snm=\"Vocal\"");
     out.add("V: Ins clef=treble name=\"Ins Melody\" snm=\"Inst.\"");
-    out.add("K:" + yueyPitchName(tonic, flats) + (minor ? "m" : ""));
+    out.add("K:" + yueyPitchName(tonic) + (minor ? "m" : ""));
 
     const juce::String restBar = "z" + juce::String(unitsPerBar) + "|";
     static const char* kSections[] = { "intro", "verse", "chorus", "outro" };
@@ -171,12 +163,12 @@ juce::String makeYueyScaffoldAbc(double bpm,
         for (int i = 0; i < n; ++i)
         {
             const int index = (bar + i) % 4;
-            auto chord = yueyChordName(tonic, set[index], flats);
+            auto chord = yueyChordName(tonic, set[index]);
             // A repeated chord is not a change, and it is the change that holds
             // the grid. Two sets can meet on the same chord at a section
             // boundary, so step to the next chord of the set instead.
             if (chord == lastChord)
-                chord = yueyChordName(tonic, set[(index + 1) % 4], flats);
+                chord = yueyChordName(tonic, set[(index + 1) % 4]);
             lastChord = chord;
             vocal << "\"" << chord << "\"" << restBar;
             ins << restBar;
