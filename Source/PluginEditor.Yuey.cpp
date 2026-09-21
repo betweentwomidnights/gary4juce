@@ -967,14 +967,439 @@ void Gary4juceAudioProcessorEditor::dragYueyMidiLane(const juce::String& laneNam
 
 void Gary4juceAudioProcessorEditor::updateYueyScoreOverlayState()
 {
-    const bool haveLanes = hasOutputAudio && hasYueyScore() && !yueyScore.midi.empty();
+    // The score is the point; the lanes are a bonus. A render can carry an abc
+    // with no lane worth dragging, so the two handles appear independently.
+    const bool haveScore = hasOutputAudio && hasYueyScore();
+    const bool haveLanes = haveScore && !yueyScore.midi.empty();
 
     if (!haveLanes && yueyMidiPanel != nullptr)
         closeYueyMidiPanel();
 
-    if (yueyMidiButton.isVisible() != haveLanes)
+    if (yueyMidiButton.isVisible() != haveLanes || yueyScoreButton.isVisible() != haveScore)
     {
         yueyMidiButton.setVisible(haveLanes);
+        yueyScoreButton.setVisible(haveScore);
         repaint();
     }
+}
+
+// ============================================================================
+// yuey score editor
+//
+// The ABC yuey renders is short and readable, so it is edited as text rather
+// than through a piano roll. The DAW already has a piano roll, and the text is
+// what makes "hand the score to an agent and paste the answer back" work.
+// ============================================================================
+
+namespace
+{
+// Bars are counted per lane the way the server does: a barline outside a chord
+// annotation. Chord marks never contain one, but quoting is tracked anyway so a
+// hand-edited score cannot trip the count.
+int countBarsInLines(const juce::StringArray& lines)
+{
+    int bars = 0;
+    for (const auto& line : lines)
+    {
+        bool quoted = false;
+        for (const auto character : line)
+        {
+            if (character == '"') quoted = !quoted;
+            else if (!quoted && character == '|') ++bars;
+        }
+    }
+    return bars;
+}
+
+struct YueyAbcCheck
+{
+    bool ok = false;
+    juce::String message;
+    int bars = 0;
+};
+
+// A local read of the score before we spend a generation on it. The server is
+// still the authority; this only catches the edits people actually make by
+// hand, so it reports rather than blocks.
+YueyAbcCheck checkYueyAbc(const juce::String& abc)
+{
+    YueyAbcCheck result;
+    if (abc.trim().isEmpty())
+    {
+        result.message = "the score is empty";
+        return result;
+    }
+
+    juce::StringArray lines;
+    lines.addLines(abc);
+
+    juce::StringArray missing;
+    for (const auto* field : { "X:", "M:", "L:", "Q:", "K:" })
+    {
+        const juce::String prefix(field);
+        bool found = false;
+        for (const auto& line : lines)
+            if (line.trim().startsWith(prefix)) { found = true; break; }
+        if (!found) missing.add(prefix.dropLastCharacters(1));
+    }
+    if (!missing.isEmpty())
+    {
+        result.message = "missing header field" + juce::String(missing.size() > 1 ? "s " : " ")
+            + missing.joinIntoString(", ");
+        return result;
+    }
+
+    bool declaresVocal = false, declaresIns = false;
+    for (const auto& raw : lines)
+    {
+        const auto line = raw.trim();
+        if (line.startsWith("V:") && line != "V: Vocal" && line != "V: Ins")
+        {
+            if (line.startsWithIgnoreCase("V: Vocal")) declaresVocal = true;
+            if (line.startsWithIgnoreCase("V: Ins")) declaresIns = true;
+        }
+    }
+    if (!declaresVocal || !declaresIns)
+    {
+        result.message = "the header needs both a V: Vocal and a V: Ins voice";
+        return result;
+    }
+
+    // Walk the body the way the server's parser does: a Vocal block, then an
+    // Ins block, with the same number of bars in each.
+    int index = 0;
+    while (index < lines.size() && lines[index].trim() != "V: Vocal") ++index;
+    if (index >= lines.size())
+    {
+        result.message = "no V: Vocal block - the score has a header but no music";
+        return result;
+    }
+
+    int pairs = 0;
+    while (index < lines.size())
+    {
+        while (index < lines.size() && lines[index].trim() != "V: Vocal") ++index;
+        if (index >= lines.size()) break;
+        ++index;
+
+        juce::StringArray vocal;
+        while (index < lines.size() && lines[index].trim() != "V: Ins"
+               && lines[index].trim() != "V: Vocal")
+            vocal.add(lines[index++]);
+
+        if (index >= lines.size() || lines[index].trim() != "V: Ins")
+        {
+            result.message = "a V: Vocal block near line " + juce::String(index)
+                + " has no matching V: Ins";
+            return result;
+        }
+        ++index;
+
+        juce::StringArray ins;
+        while (index < lines.size() && lines[index].trim() != "V: Vocal"
+               && lines[index].trim() != "V: Ins"
+               && !lines[index].trim().startsWith("%"))
+            ins.add(lines[index++]);
+
+        const int vocalBars = countBarsInLines(vocal);
+        const int insBars = countBarsInLines(ins);
+        if (vocalBars != insBars)
+        {
+            result.message = "block " + juce::String(pairs + 1) + " has " + juce::String(vocalBars)
+                + " vocal bars against " + juce::String(insBars) + " instrument bars";
+            return result;
+        }
+        result.bars += insBars;
+        ++pairs;
+    }
+
+    if (result.bars <= 0)
+    {
+        result.message = "no complete bars - every bar needs a closing |";
+        return result;
+    }
+
+    result.ok = true;
+    result.message = juce::String(result.bars) + " bars across "
+        + juce::String(pairs) + (pairs == 1 ? " block" : " blocks");
+    return result;
+}
+
+class YueyScorePopout final : public juce::Component
+{
+public:
+    YueyScorePopout(juce::String working,
+                    juce::String original,
+                    juce::String summary,
+                    std::function<void(const juce::String&, bool)> render,
+                    std::function<void(const juce::String&)> save)
+        : originalAbc(std::move(original)),
+          onRender(std::move(render)),
+          onSave(std::move(save))
+    {
+        title.setText("score", juce::dontSendNotification);
+        title.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        title.setColour(juce::Label::textColourId, Theme::Colors::TextPrimary);
+        addAndMakeVisible(title);
+
+        meta.setText(summary, juce::dontSendNotification);
+        meta.setFont(juce::FontOptions(11.0f));
+        meta.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+        addAndMakeVisible(meta);
+
+        editor.setMultiLine(true, false); // no word wrap: bar lines must line up
+        editor.setReturnKeyStartsNewLine(true);
+        editor.setScrollbarsShown(true);
+        editor.setFont(juce::FontOptions(juce::Font::getDefaultMonospacedFontName(), 12.0f,
+                                         juce::Font::plain));
+        editor.setText(working, juce::dontSendNotification);
+        editor.onTextChange = [this]() { revalidate(); };
+        addAndMakeVisible(editor);
+
+        status.setFont(juce::FontOptions(11.0f));
+        status.setJustificationType(juce::Justification::centredLeft);
+        addAndMakeVisible(status);
+
+        followLabel.setText("yuey follows", juce::dontSendNotification);
+        followLabel.setFont(juce::FontOptions(11.0f));
+        followLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+        addAndMakeVisible(followLabel);
+
+        followBox.addItem("melody only", 1);
+        followBox.addItem("the full score", 2);
+        followBox.setSelectedId(1, juce::dontSendNotification);
+        followBox.onChange = [this]() { updateFollowHint(); };
+        addAndMakeVisible(followBox);
+
+        followHint.setFont(juce::FontOptions(10.0f));
+        followHint.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+        addAndMakeVisible(followHint);
+        updateFollowHint();
+
+        copyButton.setButtonText("copy");
+        copyButton.setTooltip("copy the score so you can edit it elsewhere and paste it back");
+        copyButton.onClick = [this]()
+        {
+            juce::SystemClipboard::copyTextToClipboard(editor.getText());
+            status.setText("copied to the clipboard", juce::dontSendNotification);
+            status.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
+        };
+        addAndMakeVisible(copyButton);
+
+        revertButton.setButtonText("revert");
+        revertButton.setTooltip("go back to the score yuey rendered");
+        revertButton.onClick = [this]()
+        {
+            editor.setText(originalAbc, juce::dontSendNotification);
+            revalidate();
+        };
+        addAndMakeVisible(revertButton);
+
+        renderButton.setButtonText("render this score");
+        renderButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+        renderButton.onClick = [this]()
+        {
+            if (onRender)
+                onRender(editor.getText(), followBox.getSelectedId() == 2);
+            close();
+        };
+        addAndMakeVisible(renderButton);
+
+        closeButton.setButtonText("done");
+        closeButton.onClick = [this]() { close(); };
+        addAndMakeVisible(closeButton);
+
+        revalidate();
+    }
+
+    ~YueyScorePopout() override
+    {
+        // Keep whatever they left in the box, so closing the window is not a
+        // way to lose an edit.
+        if (onSave)
+            onSave(editor.getText());
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(10);
+        title.setBounds(area.removeFromTop(20));
+        meta.setBounds(area.removeFromTop(16));
+        area.removeFromTop(6);
+
+        auto buttons = area.removeFromBottom(32);
+        renderButton.setBounds(buttons.removeFromRight(140).reduced(2, 0));
+        buttons.removeFromRight(4);
+        closeButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
+        buttons.removeFromRight(4);
+        revertButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
+        buttons.removeFromRight(4);
+        copyButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
+
+        auto follow = area.removeFromBottom(26);
+        followLabel.setBounds(follow.removeFromLeft(74));
+        followBox.setBounds(follow.removeFromLeft(130).reduced(0, 1));
+        follow.removeFromLeft(8);
+        followHint.setBounds(follow);
+
+        status.setBounds(area.removeFromBottom(20));
+        area.removeFromBottom(4);
+        editor.setBounds(area);
+    }
+
+private:
+    void updateFollowHint()
+    {
+        // Sending a score defaults the server to melody, which quietly drops a
+        // chord edit. Saying so is the difference between an edit landing and
+        // the user wondering why it did not.
+        followHint.setText(followBox.getSelectedId() == 2
+            ? "your chords are binding too"
+            : "chord edits are advisory; yuey reharmonises", juce::dontSendNotification);
+    }
+
+    void revalidate()
+    {
+        const auto check = checkYueyAbc(editor.getText());
+        status.setText(check.ok ? check.message : "check: " + check.message,
+                       juce::dontSendNotification);
+        status.setColour(juce::Label::textColourId,
+                         check.ok ? Theme::Colors::TextSecondary : juce::Colours::orange);
+    }
+
+    void close()
+    {
+        if (auto* dialog = findParentComponentOfClass<juce::DialogWindow>())
+            dialog->exitModalState(0);
+    }
+
+    juce::String originalAbc;
+    std::function<void(const juce::String&, bool)> onRender;
+    std::function<void(const juce::String&)> onSave;
+
+    juce::Label title, meta, status, followLabel, followHint;
+    juce::TextEditor editor;
+    CustomComboBox followBox;
+    CustomButton copyButton, revertButton, renderButton, closeButton;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(YueyScorePopout)
+};
+} // namespace
+
+void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
+{
+    if (!hasYueyScore())
+        return;
+
+    closeYueyMidiPanel();
+
+    juce::String summary;
+    if (yueyScore.bars > 0)
+        summary << yueyScore.bars << " bars";
+    if (yueyScore.workingTempo > 0.0)
+    {
+        if (summary.isNotEmpty()) summary << "  ·  ";
+        summary << "Q:" << juce::String(juce::roundToInt(yueyScore.workingTempo));
+        // The original stays available until they save over it, so say which
+        // number is in the box and what it used to be.
+        if (yueyScore.syncedToHost)
+        {
+            summary << " synced to project";
+            if (yueyScore.originalTempo > 0.0
+                && juce::roundToInt(yueyScore.originalTempo)
+                    != juce::roundToInt(yueyScore.workingTempo))
+                summary << " (yuey wrote "
+                        << juce::String(juce::roundToInt(yueyScore.originalTempo)) << ")";
+        }
+    }
+    if (yueyScore.sourceOp.isNotEmpty())
+    {
+        if (summary.isNotEmpty()) summary << "  ·  ";
+        summary << "from " << yueyScore.sourceOp;
+    }
+    if (!yueyScore.alignedToAudio)
+        summary << "  ·  the output was edited after this was rendered";
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
+    auto* content = new YueyScorePopout(
+        yueyScore.workingAbc, yueyScore.originalAbc, summary,
+        [safeThis](const juce::String& abc, bool fullScore)
+        {
+            if (auto* editor = safeThis.getComponent())
+                editor->renderYueyScore(abc, fullScore);
+        },
+        [safeThis](const juce::String& abc)
+        {
+            if (auto* editor = safeThis.getComponent())
+                editor->saveYueyWorkingScore(abc);
+        });
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(content);
+    options.content->setSize(720, 520);
+    options.dialogTitle = "yuey score";
+    options.dialogBackgroundColour = juce::Colour(0xff1e1e1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.useBottomRightCornerResizer = true;
+    options.componentToCentreAround = this;
+    if (auto* window = options.launchAsync())
+        window->setResizeLimits(520, 360, 1400, 1100);
+}
+
+void Gary4juceAudioProcessorEditor::saveYueyWorkingScore(const juce::String& abc)
+{
+    if (!hasYueyScore() || abc.trim().isEmpty() || abc == yueyScore.workingAbc)
+        return;
+
+    yueyScore.workingAbc = abc;
+    yueyScore.workingTempo = readAbcTempo(abc);
+    yueyScore.bars = countYueyScoreBars(abc);
+    // Once they have edited it by hand the tempo is theirs, not something we
+    // rewrote from the host.
+    yueyScore.syncedToHost = false;
+    persistYueyScore();
+}
+
+void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, bool fullScore)
+{
+    if (abc.trim().isEmpty())
+    {
+        showStatusMessage("the score is empty - nothing to render", 3000);
+        return;
+    }
+    if (!isServiceReachable(ServiceType::Yuey))
+    {
+        showStatusMessage("yuey not reachable - check connection first", 4000);
+        return;
+    }
+    if (isGenerating)
+    {
+        showStatusMessage("yuey is already working on something", 3000);
+        return;
+    }
+
+    saveYueyWorkingScore(abc);
+
+    // Rendering a score is a yuey job, so put the user where the progress and
+    // the result are going to appear.
+    if (currentTab != ModelTab::Yuey)
+        switchToTab(ModelTab::Yuey);
+
+    // The score carries the notes; the prompt still carries the sound. Worth
+    // saying, but not worth refusing over: the score is the point here.
+    if (currentYueyCreatePrompt.trim().isEmpty())
+        showStatusMessage("rendering the score with no style prompt", 4000);
+
+    const bool instrumental = currentYueyCreateInstrumental;
+    auto payload = makeYueySongPayload(currentYueyCreatePrompt, currentCareyLyrics, instrumental);
+    payload->setProperty("abc", abc);
+    // With a score the server defaults to melody, which leaves a chord edit
+    // advisory. Say which one the user picked rather than relying on that.
+    payload->setProperty("symbolic_mode", fullScore ? "full" : "melody");
+    payload->setProperty("seed", -1);
+
+    submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
+                   ActiveOp::YueyGenerate, "rendering the edited score");
 }

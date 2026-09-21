@@ -519,6 +519,10 @@ private:
     void positionYueyMidiPanel();
     void dragYueyMidiLane(const juce::String& laneName, juce::Component* source);
     void updateYueyScoreOverlayState();
+    juce::DrawableButton yueyScoreButton;
+    void openYueyScoreEditor();
+    void saveYueyWorkingScore(const juce::String& abc);
+    void renderYueyScore(const juce::String& abc, bool fullScore);
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
