@@ -147,6 +147,9 @@ private:
     bool createInstrumental = false;
     bool createLetYueyPlan = false;
     bool remixInstrumental = true;
+    // Their transcription-mode pick, kept while the instrumental adapter
+    // overrides the box so toggling instrumental does not lose it.
+    int chosenTranscriptionModeId = 1;
 
     juce::Label planningLabel;
     CustomComboBox keyRootComboBox;

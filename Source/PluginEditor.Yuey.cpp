@@ -402,11 +402,11 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
                                     : "add a yuey continuation prompt first", 3000);
         return;
     }
+    // No lyrics is a legitimate request, not a mistake. The backend only
+    // rejects lyrics *with* instrumental, never their absence, and yuey left to
+    // sing whatever it likes is something people ask for on purpose.
     if (!currentYueyRemixInstrumental && currentCareyLyrics.trim().isEmpty())
-    {
-        showStatusMessage("add the source lyrics or enable instrumental", 5000);
-        return;
-    }
+        showStatusMessage("no lyrics - yuey will sing whatever it likes", 4000);
 
     const auto sourceFile = transformRecording ? getGaryBufferFile() : getGaryOutputFile();
     juce::MemoryBlock audioBytes;

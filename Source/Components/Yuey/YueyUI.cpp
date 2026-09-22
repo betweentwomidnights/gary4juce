@@ -376,7 +376,13 @@ YueyUI::YueyUI()
     transcriptionModeComboBox.addItem("melody + chords", 1);
     transcriptionModeComboBox.addItem("full score + chords", 2);
     transcriptionModeComboBox.setSelectedId(1, juce::dontSendNotification);
-    transcriptionModeComboBox.onChange = [this]() { if (onPlanningChanged) onPlanningChanged(); };
+    transcriptionModeComboBox.onChange = [this]()
+    {
+        // Only a real choice lands here: every programmatic change to this box
+        // is made with dontSendNotification.
+        chosenTranscriptionModeId = transcriptionModeComboBox.getSelectedId();
+        if (onPlanningChanged) onPlanningChanged();
+    };
     addToContent(transcriptionModeComboBox);
 
     styleLabel(continueLengthLabel, "continuation length");
@@ -658,6 +664,19 @@ void YueyUI::updateInstrumentalState()
     const bool instrumental = currentSubTab == SubTab::Create ? createInstrumental : remixInstrumental;
     lyricsButton.setVisible(!instrumental);
     instrumentalToggle.setToggleState(instrumental, juce::dontSendNotification);
+
+    // The backend forces a full chord-annotated transcription whenever the
+    // instrumental adapter is loaded, because that is what the adapter was
+    // trained on. Picking "melody + chords" here did nothing in that case, so
+    // the control says so instead of quietly disagreeing with the result.
+    transcriptionModeComboBox.setEnabled(!instrumental);
+    transcriptionModeComboBox.setTooltip(
+        instrumental ? "the instrumental adapter always uses the full score"
+                     : "how much of the source yuey transcribes before remixing");
+    // Shown as what will actually happen, but the choice is remembered, so
+    // turning instrumental off again does not cost them their setting.
+    transcriptionModeComboBox.setSelectedId(
+        instrumental ? 2 : chosenTranscriptionModeId, juce::dontSendNotification);
 }
 
 void YueyUI::updateSourceState()
@@ -831,8 +850,12 @@ juce::String YueyUI::getTranscriptionMode() const
 
 void YueyUI::setTranscriptionMode(const juce::String& mode)
 {
-    transcriptionModeComboBox.setSelectedId(mode.equalsIgnoreCase("full") ? 2 : 1,
+    // Restoring a saved session is their choice arriving late, so it seeds the
+    // remembered pick as well as the box.
+    chosenTranscriptionModeId = mode.equalsIgnoreCase("full") ? 2 : 1;
+    transcriptionModeComboBox.setSelectedId(chosenTranscriptionModeId,
                                              juce::dontSendNotification);
+    updateInstrumentalState();
 }
 
 void YueyUI::setAudioSourceRecording(bool recording)
