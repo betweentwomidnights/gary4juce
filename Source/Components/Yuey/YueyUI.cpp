@@ -232,10 +232,12 @@ YueyUI::YueyUI()
     {
         button->setButtonText("");
         button->setButtonStyle(CustomButton::ButtonStyle::Terry);
-        button->setTooltip("prompt dice is visible for the v1 layout; a curated Yuey prompt pool is still to come");
-        button->onClick = []() {};
+        button->setTooltip("roll a style prompt");
         addToContent(*button);
     }
+    createDiceButton.onClick = [this]() { if (onDice) onDice(SubTab::Create); };
+    remixDiceButton.onClick = [this]() { if (onDice) onDice(SubTab::Remix); };
+    continueDiceButton.onClick = [this]() { if (onDice) onDice(SubTab::Continue); };
     createDiceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
     {
         drawDiceIcon(g, bounds.toFloat().reduced(2.0f),

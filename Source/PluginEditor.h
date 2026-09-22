@@ -481,6 +481,17 @@ private:
     juce::int64 yueyNaturalMaxLastAttemptMs = 0;
     void refreshYueyNaturalMax();
 
+    // The dice pool, fetched once per backend. Two buckets, chosen by the
+    // instrumental toggle of whichever tab rolled: an instrumental job has a
+    // no-vocals preamble prefixed to its style, so a prompt naming a singer
+    // there would argue with it.
+    juce::StringArray yueyDiceInstrumental;
+    juce::StringArray yueyDiceVocal;
+    juce::String yueyDiceSource;
+    juce::int64 yueyDiceLastAttemptMs = 0;
+    void refreshYueyDicePrompts();
+    void rollYueyDicePrompt(YueyUI::SubTab tab);
+
     // ---------- yuey score: owned by the output audio, not by the tab ----------
     struct YueyMidiLane
     {

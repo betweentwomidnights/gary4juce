@@ -303,7 +303,12 @@ void Gary4juceAudioProcessorEditor::updateYueyEnablementSnapshot()
     yueyUI->setGenerateButtonEnabled(createReady, remixReady, continueReady, isGenerating);
 
     if (reachable)
+    {
         refreshYueyNaturalMax();
+        // Fetch the pool alongside the ceiling, so the first roll is instant
+        // rather than the click that starts a request.
+        refreshYueyDicePrompts();
+    }
 }
 
 void Gary4juceAudioProcessorEditor::sendToYuey()
@@ -810,6 +815,117 @@ bool Gary4juceAudioProcessorEditor::loadYueyScoreFromDisk()
         + juce::String((int) yueyScore.midi.size()) + " midi lanes");
     updateYueyScoreOverlayState();
     return true;
+}
+
+void Gary4juceAudioProcessorEditor::refreshYueyDicePrompts()
+{
+    if (!yueyUI || !isServiceReachable(ServiceType::Yuey))
+        return;
+
+    const auto requestUrl = getServiceUrl(ServiceType::Yuey, "/prompts");
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    if (requestUrl == yueyDiceSource && !yueyDiceInstrumental.isEmpty())
+        return; // already answered for this backend; the pool is static
+    if (nowMs - yueyDiceLastAttemptMs < 15000)
+        return; // a backend that did not answer gets asked again, but not often
+
+    yueyDiceLastAttemptMs = nowMs;
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, requestUrl]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(4000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+            if (auto stream = juce::URL(requestUrl).createInputStream(options))
+                responseText = stream->readEntireStreamAsString();
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, requestUrl, responseText, statusCode]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (!alive || !alive->load())
+                return;
+            if (statusCode < 200 || statusCode >= 300 || responseText.isEmpty())
+                return;
+
+            const auto parsed = juce::JSON::parse(responseText);
+            auto* root = parsed.getDynamicObject();
+            if (root == nullptr)
+                return;
+            auto* dice = root->getProperty("dice").getDynamicObject();
+            if (dice == nullptr)
+                return;
+
+            auto readBucket = [dice](const char* name, juce::StringArray& into)
+            {
+                into.clear();
+                if (auto* items = dice->getProperty(juce::Identifier(name)).getArray())
+                    for (const auto& item : *items)
+                    {
+                        const auto prompt = item.toString().trim();
+                        if (prompt.isNotEmpty())
+                            into.add(prompt);
+                    }
+            };
+            readBucket("instrumental", editor->yueyDiceInstrumental);
+            readBucket("vocal", editor->yueyDiceVocal);
+
+            if (!editor->yueyDiceInstrumental.isEmpty() || !editor->yueyDiceVocal.isEmpty())
+                editor->yueyDiceSource = requestUrl;
+        });
+    });
+}
+
+void Gary4juceAudioProcessorEditor::rollYueyDicePrompt(YueyUI::SubTab tab)
+{
+    if (!yueyUI)
+        return;
+
+    // Create has its own instrumental toggle; remix and continue share one.
+    const bool instrumental = tab == YueyUI::SubTab::Create
+        ? yueyUI->getCreateInstrumental()
+        : yueyUI->getRemixInstrumental();
+
+    // Prefer the bucket that matches, but a backend that only answered with
+    // one should still roll rather than do nothing.
+    const auto& preferred = instrumental ? yueyDiceInstrumental : yueyDiceVocal;
+    const auto& fallback = instrumental ? yueyDiceVocal : yueyDiceInstrumental;
+    const auto& pool = preferred.isEmpty() ? fallback : preferred;
+
+    if (pool.isEmpty())
+    {
+        refreshYueyDicePrompts();
+        showStatusMessage(isServiceReachable(ServiceType::Yuey)
+            ? "fetching yuey prompts - roll again in a moment"
+            : "yuey not reachable - check connection first", 3000);
+        return;
+    }
+
+    // Do not hand back what is already in the field: a dice that repeats reads
+    // as a dice that did nothing.
+    const juce::String current = tab == YueyUI::SubTab::Create ? yueyUI->getCreatePrompt()
+        : tab == YueyUI::SubTab::Remix ? yueyUI->getRemixPrompt()
+                                       : yueyUI->getContinuePrompt();
+    auto& random = juce::Random::getSystemRandom();
+    juce::String prompt = pool[random.nextInt(pool.size())];
+    for (int attempt = 0; attempt < 4 && prompt == current && pool.size() > 1; ++attempt)
+        prompt = pool[random.nextInt(pool.size())];
+
+    switch (tab)
+    {
+        case YueyUI::SubTab::Create:   yueyUI->setCreatePrompt(prompt);   break;
+        case YueyUI::SubTab::Remix:    yueyUI->setRemixPrompt(prompt);    break;
+        case YueyUI::SubTab::Continue: yueyUI->setContinuePrompt(prompt); break;
+    }
 }
 
 void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()

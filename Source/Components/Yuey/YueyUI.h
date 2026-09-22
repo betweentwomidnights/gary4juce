@@ -94,6 +94,9 @@ public:
     std::function<void(const juce::String&)> onLyricsChanged;
     std::function<void(bool)> onAudioSourceChanged;
     std::function<void()> onPlanningChanged;
+    // Which tab asked. The editor owns the pool and the prompt fields, so it
+    // decides what a roll means; this only reports that one happened.
+    std::function<void(SubTab)> onDice;
     std::function<void()> onCreate;
     std::function<void()> onRemix;
     std::function<void()> onContinue;

@@ -1551,6 +1551,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentYueyTranscriptionMode = yueyUI->getTranscriptionMode();
         currentYueyContinuationMethod = yueyUI->getContinuationMethod();
     };
+    yueyUI->onDice = [this](YueyUI::SubTab tab) { rollYueyDicePrompt(tab); };
     yueyUI->onCreate = [this]() { sendToYuey(); };
     yueyUI->onRemix = [this]() { sendToYuey(); };
     yueyUI->onContinue = [this]() { sendToYuey(); };
