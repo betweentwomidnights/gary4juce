@@ -281,6 +281,10 @@ YueyUI::YueyUI()
     letYueyPlanToggle.onClick = [this]()
     {
         createLetYueyPlan = letYueyPlanToggle.getToggleState();
+        // It decides whether length is a choice at all, so the row has to be
+        // rebuilt rather than merely restyled.
+        updateLengthState();
+        resized();
         if (onPlanningChanged) onPlanningChanged();
     };
     addToContent(letYueyPlanToggle);
@@ -513,9 +517,20 @@ void YueyUI::resized()
     {
         lengthLabel.setBounds(area.removeFromTop(16));
         auto lengthRow = area.removeFromTop(30);
-        naturalLengthButton.setBounds(lengthRow.removeFromLeft(128).reduced(2));
-        fixedLengthButton.setBounds(lengthRow.removeFromLeft(100).reduced(2));
-        createBarsComboBox.setBounds(lengthRow.reduced(2));
+        // With yuey not planning, we write the score, and a written score is
+        // always a bar count. There is no choice to lay out, so the pair of
+        // buttons goes and the combo takes their place rather than sitting
+        // out to the right of a gap.
+        if (createLetYueyPlan)
+        {
+            naturalLengthButton.setBounds(lengthRow.removeFromLeft(128).reduced(2));
+            fixedLengthButton.setBounds(lengthRow.removeFromLeft(100).reduced(2));
+            createBarsComboBox.setBounds(lengthRow.reduced(2));
+        }
+        else
+        {
+            createBarsComboBox.setBounds(lengthRow.removeFromLeft(140).reduced(2));
+        }
     }
     else
     {
@@ -531,7 +546,11 @@ void YueyUI::resized()
             scoreContinuationButton.setBounds(methodRow.removeFromLeft(methodRow.getWidth() / 2).reduced(2));
             audioContinuationButton.setBounds(methodRow.reduced(2));
         }
-        if (currentSubTab == SubTab::Remix || scoreContinuation)
+        // The instrumental adapter forces a full chord-annotated transcription,
+        // so with it on there is nothing to choose and the row is only taking
+        // up space.
+        if ((currentSubTab == SubTab::Remix || scoreContinuation) && !remixInstrumental)
+        // same rule as updateInstrumentalState; keep the two in step
         {
             area.removeFromTop(3);
             transcriptionLabel.setBounds(area.removeFromTop(16));
@@ -647,7 +666,17 @@ void YueyUI::updateLengthState()
 {
     naturalLengthButton.setButtonStyle(!createFixedBars ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     fixedLengthButton.setButtonStyle(createFixedBars ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
-    createBarsComboBox.setVisible(currentSubTab == SubTab::Create && createFixedBars);
+
+    // "let yuey choose" is only an option when yuey is writing the score. With
+    // the toggle off we write it, and what we write is always the bar count in
+    // the combo, so offering a natural length would offer something that does
+    // not happen. Their pick is left alone underneath, so turning planning back
+    // on restores it.
+    const bool creating = currentSubTab == SubTab::Create;
+    const bool lengthIsAChoice = creating && createLetYueyPlan;
+    naturalLengthButton.setVisible(lengthIsAChoice);
+    fixedLengthButton.setVisible(lengthIsAChoice);
+    createBarsComboBox.setVisible(creating && (!createLetYueyPlan || createFixedBars));
 
     continueNaturalButton.setButtonStyle(!continueFixedBars ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     continueFixedButton.setButtonStyle(continueFixedBars ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
@@ -671,14 +700,25 @@ void YueyUI::updateInstrumentalState()
     // instrumental adapter is loaded, because that is what the adapter was
     // trained on. Picking "melody + chords" here did nothing in that case, so
     // the control says so instead of quietly disagreeing with the result.
-    transcriptionModeComboBox.setEnabled(!instrumental);
+    // With the instrumental adapter loaded the backend forces a full
+    // chord-annotated transcription, because that is what the adapter was
+    // trained on. A disabled control still asks to be read and still says
+    // something about a decision that is not being made, so it goes instead.
+    // Their pick is remembered and comes back with the control.
+    // Matching the layout exactly: remix always transcribes, continue only when
+    // it is continuing from a score. Anywhere else the row has no bounds, and a
+    // visible component with stale bounds draws in the wrong place.
+    const bool transcribes = currentSubTab == SubTab::Remix
+        || (currentSubTab == SubTab::Continue
+            && continuationMethod == ContinuationMethod::Score);
+    const bool transcriptionApplies = transcribes && !instrumental;
+    transcriptionLabel.setVisible(transcriptionApplies);
+    transcriptionModeComboBox.setVisible(transcriptionApplies);
     transcriptionModeComboBox.setTooltip(
-        instrumental ? "the instrumental adapter always uses the full score"
-                     : "how much of the source yuey transcribes before remixing");
-    // Shown as what will actually happen, but the choice is remembered, so
-    // turning instrumental off again does not cost them their setting.
-    transcriptionModeComboBox.setSelectedId(
-        instrumental ? 2 : chosenTranscriptionModeId, juce::dontSendNotification);
+        "how much of the source yuey transcribes before remixing");
+    transcriptionModeComboBox.setSelectedId(chosenTranscriptionModeId,
+                                            juce::dontSendNotification);
+    resized();
 }
 
 void YueyUI::updateSourceState()
