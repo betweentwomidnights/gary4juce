@@ -926,6 +926,13 @@ void Gary4juceAudioProcessorEditor::rollYueyDicePrompt(YueyUI::SubTab tab)
         case YueyUI::SubTab::Remix:    yueyUI->setRemixPrompt(prompt);    break;
         case YueyUI::SubTab::Continue: yueyUI->setContinuePrompt(prompt); break;
     }
+
+    // Those setters write the editor with dontSendNotification, so onTextChange
+    // does not fire and nothing downstream learns the prompt exists: the
+    // generate button stayed disabled until a keystroke made the editor
+    // announce itself. Tell the same handler a typed character would have.
+    if (yueyUI->onPromptChanged)
+        yueyUI->onPromptChanged(tab, prompt);
 }
 
 void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
