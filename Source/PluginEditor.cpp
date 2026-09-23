@@ -2994,7 +2994,57 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
                 if (stream != nullptr)
                 {
-                    const auto responseText = stream->readEntireStreamAsString();
+                    // Read with deadlines rather than readEntireStreamAsString, which
+                    // blocks for as long as the socket stays open. withConnectionTimeoutMs
+                    // only covers getting connected; once bytes start flowing there is no
+                    // bound, so a wifi drop part way through a large completed response
+                    // parks this thread forever. pollInFlight then stays true, every later
+                    // tick returns at the guard above without reaching the stall detector,
+                    // and the UI sits on its last progress reading with the result still
+                    // waiting unconsumed on the backend. A yuey song is tens of megabytes,
+                    // which is why this surfaced here first.
+                    juce::MemoryOutputStream received;
+                    const auto startedMs = juce::Time::getCurrentTime().toMilliseconds();
+                    auto lastByteMs = startedMs;
+                    bool complete = false;
+                    {
+                        juce::HeapBlock<char> chunk(65536);
+                        for (;;)
+                        {
+                            if (stream->isExhausted()) { complete = true; break; }
+                            const int got = stream->read(chunk, 65536);
+                            const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+                            if (got > 0)
+                            {
+                                received.write(chunk, (size_t) got);
+                                lastByteMs = nowMs;
+                            }
+                            else if (stream->isExhausted())
+                            {
+                                complete = true;
+                                break;
+                            }
+                            // Nothing arriving for this long means the far end is gone,
+                            // whatever the socket still believes.
+                            if (nowMs - lastByteMs > 20000) break;
+                            // And a transfer that has run this long is not going to finish.
+                            if (nowMs - startedMs > 180000) break;
+                            if (safeThis == nullptr) break;
+                        }
+                    }
+
+                    if (!complete)
+                    {
+                        // Not a failure: the job is still sitting on the backend
+                        // unconsumed, so the next tick asks again. Failing here would
+                        // throw away a render that actually succeeded.
+                        DBG("Polling: incomplete read after "
+                            + juce::String(received.getDataSize()) + " bytes; will retry");
+                        clearInFlight();
+                        return;
+                    }
+
+                    const auto responseText = received.toString();
 
                     if (safeThis != nullptr)
                         safeThis->lastGoodPollMs = juce::Time::getCurrentTime().toMilliseconds();
