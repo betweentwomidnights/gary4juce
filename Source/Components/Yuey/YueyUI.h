@@ -57,6 +57,7 @@ public:
     double getBpm() const { return bpmControl.getValue(); }
     void setBpm(double bpm);
     juce::String getKey() const;
+    bool isKeyNone() const;
     void setKey(const juce::String& key);
     juce::String getMeter() const;
     void setMeter(const juce::String& meter);

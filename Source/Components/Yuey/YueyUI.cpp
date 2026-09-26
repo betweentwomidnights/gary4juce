@@ -291,20 +291,31 @@ YueyUI::YueyUI()
 
     styleLabel(planningLabel, "plan");
     addAndMakeVisible(planningLabel);
+    // "none" sends no score and no plan, so the model writes freely, as the
+    // sa3 and carey tabs leave the key out of the prompt with "none".
+    keyRootComboBox.addItem("none", 1);
     const juce::StringArray roots { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-    for (int i = 0; i < roots.size(); ++i) keyRootComboBox.addItem(roots[i], i + 1);
-    keyRootComboBox.setSelectedId(1, juce::dontSendNotification);
+    for (int i = 0; i < roots.size(); ++i) keyRootComboBox.addItem(roots[i], i + 2);
+    keyRootComboBox.setSelectedId(2, juce::dontSendNotification);
     keyModeComboBox.addItem("major", 1);
     keyModeComboBox.addItem("minor", 2);
     keyModeComboBox.setSelectedId(1, juce::dontSendNotification);
     const juce::StringArray meters { "4/4", "3/4", "6/8", "12/8", "5/4", "7/8" };
     for (int i = 0; i < meters.size(); ++i) meterComboBox.addItem(meters[i], i + 1);
     meterComboBox.setSelectedId(1, juce::dontSendNotification);
-    for (auto* combo : { &keyRootComboBox, &keyModeComboBox, &meterComboBox })
+    for (auto* combo : { &keyModeComboBox, &meterComboBox })
     {
         combo->onChange = [this]() { if (onPlanningChanged) onPlanningChanged(); };
         addAndMakeVisible(*combo);
     }
+    keyRootComboBox.onChange = [this]()
+    {
+        // Mode and planning both hang off a key, so "none" hides one and
+        // switches off the other.
+        resized();
+        if (onPlanningChanged) onPlanningChanged();
+    };
+    addAndMakeVisible(keyRootComboBox);
     bpmControl.setRange(40.0, 300.0, 1.0);
     bpmControl.setValue(120.0, false);
     bpmControl.onValueChange = [this](double) { if (onPlanningChanged) onPlanningChanged(); };
@@ -460,10 +471,11 @@ void YueyUI::resized()
     // The tempo and key controls drive both paths: they seed yuey's planning
     // header when it plans, and our own score when it does not.
     letYueyPlanToggle.setVisible(showPlanning);
-    letYueyPlanToggle.setToggleState(createLetYueyPlan, juce::dontSendNotification);
+    letYueyPlanToggle.setToggleState(createLetYueyPlan && !isKeyNone(), juce::dontSendNotification);
+    letYueyPlanToggle.setEnabled(!isKeyNone());
     planningLabel.setVisible(showPlanning);
     keyRootComboBox.setVisible(showPlanning);
-    keyModeComboBox.setVisible(showPlanning);
+    keyModeComboBox.setVisible(showPlanning && !isKeyNone());
     meterComboBox.setVisible(showPlanning);
     bpmControl.setVisible(showPlanning);
     if (showPlanning)
@@ -834,13 +846,25 @@ void YueyUI::setBpm(double bpm)
 
 juce::String YueyUI::getKey() const
 {
+    if (isKeyNone())
+        return "none";
     return keyRootComboBox.getText().trim() + " " + keyModeComboBox.getText().trim().toLowerCase();
+}
+
+bool YueyUI::isKeyNone() const
+{
+    return keyRootComboBox.getSelectedId() == 1;
 }
 
 void YueyUI::setKey(const juce::String& key)
 {
     const auto clean = key.trim();
     const bool minor = clean.endsWithIgnoreCase("minor") || clean.endsWith("m");
+    if (clean.equalsIgnoreCase("none"))
+    {
+        keyRootComboBox.setSelectedId(1, juce::dontSendNotification);
+        return;
+    }
     auto root = clean.upToFirstOccurrenceOf(" ", false, false).trim();
     if (root.length() > 1 && root.endsWith("m")) root = root.dropLastCharacters(1);
     const int wanted = yueyRootPitchClass(root);
@@ -1067,8 +1091,10 @@ void YueyUI::applyPlanMetadata(const juce::String& abc, bool adoptTempo)
         {
             setMeter(line.substring(2).trim());
         }
-        else if (line.startsWith("K:"))
+        else if (line.startsWith("K:") && !isKeyNone())
         {
+            // "none" is a choice to send no score; a remix's key does not
+            // overrule it.
             auto key = line.substring(2).trim();
             const bool minor = key.endsWith("m");
             if (minor) key = key.dropLastCharacters(1) + " minor";

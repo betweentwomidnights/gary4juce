@@ -400,7 +400,30 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
         auto payload = makeYueySongPayload(currentYueyCreatePrompt,
                                             currentCareyLyrics,
                                             currentYueyCreateInstrumental);
-        if (currentYueyLetYueyPlan)
+        if (currentYueyKey == "none")
+        {
+            // No score and no plan: yuey writes freely from the prompt, as
+            // upstream's "off" mode. Nothing carries the tempo but the prompt,
+            // which nudges it rather than holding it.
+            auto style = currentYueyCreatePrompt.trim();
+            if (currentYueyCreateInstrumental)
+            {
+                // The server's instrumental mode needs a score, so say it the
+                // way it would and send an ordinary job with nothing to sing.
+                style = "Instrumental, no vocals, no singing, no humming. " + style;
+                payload->setProperty("instrumental", false);
+                payload->setProperty("lyrics", juce::String());
+            }
+            style << ", " << juce::roundToInt(currentYueyBpm) << " bpm";
+            payload->setProperty("style", style);
+            payload->setProperty("symbolic_mode", "off");
+            const auto meterParts = juce::StringArray::fromTokens(currentYueyMeter, "/", "");
+            const double quartersPerBar = meterParts.size() == 2 && meterParts[1].getIntValue() > 0
+                ? 4.0 * meterParts[0].getIntValue() / meterParts[1].getIntValue() : 4.0;
+            payload->setProperty("duration", juce::jmax(1, currentYueyBars) * quartersPerBar
+                                                 * 60.0 / juce::jmax(20.0, currentYueyBpm));
+        }
+        else if (currentYueyLetYueyPlan)
         {
             // yuey composes the score first. Musically freer, but the cost is
             // whatever it decides the song's length is: measured between 42s
