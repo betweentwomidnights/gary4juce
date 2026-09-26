@@ -31,18 +31,78 @@ juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
 //   - Resting Ins is what keeps the melody the model's own. Writing a melody
 //     in makes it fight the line: renders overran their budget and the pulse
 //     wandered 86-128bpm against a 100bpm score.
-//   - Chord symbols are structure, not just harmony. Without them the model
-//     does not reliably know when to stop.
+//   - Chord symbols are the harmony. Without them the model barely writes
+//     any: a tempo-only scaffold held the tempo but came back as drums over a
+//     single chord.
 //   - It is the chord *changes* that lock the grid. Restating one chord per
 //     bar drifts exactly like writing no chords at all, so no two adjacent
 //     bars may carry the same chord.
-// The progression is derived from the key, not composed: it is the key's
-// diatonic anchors written where the model can see them.
+// The progressions are the standard ones, not composed: the familiar loops of
+// pop, rock, dance, jazz and film, spelled in the key and written where the
+// model can see them.
 struct YueyScaffoldChord
 {
     int semitonesAboveTonic;
-    bool minor;
+    const char* quality;   // "" major, "m" minor, or a seventh the model knows
 };
+
+using YueyProgression = std::vector<YueyScaffoldChord>;
+
+// A progression's first and last chords differ, so a loop never restates a
+// chord across its own wrap. Vamps alternate two chords a bar each.
+const std::vector<YueyProgression>& yueyMajorProgressions()
+{
+    static const std::vector<YueyProgression> progressions = {
+        { {0,""}, {7,""}, {9,"m"}, {5,""} },                  // I V vi IV
+        { {0,""}, {9,"m"}, {5,""}, {7,""} },                  // I vi IV V
+        { {9,"m"}, {5,""}, {0,""}, {7,""} },                  // vi IV I V
+        { {0,""}, {5,""}, {9,"m"}, {7,""} },                  // I IV vi V
+        { {5,""}, {0,""}, {7,""}, {9,"m"} },                  // IV I V vi
+        { {0,""}, {4,"m"}, {5,""}, {7,""} },                  // I iii IV V
+        { {0,""}, {7,""}, {5,""}, {9,"m"} },                  // I V IV vi
+        { {0,""}, {5,""}, {7,""}, {5,""} },                   // I IV V IV
+        { {0,""}, {9,"m"}, {2,"m"}, {7,""} },                 // I vi ii V
+        { {5,""}, {7,""}, {4,"m"}, {9,"m"} },                 // IV V iii vi
+        { {2,"m7"}, {7,"7"}, {0,"maj7"}, {9,"m7"} },          // ii7 V7 Imaj7 vi7
+        { {0,""}, {5,""} },                                   // I IV
+        { {0,""}, {10,""} },                                  // I bVII
+        { {0,""}, {7,""}, {9,"m"}, {4,"m"},
+          {5,""}, {0,""}, {5,""}, {7,""} },                   // Pachelbel
+        { {0,"maj7"}, {5,"maj7"} },                           // Imaj7 IVmaj7
+    };
+    return progressions;
+}
+
+const std::vector<YueyProgression>& yueyMinorProgressions()
+{
+    static const std::vector<YueyProgression> progressions = {
+        { {0,"m"}, {8,""}, {3,""}, {10,""} },                 // i VI III VII
+        { {0,"m"}, {5,"m"}, {10,""}, {3,""} },                // i iv VII III
+        { {0,"m"}, {10,""}, {8,""}, {7,"m"} },                // i VII VI v
+        { {0,"m"}, {3,""}, {10,""}, {5,"m"} },                // i III VII iv
+        { {0,"m"}, {8,""}, {5,"m"}, {10,""} },                // i VI iv VII
+        { {0,"m"}, {7,"m"}, {8,""}, {3,""} },                 // i v VI III
+        { {0,"m"}, {10,""}, {8,""}, {7,""} },                 // i VII VI V, Andalusian
+        { {0,"m"}, {8,""}, {5,"m"}, {7,""} },                 // i VI iv V
+        { {0,"m"}, {5,"m"}, {0,"m"}, {7,""} },                // i iv i V
+        { {0,"m"}, {3,""}, {10,""}, {8,""} },                 // i III VII VI
+        { {0,"m"}, {7,"m"}, {8,""}, {5,"m"} },                // i v VI iv
+        { {2,"m7b5"}, {7,"7"}, {0,"m7"}, {8,"maj7"} },        // iiø7 V7 i7 VImaj7
+        { {0,"m"}, {5,""} },                                  // i IV, dorian
+        { {0,"m"}, {10,""} },                                 // i VII
+        { {0,"m"}, {5,"m"} },                                 // i iv
+        { {0,"m7"}, {5,"m7"} },                               // i7 iv7
+    };
+    return progressions;
+}
+
+// One variation number picks an ordered pair of different progressions: the
+// verse's and the chorus's. The caller rolls it across the whole range.
+int yueyScaffoldVariationCount(bool minor)
+{
+    const int count = (int)(minor ? yueyMinorProgressions() : yueyMajorProgressions()).size();
+    return count * (count - 1);
+}
 
 // Every key surface in the plugin names pitches with sharps, so the score does
 // too. Flat spellings are still accepted on the way in, because saved sessions
@@ -59,8 +119,7 @@ juce::String yueyPitchName(int pitchClass)
 
 juce::String yueyChordName(int tonicPitchClass, const YueyScaffoldChord& chord)
 {
-    return yueyPitchName(tonicPitchClass + chord.semitonesAboveTonic)
-         + (chord.minor ? "m" : "");
+    return yueyPitchName(tonicPitchClass + chord.semitonesAboveTonic) + chord.quality;
 }
 
 juce::String yueyKeyRoot(const juce::String& key)
@@ -94,32 +153,14 @@ juce::String makeYueyScaffoldAbc(double bpm,
                                  int bars,
                                  int variation)
 {
-    // i-VI-III-VII and its diatonic neighbours. Every set changes chord on
-    // every bar, including across the wrap, which is the property that locks
-    // the grid.
-    static const YueyScaffoldChord kMinor[][4] = {
-        { {0,true}, {8,false}, {3,false}, {10,false} },   // i  VI III VII
-        { {0,true}, {5,true},  {10,false}, {3,false} },   // i  iv VII III
-        { {0,true}, {10,false},{8,false}, {7,true}   },   // i  VII VI v
-        { {0,true}, {3,false}, {10,false},{5,true}   },   // i  III VII iv
-        { {0,true}, {8,false}, {5,true},  {10,false} },   // i  VI iv VII
-        { {0,true}, {7,true},  {8,false}, {3,false}  },   // i  v  VI III
-    };
-    static const YueyScaffoldChord kMajor[][4] = {
-        { {0,false}, {7,false}, {9,true},  {5,false} },   // I  V  vi IV
-        { {0,false}, {9,true},  {5,false}, {7,false} },   // I  vi IV V
-        { {0,false}, {5,false}, {9,true},  {7,false} },   // I  IV vi V
-        { {0,false}, {4,true},  {5,false}, {7,false} },   // I  iii IV V
-        { {9,true},  {5,false}, {0,false}, {7,false} },   // vi IV I  V
-        { {0,false}, {7,false}, {5,false}, {9,true}  },   // I  V  IV vi
-    };
-
     const bool minor = yueyKeyIsMinor(key);
     const int tonic = yueyTonicPitchClass(key);
-    const int sets = 6;
-    const int verseSet = ((variation % sets) + sets) % sets;
+    const auto& progressions = minor ? yueyMinorProgressions() : yueyMajorProgressions();
+    const int sets = (int)progressions.size();
+    const int pick = ((variation % (sets * (sets - 1))) + sets * (sets - 1)) % (sets * (sets - 1));
+    const int verseSet = pick % sets;
     // A different set for the chorus, so the section markers mean something.
-    const int chorusSet = (verseSet + 1 + (juce::jmax(0, variation) / sets) % (sets - 1)) % sets;
+    const int chorusSet = (verseSet + 1 + pick / sets) % sets;
 
     auto meterParts = juce::StringArray::fromTokens(meter, "/", "");
     int num = meterParts.size() == 2 ? meterParts[0].getIntValue() : 4;
@@ -147,6 +188,10 @@ juce::String makeYueyScaffoldAbc(double bpm,
     int bar = 0;
     int block = 0;
     juce::String lastChord;
+    // Each progression keeps its own place, so an eight-bar one plays through
+    // across sections rather than restarting every four bars.
+    int versePosition = 0;
+    int chorusPosition = 0;
     while (bar < total)
     {
         const int n = juce::jmin(4, total - bar);
@@ -156,19 +201,20 @@ juce::String makeYueyScaffoldAbc(double bpm,
             section = (bar + n >= total) ? kSections[3]
                                          : kSections[1 + (block % 2 == 0 ? 1 : 0)];
         const bool chorus = juce::String(section) == "chorus";
-        const auto* set = minor ? kMinor[chorus ? chorusSet : verseSet]
-                                : kMajor[chorus ? chorusSet : verseSet];
+        const auto& set = progressions[(size_t)(chorus ? chorusSet : verseSet)];
+        auto& position = chorus ? chorusPosition : versePosition;
+        const int length = (int)set.size();
 
         juce::String vocal, ins;
         for (int i = 0; i < n; ++i)
         {
-            const int index = (bar + i) % 4;
-            auto chord = yueyChordName(tonic, set[index]);
+            const int index = position++ % length;
+            auto chord = yueyChordName(tonic, set[(size_t)index]);
             // A repeated chord is not a change, and it is the change that holds
             // the grid. Two sets can meet on the same chord at a section
             // boundary, so step to the next chord of the set instead.
             if (chord == lastChord)
-                chord = yueyChordName(tonic, set[(index + 1) % 4]);
+                chord = yueyChordName(tonic, set[(size_t)((index + 1) % length)]);
             lastChord = chord;
             vocal << "\"" << chord << "\"" << restBar;
             ins << restBar;
@@ -381,8 +427,8 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
             // Vary the progression between takes so repeated clicks are not
             // the same four chords. The score comes back with the render, so
             // anything worth keeping can still be edited and re-rendered.
-            currentYueyScaffoldVariation =
-                juce::Random::getSystemRandom().nextInt(36);
+            currentYueyScaffoldVariation = juce::Random::getSystemRandom().nextInt(
+                yueyScaffoldVariationCount(yueyKeyIsMinor(currentYueyKey)));
             payload->setProperty("abc", makeYueyScaffoldAbc(currentYueyBpm,
                                                             currentYueyKey,
                                                             currentYueyMeter,
