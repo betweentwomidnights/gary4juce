@@ -3742,6 +3742,52 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
 }
 
 
+namespace
+{
+// A backend may answer in FLAC to halve the network transfer. Everything
+// downstream reads myOutput.wav, so it becomes 16-bit WAV again here, read as
+// integers so the samples come back exactly: JUCE's float path scales by
+// 32768 going in and 32767 coming out.
+bool decodeFlacToWav(const juce::MemoryBlock& flac, juce::MemoryBlock& wav)
+{
+    juce::FlacAudioFormat flacFormat;
+    std::unique_ptr<juce::AudioFormatReader> reader(flacFormat.createReaderFor(
+        new juce::MemoryInputStream(flac, false), true));
+    if (reader == nullptr || reader->bitsPerSample != 16 || reader->numChannels < 1
+        || reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max())
+        return false;
+
+    const auto channels = (int) reader->numChannels;
+    const auto frames = (int) reader->lengthInSamples;
+    juce::HeapBlock<int> storage((size_t) channels * (size_t) frames);
+    std::vector<int*> lanes((size_t) channels);
+    for (int c = 0; c < channels; ++c)
+        lanes[(size_t) c] = storage.get() + (size_t) c * (size_t) frames;
+    if (!reader->read(lanes.data(), channels, 0, frames, false))
+        return false;
+
+    const auto dataBytes = (juce::uint32) ((size_t) frames * (size_t) channels * 2);
+    juce::MemoryOutputStream out(wav, false);
+    out.write("RIFF", 4);
+    out.writeInt((int) (36 + dataBytes));
+    out.write("WAVEfmt ", 8);
+    out.writeInt(16);
+    out.writeShort(1);
+    out.writeShort((short) channels);
+    out.writeInt((int) reader->sampleRate);
+    out.writeInt((int) reader->sampleRate * channels * 2);
+    out.writeShort((short) (channels * 2));
+    out.writeShort(16);
+    out.write("data", 4);
+    out.writeInt((int) dataBytes);
+    for (int i = 0; i < frames; ++i)
+        for (int c = 0; c < channels; ++c)
+            out.writeShort((short) (lanes[(size_t) c][i] >> 16));
+    out.flush();
+    return true;
+}
+}
+
 bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
 {
     try
@@ -3756,7 +3802,15 @@ bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         }
 
         // Get the decoded data
-        const juce::MemoryBlock& audioData = outputStream.getMemoryBlock();
+        const juce::MemoryBlock& received = outputStream.getMemoryBlock();
+        juce::MemoryBlock wavFromFlac;
+        const bool isFlac = received.getSize() >= 4 && std::memcmp(received.getData(), "fLaC", 4) == 0;
+        if (isFlac && !decodeFlacToWav(received, wavFromFlac))
+        {
+            DBG("Failed to decode FLAC audio");
+            return false;
+        }
+        const juce::MemoryBlock& audioData = isFlac ? wavFromFlac : received;
 
         if (!ensureGaryDataDirectoryAvailable())
             return false;

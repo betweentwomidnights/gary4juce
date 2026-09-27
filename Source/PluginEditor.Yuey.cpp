@@ -8,14 +8,15 @@ namespace
 {
 juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
                                              const juce::String& lyrics,
-                                             bool instrumental)
+                                             bool instrumental,
+                                             const juce::String& audioFormat)
 {
     juce::DynamicObject::Ptr payload = new juce::DynamicObject();
     payload->setProperty("style", style.trim());
     payload->setProperty("lyrics", instrumental ? juce::String() : lyrics);
     payload->setProperty("instrumental", instrumental);
     payload->setProperty("keep_models", false);
-    payload->setProperty("audio_format", "wav");
+    payload->setProperty("audio_format", audioFormat);
     return payload;
 }
 
@@ -399,7 +400,8 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
 
         auto payload = makeYueySongPayload(currentYueyCreatePrompt,
                                             currentCareyLyrics,
-                                            currentYueyCreateInstrumental);
+                                            currentYueyCreateInstrumental,
+        yueyAcceptsFlac ? "flac" : "wav");
         const bool noKey = currentYueyKey == "none";
         if (currentYueyLetYueyPlan)
         {
@@ -502,7 +504,8 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     {
         auto payload = makeYueySongPayload(currentYueyRemixPrompt,
                                             currentCareyLyrics,
-                                            currentYueyRemixInstrumental);
+                                            currentYueyRemixInstrumental,
+        yueyAcceptsFlac ? "flac" : "wav");
         payload->setProperty("audio_data", encodedAudio);
         payload->setProperty("transcription_mode", currentYueyTranscriptionMode);
         submitYueyJson("/cover", juce::JSON::toString(juce::var(payload.get())),
@@ -523,7 +526,8 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
 
     auto payload = makeYueySongPayload(currentYueyContinuePrompt,
                                         currentCareyLyrics,
-                                        currentYueyRemixInstrumental);
+                                        currentYueyRemixInstrumental,
+        yueyAcceptsFlac ? "flac" : "wav");
     payload->setProperty("audio_data", encodedAudio);
     // The audio continuation endpoint still needs a full-score companion plan,
     // but that is an implementation detail rather than a user choice.
@@ -546,7 +550,8 @@ void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::St
 
     auto payload = makeYueySongPayload(currentYueyContinuePrompt,
                                         currentCareyLyrics,
-                                        currentYueyRemixInstrumental);
+                                        currentYueyRemixInstrumental,
+        yueyAcceptsFlac ? "flac" : "wav");
     payload->setProperty("abc_prefix", abc);
     if (currentYueyContinueFixedBars)
     {
@@ -1023,6 +1028,8 @@ void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
 
     yueyNaturalMaxSource = requestUrl;
     yueyNaturalMaxLastAttemptMs = nowMs;
+    // A different backend has to say it takes FLAC before it is asked for it.
+    yueyAcceptsFlac = false;
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
@@ -1059,6 +1066,15 @@ void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
 
             const auto response = juce::JSON::parse(responseText);
             auto* object = response.getDynamicObject();
+
+            // The same answer says whether the backend takes FLAC, which
+            // roughly halves the one response that completes a job.
+            bool flac = false;
+            if (object != nullptr)
+                if (auto* formats = object->getProperty("audio_formats").getArray())
+                    flac = formats->contains("flac");
+            editor->yueyAcceptsFlac = flac;
+
             if (object == nullptr || !object->hasProperty("natural_max_seconds"))
             {
                 // An older backend simply does not report one. Leave the
@@ -1784,7 +1800,8 @@ void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, boo
         showStatusMessage("rendering the score with no style prompt", 4000);
 
     const bool instrumental = currentYueyCreateInstrumental;
-    auto payload = makeYueySongPayload(currentYueyCreatePrompt, currentCareyLyrics, instrumental);
+    auto payload = makeYueySongPayload(currentYueyCreatePrompt, currentCareyLyrics, instrumental,
+        yueyAcceptsFlac ? "flac" : "wav");
     payload->setProperty("abc", abc);
     // With a score the server defaults to melody, which leaves a chord edit
     // advisory. Say which one the user picked rather than relying on that.

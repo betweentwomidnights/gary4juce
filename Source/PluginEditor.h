@@ -479,6 +479,9 @@ private:
     double yueyNaturalMaxSeconds = -1.0;
     juce::String yueyNaturalMaxSource;
     juce::int64 yueyNaturalMaxLastAttemptMs = 0;
+    // Whether this backend answers audio_format "flac", read from the same
+    // /health response. Unknown counts as no: older servers reject the value.
+    bool yueyAcceptsFlac = false;
     void refreshYueyNaturalMax();
 
     // The dice pool, fetched once per backend. Two buckets, chosen by the
