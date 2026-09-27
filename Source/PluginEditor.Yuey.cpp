@@ -105,9 +105,9 @@ int yueyScaffoldVariationCount(bool minor)
     return count * (count - 1);
 }
 
-// Every key surface in the plugin names pitches with sharps, so the score does
-// too. Flat spellings are still accepted on the way in, because saved sessions
-// and hand-edited scores may carry them, but nothing we generate emits one.
+// Every key surface in the plugin names pitches with sharps, and so do the
+// score's chord symbols, as SheetSage2 writes them. Flat spellings are still
+// accepted on the way in, because saved sessions and scores may carry them.
 const char* const kYueySharpNames[] = { "C", "C#", "D", "D#", "E", "F",
                                         "F#", "G", "G#", "A", "A#", "B" };
 const char* const kYueyFlatNames[] = { "C", "Db", "D", "Eb", "E", "F",
@@ -116,6 +116,19 @@ const char* const kYueyFlatNames[] = { "C", "Db", "D", "Eb", "E", "F",
 juce::String yueyPitchName(int pitchClass)
 {
     return juce::String(kYueySharpNames[((pitchClass % 12) + 12) % 12]);
+}
+
+// The score's K: line is the exception: it uses the one spelling SheetSage2
+// gives each key, which is what yuey learned keys from. K:A#, K:D# and K:G#
+// are keys no score uses, and yuey's MIDI export reads them as C major.
+juce::String yueyAbcKey(int tonicPitchClass, bool minor)
+{
+    static const char* const major[] = { "C", "Db", "D", "Eb", "E", "F",
+                                         "Gb", "G", "Ab", "A", "Bb", "B" };
+    static const char* const minorKeys[] = { "Cm", "C#m", "Dm", "Ebm", "Em", "Fm",
+                                             "F#m", "Gm", "G#m", "Am", "Bbm", "Bm" };
+    const int index = ((tonicPitchClass % 12) + 12) % 12;
+    return juce::String(minor ? minorKeys[index] : major[index]);
 }
 
 juce::String yueyChordName(int tonicPitchClass, const YueyScaffoldChord& chord)
@@ -181,7 +194,7 @@ juce::String makeYueyScaffoldAbc(double bpm,
     out.add("Q:1/4=" + juce::String(tempo));
     out.add("V: Vocal clef=treble name=\"Vocal Melody\" snm=\"Vocal\"");
     out.add("V: Ins clef=treble name=\"Ins Melody\" snm=\"Inst.\"");
-    out.add("K:" + yueyPitchName(tonic) + (minor ? "m" : ""));
+    out.add("K:" + yueyAbcKey(tonic, minor));
 
     const juce::String restBar = "z" + juce::String(unitsPerBar) + "|";
     static const char* kSections[] = { "intro", "verse", "chorus", "outro" };
