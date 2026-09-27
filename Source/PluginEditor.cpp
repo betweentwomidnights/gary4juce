@@ -201,6 +201,12 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("yueyRemixInstrumental", currentYueyRemixInstrumental);
     state->setProperty("yueyBpm", currentYueyBpm);
     state->setProperty("yueyKey", currentYueyKey);
+    state->setProperty("yueyLastSeed",
+        yueyUI != nullptr ? yueyUI->getLastSeed() : currentYueyLastSeed);
+    state->setProperty("yueyUseSeed",
+        yueyUI != nullptr ? yueyUI->getUseSeedEnabled() : currentYueyUseSeed);
+    state->setProperty("yueySeedText",
+        yueyUI != nullptr ? yueyUI->getSeedText() : currentYueySeedText);
     state->setProperty("yueyMeter", currentYueyMeter);
     state->setProperty("yueyFixedBars", currentYueyFixedBars);
     state->setProperty("yueyBars", currentYueyBars);
@@ -436,6 +442,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentYueyBpm = juce::jlimit(40.0, 300.0,
         readDouble("yueyBpm", currentYueyBpm));
     currentYueyKey = readString("yueyKey", currentYueyKey);
+    currentYueyLastSeed = readString("yueyLastSeed", currentYueyLastSeed);
+    currentYueyUseSeed = readBool("yueyUseSeed", currentYueyUseSeed);
+    currentYueySeedText = readString("yueySeedText", currentYueySeedText);
     currentYueyMeter = readString("yueyMeter", currentYueyMeter);
     currentYueyFixedBars = readBool("yueyFixedBars", currentYueyFixedBars);
     currentYueyBars = readInt("yueyBars", currentYueyBars);
@@ -617,6 +626,8 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
             : (audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : currentYueyBpm));
         yueyUI->setKey(currentYueyKey);
         yueyUI->setMeter(currentYueyMeter);
+        yueyUI->setLastSeed(currentYueyLastSeed);
+        yueyUI->setSeedState(currentYueyUseSeed, currentYueySeedText);
         yueyUI->setCreateLength(currentYueyFixedBars, currentYueyBars);
         yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
         yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
@@ -1568,6 +1579,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         : (audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : currentYueyBpm));
     yueyUI->setKey(currentYueyKey);
     yueyUI->setMeter(currentYueyMeter);
+    yueyUI->setLastSeed(currentYueyLastSeed);
+    yueyUI->setSeedState(currentYueyUseSeed, currentYueySeedText);
     yueyUI->setCreateLength(currentYueyFixedBars, currentYueyBars);
     yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
     yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
@@ -3614,6 +3627,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                             : activeOperation == ActiveOp::YueyContinue ? "continue"
                             : "generate");
                         applyYueyPlanMetadata(responseObj->getProperty("abc").toString());
+                        recordYueyLastSeed(responseObj);
                     }
                     DBG(juce::String(isSA3TransformOp ? "Successfully received SA3 transformed audio: "
                                                        : isSA3ContinueOp ? "Successfully received SA3 continuation audio: "

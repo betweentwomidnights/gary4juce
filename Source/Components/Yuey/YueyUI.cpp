@@ -429,6 +429,34 @@ YueyUI::YueyUI()
     };
     addToContent(actionButton);
 
+    // Holding a seed is how to hear one change at a time: the same take with
+    // instrumental on and off, or with a new prompt. Each render fills the box
+    // with the seed it used, so ticking "use seed" repeats that take.
+    useSeedToggle.setButtonText("use seed");
+    useSeedToggle.setToggleState(false, juce::dontSendNotification);
+    useSeedToggle.setTooltip("when on, send the seed in the box instead of asking for a random one");
+    useSeedToggle.setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+    useSeedToggle.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+    useSeedToggle.onClick = [this]()
+    {
+        const bool on = useSeedToggle.getToggleState();
+        seedEditor.setEnabled(on);
+        seedEditor.setAlpha(on ? 1.0f : 0.45f);
+    };
+    addToContent(useSeedToggle);
+
+    seedEditor.setMultiLine(false);
+    seedEditor.setTextToShowWhenEmpty("random", juce::Colour(0xff666666));
+    seedEditor.setTooltip("seed for repeating a yuey take");
+    seedEditor.setInputRestrictions(20, "0123456789");
+    seedEditor.setEnabled(false);
+    seedEditor.setAlpha(0.45f);
+    addToContent(seedEditor);
+
+    styleLabel(lastSeedLabel, "last seed: -", 10.0f);
+    lastSeedLabel.setJustificationType(juce::Justification::centredRight);
+    addToContent(lastSeedLabel);
+
     styleLabel(infoLabel, "create plans a score; remix and continue begin with SheetSage2 transcription", 10.0f);
     infoLabel.setJustificationType(juce::Justification::centred);
     addToContent(infoLabel);
@@ -493,9 +521,10 @@ void YueyUI::resized()
     const int width = juce::jmax(280, contentViewport->getWidth() - contentViewport->getScrollBarThickness());
     const bool continueTab = currentSubTab == SubTab::Continue;
     const bool scoreContinuation = continueTab && continuationMethod == ContinuationMethod::Score;
-    const int height = currentSubTab == SubTab::Create ? 240
+    const int seedRowHeight = 34;
+    const int height = seedRowHeight + (currentSubTab == SubTab::Create ? 240
         : currentSubTab == SubTab::Remix ? 265
-        : scoreContinuation ? 360 : 315;
+        : scoreContinuation ? 360 : 315);
     contentComponent->setSize(width, height);
 
     auto area = contentComponent->getLocalBounds().reduced(8, 4);
@@ -578,9 +607,45 @@ void YueyUI::resized()
         }
     }
 
+    area.removeFromTop(6);
+    auto seedRow = area.removeFromTop(28);
+    useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+    seedRow.removeFromLeft(4);
+    seedEditor.setBounds(seedRow.removeFromLeft(120).reduced(0, 2));
+    lastSeedLabel.setBounds(seedRow.reduced(4, 0));
+
     area.removeFromTop(8);
     actionButton.setBounds(area.removeFromTop(36).reduced(2));
     infoLabel.setBounds(area.removeFromTop(28));
+}
+
+juce::int64 YueyUI::getSeed() const
+{
+    if (!useSeedToggle.getToggleState())
+        return -1;
+    const auto text = seedEditor.getText().trim();
+    return text.isEmpty() ? -1 : text.getLargeIntValue();
+}
+
+void YueyUI::setSeedState(bool enabled, const juce::String& seedText)
+{
+    useSeedToggle.setToggleState(enabled, juce::dontSendNotification);
+    seedEditor.setText(seedText.trim(), false);
+    seedEditor.setEnabled(enabled);
+    seedEditor.setAlpha(enabled ? 1.0f : 0.45f);
+}
+
+void YueyUI::setLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+    lastSeed = trimmed;
+    lastSeedLabel.setText("last seed: " + trimmed, juce::dontSendNotification);
+    // Ready to repeat: ticking "use seed" now reruns this take. A seed the user
+    // is holding is left alone.
+    if (!useSeedToggle.getToggleState())
+        seedEditor.setText(trimmed, false);
 }
 
 void YueyUI::addToContent(juce::Component& component)

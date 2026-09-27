@@ -468,7 +468,7 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
             // the render has to match note for note.
             payload->setProperty("symbolic_mode", "melody");
         }
-        payload->setProperty("seed", -1);
+        payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
 
         submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
                         ActiveOp::YueyGenerate, "creating with yuey");
@@ -508,6 +508,7 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
         yueyAcceptsFlac ? "flac" : "wav");
         payload->setProperty("audio_data", encodedAudio);
         payload->setProperty("transcription_mode", currentYueyTranscriptionMode);
+        payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
         submitYueyJson("/cover", juce::JSON::toString(juce::var(payload.get())),
                         ActiveOp::YueyRemix, "transcribing and remixing");
         return;
@@ -535,7 +536,7 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     payload->setProperty("continuation_bars", currentYueyContinueFixedBars
         ? currentYueyContinueBars : 0);
     payload->setProperty("use_continuation_adapter", true);
-    payload->setProperty("seed", -1);
+    payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
     submitYueyJson("/continue", juce::JSON::toString(juce::var(payload.get())),
                     ActiveOp::YueyContinue, "continuing from source audio");
 }
@@ -570,7 +571,7 @@ void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::St
         payload->setProperty("ending", "natural");
         payload->setProperty("target_bars", 0);
     }
-    payload->setProperty("seed", -1);
+    payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
 
     applyYueyPlanMetadata(abc);
     submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
@@ -1673,10 +1674,31 @@ void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, boo
     // With a score the server defaults to melody, which leaves a chord edit
     // advisory. Say which one the user picked rather than relying on that.
     payload->setProperty("symbolic_mode", fullScore ? "full" : "melody");
-    payload->setProperty("seed", -1);
+    payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
 
     submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
                    ActiveOp::YueyGenerate, "rendering the edited score");
+}
+
+void Gary4juceAudioProcessorEditor::recordYueyLastSeed(juce::DynamicObject* completedResponse)
+{
+    if (completedResponse == nullptr)
+        return;
+
+    // The seed the render actually used: the one the user held, or the one the
+    // backend picked for a -1. The status carries it at the top level; meta
+    // carries it too, for a backend that only puts it there.
+    auto seed = completedResponse->getProperty("seed");
+    if (seed.isVoid())
+        if (auto* meta = completedResponse->getProperty("meta").getDynamicObject())
+            seed = meta->getProperty("seed");
+    const auto text = seed.toString().trim();
+    if (text.isEmpty())
+        return;
+
+    currentYueyLastSeed = text;
+    if (yueyUI != nullptr)
+        yueyUI->setLastSeed(text);
 }
 
 void Gary4juceAudioProcessorEditor::reportYueyWarnings(juce::DynamicObject* completedResponse)

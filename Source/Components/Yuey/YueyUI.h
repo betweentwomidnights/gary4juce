@@ -62,6 +62,14 @@ public:
     juce::String getMeter() const;
     void setMeter(const juce::String& meter);
 
+    // -1 unless "use seed" is on, which the backend reads as "pick one".
+    juce::int64 getSeed() const;
+    bool getUseSeedEnabled() const { return useSeedToggle.getToggleState(); }
+    juce::String getSeedText() const { return seedEditor.getText().trim(); }
+    void setSeedState(bool enabled, const juce::String& seedText);
+    juce::String getLastSeed() const { return lastSeed; }
+    void setLastSeed(const juce::String& seed);
+
     bool getCreateFixedBars() const { return createFixedBars; }
     int getCreateBars() const;
     void setCreateLength(bool fixedBars, int bars);
@@ -188,6 +196,12 @@ private:
     CustomComboBox continueBarsComboBox;
     bool continueFixedBars = false;
     double naturalLengthCeiling = -1.0;
+
+    // Shared by all three sub-tabs: a seed means the same thing to each.
+    juce::ToggleButton useSeedToggle;
+    CustomTextEditor seedEditor;
+    juce::Label lastSeedLabel;
+    juce::String lastSeed;
 
     CustomButton actionButton;
     juce::Label infoLabel;

@@ -457,6 +457,9 @@ private:
     bool currentYueyRemixInstrumental = true;
     double currentYueyBpm = 120.0;
     juce::String currentYueyKey = "C major";
+    juce::String currentYueyLastSeed;
+    bool currentYueyUseSeed = false;
+    juce::String currentYueySeedText;
     juce::String currentYueyMeter = "4/4";
     bool currentYueyFixedBars = false;
     int currentYueyBars = 16;
@@ -542,6 +545,7 @@ private:
     void saveYueyWorkingScore(const juce::String& abc);
     void renderYueyScore(const juce::String& abc, bool fullScore);
     void reportYueyWarnings(juce::DynamicObject* completedResponse);
+    void recordYueyLastSeed(juce::DynamicObject* completedResponse);
 
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
