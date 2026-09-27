@@ -1808,7 +1808,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton.onClick = [this]() { cropAudioAtCurrentPosition(); };
 
     yueyMidiButton.setTooltip("drag the midi yuey rendered into your daw");
-    yueyMidiButton.onClick = [this]() { toggleYueyMidiPanel(); };
+    yueyMidiButton.onClick = [this]()
+    {
+        // Releasing the press that started a drag also clicks; that one is not
+        // a request for the hint.
+        if (std::exchange(yueyMidiDragStarted, false))
+            return;
+        showStatusMessage("drag midi into your daw to drop every lane", 3000);
+    };
+    installYueyMidiDrag();
     yueyMidiButton.setVisible(false);
     yueyMidiButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     yueyMidiButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
@@ -8138,7 +8146,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     DBG("Crop operation completed successfully");
 
     // The composition is still the one the user rendered, but bar 1 has moved,
-    // so the midi no longer lines up with what they will hear.
+    // so the midi no longer lines up with what they will hear; it is dropped.
     markYueyScoreUnaligned();
 
     // Store previous state for logging
@@ -8390,13 +8398,13 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
     // The score handles, drawn the same way as the crop overlay opposite them.
     const auto drawScoreHandle = [&g](const juce::DrawableButton& button,
-                                      const juce::String& text, bool active, bool flagged)
+                                      const juce::String& text)
     {
         if (!button.isVisible())
             return;
 
         auto bounds = button.getBounds().toFloat();
-        const bool lit = active || button.isOver() || button.isDown();
+        const bool lit = button.isOver() || button.isDown();
 
         g.setColour(juce::Colours::black.withAlpha(0.6f));
         g.fillRoundedRectangle(bounds, 3.0f);
@@ -8407,19 +8415,10 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
         g.setColour(lit ? juce::Colours::orange : juce::Colours::white.withAlpha(0.85f));
         g.drawText(text, button.getBounds(), juce::Justification::centred);
-
-        // A score kept through a crop still describes the composition, but the
-        // dot says bar 1 has moved and the midi no longer lines up with it.
-        if (flagged)
-        {
-            g.setColour(juce::Colours::orange);
-            g.fillEllipse(bounds.getRight() - 4.0f, bounds.getY() - 1.0f, 5.0f, 5.0f);
-        }
     };
 
-    const bool scoreStale = hasYueyScore() && !yueyScore.alignedToAudio;
-    drawScoreHandle(yueyMidiButton, "midi", yueyMidiPanel != nullptr, scoreStale);
-    drawScoreHandle(yueyScoreButton, "score", false, false);
+    drawScoreHandle(yueyMidiButton, "midi");
+    drawScoreHandle(yueyScoreButton, "score");
 }
 
 // ========== UPDATED RESIZED METHOD ==========
@@ -8927,7 +8926,6 @@ void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sec
                              outputWaveformArea.getY() + 5, 42, 25);
     yueyScoreButton.setBounds(outputWaveformArea.getX() + 51,
                               outputWaveformArea.getY() + 5, 48, 25);
-    positionYueyMidiPanel();
 }
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()

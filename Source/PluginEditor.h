@@ -527,14 +527,15 @@ private:
     bool loadYueyScoreFromDisk();
     juce::File getYueyMidiFile(const juce::String& laneName) const;
 
-    // The lane panel lives over the output waveform rather than in the tab,
+    // The midi handle lives on the output waveform rather than in the tab,
     // because the midi belongs to the render rather than to the request.
-    std::unique_ptr<juce::Component> yueyMidiPanel;
+    // Dragging it carries every lane at once. The listener is declared first
+    // so it outlives the button it listens to.
+    std::unique_ptr<juce::MouseListener> yueyMidiDragListener;
     juce::DrawableButton yueyMidiButton;
-    void toggleYueyMidiPanel();
-    void closeYueyMidiPanel();
-    void positionYueyMidiPanel();
-    void dragYueyMidiLane(const juce::String& laneName, juce::Component* source);
+    bool yueyMidiDragStarted = false;
+    void installYueyMidiDrag();
+    void dragYueyMidi();
     void updateYueyScoreOverlayState();
     juce::DrawableButton yueyScoreButton;
     void openYueyScoreEditor();
