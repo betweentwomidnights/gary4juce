@@ -310,8 +310,8 @@ YueyUI::YueyUI()
     }
     keyRootComboBox.onChange = [this]()
     {
-        // Mode and planning both hang off a key, so "none" hides one and
-        // switches off the other.
+        // With no key there is no major or minor to choose, so "none" hides
+        // the mode menu.
         resized();
         if (onPlanningChanged) onPlanningChanged();
     };
@@ -471,8 +471,7 @@ void YueyUI::resized()
     // The tempo and key controls drive both paths: they seed yuey's planning
     // header when it plans, and our own score when it does not.
     letYueyPlanToggle.setVisible(showPlanning);
-    letYueyPlanToggle.setToggleState(createLetYueyPlan && !isKeyNone(), juce::dontSendNotification);
-    letYueyPlanToggle.setEnabled(!isKeyNone());
+    letYueyPlanToggle.setToggleState(createLetYueyPlan, juce::dontSendNotification);
     planningLabel.setVisible(showPlanning);
     keyRootComboBox.setVisible(showPlanning);
     keyModeComboBox.setVisible(showPlanning && !isKeyNone());

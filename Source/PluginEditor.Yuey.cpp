@@ -400,7 +400,29 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
         auto payload = makeYueySongPayload(currentYueyCreatePrompt,
                                             currentCareyLyrics,
                                             currentYueyCreateInstrumental);
-        if (currentYueyKey == "none")
+        const bool noKey = currentYueyKey == "none";
+        if (currentYueyLetYueyPlan)
+        {
+            // yuey composes the score first. Musically freer, but the cost is
+            // whatever it decides the song's length is: measured between 42s
+            // and over four minutes on the same prompt and seed, driven by
+            // nothing but the tempo and key it is handed.
+            //
+            // The tempo is always the user's (in a host it is the project's).
+            // With no key the header stops before K:, and yuey picks the key
+            // itself, which it did validly in every plan measured.
+            auto planning = std::make_unique<juce::DynamicObject>();
+            planning->setProperty("bpm", juce::roundToInt(currentYueyBpm));
+            planning->setProperty("key", noKey ? juce::String() : currentYueyKey);
+            const auto meterParts = juce::StringArray::fromTokens(currentYueyMeter, "/", "");
+            planning->setProperty("meter_numerator", meterParts.size() == 2 ? meterParts[0].getIntValue() : 4);
+            planning->setProperty("meter_denominator", meterParts.size() == 2 ? meterParts[1].getIntValue() : 4);
+            payload->setProperty("planning", juce::var(planning.release()));
+            payload->setProperty("ending", currentYueyFixedBars ? "outro" : "natural");
+            payload->setProperty("target_bars", currentYueyFixedBars ? currentYueyBars : 0);
+            payload->setProperty("outro_bars", juce::jmin(4, currentYueyBars));
+        }
+        else if (noKey)
         {
             // No score and no plan: yuey writes freely from the prompt, as
             // upstream's "off" mode. Nothing carries the tempo but the prompt,
@@ -422,23 +444,6 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
                 ? 4.0 * meterParts[0].getIntValue() / meterParts[1].getIntValue() : 4.0;
             payload->setProperty("duration", juce::jmax(1, currentYueyBars) * quartersPerBar
                                                  * 60.0 / juce::jmax(20.0, currentYueyBpm));
-        }
-        else if (currentYueyLetYueyPlan)
-        {
-            // yuey composes the score first. Musically freer, but the cost is
-            // whatever it decides the song's length is: measured between 42s
-            // and over four minutes on the same prompt and seed, driven by
-            // nothing but the tempo and key it is handed.
-            auto planning = std::make_unique<juce::DynamicObject>();
-            planning->setProperty("bpm", juce::roundToInt(currentYueyBpm));
-            planning->setProperty("key", currentYueyKey);
-            const auto meterParts = juce::StringArray::fromTokens(currentYueyMeter, "/", "");
-            planning->setProperty("meter_numerator", meterParts.size() == 2 ? meterParts[0].getIntValue() : 4);
-            planning->setProperty("meter_denominator", meterParts.size() == 2 ? meterParts[1].getIntValue() : 4);
-            payload->setProperty("planning", juce::var(planning.release()));
-            payload->setProperty("ending", currentYueyFixedBars ? "outro" : "natural");
-            payload->setProperty("target_bars", currentYueyFixedBars ? currentYueyBars : 0);
-            payload->setProperty("outro_bars", juce::jmin(4, currentYueyBars));
         }
         else
         {
