@@ -906,6 +906,25 @@ private:
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
 
+    // The read the current poll is doing, so the timer can cut it loose. A
+    // WinInet read that the network has abandoned can block past its own
+    // receive timeout, and while it does pollInFlight stays set and every tick
+    // returns before reaching anything that could notice. Cancelling the
+    // stream from another thread is what reliably hands control back.
+    struct PollTransfer
+    {
+        std::mutex lock;
+        std::shared_ptr<juce::WebInputStream> stream;
+        std::atomic<juce::int64> startedMs{ 0 };
+        std::atomic<juce::int64> lastByteMs{ 0 };
+        std::atomic<juce::int64> cancelledMs{ 0 };
+    };
+    std::mutex pollTransferLock;
+    std::shared_ptr<PollTransfer> currentPollTransfer;
+    void superviseInFlightPoll();
+    void finishPollTransfer(const std::shared_ptr<PollTransfer>& transfer);
+    void abandonPollTransfer();
+
     std::unique_ptr<juce::PropertiesFile> updatePreferences;
     std::atomic<bool> updateCheckInFlight{ false };
     bool hasCheckedForUpdatesThisEditorSession = false;

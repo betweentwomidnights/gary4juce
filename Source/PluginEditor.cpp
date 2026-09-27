@@ -2082,7 +2082,92 @@ Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEdito
 void Gary4juceAudioProcessorEditor::invalidateGenerationAsyncWork() noexcept
 {
     generationAsyncToken.fetch_add(1, std::memory_order_acq_rel);
+    abandonPollTransfer();
     pollInFlight.store(false, std::memory_order_release);
+}
+
+namespace
+{
+    // Longer than the read loop's own limits, so the watchdog only acts when
+    // the loop has lost control rather than racing it.
+    constexpr juce::int64 kPollSilenceMs = 25000;
+    constexpr juce::int64 kPollMaxMs = 200000;
+    // How long a cancelled read gets to come back before polling moves on.
+    constexpr juce::int64 kPollAbandonMs = 10000;
+}
+
+void Gary4juceAudioProcessorEditor::abandonPollTransfer()
+{
+    std::shared_ptr<PollTransfer> transfer;
+    {
+        std::lock_guard<std::mutex> guard(pollTransferLock);
+        transfer.swap(currentPollTransfer);
+    }
+    if (transfer == nullptr)
+        return;
+
+    std::shared_ptr<juce::WebInputStream> stream;
+    {
+        std::lock_guard<std::mutex> guard(transfer->lock);
+        stream = transfer->stream;
+    }
+    transfer->cancelledMs.store(juce::Time::getCurrentTime().toMilliseconds());
+    if (stream != nullptr)
+        stream->cancel();
+}
+
+void Gary4juceAudioProcessorEditor::finishPollTransfer(const std::shared_ptr<PollTransfer>& transfer)
+{
+    std::lock_guard<std::mutex> guard(pollTransferLock);
+    // A poll the watchdog already gave up on is not the current one any more;
+    // its late return must not clear the flag of the poll that replaced it.
+    if (currentPollTransfer != transfer)
+        return;
+    currentPollTransfer.reset();
+    pollInFlight.store(false, std::memory_order_release);
+}
+
+void Gary4juceAudioProcessorEditor::superviseInFlightPoll()
+{
+    std::shared_ptr<PollTransfer> transfer;
+    {
+        std::lock_guard<std::mutex> guard(pollTransferLock);
+        transfer = currentPollTransfer;
+    }
+    if (transfer == nullptr)
+        return;
+
+    const auto now = juce::Time::getCurrentTime().toMilliseconds();
+    const auto cancelled = transfer->cancelledMs.load();
+    if (cancelled == 0)
+    {
+        const bool silent = now - transfer->lastByteMs.load() > kPollSilenceMs;
+        const bool tooLong = now - transfer->startedMs.load() > kPollMaxMs;
+        if (!silent && !tooLong)
+            return;
+
+        DBG(juce::String("Polling: cancelling a read that has ")
+            + (silent ? "received nothing for " + juce::String((now - transfer->lastByteMs.load()) / 1000) + "s"
+                      : "run for " + juce::String((now - transfer->startedMs.load()) / 1000) + "s"));
+        transfer->cancelledMs.store(now);
+        std::shared_ptr<juce::WebInputStream> stream;
+        {
+            std::lock_guard<std::mutex> guard(transfer->lock);
+            stream = transfer->stream;
+        }
+        if (stream != nullptr)
+            stream->cancel();
+        return;
+    }
+
+    // Cancelled, and the thread still has not come back. Stop waiting for it:
+    // the result is still unconsumed on the backend, so the next poll asks
+    // again on a fresh connection.
+    if (now - cancelled > kPollAbandonMs)
+    {
+        DBG("Polling: abandoning a read that did not return after cancel");
+        finishPollTransfer(transfer);
+    }
 }
 
 bool Gary4juceAudioProcessorEditor::isGenerationAsyncWorkCurrent(GenerationAsyncToken token) const noexcept
@@ -2908,9 +2993,13 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     if (withinWarmup)
         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
 
-    // Don�t start another poll while one is in flight
+    // Don�t start another poll while one is in flight, but do keep an eye on
+    // it: this guard is also what used to hide a read that never came back.
     if (pollInFlight.exchange(true))
+    {
+        superviseInFlightPoll();
         return;
+    }
 
     // Optional: if you have a very fast poll timer, add a micro-backoff while warming
     const bool softBackoff = withinWarmup || isCurrentlyQueued;
@@ -2951,12 +3040,21 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     }();
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
 
-    juce::Thread::launch([safeThis, generationToken, sessionId, pollUrl, connectionTimeoutMs, warmupSnapshot, queuedSnapshot, generatingSnapshot]()
+    auto transfer = std::make_shared<PollTransfer>();
+    {
+        const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+        transfer->startedMs.store(nowMs);
+        transfer->lastByteMs.store(nowMs);
+        std::lock_guard<std::mutex> guard(pollTransferLock);
+        currentPollTransfer = transfer;
+    }
+
+    juce::Thread::launch([safeThis, transfer, generationToken, sessionId, pollUrl, connectionTimeoutMs, warmupSnapshot, queuedSnapshot, generatingSnapshot]()
         {
-            auto clearInFlight = [safeThis]()
+            auto clearInFlight = [safeThis, transfer]()
                 {
                     if (safeThis != nullptr)
-                        safeThis->pollInFlight.store(false, std::memory_order_release);
+                        safeThis->finishPollTransfer(transfer);
                 };
 
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || sessionId.isEmpty())
@@ -2968,28 +3066,32 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
             try
             {
-                int httpStatus = 0;
-                juce::StringPairArray responseHeaders;
-
-                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                    .withConnectionTimeoutMs(connectionTimeoutMs)
-                    .withNumRedirectsToFollow(3)
-                    .withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
-                    .withResponseHeaders(&responseHeaders)
-                    .withStatusCode(&httpStatus);
+                // Opened by hand rather than through URL::createInputStream so the
+                // watchdog can reach the stream and cancel it.
+                auto open = [&]() -> std::shared_ptr<juce::WebInputStream>
+                    {
+                        auto web = std::make_shared<juce::WebInputStream>(pollUrl, false);
+                        web->withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
+                            .withConnectionTimeout(connectionTimeoutMs)
+                            .withNumRedirectsToFollow(3);
+                        {
+                            std::lock_guard<std::mutex> guard(transfer->lock);
+                            transfer->stream = web;
+                        }
+                        if (transfer->cancelledMs.load() != 0 || !web->connect(nullptr) || web->isError())
+                            return nullptr;
+                        return web;
+                    };
 
                 // Attempt #1
-                std::unique_ptr<juce::InputStream> stream(pollUrl.createInputStream(options));
+                auto stream = open();
 
                 // If we didn�t get a stream while warming, quick retry once
-                if (stream == nullptr && (warmupSnapshot || queuedSnapshot || generatingSnapshot))
+                if (stream == nullptr && transfer->cancelledMs.load() == 0
+                    && (warmupSnapshot || queuedSnapshot || generatingSnapshot))
                 {
                     DBG("Polling: null stream during warmup/active; quick retry");
-
-                    // Move-assign the new unique_ptr result into our existing one
-                    auto retryStream = pollUrl.createInputStream(options); // returns std::unique_ptr<InputStream>
-                    if (retryStream)
-                        stream = std::move(retryStream); // or simply: stream = pollUrl.createInputStream(options);
+                    stream = open();
                 }
 
                 if (stream != nullptr)
@@ -3011,6 +3113,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                         juce::HeapBlock<char> chunk(65536);
                         for (;;)
                         {
+                            if (transfer->cancelledMs.load() != 0) break;
                             if (stream->isExhausted()) { complete = true; break; }
                             const int got = stream->read(chunk, 65536);
                             const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
@@ -3018,6 +3121,7 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                             {
                                 received.write(chunk, (size_t) got);
                                 lastByteMs = nowMs;
+                                transfer->lastByteMs.store(nowMs);
                             }
                             else if (stream->isExhausted())
                             {
@@ -3032,6 +3136,16 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                             if (safeThis == nullptr) break;
                         }
                     }
+
+                    // JUCE's Windows stream reports itself exhausted whenever a read
+                    // returns nothing, which a receive timeout or a dropped
+                    // connection also does. The server states the body's length,
+                    // so a short one is a failed transfer, not a response.
+                    const auto expected = stream->getTotalLength();
+                    if (complete && expected >= 0 && (juce::int64) received.getDataSize() < expected)
+                        complete = false;
+                    if (transfer->cancelledMs.load() != 0)
+                        complete = false;
 
                     if (!complete)
                     {
@@ -3227,6 +3341,15 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
                 const juce::String error = responseObj->getProperty("error").toString().trim();
                 applyTerminalFailureRetryPolicy();
+                // The backend keeps a finished job for a few minutes. When every
+                // attempt to collect it failed for that long, the job is simply
+                // gone, and "processing failed" would blame the render.
+                if (error.containsIgnoreCase("unknown session"))
+                {
+                    handleGenerationFailure("the result expired before it could be downloaded - "
+                                            "check the connection and try again");
+                    return;
+                }
                 handleGenerationFailure(error.isNotEmpty() ? "processing failed: " + error
                                                            : "processing failed");
                 return;
