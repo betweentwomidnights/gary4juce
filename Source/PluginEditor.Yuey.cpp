@@ -1485,6 +1485,9 @@ public:
         revertButton.onClick = [this]()
         {
             editor.setText(originalAbc, juce::dontSendNotification);
+            pitchApplied = 0;
+            pitchKnob.setValue(0.0, juce::dontSendNotification);
+            updatePitchLabel();
             revalidate();
         };
         addAndMakeVisible(revertButton);
@@ -1503,35 +1506,68 @@ public:
         closeButton.onClick = [this]() { close(); };
         addAndMakeVisible(closeButton);
 
-        // Quick edits the backend applies to the score in the box. Hidden until
-        // the backend says which it supports, so an older one shows none.
-        addTransform(halfTimeButton, "half time", "half_time", 0,
-                     "halve the tempo: the same notes at half speed, twice as long");
-        addTransform(doubleTimeButton, "2x time", "double_time", 0,
-                     "double the tempo: the same notes at twice the speed");
-        addTransform(downSemitoneButton, "key -1", "transpose", -1,
-                     "move every note, the key and the chords down a semitone");
-        addTransform(upSemitoneButton, "key +1", "transpose", 1,
-                     "move every note, the key and the chords up a semitone");
-        addTransform(downOctaveButton, "oct -", "transpose", -12,
-                     "move every note down an octave; the key and chords stay");
-        addTransform(upOctaveButton, "oct +", "transpose", 12,
-                     "move every note up an octave; the key and chords stay");
-        addTransform(melodyToInsButton, "to inst", "melody_to_instrument", 0,
-                     "move the sung melody to the instrument lane, as instrumental does");
-        addTransform(swapButton, "swap", "swap_lanes", 0,
-                     "swap the lanes: the instrument part is sung and the melody played");
-        addTransform(dropChordsButton, "no chords", "drop_chords", 0,
-                     "remove the chord symbols so yuey harmonises the melody itself. "
+        // Quick edits the backend applies to the score in the box, laid out the
+        // way Ableton's clip view does tempo and pitch: /2 and x2 buttons and a
+        // stepped transpose knob. Hidden until the backend says which it has.
+        addTransform(halfTimeButton, "/2", "half_time",
+                     "half time: halves the tempo, so the same notes play at half speed "
+                     "and the render runs twice as long");
+        addTransform(doubleTimeButton, "x2", "double_time",
+                     "double time: doubles the tempo, so the same notes play twice as fast "
+                     "and the render is half as long");
+        addTransform(melodyToInsButton, "to inst", "melody_to_instrument",
+                     "moves the vocal lane's melody onto the instrument lane, the way an "
+                     "instrumental render does. rap and spoken vocals usually transcribe "
+                     "with no vocal notes, so there may be nothing to move");
+        addTransform(swapButton, "swap lanes", "swap_lanes",
+                     "swaps the two lanes: the instrument line becomes the sung melody and "
+                     "the vocal melody moves to the instrument. chords stay where they are");
+        addTransform(dropChordsButton, "no chords", "drop_chords",
+                     "removes the chord symbols so yuey harmonises the melody itself. "
                      "on a score with no melody that leaves it very little to go on");
 
+        const juce::String pitchTip =
+            "transpose: drag up or down to move every note, the key and the chords by "
+            "semitones. double-click for 0. whole octaves leave the key and chords alone";
+        pitchKnob.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        pitchKnob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        pitchKnob.setRange(-24.0, 24.0, 1.0);
+        pitchKnob.setValue(0.0, juce::dontSendNotification);
+        pitchKnob.setDoubleClickReturnValue(true, 0.0);
+        pitchKnob.setMouseDragSensitivity(160);
+        pitchKnob.setColour(juce::Slider::rotarySliderFillColourId, Theme::Colors::PrimaryRed);
+        pitchKnob.setColour(juce::Slider::rotarySliderOutlineColourId, Theme::Colors::ButtonInactive);
+        pitchKnob.setColour(juce::Slider::thumbColourId, Theme::Colors::TextPrimary);
+        pitchKnob.setTooltip(pitchTip);
+        // A drag is applied when it ends; a click, double-click or wheel step
+        // at once. An edit already out picks up where the knob is when it lands.
+        pitchKnob.onValueChange = [this]()
+        {
+            updatePitchLabel();
+            if (!pitchKnob.isMouseButtonDown())
+                applyPitch();
+        };
+        pitchKnob.onDragEnd = [this]() { applyPitch(); };
+        addChildComponent(pitchKnob);
+
+        pitchLabel.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        pitchLabel.setColour(juce::Label::textColourId, Theme::Colors::TextPrimary);
+        pitchLabel.setJustificationType(juce::Justification::centredLeft);
+        pitchLabel.setTooltip(pitchTip);
+        addChildComponent(pitchLabel);
+        updatePitchLabel();
+
         undoButton.setButtonText("undo");
-        undoButton.setTooltip("go back one quick edit");
+        undoButton.setTooltip("steps back one quick edit, the knob included");
         undoButton.onClick = [this]()
         {
-            if (history.isEmpty() || busy) return;
-            editor.setText(history[history.size() - 1], juce::dontSendNotification);
-            history.remove(history.size() - 1);
+            if (history.empty() || busy) return;
+            const auto previous = history.back();
+            history.pop_back();
+            editor.setText(previous.first, juce::dontSendNotification);
+            pitchApplied = previous.second;
+            pitchKnob.setValue(pitchApplied, juce::dontSendNotification);
+            updatePitchLabel();
             revalidate();
             updateTransformButtons();
         };
@@ -1572,20 +1608,31 @@ public:
         buttons.removeFromRight(4);
         copyButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
 
-        // The row is always there: buttons once yuey lists them, otherwise a
+        // The row is always there: the edits once yuey lists them, otherwise a
         // line saying why not.
-        auto edits = area.removeFromBottom(28);
+        auto edits = area.removeFromBottom(40);
         area.removeFromBottom(2);
         editsNote.setBounds(edits);
         if (undoButton.isVisible())
         {
-            std::vector<CustomButton*> shown;
-            for (auto* button : transformButtons)
-                if (button->isVisible()) shown.push_back(button);
-            const int editWidth = edits.getWidth() / (static_cast<int>(shown.size()) + 1);
-            for (auto* button : shown)
-                button->setBounds(edits.removeFromLeft(editWidth).reduced(1, 2));
-            undoButton.setBounds(edits.reduced(1, 2));
+            auto row = edits;
+            for (auto* button : { &halfTimeButton, &doubleTimeButton })
+                if (button->isVisible())
+                    button->setBounds(row.removeFromLeft(44).reduced(1, 6));
+            if (pitchKnob.isVisible())
+            {
+                row.removeFromLeft(10);
+                pitchKnob.setBounds(row.removeFromLeft(40));
+                pitchLabel.setBounds(row.removeFromLeft(52));
+                row.removeFromLeft(6);
+            }
+            std::vector<juce::Component*> rest;
+            for (auto* button : { &melodyToInsButton, &swapButton, &dropChordsButton })
+                if (button->isVisible()) rest.push_back(button);
+            rest.push_back(&undoButton);
+            const int width = row.getWidth() / static_cast<int>(rest.size());
+            for (auto* component : rest)
+                component->setBounds(row.removeFromLeft(width).reduced(1, 6));
         }
 
         auto follow = area.removeFromBottom(26);
@@ -1626,12 +1673,12 @@ private:
     }
 
     void addTransform(CustomButton& button, const juce::String& label, const juce::String& op,
-                      int semitones, const juce::String& tooltip)
+                      const juce::String& tooltip)
     {
         button.setButtonText(label);
         button.setTooltip(tooltip);
         button.getProperties().set("op", op);
-        button.onClick = [this, op, semitones]() { applyTransform(op, semitones); };
+        button.onClick = [this, op]() { applyTransform(op, 0); };
         button.setVisible(false);
         addChildComponent(button);
         transformButtons.push_back(&button);
@@ -1653,9 +1700,43 @@ private:
             button->setEnabled(!busy);
             any = any || shown;
         }
+        const bool pitch = supported.contains("transpose");
+        pitchKnob.setVisible(pitch);
+        pitchLabel.setVisible(pitch);
+        any = any || pitch;
         undoButton.setVisible(any);
-        undoButton.setEnabled(!busy && !history.isEmpty());
+        undoButton.setEnabled(!busy && !history.empty());
         editsNote.setVisible(!any);
+    }
+
+    void updatePitchLabel()
+    {
+        const int value = juce::roundToInt(pitchKnob.getValue());
+        pitchLabel.setText(value == 0 ? juce::String("0 st")
+                                      : (value > 0 ? "+" : "") + juce::String(value) + " st",
+                           juce::dontSendNotification);
+    }
+
+    // The knob shows how far the score has been transposed since the window
+    // opened; the box is moved by the difference from what it last had.
+    void applyPitch()
+    {
+        if (busy)
+            return; // the edit in flight calls back here when it lands
+        const int delta = juce::jlimit(-24, 24, juce::roundToInt(pitchKnob.getValue()) - pitchApplied);
+        if (delta != 0)
+            applyTransform("transpose", delta);
+    }
+
+    static juce::String unchangedMessage(const juce::String& op)
+    {
+        if (op == "melody_to_instrument")
+            return "the vocal lane has no notes to move; the melody is already on the instrument lane";
+        if (op == "drop_chords")
+            return "there are no chord symbols to remove";
+        if (op == "swap_lanes")
+            return "both lanes are empty";
+        return "nothing to change";
     }
 
     void showEditsNote(const juce::String& text)
@@ -1735,7 +1816,7 @@ private:
 
         juce::Component::SafePointer<YueyScorePopout> safe(this);
         const auto url = transformUrl;
-        juce::Thread::launch([safe, url, json, before]()
+        juce::Thread::launch([safe, url, json, before, op, semitones]()
         {
             juce::String text;
             int statusCode = 0;
@@ -1750,7 +1831,7 @@ private:
             }
             catch (...) {}
 
-            juce::MessageManager::callAsync([safe, text, statusCode, before]()
+            juce::MessageManager::callAsync([safe, text, statusCode, before, op, semitones]()
             {
                 auto* self = safe.getComponent();
                 if (self == nullptr)
@@ -1768,6 +1849,12 @@ private:
                                                : juce::String("yuey did not answer");
                     self->updateTransformButtons();
                     self->setStatus("edit failed: " + error, juce::Colours::orange);
+                    // Put the knob back where the score is, so it does not retry.
+                    if (op == "transpose")
+                    {
+                        self->pitchKnob.setValue(self->pitchApplied, juce::dontSendNotification);
+                        self->updatePitchLabel();
+                    }
                     return;
                 }
 
@@ -1778,19 +1865,27 @@ private:
                     self->updateTransformButtons();
                     self->setStatus("the score changed while that edit ran; try again",
                                     juce::Colours::orange);
+                    if (op == "transpose")
+                    {
+                        self->pitchKnob.setValue(self->pitchApplied, juce::dontSendNotification);
+                        self->updatePitchLabel();
+                    }
                     return;
                 }
                 if (!static_cast<bool>(object->getProperty("changed")))
                 {
                     self->updateTransformButtons();
-                    self->setStatus("nothing to change", Theme::Colors::TextSecondary);
+                    self->setStatus(unchangedMessage(op), Theme::Colors::TextSecondary);
                     return;
                 }
 
-                self->history.add(before);
+                self->history.push_back({ before, self->pitchApplied });
+                if (op == "transpose")
+                    self->pitchApplied += semitones;
                 self->editor.setText(object->getProperty("abc").toString(), juce::dontSendNotification);
                 self->revalidate();
                 self->updateTransformButtons();
+                self->applyPitch(); // the knob may have moved on while this ran
                 // Half of an odd tempo rounds; the backend says so, and inside a
                 // project at the old tempo that is worth knowing.
                 const auto note = object->getProperty("note").toString();
@@ -1809,13 +1904,19 @@ private:
     juce::TextEditor editor;
     CustomComboBox followBox;
     CustomButton copyButton, revertButton, renderButton, closeButton;
-    CustomButton halfTimeButton, doubleTimeButton, downSemitoneButton, upSemitoneButton,
-                 downOctaveButton, upOctaveButton, melodyToInsButton, swapButton,
+    CustomButton halfTimeButton, doubleTimeButton, melodyToInsButton, swapButton,
                  dropChordsButton, undoButton;
+    juce::Slider pitchKnob;
+    juce::Label pitchLabel;
     std::vector<CustomButton*> transformButtons;
     juce::StringArray supported;
-    juce::StringArray history;  // the box before each quick edit, for undo
+    // The box and the knob before each quick edit, for undo.
+    std::vector<std::pair<juce::String, int>> history;
+    int pitchApplied = 0; // semitones the box has been moved by
     bool busy = false;
+    // This window is its own top-level window, out of reach of the editor's
+    // tooltip window, so it needs one of its own for any tooltip to show.
+    juce::TooltipWindow tooltipWindow { this, 500 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(YueyScorePopout)
 };
