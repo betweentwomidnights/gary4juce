@@ -1421,9 +1421,13 @@ public:
     YueyScorePopout(juce::String working,
                     juce::String original,
                     juce::String summary,
+                    juce::String healthUrlIn,
+                    juce::String transformUrlIn,
                     std::function<void(const juce::String&, bool)> render,
                     std::function<void(const juce::String&)> save)
         : originalAbc(std::move(original)),
+          healthUrl(std::move(healthUrlIn)),
+          transformUrl(std::move(transformUrlIn)),
           onRender(std::move(render)),
           onSave(std::move(save))
     {
@@ -1499,7 +1503,43 @@ public:
         closeButton.onClick = [this]() { close(); };
         addAndMakeVisible(closeButton);
 
+        // Quick edits the backend applies to the score in the box. Hidden until
+        // the backend says which it supports, so an older one shows none.
+        addTransform(halfTimeButton, "half time", "half_time", 0,
+                     "halve the tempo: the same notes at half speed, twice as long");
+        addTransform(doubleTimeButton, "2x time", "double_time", 0,
+                     "double the tempo: the same notes at twice the speed");
+        addTransform(downSemitoneButton, "key -1", "transpose", -1,
+                     "move every note, the key and the chords down a semitone");
+        addTransform(upSemitoneButton, "key +1", "transpose", 1,
+                     "move every note, the key and the chords up a semitone");
+        addTransform(downOctaveButton, "oct -", "transpose", -12,
+                     "move every note down an octave; the key and chords stay");
+        addTransform(upOctaveButton, "oct +", "transpose", 12,
+                     "move every note up an octave; the key and chords stay");
+        addTransform(melodyToInsButton, "to inst", "melody_to_instrument", 0,
+                     "move the sung melody to the instrument lane, as instrumental does");
+        addTransform(swapButton, "swap", "swap_lanes", 0,
+                     "swap the lanes: the instrument part is sung and the melody played");
+        addTransform(dropChordsButton, "no chords", "drop_chords", 0,
+                     "remove the chord symbols so yuey harmonises the melody itself. "
+                     "on a score with no melody that leaves it very little to go on");
+
+        undoButton.setButtonText("undo");
+        undoButton.setTooltip("go back one quick edit");
+        undoButton.onClick = [this]()
+        {
+            if (history.isEmpty() || busy) return;
+            editor.setText(history[history.size() - 1], juce::dontSendNotification);
+            history.remove(history.size() - 1);
+            revalidate();
+            updateTransformButtons();
+        };
+        undoButton.setVisible(false);
+        addChildComponent(undoButton);
+
         revalidate();
+        fetchTransforms();
     }
 
     ~YueyScorePopout() override
@@ -1525,6 +1565,19 @@ public:
         revertButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
         buttons.removeFromRight(4);
         copyButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
+
+        if (undoButton.isVisible())
+        {
+            auto edits = area.removeFromBottom(28);
+            std::vector<CustomButton*> shown;
+            for (auto* button : transformButtons)
+                if (button->isVisible()) shown.push_back(button);
+            const int editWidth = edits.getWidth() / (static_cast<int>(shown.size()) + 1);
+            for (auto* button : shown)
+                button->setBounds(edits.removeFromLeft(editWidth).reduced(1, 2));
+            undoButton.setBounds(edits.reduced(1, 2));
+            area.removeFromBottom(2);
+        }
 
         auto follow = area.removeFromBottom(26);
         followLabel.setBounds(follow.removeFromLeft(74));
@@ -1563,7 +1616,161 @@ private:
             dialog->exitModalState(0);
     }
 
+    void addTransform(CustomButton& button, const juce::String& label, const juce::String& op,
+                      int semitones, const juce::String& tooltip)
+    {
+        button.setButtonText(label);
+        button.setTooltip(tooltip);
+        button.getProperties().set("op", op);
+        button.onClick = [this, op, semitones]() { applyTransform(op, semitones); };
+        button.setVisible(false);
+        addChildComponent(button);
+        transformButtons.push_back(&button);
+    }
+
+    void setStatus(const juce::String& text, juce::Colour colour)
+    {
+        status.setText(text, juce::dontSendNotification);
+        status.setColour(juce::Label::textColourId, colour);
+    }
+
+    void updateTransformButtons()
+    {
+        bool any = false;
+        for (auto* button : transformButtons)
+        {
+            const bool shown = supported.contains(button->getProperties()["op"].toString());
+            button->setVisible(shown);
+            button->setEnabled(!busy);
+            any = any || shown;
+        }
+        undoButton.setVisible(any);
+        undoButton.setEnabled(!busy && !history.isEmpty());
+    }
+
+    // Which quick edits this backend takes, from its /health.
+    void fetchTransforms()
+    {
+        if (healthUrl.isEmpty())
+            return;
+        juce::Component::SafePointer<YueyScorePopout> safe(this);
+        const auto url = healthUrl;
+        juce::Thread::launch([safe, url]()
+        {
+            juce::String text;
+            int statusCode = 0;
+            try
+            {
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(4000)
+                    .withStatusCode(&statusCode)
+                    .withExtraHeaders("Accept: application/json");
+                if (auto stream = juce::URL(url).createInputStream(options))
+                    text = stream->readEntireStreamAsString();
+            }
+            catch (...) {}
+
+            juce::MessageManager::callAsync([safe, text, statusCode]()
+            {
+                auto* self = safe.getComponent();
+                if (self == nullptr || statusCode < 200 || statusCode >= 300)
+                    return;
+                juce::StringArray ops;
+                if (auto* object = juce::JSON::parse(text).getDynamicObject())
+                    if (auto* list = object->getProperty("score_transforms").getArray())
+                        for (const auto& op : *list)
+                            ops.add(op.toString());
+                self->supported = ops;
+                self->updateTransformButtons();
+                self->resized();
+            });
+        });
+    }
+
+    void applyTransform(const juce::String& op, int semitones)
+    {
+        if (busy || transformUrl.isEmpty())
+            return;
+        busy = true;
+        updateTransformButtons();
+        setStatus("editing...", Theme::Colors::TextSecondary);
+
+        const auto before = editor.getText();
+        juce::DynamicObject::Ptr body = new juce::DynamicObject();
+        body->setProperty("abc", before);
+        body->setProperty("op", op);
+        if (op == "transpose")
+            body->setProperty("semitones", semitones);
+        const auto json = juce::JSON::toString(juce::var(body.get()));
+
+        juce::Component::SafePointer<YueyScorePopout> safe(this);
+        const auto url = transformUrl;
+        juce::Thread::launch([safe, url, json, before]()
+        {
+            juce::String text;
+            int statusCode = 0;
+            try
+            {
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withConnectionTimeoutMs(10000)
+                    .withStatusCode(&statusCode)
+                    .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json");
+                if (auto stream = juce::URL(url).withPOSTData(json).createInputStream(options))
+                    text = stream->readEntireStreamAsString();
+            }
+            catch (...) {}
+
+            juce::MessageManager::callAsync([safe, text, statusCode, before]()
+            {
+                auto* self = safe.getComponent();
+                if (self == nullptr)
+                    return;
+                self->busy = false;
+
+                auto* object = juce::JSON::parse(text).getDynamicObject();
+                if (object == nullptr || !static_cast<bool>(object->getProperty("success")))
+                {
+                    auto error = object != nullptr ? object->getProperty("error").toString()
+                                                   : juce::String();
+                    if (error.isEmpty())
+                        error = statusCode > 0 ? "HTTP " + juce::String(statusCode)
+                                               : juce::String("yuey did not answer");
+                    self->updateTransformButtons();
+                    self->setStatus("edit failed: " + error, juce::Colours::orange);
+                    return;
+                }
+
+                // The box may have been typed in while the edit was out; the
+                // answer is for what was sent, so an edit that raced is dropped.
+                if (self->editor.getText() != before)
+                {
+                    self->updateTransformButtons();
+                    self->setStatus("the score changed while that edit ran; try again",
+                                    juce::Colours::orange);
+                    return;
+                }
+                if (!static_cast<bool>(object->getProperty("changed")))
+                {
+                    self->updateTransformButtons();
+                    self->setStatus("nothing to change", Theme::Colors::TextSecondary);
+                    return;
+                }
+
+                self->history.add(before);
+                self->editor.setText(object->getProperty("abc").toString(), juce::dontSendNotification);
+                self->revalidate();
+                self->updateTransformButtons();
+                // Half of an odd tempo rounds; the backend says so, and inside a
+                // project at the old tempo that is worth knowing.
+                const auto note = object->getProperty("note").toString();
+                if (note.isNotEmpty())
+                    self->setStatus(note, juce::Colours::orange);
+            });
+        });
+    }
+
     juce::String originalAbc;
+    juce::String healthUrl, transformUrl;
     std::function<void(const juce::String&, bool)> onRender;
     std::function<void(const juce::String&)> onSave;
 
@@ -1571,6 +1778,13 @@ private:
     juce::TextEditor editor;
     CustomComboBox followBox;
     CustomButton copyButton, revertButton, renderButton, closeButton;
+    CustomButton halfTimeButton, doubleTimeButton, downSemitoneButton, upSemitoneButton,
+                 downOctaveButton, upOctaveButton, melodyToInsButton, swapButton,
+                 dropChordsButton, undoButton;
+    std::vector<CustomButton*> transformButtons;
+    juce::StringArray supported;
+    juce::StringArray history;  // the box before each quick edit, for undo
+    bool busy = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(YueyScorePopout)
 };
@@ -1609,8 +1823,11 @@ void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
         summary << "  ·  the output was edited after this was rendered";
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
+    const bool reachable = isServiceReachable(ServiceType::Yuey);
     auto* content = new YueyScorePopout(
         yueyScore.workingAbc, yueyScore.originalAbc, summary,
+        reachable ? getServiceUrl(ServiceType::Yuey, "/health") : juce::String(),
+        reachable ? getServiceUrl(ServiceType::Yuey, "/score/transform") : juce::String(),
         [safeThis](const juce::String& abc, bool fullScore)
         {
             if (auto* editor = safeThis.getComponent())
@@ -1624,7 +1841,7 @@ void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(content);
-    options.content->setSize(720, 520);
+    options.content->setSize(760, 560);
     options.dialogTitle = "yuey score";
     options.dialogBackgroundColour = juce::Colour(0xff1e1e1e);
     options.escapeKeyTriggersCloseButton = true;
