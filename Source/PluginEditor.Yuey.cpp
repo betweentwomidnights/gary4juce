@@ -1702,7 +1702,9 @@ private:
                     return;
                 }
                 juce::StringArray ops;
-                if (auto* object = juce::JSON::parse(text).getDynamicObject())
+                // The parsed var owns the object: keep it alive while it is read.
+                const auto health = juce::JSON::parse(text);
+                if (auto* object = health.getDynamicObject())
                     if (auto* list = object->getProperty("score_transforms").getArray())
                         for (const auto& op : *list)
                             ops.add(op.toString());
@@ -1755,7 +1757,8 @@ private:
                     return;
                 self->busy = false;
 
-                auto* object = juce::JSON::parse(text).getDynamicObject();
+                const auto response = juce::JSON::parse(text);
+                auto* object = response.getDynamicObject();
                 if (object == nullptr || !static_cast<bool>(object->getProperty("success")))
                 {
                     auto error = object != nullptr ? object->getProperty("error").toString()
