@@ -1538,6 +1538,12 @@ public:
         undoButton.setVisible(false);
         addChildComponent(undoButton);
 
+        // Where the quick edits go, and why they are not there when they are not.
+        editsNote.setFont(juce::FontOptions(11.0f));
+        editsNote.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+        editsNote.setText("quick edits: asking yuey which it offers...", juce::dontSendNotification);
+        addAndMakeVisible(editsNote);
+
         revalidate();
         fetchTransforms();
     }
@@ -1566,9 +1572,13 @@ public:
         buttons.removeFromRight(4);
         copyButton.setBounds(buttons.removeFromRight(70).reduced(2, 0));
 
+        // The row is always there: buttons once yuey lists them, otherwise a
+        // line saying why not.
+        auto edits = area.removeFromBottom(28);
+        area.removeFromBottom(2);
+        editsNote.setBounds(edits);
         if (undoButton.isVisible())
         {
-            auto edits = area.removeFromBottom(28);
             std::vector<CustomButton*> shown;
             for (auto* button : transformButtons)
                 if (button->isVisible()) shown.push_back(button);
@@ -1576,7 +1586,6 @@ public:
             for (auto* button : shown)
                 button->setBounds(edits.removeFromLeft(editWidth).reduced(1, 2));
             undoButton.setBounds(edits.reduced(1, 2));
-            area.removeFromBottom(2);
         }
 
         auto follow = area.removeFromBottom(26);
@@ -1646,13 +1655,23 @@ private:
         }
         undoButton.setVisible(any);
         undoButton.setEnabled(!busy && !history.isEmpty());
+        editsNote.setVisible(!any);
+    }
+
+    void showEditsNote(const juce::String& text)
+    {
+        editsNote.setText("quick edits: " + text, juce::dontSendNotification);
+        editsNote.setVisible(true);
     }
 
     // Which quick edits this backend takes, from its /health.
     void fetchTransforms()
     {
         if (healthUrl.isEmpty())
+        {
+            showEditsNote("no yuey backend is set");
             return;
+        }
         juce::Component::SafePointer<YueyScorePopout> safe(this);
         const auto url = healthUrl;
         juce::Thread::launch([safe, url]()
@@ -1673,8 +1692,15 @@ private:
             juce::MessageManager::callAsync([safe, text, statusCode]()
             {
                 auto* self = safe.getComponent();
-                if (self == nullptr || statusCode < 200 || statusCode >= 300)
+                if (self == nullptr)
                     return;
+                if (statusCode < 200 || statusCode >= 300)
+                {
+                    self->showEditsNote(statusCode > 0
+                        ? "yuey answered HTTP " + juce::String(statusCode) + " - is it running?"
+                        : juce::String("yuey did not answer - is it running?"));
+                    return;
+                }
                 juce::StringArray ops;
                 if (auto* object = juce::JSON::parse(text).getDynamicObject())
                     if (auto* list = object->getProperty("score_transforms").getArray())
@@ -1682,6 +1708,8 @@ private:
                             ops.add(op.toString());
                 self->supported = ops;
                 self->updateTransformButtons();
+                if (ops.isEmpty())
+                    self->showEditsNote("this yuey is older and offers none; update it to get them");
                 self->resized();
             });
         });
@@ -1774,7 +1802,7 @@ private:
     std::function<void(const juce::String&, bool)> onRender;
     std::function<void(const juce::String&)> onSave;
 
-    juce::Label title, meta, status, followLabel, followHint;
+    juce::Label title, meta, status, followLabel, followHint, editsNote;
     juce::TextEditor editor;
     CustomComboBox followBox;
     CustomButton copyButton, revertButton, renderButton, closeButton;
@@ -1823,11 +1851,12 @@ void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
         summary << "  ·  the output was edited after this was rendered";
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
-    const bool reachable = isServiceReachable(ServiceType::Yuey);
+    // Asked directly rather than gated on the reachability snapshot, which can
+    // lag a backend that just came up; the answer decides.
     auto* content = new YueyScorePopout(
         yueyScore.workingAbc, yueyScore.originalAbc, summary,
-        reachable ? getServiceUrl(ServiceType::Yuey, "/health") : juce::String(),
-        reachable ? getServiceUrl(ServiceType::Yuey, "/score/transform") : juce::String(),
+        getServiceUrl(ServiceType::Yuey, "/health"),
+        getServiceUrl(ServiceType::Yuey, "/score/transform"),
         [safeThis](const juce::String& abc, bool fullScore)
         {
             if (auto* editor = safeThis.getComponent())
