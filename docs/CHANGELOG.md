@@ -31,6 +31,13 @@ to plan the ending where the audio stops. "keeps going" composes six seconds
 past the end and throws them away, so the audio cuts off in full swing; chain
 continuations on it, then switch the last one to "ends here" for an outro.
 
+a job no longer sits frozen when the network drops its result partway through.
+yuey renders on the remote backend kept parking at 91-95 per cent with the
+result still waiting on the server: on Windows, a read the network had
+abandoned could block indefinitely, and the plugin never noticed. the result
+poll now has a deadline and a watchdog that cancels a stuck read and asks
+again. every tab shares that poll, so it isn't only yuey that benefits.
+
 ## v4.0.15
 
 adjusted duration limits for sa3 and ace-step.

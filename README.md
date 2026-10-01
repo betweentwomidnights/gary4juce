@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.0 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0)
+- [gary4juce v4.0.15 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.15)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
+- windows: [gary4local v0.3.2](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.2)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -53,7 +53,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.0
+### upcoming v5.0.0
 
 **yue2 is now inside the DAW.** the new yuey tab runs
 [YuE2](https://github.com/multimodal-art-projection/YuE) through
@@ -71,7 +71,7 @@ also new: sa3's generate and continue have an "ending" choice. "ends here"
 lands the ending where the audio stops. "keeps going" cuts off still in full
 swing, for chaining continuations.
 
-recommended local companion: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0).
+recommended local companion: gary4local v0.4.0, releasing alongside this one.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
