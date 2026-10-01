@@ -1476,6 +1476,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
     currentSA3DurationSeconds = juce::jlimit(
         1, SA3UI::kMaximumDurationSeconds, sa3UI->getDurationSeconds());
     currentSA3LoopEnabled = sa3UI->getLoopEnabled();
+    currentSA3GenerateKeepsGoing = sa3UI->getGenerateKeepsGoing();
     currentSA3Bars = sa3UI->getBars();
     currentSA3Steps = sa3UI->getSteps();
     currentSA3Cfg = sa3UI->getCfgScale();
@@ -1535,7 +1536,11 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
     if (requestLoop)
         jsonRequest->setProperty("bars", currentSA3Bars);
     else
+    {
         jsonRequest->setProperty("duration", currentSA3DurationSeconds);
+        jsonRequest->setProperty("tail_pad", currentSA3GenerateKeepsGoing
+            ? SA3UI::kKeepsGoingTailPadSeconds : SA3UI::kEndsHereTailPadSeconds);
+    }
 
     const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
@@ -1920,6 +1925,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     currentSA3KeyScale = sa3UI->getKeyScale();
     currentSA3NegativePrompt = sa3UI->getNegativePromptText();
     currentSA3ContinueLatentPrefix = sa3UI->getContinueLatentPrefixEnabled();
+    currentSA3ContinueKeepsGoing = sa3UI->getContinueKeepsGoing();
     const juce::int64 requestSeed = sa3UI->getSeed();
 
     if (transformRecording)
@@ -2003,6 +2009,8 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     jsonRequest->setProperty("audio_data", base64Audio);
     jsonRequest->setProperty("continuation_seconds", continuationSecondsForRequest);
     jsonRequest->setProperty("continuation_mode", continuationMode);
+    jsonRequest->setProperty("continuation_tail_pad", currentSA3ContinueKeepsGoing
+        ? SA3UI::kKeepsGoingTailPadSeconds : SA3UI::kEndsHereTailPadSeconds);
 
     juce::Array<juce::var> loraEntries;
     for (const auto& lora : sa3UI->getActiveLoras())

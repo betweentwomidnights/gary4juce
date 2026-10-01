@@ -96,6 +96,8 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("sa3ContinuePrompt", currentSA3ContinuePrompt);
     state->setProperty("sa3ContinueAddSeconds", currentSA3ContinueAddSeconds);
     state->setProperty("sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
+    state->setProperty("sa3GenerateKeepsGoing", currentSA3GenerateKeepsGoing);
+    state->setProperty("sa3ContinueKeepsGoing", currentSA3ContinueKeepsGoing);
     state->setProperty("sa3SubTab", static_cast<int>(
         sa3UI != nullptr ? sa3UI->getCurrentSubTab() : currentSA3SubTab));
     state->setProperty("sa3AdvancedOpen",
@@ -317,6 +319,10 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
             readInt("sa3ContinueSeconds", currentSA3ContinueAddSeconds)));
     currentSA3ContinueLatentPrefix = readBool(
         "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
+    currentSA3GenerateKeepsGoing = readBool(
+        "sa3GenerateKeepsGoing", currentSA3GenerateKeepsGoing);
+    currentSA3ContinueKeepsGoing = readBool(
+        "sa3ContinueKeepsGoing", currentSA3ContinueKeepsGoing);
     currentSA3SubTab = static_cast<SA3UI::SubTab>(
         juce::jlimit(0, 2, readInt("sa3SubTab", 0)));
     currentSA3AdvancedOpen = readBool("sa3AdvancedOpen", currentSA3AdvancedOpen);
@@ -530,6 +536,8 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
         sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
         sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+        sa3UI->setGenerateKeepsGoing(currentSA3GenerateKeepsGoing);
+        sa3UI->setContinueKeepsGoing(currentSA3ContinueKeepsGoing);
         sa3UI->setDurationSeconds(currentSA3DurationSeconds);
         sa3UI->setLoopEnabled(currentSA3LoopEnabled);
         sa3UI->setBars(currentSA3Bars);
@@ -1062,6 +1070,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentSA3LoopEnabled = enabled;
         updateSA3EnablementSnapshot();
     };
+    sa3UI->onGenerateKeepsGoingChanged = [this](bool keepsGoing)
+    {
+        currentSA3GenerateKeepsGoing = keepsGoing;
+    };
+    sa3UI->onContinueKeepsGoingChanged = [this](bool keepsGoing)
+    {
+        currentSA3ContinueKeepsGoing = keepsGoing;
+    };
     sa3UI->onBarsChanged = [this](int bars)
     {
         currentSA3Bars = bars;
@@ -1147,6 +1163,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
     sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
     sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+    sa3UI->setGenerateKeepsGoing(currentSA3GenerateKeepsGoing);
+    sa3UI->setContinueKeepsGoing(currentSA3ContinueKeepsGoing);
     sa3UI->setTransformAudioSourceRecording(transformRecording);
     sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
     sa3UI->setContinueAudioSourceRecording(transformRecording);

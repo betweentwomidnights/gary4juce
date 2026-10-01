@@ -572,6 +572,8 @@ private:
     juce::String currentSA3ContinuePrompt = "";
     int currentSA3ContinueAddSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;
+    bool currentSA3GenerateKeepsGoing = false;
+    bool currentSA3ContinueKeepsGoing = true;
     SA3UI::SubTab currentSA3SubTab = SA3UI::SubTab::Generate;
     bool currentSA3AdvancedOpen = false;
     juce::String currentSA3LastSeed;

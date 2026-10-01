@@ -449,6 +449,64 @@ SA3UI::SA3UI()
     };
     addToContent(continuationSlider);
 
+    endingLabel.setText("ending", juce::dontSendNotification);
+    endingLabel.setFont(juce::FontOptions(12.0f));
+    endingLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+    endingLabel.setJustificationType(juce::Justification::centredLeft);
+    endingLabel.setTooltip(
+        "'ends here' asks SA3 to plan the ending right where the audio stops, so you hear it land. "
+        "'keeps going' composes past the end and throws those seconds away, so the audio cuts off still in full swing. "
+        "Chain continuations on 'keeps going', then switch the last one to 'ends here' for an outro. "
+        "'keeps going' costs a little generation time because SA3 renders the seconds it throws away.");
+    addToContent(endingLabel);
+
+    const juce::String endsHereTooltip =
+        "'ends here' asks SA3 to plan the ending right where the audio stops, so you hear it land.";
+    const juce::String keepsGoingTooltip =
+        "'keeps going' composes past the end and throws those seconds away, so the audio cuts off still in full swing. "
+        "Chain continuations on 'keeps going', then switch the last one to 'ends here' for an outro. "
+        "It costs a little generation time because SA3 renders the seconds it throws away.";
+    auto setupTailPadButton = [this](CustomButton& button, const juce::String& text,
+                                      int radioGroup, const juce::String& tooltip)
+    {
+        button.setButtonText(text);
+        button.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+        button.setClickingTogglesState(true);
+        button.setRadioGroupId(radioGroup);
+        button.setTooltip(tooltip);
+        addToContent(button);
+    };
+    setupTailPadButton(generateEndsHereButton, "ends here", 3010, endsHereTooltip);
+    setupTailPadButton(generateKeepsGoingButton, "keeps going", 3010, keepsGoingTooltip);
+    setupTailPadButton(continueEndsHereButton, "ends here", 3011, endsHereTooltip);
+    setupTailPadButton(continueKeepsGoingButton, "keeps going", 3011, keepsGoingTooltip);
+    generateEndsHereButton.onClick = [this]()
+    {
+        setGenerateKeepsGoing(false);
+        if (onGenerateKeepsGoingChanged)
+            onGenerateKeepsGoingChanged(false);
+    };
+    generateKeepsGoingButton.onClick = [this]()
+    {
+        setGenerateKeepsGoing(true);
+        if (onGenerateKeepsGoingChanged)
+            onGenerateKeepsGoingChanged(true);
+    };
+    continueEndsHereButton.onClick = [this]()
+    {
+        setContinueKeepsGoing(false);
+        if (onContinueKeepsGoingChanged)
+            onContinueKeepsGoingChanged(false);
+    };
+    continueKeepsGoingButton.onClick = [this]()
+    {
+        setContinueKeepsGoing(true);
+        if (onContinueKeepsGoingChanged)
+            onContinueKeepsGoingChanged(true);
+    };
+    setGenerateKeepsGoing(generateKeepsGoing);
+    setContinueKeepsGoing(continueKeepsGoing);
+
     durationLabel.setText("duration", juce::dontSendNotification);
     durationLabel.setFont(juce::FontOptions(12.0f));
     durationLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -931,6 +989,22 @@ void SA3UI::setLoopEnabled(bool enabled)
     updateLoopControls();
 }
 
+void SA3UI::setGenerateKeepsGoing(bool keepsGoing)
+{
+    generateKeepsGoing = keepsGoing;
+    generateEndsHereButton.setToggleState(!keepsGoing, juce::dontSendNotification);
+    generateKeepsGoingButton.setToggleState(keepsGoing, juce::dontSendNotification);
+    updateTailPadButtonStyles();
+}
+
+void SA3UI::setContinueKeepsGoing(bool keepsGoing)
+{
+    continueKeepsGoing = keepsGoing;
+    continueEndsHereButton.setToggleState(!keepsGoing, juce::dontSendNotification);
+    continueKeepsGoingButton.setToggleState(keepsGoing, juce::dontSendNotification);
+    updateTailPadButtonStyles();
+}
+
 void SA3UI::setBars(int bars)
 {
     if (bars != 4 && bars != 8 && bars != 16)
@@ -1221,6 +1295,18 @@ void SA3UI::updateLoopControls()
     updateContentLayout();
 }
 
+void SA3UI::updateTailPadButtonStyles()
+{
+    generateEndsHereButton.setButtonStyle(generateKeepsGoing
+        ? CustomButton::ButtonStyle::Inactive : CustomButton::ButtonStyle::Jerry);
+    generateKeepsGoingButton.setButtonStyle(generateKeepsGoing
+        ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+    continueEndsHereButton.setButtonStyle(continueKeepsGoing
+        ? CustomButton::ButtonStyle::Inactive : CustomButton::ButtonStyle::Jerry);
+    continueKeepsGoingButton.setButtonStyle(continueKeepsGoing
+        ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
+}
+
 void SA3UI::updateBarsButtonStyles()
 {
     bars4Button.setButtonStyle(selectedBars == 4 ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
@@ -1288,10 +1374,24 @@ void SA3UI::updateContentLayout()
         return juce::Rectangle<int>(sidePadding, y, contentWidth - (sidePadding * 2), height);
     };
 
+    const auto layoutEnding = [&](CustomButton& endsHereButton, CustomButton& keepsGoingButton)
+    {
+        endingLabel.setBounds(fullRow(kLabelHeight));
+        y += kLabelHeight + 2;
+
+        auto endingRow = fullRow(24);
+        const int buttonWidth = juce::jmax(1, (endingRow.getWidth() - kGap) / 2);
+        endsHereButton.setBounds(endingRow.removeFromLeft(buttonWidth));
+        endingRow.removeFromLeft(kGap);
+        keepsGoingButton.setBounds(endingRow);
+        y += 28;
+    };
+
     const bool showGenerate = currentSubTab == SubTab::Generate;
     const bool showTransform = currentSubTab == SubTab::Transform;
     const bool showContinue = currentSubTab == SubTab::Continue;
     const bool showActionTab = showGenerate || showTransform || showContinue;
+    const bool showGenerateEnding = showGenerate && !loopEnabled;
     generateButton.setTooltip(showContinue
         ? "continue the selected audio source with Stable Audio 3"
         : showTransform
@@ -1305,6 +1405,11 @@ void SA3UI::updateContentLayout()
     durationLabel.setVisible(showGenerate);
     durationSlider.setVisible(showGenerate);
     loopToggle.setVisible(showGenerate);
+    endingLabel.setVisible(showGenerateEnding || showContinue);
+    generateEndsHereButton.setVisible(showGenerateEnding);
+    generateKeepsGoingButton.setVisible(showGenerateEnding);
+    continueEndsHereButton.setVisible(showContinue);
+    continueKeepsGoingButton.setVisible(showContinue);
 
     transformPromptLabel.setVisible(showTransform);
     transformPromptEditor.setVisible(showTransform);
@@ -1480,6 +1585,9 @@ void SA3UI::updateContentLayout()
         }
         y += 28;
 
+        if (!loopEnabled)
+            layoutEnding(generateEndsHereButton, generateKeepsGoingButton);
+
         layoutAdvanced();
         layoutAction();
     }
@@ -1539,6 +1647,8 @@ void SA3UI::updateContentLayout()
         continuationLabel.setBounds(continuationRow.removeFromLeft(kLabelWidth));
         continuationSlider.setBounds(continuationRow);
         y += kRowHeight + kGap;
+
+        layoutEnding(continueEndsHereButton, continueKeepsGoingButton);
 
         layoutAdvanced();
         layoutAction();
