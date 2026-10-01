@@ -3,6 +3,34 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.0 - yuey
+
+**yue2 is now inside the DAW.** the yuey tab runs
+[YuE2](https://github.com/multimodal-art-projection/YuE) through
+[yuey.cpp](https://github.com/betweentwomidnights/yuey.cpp), a native C++/GGML
+build of the model, on the remote backend and on Windows gary4local v0.4.0
+(CUDA on NVIDIA, Vulkan on AMD and Intel). there's no Python in it at all, and
+it's the first of the native runtimes every gary4local service is moving to.
+
+it doesn't work quite the way official YuE does, on purpose. create renders
+over a chord scaffold built from your tempo, key and bar count, rolled from a
+pool of familiar progressions, instead of waiting 40 seconds to four minutes
+for the model to plan a whole song. "let yuey plan" brings the planning back,
+and key "none" drops both. remix transcribes your audio with SheetSage2 and
+renders the score again; continue can work from the score or from the audio
+itself. every render keeps its score, which you can drag in as MIDI or edit in
+the score window, with quick edits for tempo, transposition, lanes and chords.
+[docs/YUEY.md](YUEY.md) goes through each of these choices.
+
+instrumental is still best effort. YuE2 can sing when the score says not to,
+which is what the instrumental LoRA is for, and gary4local uses it when it's
+downloaded.
+
+sa3's generate and continue also get an "ending" choice. "ends here" asks SA3
+to plan the ending where the audio stops. "keeps going" composes six seconds
+past the end and throws them away, so the audio cuts off in full swing; chain
+continuations on it, then switch the last one to "ends here" for an outro.
+
 ## v4.0.15
 
 adjusted duration limits for sa3 and ace-step.

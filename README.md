@@ -1,6 +1,6 @@
 # gary4juce
 
-**gary v4 is stable: stable-audio-3 is now inside the DAW.**
+**gary v5: yue2 is now inside the DAW.**
 
 a VST3/AU plugin for musicians who want AI to meet them where they actually
 live. for me, that's ableton. for you, it might be fl studio or, if you're
@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.15 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.15)
+- [gary4juce v5.0.0 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.3.2](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.2)
+- windows: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -34,33 +34,44 @@ videos about it here when i can: https://youtube.com/@thepatch_dev
 If you just want pure text-to-music, you probably do not need a VST. This
 project exists for people who want AI to sit inside the session with them.
 
-gary4juce now gives you **seven AI music models** directly in your DAW:
+gary4juce now gives you **eight AI music models** directly in your DAW:
 
+- **yuey** ([YuE2](https://github.com/multimodal-art-projection/YuE)) - songs with or without lyrics in your tempo and key, remixes of your audio through its own transcription, continuations, and a score you can edit and drag in as MIDI
 - **sa3** ([stable-audio-3](https://github.com/stability-ai/stable-audio-3)) - text-to-audio, loops, transforms, continuations, LoRA blending, seed recall, key/BPM-aware prompting
 - **gary** ([musicgen](https://github.com/facebookresearch/audiocraft)) - continuation/anti-looper. Extends your audio in creative directions
 - **jerry** ([stable-audio-open-small](https://huggingface.co/stabilityai/stable-audio-open-small)) - BPM-aware 12-second loop generation in under a second
 - **rc-jerry** ([foundation-1](https://huggingface.co/RoyalCities/Foundation-1)) - BPM and key-aware 4/8-bar loop generation with structured prompt assembly
 - **carey** ([ace-step](https://github.com/ace-step/ACE-Step-1.5)) - stem generation, extraction, audio continuation, and remix/cover with lyrics and multilingual support
 - **terry** ([melodyflow](https://huggingface.co/spaces/facebook/melodyflow)) - audio transformation. Turn your guitar into an orchestra
-- **darius** ([magenta-realtime](https://github.com/magenta/magenta-realtime)) - high-quality 48 kHz continuations with style control
+- **darius** ([magenta-realtime](https://github.com/magenta/magenta-realtime)) - high-quality 48 kHz continuations with style control (probably deprecating this one soon)
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> SA3 now runs on the remote backend, the Windows gary4local SA3 service, and gary4local mac.
+> yuey runs on the remote backend for everyone, and locally on Windows through gary4local v0.4.0. localhost mac support is in the works.
 
 ---
 
 ## latest update
 
-### v4.0.15
+### v5.0.0
 
-adjusted duration limits for sa3 and ace-step.
-added the official RoyalCities sampler type to foundation-1.
+**yue2 is now inside the DAW.** the new yuey tab runs
+[YuE2](https://github.com/multimodal-art-projection/YuE) through
+[yuey.cpp](https://github.com/betweentwomidnights/yuey.cpp), our native C++
+build of it. it's on the remote backend for everyone, and on a local backend
+for PC users through gary4local v0.4.0 for now. i'm working on localhost mac
+support as i type this.
 
-if you were fine with durations and don't use foundation-1 much, you can go
-ahead and skip this release.
+yuey isn't used quite the way official YuE is. it's bent toward working inside
+a session: a chord scaffold in your tempo and key, transcribe-and-remix, and a
+score window with quick edits. [docs/YUEY.md](docs/YUEY.md) explains the
+choices.
 
-recommended local companion: [gary4local v0.3.2](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.2).
+also new: sa3's generate and continue have an "ending" choice. "ends here"
+lands the ending where the audio stops. "keeps going" cuts off still in full
+swing, for chaining continuations.
+
+recommended local companion: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0).
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
@@ -68,13 +79,9 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ## roadmap
 
-- [x] add SA3 to [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) on Windows
-- [x] add SA3 to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) on macOS
-- [x] ship local SA3 training on Windows and macOS using [underfit](https://github.com/dada-bots/underfit) as the source of truth
-- [x] clean up and release a proper standalone app
-- [x] ship local ACE-Step LoRA training in gary4local on Windows using [Side-Step](https://github.com/koda-dernet/Side-Step) as the reference point
-- [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow
-- [ ] enable the Carey `xl-sft` model on the remote backend
+- [ ] bring yuey to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
+- [ ] introduce optional lightweight native stem separator
+- [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow (if it actually works like it should...)
 
 ---
 
@@ -147,8 +154,9 @@ Use the dedicated apps for localhost:
 - windows: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
 - macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
 
-They manage local envs for gary, terry, jerry, carey, foundation-1, and SA3.
-Model coverage varies by platform, but SA3 is available in both companion apps.
+They manage local envs for gary, terry, jerry, carey, foundation-1, and SA3,
+and on Windows a native runtime for yuey. Model coverage varies by platform,
+but SA3 is available in both companion apps.
 
 Recommended hardware:
 
@@ -198,6 +206,25 @@ docker run --gpus all -p 7860:7860 magenta-rt
 2. Press play in your DAW.
 3. Save the recording buffer when you have audio you want a model to react to.
 4. Generate, transform, continue, crop, drag, and repeat.
+
+### yuey tab
+
+yuey uses YuE2.
+
+- **create** - a song in your tempo and key, with lyrics or instrumental. by
+  default it renders over a chord scaffold straight away; "let yuey plan" lets
+  the model compose the whole score first
+- **remix** - transcribe your recording into a score and render it again in a
+  new style
+- **continue** - extend your audio from its score, or from the audio itself
+
+every render keeps its score: drag it into your DAW as MIDI, or open the score
+window to edit it, transpose it, or halve or double the tempo, and render it
+again.
+
+full guide: [YUEY.md](docs/YUEY.md)
+
+learn more: https://github.com/multimodal-art-projection/YuE
 
 ### jerry tab
 
