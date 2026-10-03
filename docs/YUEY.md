@@ -111,8 +111,9 @@ the window says so when it happens.
 ### length and seeds
 
 - **let yuey choose** lets the model pick the length, up to the backend's
-  ceiling: 96 seconds on the remote backend, and whatever you set in gary4local
-  (180 by default).
+  ceiling: 96 seconds by default on both the remote backend and gary4local,
+  where you can change it. a continuation counts only what it adds, so
+  continuing a 30-second clip can come back about two minutes long.
 - **choose bars** fixes it.
 - **use seed** repeats a render. the last seed is kept, so you can get back to
   one you liked.
