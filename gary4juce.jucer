@@ -58,6 +58,9 @@
         <FILE id="fndUI0" name="FoundationUI.h" compile="0" resource="0" file="Source/Components/Foundation/FoundationUI.h"/>
       </GROUP>
       <GROUP id="{6B1E5C2A-8F3D-4E7B-9A21-5C0D7E8F9A31}" name="Stems">
+        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0"
+              file="Source/Components/Stems/StemsDialog.cpp"/>
+        <FILE id="StDlg0" name="StemsDialog.h" compile="0" resource="0" file="Source/Components/Stems/StemsDialog.h"/>
         <FILE id="StSet1" name="StemsSettings.cpp" compile="1" resource="0"
               file="Source/Components/Stems/StemsSettings.cpp"/>
         <FILE id="StSet0" name="StemsSettings.h" compile="0" resource="0" file="Source/Components/Stems/StemsSettings.h"/>

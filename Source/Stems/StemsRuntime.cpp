@@ -112,6 +112,16 @@ namespace stems
 
     juce::String defaultModelId() { return "htdemucs"; }
 
+    juce::StringArray stemNamesFor(const juce::String& modelId)
+    {
+        juce::StringArray names;
+        if (const auto* model = findModel(modelId))
+            names.addTokens(model->stemsSummary, ",", {});
+        names.trim();
+        names.removeEmptyStrings();
+        return names;
+    }
+
     juce::String formatBytes(juce::int64 bytes)
     {
         const double mb = (double) bytes / (1024.0 * 1024.0);
@@ -131,6 +141,22 @@ namespace stems
     {
         juce::File library;
         const stems_api_v1* api = nullptr;
+    };
+
+    // separate() calls these on the job thread, between segments; user is the StemsService.
+    struct StemsService::CallbackBridge
+    {
+        static int32_t STEMS_CALL shouldCancel(void* user)
+        {
+            return static_cast<StemsService*>(user)->cancelled() ? 1 : 0;
+        }
+
+        static void STEMS_CALL onProgress(void* user, const stems_progress_v1* progress)
+        {
+            auto* self = static_cast<StemsService*>(user);
+            if (progress != nullptr && progress->size >= STEMS_PROGRESS_V1_MIN_SIZE)
+                self->setProgress((double) progress->fraction, {});
+        }
     };
 
     namespace
@@ -160,11 +186,6 @@ namespace stems
             return nullptr;
         }
 #endif
-
-        int32_t STEMS_CALL shouldCancel(void* user)
-        {
-            return static_cast<std::atomic<bool>*>(user)->load() ? 1 : 0;
-        }
 
         // Three seconds of something with drums, bass, a chord and a voice-like tone in it.
         std::vector<float> makeTestAudio(int sampleRate, int seconds)
@@ -197,6 +218,7 @@ namespace stems
         : dataDirectory(std::move(garyDataDirectory))
     {
         deletePendingRemovals();
+        sweepStaleSessions();
     }
 
     StemsService::~StemsService() = default;
@@ -540,17 +562,9 @@ namespace stems
         if (!isModelInstalled(modelId))
             return finishJob(false, "download " + model->id + " first");
 
-        const auto library = getRuntimeDirectory().getChildFile("stems.dll");
-        if (engine == nullptr || engine->library != library)
-        {
-            juce::String error;
-            const auto* api = loadApi(library, error);
-            if (api == nullptr)
-                return finishJob(false, error);
-            engine = std::make_unique<Engine>();
-            engine->library = library;
-            engine->api = api;
-        }
+        juce::String loadError;
+        if (!ensureEngine(loadError))
+            return finishJob(false, loadError);
         const auto* api = engine->api;
 
         stems_context_config_v1 config {};
@@ -586,8 +600,8 @@ namespace stems
         request.input.n_channels = 2;
         request.input.sample_rate = (uint32_t) sampleRate;
         request.input.layout = STEMS_AUDIO_PLANAR_V1;
-        request.should_cancel = shouldCancel;
-        request.callback_user = &cancelRequested;
+        request.should_cancel = CallbackBridge::shouldCancel;
+        request.callback_user = this;
 
         stems_result_v1 result {};
         result.size = sizeof result;
@@ -612,6 +626,206 @@ namespace stems
             return finishJob(false, model->id + " on " + backend + " produced invalid audio");
         finishJob(true, model->id + " on " + backend + ": " + juce::String((int) sources)
             + " stems in " + juce::String(seconds_taken, 1) + " s");
+    }
+
+    // --- separation -----------------------------------------------------------------------------
+
+    bool StemsService::ensureEngine(juce::String& error)
+    {
+        const auto library = getRuntimeDirectory().getChildFile("stems.dll");
+        if (engine != nullptr && engine->library == library)
+            return true;
+        const auto* api = loadApi(library, error);
+        if (api == nullptr)
+            return false;
+        engine = std::make_unique<Engine>();
+        engine->library = library;
+        engine->api = api;
+        return true;
+    }
+
+    bool StemsService::startSeparation(const juce::String& modelId, bool useGpu,
+                                       const juce::File& source, const juce::File& outputDirectory)
+    {
+        if (findModel(modelId) == nullptr)
+            return false;
+        if (!beginJob(JobKind::Separate, modelId, "loading " + modelId))
+            return false;
+        juce::Thread::launch([self = shared_from_this(), modelId, useGpu, source, outputDirectory]
+        {
+            self->runSeparation(modelId, useGpu, source, outputDirectory);
+        });
+        return true;
+    }
+
+    void StemsService::runSeparation(const juce::String& modelId, bool useGpu, const juce::File& source,
+                                     const juce::File& outputDirectory)
+    {
+        const auto* model = findModel(modelId);
+        if (!isRuntimeInstalled())
+            return finishJob(false, "install the stem separator runtime in settings first");
+        if (!isModelInstalled(modelId))
+            return finishJob(false, "download " + modelId + " in settings first");
+
+        // The source, planar: samples[channel * n + i].
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(source));
+        if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels == 0)
+            return finishJob(false, "could not read " + source.getFileName());
+        const int channels = (int) reader->numChannels;
+        const int length = (int) reader->lengthInSamples;
+        const double sampleRate = reader->sampleRate;
+        juce::AudioBuffer<float> input(channels, length);
+        reader->read(&input, 0, length, 0, true, true);
+        reader.reset();
+        std::vector<float> planar((size_t) channels * (size_t) length);
+        for (int c = 0; c < channels; ++c)
+            std::copy(input.getReadPointer(c), input.getReadPointer(c) + length,
+                      planar.begin() + (std::ptrdiff_t) c * length);
+
+        juce::String loadError;
+        if (!ensureEngine(loadError))
+            return finishJob(false, loadError);
+        const auto* api = engine->api;
+
+        stems_context_config_v1 config {};
+        config.size = sizeof config;
+        api->context_config_init(&config);
+        const auto modelPath = getModelsDirectory().getChildFile(model->file.fileName).getFullPathName();
+        config.model_path = modelPath.toRawUTF8();
+        config.device = useGpu ? nullptr : "cpu";
+
+        stems_error_v1 err {};
+        err.size = sizeof err;
+        api->error_init(&err);
+
+        stems_context* context = nullptr;
+        if (api->context_create(&config, &context, &err) != STEMS_STATUS_OK_V1)
+            return finishJob(false, juce::String::fromUTF8(err.message));
+
+        stems_model_info_v1 info {};
+        info.size = sizeof info;
+        api->model_info_init(&info);
+        api->model_info(context, &info, &err);
+        juce::StringArray names;
+        for (uint32_t s = 0; s < info.n_sources; ++s)
+            names.add(info.source_names[s] != nullptr ? juce::String::fromUTF8(info.source_names[s])
+                                                      : "stem " + juce::String((int) s + 1));
+
+        stems_request_v1 request {};
+        request.size = sizeof request;
+        api->request_init(&request);
+        request.input.samples = planar.data();
+        request.input.n_samples = (uint64_t) length;
+        request.input.n_channels = (uint32_t) channels;
+        request.input.sample_rate = (uint32_t) juce::roundToInt(sampleRate);
+        request.input.layout = STEMS_AUDIO_PLANAR_V1;
+        request.on_progress = CallbackBridge::onProgress;
+        request.should_cancel = CallbackBridge::shouldCancel;
+        request.callback_user = this;
+
+        stems_result_v1 result {};
+        result.size = sizeof result;
+        api->result_init(&result);
+
+        setProgress(0.0, "separating");
+        const auto status = api->separate(context, &request, &result, &err);
+        const juce::String separateError = juce::String::fromUTF8(err.message);
+        api->context_destroy(context);   // frees the weights now; nothing stays in VRAM
+        if (status == STEMS_STATUS_CANCELLED_V1)
+        {
+            api->result_free(&result);
+            return finishJob(false, "cancelled");
+        }
+        if (status != STEMS_STATUS_OK_V1)
+        {
+            api->result_free(&result);
+            return finishJob(false, separateError);
+        }
+
+        // Stems can each exceed full scale where the mix did not. Scale them all by one factor, as
+        // demucs' --clip-mode rescale does, so they still add up to the mix.
+        const size_t total = (size_t) result.n_sources * result.n_channels * (size_t) result.n_samples;
+        float peak = 0.0f;
+        for (size_t i = 0; i < total; ++i)
+            peak = juce::jmax(peak, std::abs(result.samples[i]));
+        const float gain = peak > 0.999f ? 0.999f / peak : 1.0f;
+
+        // The popup may have closed during the run: it cancels and deletes its session, which must
+        // not come back as a folder of stems nobody asked to keep.
+        if (cancelled() || !outputDirectory.isDirectory())
+        {
+            api->result_free(&result);
+            return finishJob(false, "cancelled");
+        }
+
+        setProgress(1.0, "writing stems");
+        const auto modelDir = outputDirectory.getChildFile(modelId);
+        modelDir.deleteRecursively();
+        juce::Array<juce::File> files;
+        juce::String writeError;
+        if (!modelDir.createDirectory())
+            writeError = "cannot create " + modelDir.getFullPathName();
+        for (uint32_t s = 0; writeError.isEmpty() && s < result.n_sources; ++s)
+        {
+            juce::AudioBuffer<float> stem((int) result.n_channels, (int) result.n_samples);
+            for (uint32_t c = 0; c < result.n_channels; ++c)
+            {
+                const float* src = result.samples + ((size_t) s * result.n_channels + c) * (size_t) result.n_samples;
+                juce::FloatVectorOperations::multiply(stem.getWritePointer((int) c), src, gain, (int) result.n_samples);
+            }
+            const auto file = modelDir.getChildFile(juce::File::createLegalFileName(names[(int) s]) + ".wav");
+            juce::WavAudioFormat wav;
+            auto stream = std::make_unique<juce::FileOutputStream>(file);
+            std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(
+                stream.get(), (double) result.sample_rate, result.n_channels, 24, {}, 0));
+            if (writer != nullptr)
+                stream.release();   // the writer owns it now; on failure it stays ours to delete
+            if (writer == nullptr || !writer->writeFromAudioSampleBuffer(stem, 0, stem.getNumSamples()))
+                writeError = "could not write " + file.getFileName();
+            writer.reset();
+            files.add(file);
+        }
+        api->result_free(&result);
+        if (writeError.isNotEmpty())
+        {
+            modelDir.deleteRecursively();
+            return finishJob(false, writeError);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            job.stemNames = names;
+            job.stemFiles = files;
+        }
+        finishJob(true, modelId + ": " + juce::String(names.size()) + " stems");
+    }
+
+    // --- sessions --------------------------------------------------------------------------------
+
+    juce::File StemsService::createSessionDirectory()
+    {
+        const auto session = getStemsDirectory().getChildFile("session")
+                                 .getChildFile(juce::Uuid().toString().substring(0, 12));
+        session.createDirectory();
+        return session;
+    }
+
+    void StemsService::deleteSessionDirectory(const juce::File& session)
+    {
+        // Only ever inside our own session folder.
+        if (session.isAChildOf(getStemsDirectory().getChildFile("session")))
+            session.deleteRecursively();
+    }
+
+    void StemsService::sweepStaleSessions()
+    {
+        const auto cutoff = juce::Time::getCurrentTime() - juce::RelativeTime::days(1.0);
+        const auto root = getStemsDirectory().getChildFile("session");
+        for (const auto& dir : root.findChildFiles(juce::File::findDirectories, false))
+            if (dir.getLastModificationTime() < cutoff)
+                dir.deleteRecursively();
     }
 
     // --- removal ---------------------------------------------------------------------------------

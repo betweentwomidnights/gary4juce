@@ -59,23 +59,28 @@ namespace stems
     const std::vector<ModelInfo>& modelCatalog();
     const ModelInfo* findModel(const juce::String& id);
     juce::String defaultModelId();
+    // The stems a model writes, in its order ("drums", "bass", ...), before it has run.
+    juce::StringArray stemNamesFor(const juce::String& modelId);
 
     juce::String formatBytes(juce::int64 bytes);
 
     class StemsService : public std::enable_shared_from_this<StemsService>
     {
     public:
-        enum class JobKind { None, InstallRuntime, DownloadModel, Test };
+        enum class JobKind { None, InstallRuntime, DownloadModel, Test, Separate };
 
         struct Job
         {
             JobKind kind = JobKind::None;
-            juce::String modelId;       // DownloadModel / Test
+            juce::String modelId;       // DownloadModel / Test / Separate
             bool running = false;
             double progress = -1.0;     // 0..1, or negative when unknown
             juce::String status;        // one short line for the panel
             bool succeeded = false;     // meaningful once running is false
             juce::String error;
+            // Separate: one 24-bit WAV per stem, at the source's sample rate, in model order.
+            juce::StringArray stemNames;
+            juce::Array<juce::File> stemFiles;
         };
 
         explicit StemsService(juce::File garyDataDirectory);
@@ -100,8 +105,17 @@ namespace stems
         // Separates three seconds of test audio with the model on the GPU or the CPU. That proves the
         // whole path: the DLL loads from the data folder, finds its backends beside it, runs the model.
         bool startTest(const juce::String& modelId, bool useGpu);
+        // Separates source (an audio file) and writes the stems to outputDirectory/<model>/.
+        bool startSeparation(const juce::String& modelId, bool useGpu,
+                             const juce::File& source, const juce::File& outputDirectory);
         void cancelJob();
         Job getJob() const;
+
+        // Separated stems are ephemeral: each open stems popup gets its own session folder, and
+        // deletes it when it closes. Only a stem the user drags out is copied, into dragged_audio.
+        // Sessions older than a day (left by a crash) are swept when the service starts.
+        juce::File createSessionDirectory();
+        void deleteSessionDirectory(const juce::File& session);
 
         // Deletes what it can now. A runtime that is loaded in this session goes on the next.
         void removeRuntime();
@@ -109,6 +123,8 @@ namespace stems
 
     private:
         struct Engine;
+        struct CallbackBridge;
+        friend struct CallbackBridge;
 
         bool beginJob(JobKind kind, const juce::String& modelId, const juce::String& status);
         void finishJob(bool succeeded, const juce::String& message);
@@ -121,7 +137,11 @@ namespace stems
         void runRuntimeInstall();
         void runModelDownload(const juce::String& modelId);
         void runTest(const juce::String& modelId, bool useGpu);
+        void runSeparation(const juce::String& modelId, bool useGpu, const juce::File& source,
+                           const juce::File& outputDirectory);
+        bool ensureEngine(juce::String& error);
         void deletePendingRemovals();
+        void sweepStaleSessions();
 
         // GARY4JUCE_STEMS_PACKAGE_DIR: a folder holding the release zips and their SHA256SUMS, used
         // instead of GitHub, as gary4local's GARY4LOCAL_NATIVE_PACKAGE_DIR is. It is for testing a

@@ -770,6 +770,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton("Crop", juce::DrawableButton::ImageFitted),
     yueyMidiButton("YueyMidi", juce::DrawableButton::ImageFitted),
     yueyScoreButton("YueyScore", juce::DrawableButton::ImageFitted),
+    stemsButton("Stems", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     sa3HelpButton("sa3 help", juce::DrawableButton::ImageFitted),
@@ -1864,6 +1865,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     yueyScoreButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     yueyScoreButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(yueyScoreButton);
+
+    stemsButton.setTooltip("separate this output into stems");
+    stemsButton.onClick = [this]() { showStemsDialog(); };
+    stemsButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    stemsButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addChildComponent(stemsButton);   // shown by updateStemsButtonState once stems can run
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
@@ -2525,6 +2532,13 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         persistEditorState();
     }
 
+    // Whether stems can run changes from the settings panel and with each output; once a second.
+    if (++stemsButtonTimerTicks >= 20)
+    {
+        stemsButtonTimerTicks = 0;
+        updateStemsButtonState();
+    }
+
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
     double currentBPM = audioProcessor.getCurrentBPM();
     if (jerryUI && !juce::JUCEApplicationBase::isStandaloneApp())
@@ -2562,7 +2576,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     maybeShowDeferredUpdatePrompt();
 
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
-    if (isPlayingOutput || isPlayingInput)
+    if (isPlayingOutput || isPlayingInput || stemPlaybackRunning)
     {
         checkPlaybackStatus();
     }
@@ -6906,6 +6920,8 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
 // Updated checkPlaybackStatus() - full stop when audio finishes naturally
 void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 {
+    checkStemPlaybackStatus();
+
     if (isPlayingInput && activePlaybackSource == PlaybackSource::Input)
     {
         currentInputPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
@@ -8459,6 +8475,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
     drawScoreHandle(yueyMidiButton, "midi");
     drawScoreHandle(yueyScoreButton, "score");
+    drawScoreHandle(stemsButton, "stems");
 }
 
 // ========== UPDATED RESIZED METHOD ==========
@@ -8966,6 +8983,10 @@ void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sec
                              outputWaveformArea.getY() + 5, 42, 25);
     yueyScoreButton.setBounds(outputWaveformArea.getX() + 51,
                               outputWaveformArea.getY() + 5, 48, 25);
+
+    // The stem separator's handle, bottom right, below the crop overlay.
+    stemsButton.setBounds(outputWaveformArea.getRight() - 55,
+                          outputWaveformArea.getBottom() - 30, 50, 25);
 }
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()

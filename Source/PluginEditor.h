@@ -545,6 +545,21 @@ private:
     void dragYueyMidi();
     void updateYueyScoreOverlayState();
     juce::DrawableButton yueyScoreButton;
+    // The embedded stem separator's handle, bottom right of the output waveform (PluginEditor.Stems.cpp).
+    juce::DrawableButton stemsButton;
+    int stemsButtonTimerTicks = 0;
+    juce::File activeStemFile;          // in the output player while activePlaybackSource == Stem
+    double stemPausedPosition = 0.0;
+    bool stemPlaybackRunning = false;   // started and not paused or stopped by the user
+    void updateStemsButtonState();
+    void checkStemPlaybackStatus();
+    void showStemsDialog();
+    void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
+    void toggleStemPlayback(const juce::File& stem);
+    void stopStemPlayback();
+    void seekStem(const juce::File& stem, double seconds);
+    void releaseStemPlayback();
+    void startStemDrag(const juce::File& stem, const juce::String& stemName);
     void openYueyScoreEditor();
     void saveYueyWorkingScore(const juce::String& abc);
     void renderYueyScore(const juce::String& abc, bool fullScore);
@@ -757,7 +772,7 @@ private:
 
     bool isPlayingOutput = false;
 
-    enum class PlaybackSource { None, Input, Output };
+    enum class PlaybackSource { None, Input, Output, Stem };
     PlaybackSource activePlaybackSource = PlaybackSource::None;
 
     bool isPlayingInput = false;
