@@ -69,6 +69,27 @@ AudioSelectionDialog::AudioSelectionDialog()
     stopButton.setEnabled(false); // Initially disabled
     addAndMakeVisible(stopButton);
 
+    // Zoom, to place the window's edges precisely.
+    zoomOutButton.setIcon(IconFactory::createZoomOutIcon());
+    zoomOutButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    zoomOutButton.setTooltip("zoom out");
+    zoomOutButton.onClick = [this]() { zoomFromButton(0.5); };
+    zoomOutButton.setEnabled(false);
+    addAndMakeVisible(zoomOutButton);
+
+    zoomInButton.setIcon(IconFactory::createZoomInIcon());
+    zoomInButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    zoomInButton.setTooltip("zoom in (ctrl + mouse wheel zooms around the mouse)");
+    zoomInButton.onClick = [this]() { zoomFromButton(2.0); };
+    zoomInButton.setEnabled(false);
+    addAndMakeVisible(zoomInButton);
+
+    scrollBar.setAutoHide(false);
+    scrollBar.setColour(juce::ScrollBar::thumbColourId, juce::Colours::white.withAlpha(0.35f));
+    scrollBar.setColour(juce::ScrollBar::trackColourId, juce::Colour(0x2a, 0x2a, 0x2a));
+    scrollBar.addListener(this);
+    addChildComponent(scrollBar);
+
     // Confirm button
     confirmButton.setButtonText("Confirm");
     confirmButton.setButtonStyle(CustomButton::ButtonStyle::Gary);  // Use Gary style for primary action
@@ -102,6 +123,7 @@ AudioSelectionDialog::AudioSelectionDialog()
 AudioSelectionDialog::~AudioSelectionDialog()
 {
     stopTimer();
+    scrollBar.removeListener(this);
 
     // Stop playback and clean up audio
     transportSource.setSource(nullptr);
@@ -137,8 +159,10 @@ void AudioSelectionDialog::updateInstructionText()
         rangeText = juce::String(selectionMinDuration, 0) + "-" + juce::String(selectionMaxDuration, 0) + "s";
 
     const auto instruction = std::abs(selectionMinDuration - selectionMaxDuration) < 0.001
-        ? "Drag the selection window to choose your starting point (" + rangeText + "), then click Confirm"
-        : "Drag the window or its handles to set the start and end (" + rangeText + "), then click Confirm";
+        ? "Drag the selection window to choose your starting point (" + rangeText + "), then click Confirm."
+          " Click to listen from any point; zoom in to place it precisely"
+        : "Drag the window or its handles to set the start and end (" + rangeText + "), then click Confirm."
+          " Click to listen from any point; zoom in to place the edges precisely";
     instructionLabel.setText(instruction, juce::dontSendNotification);
 }
 
@@ -190,6 +214,9 @@ bool AudioSelectionDialog::loadAudioFile(const juce::File& audioFile)
     stopButton.setEnabled(true);
     confirmButton.setEnabled(true);
 
+    // Show the whole file to begin with.
+    setView(0.0, totalAudioDuration);
+
     // Initialize selection window at start of file with current constraints.
     setInitialSelectionStartTime(0.0);
 
@@ -234,16 +261,23 @@ void AudioSelectionDialog::resized()
 
     bounds.removeFromTop(margin); // spacing
 
-    // Waveform area (main central area)
+    // Waveform area (main central area), with the zoom scrollbar's row beneath it
     waveformArea = bounds.removeFromTop(bounds.getHeight() - 80).reduced(margin, 0);
+    scrollArea = waveformArea.removeFromBottom(14);
+    waveformArea.removeFromBottom(4);
+    scrollBar.setBounds(scrollArea);
+    if (totalAudioDuration > 0.0)
+        setView(viewStart, viewDuration);   // the narrowest zoom depends on the width
 
     bounds.removeFromTop(margin); // spacing
 
     // Bottom controls - centered
     auto controlArea = bounds.removeFromTop(buttonHeight);
 
-    // Calculate total width of controls: play + spacing + stop + spacing + confirm + spacing + cancel
-    int totalControlWidth = playStopButtonWidth + 10 + playStopButtonWidth + 30 + buttonWidth + 10 + buttonWidth;
+    // play, stop | zoom out, zoom in | confirm, cancel
+    int totalControlWidth = playStopButtonWidth + 10 + playStopButtonWidth + 30
+                          + playStopButtonWidth + 10 + playStopButtonWidth + 30
+                          + buttonWidth + 10 + buttonWidth;
     int startX = (controlArea.getWidth() - totalControlWidth) / 2;
 
     auto controlRow = controlArea.withX(startX);
@@ -255,6 +289,12 @@ void AudioSelectionDialog::resized()
 
     controlRow.removeFromLeft(30); // larger spacing
 
+    zoomOutButton.setBounds(controlRow.removeFromLeft(playStopButtonWidth));
+    controlRow.removeFromLeft(10);
+    zoomInButton.setBounds(controlRow.removeFromLeft(playStopButtonWidth));
+
+    controlRow.removeFromLeft(30);
+
     // Confirm button
     confirmButton.setBounds(controlRow.removeFromLeft(buttonWidth));
     controlRow.removeFromLeft(10); // spacing
@@ -265,20 +305,30 @@ void AudioSelectionDialog::resized()
 
 void AudioSelectionDialog::timerCallback()
 {
-    // Update playback position
-    if (isPlaying && transportSource.isPlaying())
+    if (!isPlaying)
+        return;
+
+    // Played off the end of the file: the transport stops itself.
+    if (!transportSource.isPlaying())
     {
-        currentPlaybackPosition = transportSource.getCurrentPosition();
-
-        // Stop playback at the end of the selection window
-        double selectionEndTime = juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration);
-        if (currentPlaybackPosition >= selectionEndTime - 0.1)
-        {
-            stopAudio();
-        }
-
-        repaint();
+        stopAudio();
+        return;
     }
+
+    currentPlaybackPosition = transportSource.getCurrentPosition();
+
+    // Stop at the end of the selection window (or of the file, after a seek past the window).
+    if (currentPlaybackPosition >= playStopTime - 0.1)
+    {
+        stopAudio();
+        return;
+    }
+
+    // Zoomed in, the view pages along with the cursor so it never runs off the edge.
+    if (isZoomed() && (currentPlaybackPosition < viewStart || currentPlaybackPosition > viewStart + viewDuration))
+        setView(currentPlaybackPosition, viewDuration);
+
+    repaint();
 }
 
 void AudioSelectionDialog::playAudio()
@@ -294,26 +344,133 @@ void AudioSelectionDialog::playAudio()
         isPaused = true;
         pausedPosition = currentPlaybackPosition;
         updatePlayButtonIcon();
+        return;
     }
-    else if (isPaused)
+
+    // Resume from a pause or a seek, or start at the selection.
+    const double from = isPaused ? pausedPosition : selectionStartTime;
+    const double selectionEnd = juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration);
+    playStopTime = from < selectionEnd - 0.1 ? selectionEnd : totalAudioDuration;
+    transportSource.setPosition(from);
+    transportSource.start();
+    isPlaying = true;
+    isPaused = false;
+    currentPlaybackPosition = from;
+    updatePlayButtonIcon();
+}
+
+void AudioSelectionDialog::seekTo(double timeSeconds)
+{
+    const double t = juce::jlimit(0.0, totalAudioDuration, timeSeconds);
+    currentPlaybackPosition = t;
+    transportSource.setPosition(t);
+    if (isPlaying)
     {
-        // Resume from paused position
-        transportSource.setPosition(pausedPosition);
-        transportSource.start();
-        isPlaying = true;
-        isPaused = false;
-        updatePlayButtonIcon();
+        const double selectionEnd = juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration);
+        playStopTime = t < selectionEnd - 0.1 ? selectionEnd : totalAudioDuration;
     }
     else
     {
-        // Start from beginning of selection window
-        transportSource.setPosition(selectionStartTime);
-        transportSource.start();
-        isPlaying = true;
-        isPaused = false;
-        currentPlaybackPosition = selectionStartTime;
+        // As on the output waveform: play then starts here.
+        isPaused = true;
+        pausedPosition = t;
         updatePlayButtonIcon();
     }
+    repaint();
+}
+
+// --- zoom ----------------------------------------------------------------------------------------
+
+bool AudioSelectionDialog::isZoomed() const
+{
+    return totalAudioDuration > 0.0 && viewDuration < totalAudioDuration - 1.0e-6;
+}
+
+double AudioSelectionDialog::minViewDuration() const
+{
+    // About one sample per pixel at the deepest zoom.
+    const int width = juce::jmax(1, waveformArea.getWidth() - 2);
+    return juce::jmin(totalAudioDuration, juce::jmax(0.01, width / juce::jmax(1.0, audioSampleRate)));
+}
+
+void AudioSelectionDialog::setView(double start, double duration)
+{
+    if (totalAudioDuration <= 0.0)
+        return;
+    viewDuration = juce::jlimit(minViewDuration(), totalAudioDuration, duration);
+    viewStart = juce::jlimit(0.0, totalAudioDuration - viewDuration, start);
+
+    scrollBar.setRangeLimits(0.0, totalAudioDuration, juce::dontSendNotification);
+    scrollBar.setCurrentRange(viewStart, viewDuration, juce::dontSendNotification);
+    scrollBar.setSingleStepSize(viewDuration * 0.1);
+    scrollBar.setVisible(isZoomed());
+    zoomOutButton.setEnabled(isZoomed());
+    zoomInButton.setEnabled(viewDuration > minViewDuration() + 1.0e-9);
+    repaint();
+}
+
+void AudioSelectionDialog::zoomAround(double factor, double anchorTime, double anchorFraction)
+{
+    const double newDuration = viewDuration / factor;
+    setView(anchorTime - anchorFraction * newDuration, newDuration);
+}
+
+void AudioSelectionDialog::zoomFromButton(double factor)
+{
+    // Centre on the playback cursor once there is one (click near an edge, then zoom in to place
+    // it), otherwise on the selection.
+    const bool haveCursor = isPlaying || isPaused || currentPlaybackPosition > 0.0;
+    const double anchor = haveCursor ? currentPlaybackPosition : selectionStartTime + selectionDuration * 0.5;
+    zoomAround(factor, anchor, 0.5);
+}
+
+void AudioSelectionDialog::scrollBarMoved(juce::ScrollBar*, double newRangeStart)
+{
+    setView(newRangeStart, viewDuration);
+}
+
+void AudioSelectionDialog::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    if (!waveformArea.contains(event.getPosition()) || totalAudioDuration <= 0.0)
+        return;
+
+    if (event.mods.isCtrlDown() || event.mods.isCommandDown())
+    {
+        // Zoom around the time under the mouse, keeping it under the mouse.
+        if (wheel.deltaY == 0.0f)
+            return;
+        const double fraction = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / juce::jmax(1, waveformArea.getWidth() - 2));
+        zoomAround(wheel.deltaY > 0.0f ? 2.0 : 0.5, mouseXToTime(event.x), fraction);
+        return;
+    }
+
+    if (isZoomed())
+    {
+        const float delta = std::abs(wheel.deltaX) > std::abs(wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
+        setView(viewStart - delta * viewDuration * 0.5, viewDuration);
+    }
+}
+
+double AudioSelectionDialog::timeToX(double timeSeconds) const
+{
+    const int waveWidth = waveformArea.getWidth() - 2;
+    if (viewDuration <= 0.0)
+        return (double)waveformArea.getX() + 1.0;
+    return waveformArea.getX() + 1 + (timeSeconds - viewStart) / viewDuration * waveWidth;
+}
+
+juce::String AudioSelectionDialog::formatTime(double timeSeconds) const
+{
+    const int minutes = (int)(timeSeconds / 60.0);
+    const double seconds = timeSeconds - minutes * 60.0;
+    if (!isZoomed())
+        return juce::String(minutes) + ":" + juce::String((int)seconds).paddedLeft('0', 2);
+    // Zoomed in, edges are placed to the hundredth of a second, so show it.
+    auto text = juce::String(seconds, 2);
+    if (seconds < 10.0)
+        text = "0" + text;
+    return juce::String(minutes) + ":" + text;
 }
 
 void AudioSelectionDialog::stopAudio()
@@ -369,16 +526,20 @@ void AudioSelectionDialog::drawWaveform(juce::Graphics& g, const juce::Rectangle
     if (waveWidth <= 0)
         return;
 
-    // Calculate samples per pixel
-    const int samplesPerPixel = juce::jmax(1, audioBuffer.getNumSamples() / waveWidth);
+    // The visible span of the file: all of it, or less when zoomed in.
+    const double firstVisibleSample = viewStart * audioSampleRate;
+    const double visibleSamples = juce::jmax(1.0, viewDuration * audioSampleRate);
+    const int totalSamples = audioBuffer.getNumSamples();
 
     // Draw waveform in red (following existing pattern)
     g.setColour(juce::Colours::red);
 
     for (int x = 0; x < waveWidth; ++x)
     {
-        const int startSample = x * samplesPerPixel;
-        const int endSample = juce::jmin(startSample + samplesPerPixel, audioBuffer.getNumSamples());
+        const int startSample = juce::jlimit(0, totalSamples,
+            (int)(firstVisibleSample + visibleSamples * x / waveWidth));
+        const int endSample = juce::jlimit(0, totalSamples,
+            juce::jmax(startSample + 1, (int)(firstVisibleSample + visibleSamples * (x + 1) / waveWidth)));
 
         if (endSample > startSample)
         {
@@ -419,15 +580,12 @@ void AudioSelectionDialog::drawWaveform(juce::Graphics& g, const juce::Rectangle
         }
     }
 
-    // Draw playback cursor
-    if ((isPlaying || isPaused || currentPlaybackPosition > 0.0) && totalAudioDuration > 0.0)
+    // Draw playback cursor, when it is in view
+    const bool cursorInView = currentPlaybackPosition >= viewStart
+                           && currentPlaybackPosition <= viewStart + viewDuration;
+    if ((isPlaying || isPaused || currentPlaybackPosition > 0.0) && totalAudioDuration > 0.0 && cursorInView)
     {
-        // Calculate cursor position as a percentage of total duration
-        double progressPercent = currentPlaybackPosition / totalAudioDuration;
-        progressPercent = juce::jlimit(0.0, 1.0, progressPercent);
-
-        // Convert to pixel position
-        int cursorX = area.getX() + 1 + (int)(progressPercent * waveWidth);
+        int cursorX = (int)timeToX(currentPlaybackPosition);
 
         // Different cursor appearance for different states
         if (isPlaying)
@@ -459,16 +617,13 @@ void AudioSelectionDialog::drawWaveform(juce::Graphics& g, const juce::Rectangle
     // Draw timestamp at cursor position (if playing or paused)
     if ((isPlaying || isPaused) && totalAudioDuration > 0.0)
     {
-        int minutes = (int)(currentPlaybackPosition / 60.0);
-        int seconds = (int)currentPlaybackPosition % 60;
-        juce::String timeString = juce::String(minutes) + ":" +
-                                  juce::String(seconds).paddedLeft('0', 2);
+        const juce::String timeString = formatTime(currentPlaybackPosition);
 
         g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
         g.setColour(juce::Colours::white);
 
         // Draw timestamp in top-left corner of waveform
-        juce::Rectangle<int> timeRect(area.getX() + 5, area.getY() + 5, 60, 20);
+        juce::Rectangle<int> timeRect(area.getX() + 5, area.getY() + 5, isZoomed() ? 76 : 60, 20);
         g.fillRect(timeRect.toFloat());
         g.setColour(juce::Colours::black);
         g.drawText(timeString, timeRect, juce::Justification::centred);
@@ -484,81 +639,69 @@ void AudioSelectionDialog::drawSelectionWindow(juce::Graphics& g, const juce::Re
     if (totalAudioDuration <= 0.0)
         return;
 
-    auto selectionRect = getSelectionRectangle();
+    // The selection in pixels, before clipping: zoomed in, either edge (or both) can be off screen.
+    const double endTime = juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration);
+    const int startX = (int)timeToX(selectionStartTime);
+    const int endX = (int)timeToX(endTime);
+    const juce::Rectangle<int> fullRect(startX, area.getY() + 1, endX - startX, area.getHeight() - 2);
+    const auto visibleRect = fullRect.getIntersection(area);
+    const bool leftEdgeVisible = startX >= area.getX() && startX <= area.getRight();
+    const bool rightEdgeVisible = endX >= area.getX() && endX <= area.getRight();
 
-    if (selectionRect.isEmpty())
-        return;
+    juce::Graphics::ScopedSaveState clip(g);
+    g.reduceClipRegion(area);
 
     // Draw semi-transparent overlay for unselected regions
     g.setColour(juce::Colours::black.withAlpha(0.5f));
-
-    // Left unselected region
-    if (selectionRect.getX() > area.getX())
+    if (startX > area.getX())
+        g.fillRect(area.getX(), area.getY(), juce::jmin(startX, area.getRight()) - area.getX(), area.getHeight());
+    if (endX < area.getRight())
     {
-        juce::Rectangle<int> leftRegion(area.getX(), area.getY(),
-                                        selectionRect.getX() - area.getX(), area.getHeight());
-        g.fillRect(leftRegion);
+        const int from = juce::jmax(endX, area.getX());
+        g.fillRect(from, area.getY(), area.getRight() - from, area.getHeight());
     }
 
-    // Right unselected region
-    if (selectionRect.getRight() < area.getRight())
-    {
-        juce::Rectangle<int> rightRegion(selectionRect.getRight(), area.getY(),
-                                         area.getRight() - selectionRect.getRight(), area.getHeight());
-        g.fillRect(rightRegion);
-    }
+    if (visibleRect.isEmpty())
+        return;
 
-    // Draw white border around selection
+    // White border around the selection; the clip hides edges that are off screen.
     g.setColour(juce::Colours::white);
-    g.drawRect(selectionRect.toFloat(), 2.0f);
+    g.drawRect(fullRect.toFloat(), 2.0f);
 
     if (canResizeSelection())
     {
         // Edge handles for resize affordance.
         g.setColour(juce::Colours::white.withAlpha(0.8f));
-        const int handleHeight = juce::jmin(26, selectionRect.getHeight() - 8);
-        const int handleY = selectionRect.getCentreY() - handleHeight / 2;
-        g.fillRect(selectionRect.getX() - 1, handleY, 3, handleHeight);
-        g.fillRect(selectionRect.getRight() - 2, handleY, 3, handleHeight);
+        const int handleHeight = juce::jmin(26, fullRect.getHeight() - 8);
+        const int handleY = fullRect.getCentreY() - handleHeight / 2;
+        if (leftEdgeVisible)
+            g.fillRect(fullRect.getX() - 1, handleY, 3, handleHeight);
+        if (rightEdgeVisible)
+            g.fillRect(fullRect.getRight() - 2, handleY, 3, handleHeight);
     }
 
-    // Draw selection time label
-    int startMin = (int)(selectionStartTime / 60.0);
-    int startSec = (int)selectionStartTime % 60;
-    double endTime = juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration);
-    int endMin = (int)(endTime / 60.0);
-    int endSec = (int)endTime % 60;
-
     // Include duration in the label to show the window size
-    juce::String timeLabel = juce::String(startMin) + ":" + juce::String(startSec).paddedLeft('0', 2) +
-                             " - " + juce::String(endMin) + ":" + juce::String(endSec).paddedLeft('0', 2) +
-                             " (" + juce::String(selectionDuration, 1) + "s)";
+    const juce::String timeLabel = formatTime(selectionStartTime) + " - " + formatTime(endTime)
+                                 + " (" + juce::String(selectionDuration, isZoomed() ? 2 : 1) + "s)";
 
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
     g.setColour(juce::Colours::white);
 
-    // Draw label at top of selection window
-    juce::Rectangle<int> labelRect(selectionRect.getX(), selectionRect.getY() + 5,
-                                   selectionRect.getWidth(), 20);
+    // Draw label at top of the visible part of the selection window
+    juce::Rectangle<int> labelRect(visibleRect.getX(), visibleRect.getY() + 5, visibleRect.getWidth(), 20);
     g.drawText(timeLabel, labelRect, juce::Justification::centred);
 }
 
+// The part of the selection that is in view (empty when it is scrolled out of view).
 juce::Rectangle<int> AudioSelectionDialog::getSelectionRectangle() const
 {
     if (waveformArea.isEmpty() || totalAudioDuration <= 0.0)
         return juce::Rectangle<int>();
 
-    const int waveWidth = waveformArea.getWidth() - 2;
-
-    // Calculate pixel position of selection window
-    double selectionStartPercent = selectionStartTime / totalAudioDuration;
-    double selectionEndPercent = juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration) / totalAudioDuration;
-
-    int startX = waveformArea.getX() + 1 + (int)(selectionStartPercent * waveWidth);
-    int endX = waveformArea.getX() + 1 + (int)(selectionEndPercent * waveWidth);
-
-    return juce::Rectangle<int>(startX, waveformArea.getY() + 1,
-                                endX - startX, waveformArea.getHeight() - 2);
+    const int startX = (int)timeToX(selectionStartTime);
+    const int endX = (int)timeToX(juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration));
+    return juce::Rectangle<int>(startX, waveformArea.getY() + 1, endX - startX, waveformArea.getHeight() - 2)
+        .getIntersection(waveformArea);
 }
 
 std::pair<double, double> AudioSelectionDialog::getEffectiveDurationRange() const
@@ -588,33 +731,34 @@ double AudioSelectionDialog::mouseXToTime(int mouseX) const
 
     const int clampedX = juce::jlimit(waveformArea.getX() + 1, waveformArea.getRight() - 1, mouseX);
     const double percent = (double)(clampedX - (waveformArea.getX() + 1)) / (double)waveWidth;
-    return juce::jlimit(0.0, totalAudioDuration, percent * totalAudioDuration);
+    return juce::jlimit(0.0, totalAudioDuration, viewStart + percent * viewDuration);
 }
 
+// A handle can be grabbed only while its edge is on screen.
 bool AudioSelectionDialog::isMouseNearLeftHandle(int mouseX) const
 {
-    if (!canResizeSelection())
+    if (!canResizeSelection() || totalAudioDuration <= 0.0)
         return false;
 
-    const auto selectionRect = getSelectionRectangle();
-    if (selectionRect.isEmpty())
+    const double edgeX = timeToX(selectionStartTime);
+    if (edgeX < waveformArea.getX() || edgeX > waveformArea.getRight())
         return false;
 
     constexpr int handleHitRadius = 8;
-    return std::abs(mouseX - selectionRect.getX()) <= handleHitRadius;
+    return std::abs(mouseX - edgeX) <= handleHitRadius;
 }
 
 bool AudioSelectionDialog::isMouseNearRightHandle(int mouseX) const
 {
-    if (!canResizeSelection())
+    if (!canResizeSelection() || totalAudioDuration <= 0.0)
         return false;
 
-    const auto selectionRect = getSelectionRectangle();
-    if (selectionRect.isEmpty())
+    const double edgeX = timeToX(juce::jmin(selectionStartTime + selectionDuration, totalAudioDuration));
+    if (edgeX < waveformArea.getX() || edgeX > waveformArea.getRight())
         return false;
 
     constexpr int handleHitRadius = 8;
-    return std::abs(mouseX - selectionRect.getRight()) <= handleHitRadius;
+    return std::abs(mouseX - edgeX) <= handleHitRadius;
 }
 
 bool AudioSelectionDialog::isMouseOverSelection(const juce::Point<int>& pos) const
@@ -649,42 +793,57 @@ void AudioSelectionDialog::mouseMove(const juce::MouseEvent& event)
 
 void AudioSelectionDialog::mouseDown(const juce::MouseEvent& event)
 {
+    pendingMove = false;
+    mouseMovedSinceDown = false;
+    mouseDownX = event.getPosition().x;
+
     const auto hitArea = waveformArea.expanded(2, 0);
     if (!hitArea.contains(event.getPosition()))
         return;
 
+    // A handle resizes at once. Inside the window, a press only becomes a move once the mouse
+    // travels a few pixels; released in place, it is a click, which seeks.
     if (isMouseNearLeftHandle(event.getPosition().x))
         selectionDragMode = SelectionDragMode::ResizeLeft;
     else if (isMouseNearRightHandle(event.getPosition().x))
         selectionDragMode = SelectionDragMode::ResizeRight;
-    else if (isMouseOverSelection(event.getPosition()))
-        selectionDragMode = SelectionDragMode::Move;
     else
-        selectionDragMode = SelectionDragMode::None;
-
-    if (selectionDragMode != SelectionDragMode::None)
     {
-        isDraggingSelection = true;
-        dragStartX = event.getPosition().x;
-        dragStartSelectionTime = selectionStartTime;
-        dragStartSelectionDuration = selectionDuration;
-
-        // Stop playback when starting to drag (Option A - safest UX)
-        if (isPlaying)
-        {
-            stopAudio();
-        }
-
-        if (selectionDragMode == SelectionDragMode::ResizeLeft ||
-            selectionDragMode == SelectionDragMode::ResizeRight)
-            setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
-        else
-            setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        selectionDragMode = SelectionDragMode::None;
+        pendingMove = isMouseOverSelection(event.getPosition());
+        return;
     }
+
+    isDraggingSelection = true;
+    dragStartX = event.getPosition().x;
+    dragStartSelectionTime = selectionStartTime;
+    dragStartSelectionDuration = selectionDuration;
+
+    // Stop playback when starting to drag (Option A - safest UX)
+    if (isPlaying)
+        stopAudio();
+
+    setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
 }
 
 void AudioSelectionDialog::mouseDrag(const juce::MouseEvent& event)
 {
+    if (std::abs(event.getPosition().x - mouseDownX) > 3)
+        mouseMovedSinceDown = true;
+
+    if (pendingMove && mouseMovedSinceDown)
+    {
+        pendingMove = false;
+        selectionDragMode = SelectionDragMode::Move;
+        isDraggingSelection = true;
+        dragStartX = mouseDownX;
+        dragStartSelectionTime = selectionStartTime;
+        dragStartSelectionDuration = selectionDuration;
+        if (isPlaying)
+            stopAudio();
+        setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+    }
+
     if (!isDraggingSelection)
         return;
 
@@ -704,7 +863,14 @@ void AudioSelectionDialog::mouseUp(const juce::MouseEvent& event)
         isDraggingSelection = false;
         selectionDragMode = SelectionDragMode::None;
         mouseMove(event);
+        return;
     }
+
+    // A click on the waveform (not a drag): seek there, as on the output waveform.
+    const bool wasClick = !mouseMovedSinceDown && waveformArea.contains(event.getPosition());
+    pendingMove = false;
+    if (wasClick && totalAudioDuration > 0.0)
+        seekTo(mouseXToTime(event.getPosition().x));
 }
 
 void AudioSelectionDialog::updateSelectionFromMouseDrag(int mouseX)
@@ -715,8 +881,8 @@ void AudioSelectionDialog::updateSelectionFromMouseDrag(int mouseX)
     const int waveWidth = waveformArea.getWidth() - 2;
     int deltaX = mouseX - dragStartX;
 
-    // Convert pixel delta to time delta
-    double deltaTime = (deltaX / (double)waveWidth) * totalAudioDuration;
+    // Convert pixel delta to time delta, at the current zoom
+    double deltaTime = (deltaX / (double)waveWidth) * viewDuration;
     double newSelectionStart = dragStartSelectionTime + deltaTime;
 
     const auto [effectiveMinDuration, effectiveMaxDuration] = getEffectiveDurationRange();

@@ -20,6 +20,8 @@ public:
     static std::unique_ptr<juce::Drawable> createDiscordIcon();
     static std::unique_ptr<juce::Drawable> createXIcon();
     static std::unique_ptr<juce::Drawable> createUploadIcon();
+    static std::unique_ptr<juce::Drawable> createZoomInIcon();
+    static std::unique_ptr<juce::Drawable> createZoomOutIcon();
     
     // Binary resource loading
     static juce::Image loadLogoImage();
