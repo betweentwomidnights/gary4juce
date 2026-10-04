@@ -65,8 +65,8 @@ namespace stems
     {
         // core = stems.dll, stems-ggml.dll, stems-ggml-base.dll, the CPU variants; vulkan =
         // stems-ggml-vulkan.dll. Vulkan covers NVIDIA, AMD and Intel GPUs without the CUDA runtime.
-        // The hashes are filled in from the published release's SHA256SUMS; until then a build
-        // installs only through GARY4JUCE_STEMS_PACKAGE_DIR.
+        // Hashes and sizes from the published release's SHA256SUMS (and its build attestation).
+        // A new stems.cpp release means a new tag, file names, hashes and sizes here together.
         static const RuntimeRelease release = []
         {
             RuntimeRelease r;
@@ -74,8 +74,10 @@ namespace stems
             r.tag = "v0.1.0";
             r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.0/";
             r.packages = {
-                { "stems-v0.1.0-windows-x64-core.zip", "", 0 },
-                { "stems-v0.1.0-windows-x64-vulkan.zip", "", 0 },
+                { "stems-v0.1.0-windows-x64-core.zip",
+                  "551478bcc1b4a6e916b49d5cfe8047338f5de00962ed272eaca377c1b5de3d3e", 3591098 },
+                { "stems-v0.1.0-windows-x64-vulkan.zip",
+                  "7e57dfda1e3de5b776a4382da9117871dad6a4d3a59a46323bbac45b50188dca", 15604112 },
             };
 #elif JUCE_MAC
             // The macOS runtime (one zip: a signed libstems.dylib with Metal, ggml linked in) goes
