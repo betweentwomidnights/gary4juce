@@ -13,6 +13,7 @@
 #include "PluginEditorTextHelpers.h"
 #include "./Utils/BarTrim.h"
 #include "./Components/Base/CustomComboBox.h"
+#include "./Stems/StemsRuntime.h"
 
 using plugin_editor_detail::loopTypeIndexToString;
 using plugin_editor_detail::loopTypeStringToIndex;
@@ -691,7 +692,8 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     {
         compactLayout = 1,
         wideLayout,
-        audioStorage
+        audioStorage,
+        stemSeparator
     };
 
     juce::PopupMenu menu;
@@ -703,6 +705,7 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     menu.addSeparator();
     menu.addItem(audioStorage,
         usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
+    menu.addItem(stemSeparator, "stem separator...");
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     menu.showMenuAsync(
@@ -720,6 +723,8 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
                 safeThis->setEditorLayoutMode(EditorLayoutMode::Wide);
             else if (result == audioStorage)
                 safeThis->showStorageSettings();
+            else if (result == stemSeparator)
+                safeThis->showStemsSettings();
         });
 }
 
@@ -1724,7 +1729,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     settingsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     settingsButton.setIcon(IconFactory::createSettingsIcon());
-    settingsButton.setTooltip("gary settings: layout & storage");
+    settingsButton.setTooltip("gary settings: layout, storage & stem separator");
     settingsButton.onClick = [this]() { showGarySettingsMenu(); };
 
     // Backend toggle button setup
@@ -2257,6 +2262,9 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     dismissEditorModalWindows();
     uploadFileChooser.reset();
     storageFolderChooser.reset();
+    // A download or test still running finishes on its own thread, which holds the service.
+    if (stemsService != nullptr)
+        stemsService->cancelJob();
 
     isEditorValid.store(false, std::memory_order_release);
     if (editorAsyncAlive != nullptr)

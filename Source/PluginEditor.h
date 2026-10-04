@@ -27,6 +27,8 @@
 #include <vector>
 #include <cstdint>
 
+namespace stems { class StemsService; }
+
 //==============================================================================
 /**
 */
@@ -240,6 +242,8 @@ private:
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
     void showStorageSettings();
+    void showStemsSettings();
+    stems::StemsService& getStemsService();   // created on first use, in the active data folder
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);
     void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
@@ -936,6 +940,8 @@ private:
     void abandonPollTransfer();
 
     std::unique_ptr<juce::PropertiesFile> updatePreferences;
+    // The embedded stem separator (Source/Stems). Shared so a job thread can finish after the editor.
+    std::shared_ptr<stems::StemsService> stemsService;
     std::atomic<bool> updateCheckInFlight{ false };
     bool hasCheckedForUpdatesThisEditorSession = false;
     bool updatePromptVisible = false;
