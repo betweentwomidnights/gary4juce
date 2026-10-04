@@ -48,7 +48,11 @@ private:
     juce::Label runtimeHeading, runtimeStatus;
     CustomButton runtimeButton;
     juce::Label processingHeading;
+#if JUCE_MAC
+    juce::ToggleButton gpuToggle { "use the GPU (Metal)" };
+#else
     juce::ToggleButton gpuToggle { "use the GPU (Vulkan)" };
+#endif
     juce::Label gpuHint;
     juce::Label modelsHeading;
     std::vector<std::unique_ptr<ModelRow>> modelRows;
