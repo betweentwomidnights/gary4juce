@@ -35,11 +35,11 @@ public:
     struct Host
     {
         std::function<void(const juce::File&)> togglePlayback;          // play, pause or resume a stem
-        std::function<void()> stopPlayback;
+        std::function<void(const juce::File&)> stopPlayback;            // and back to its start
         std::function<void(const juce::File&, double)> seek;            // seconds
         std::function<juce::File()> activeStem;                         // loaded in the player, or {}
         std::function<bool()> isPlaying;                                // the active stem is playing
-        std::function<double()> position;                               // of the active stem, seconds
+        std::function<double(const juce::File&)> position;              // each stem keeps its own
         std::function<void(const juce::File&, const juce::String&)> drag; // stem file, stem name
         std::function<bool()> isGenerating;
         std::function<void()> releasePlayback;                          // before the session goes
@@ -73,8 +73,7 @@ private:
 
     juce::File session;
     juce::File source;                 // the output, copied into the session
-    juce::AudioBuffer<float> sourceAudio;
-    double sourceSampleRate = 44100.0;
+    bool sourceReady = false;
 
     juce::Label title;
     CustomComboBox modelBox;
@@ -88,15 +87,12 @@ private:
     juce::String separatingModel;
     double targetProgress = 0.0, shownProgress = 0.0;
     bool loadingModel = false;
-    std::vector<std::pair<float, float>> sourcePeaks;   // for the current cell width
-    int sourcePeaksWidth = 0;
 
 public:
     // Min/max per pixel column, averaged across channels, as the output waveform draws them.
     static std::vector<std::pair<float, float>> computePeaks(const juce::AudioBuffer<float>& audio, int width);
     static void drawPeaks(juce::Graphics& g, juce::Rectangle<int> area,
                           const std::vector<std::pair<float, float>>& peaks, float opacity);
-    const std::vector<std::pair<float, float>>& getSourcePeaks(int width);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StemsDialog)
 };

@@ -23,6 +23,7 @@
 #include "Utils/IconFactory.h"
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <vector>
 #include <cstdint>
@@ -551,12 +552,17 @@ private:
     juce::File activeStemFile;          // in the output player while activePlaybackSource == Stem
     double stemPausedPosition = 0.0;
     bool stemPlaybackRunning = false;   // started and not paused or stopped by the user
+    // Where each stem not in the player was left (path -> seconds), so switching stems pauses the
+    // one you leave rather than forgetting it. Cleared when the stems popup closes.
+    std::map<juce::String, double> stemPositions;
+    double currentStemPosition() const;
+    double stemPosition(const juce::File& stem) const;
     void updateStemsButtonState();
     void checkStemPlaybackStatus();
     void showStemsDialog();
     void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
     void toggleStemPlayback(const juce::File& stem);
-    void stopStemPlayback();
+    void stopStemPlayback(const juce::File& stem);
     void seekStem(const juce::File& stem, double seconds);
     void releaseStemPlayback();
     void startStemDrag(const juce::File& stem, const juce::String& stemName);

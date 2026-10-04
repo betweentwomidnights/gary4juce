@@ -79,16 +79,6 @@ void StemsDialog::drawPeaks(juce::Graphics& g, juce::Rectangle<int> area,
     }
 }
 
-const std::vector<std::pair<float, float>>& StemsDialog::getSourcePeaks(int width)
-{
-    if (width != sourcePeaksWidth)
-    {
-        sourcePeaks = computePeaks(sourceAudio, width);
-        sourcePeaksWidth = width;
-    }
-    return sourcePeaks;
-}
-
 // --- one stem ------------------------------------------------------------------------------------
 
 class StemsDialog::StemCell : public juce::Component,
@@ -109,13 +99,11 @@ public:
         stopButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
         stopButton.setIcon(IconFactory::createStopIcon());
         stopButton.setTooltip("stop");
-        stopButton.onClick = [this] { if (isActive()) owner.host.stopPlayback(); owner.updateControls(); };
+        stopButton.onClick = [this] { owner.host.stopPlayback(file); repaint(); owner.updateControls(); };
         addChildComponent(stopButton);
 
         playButton.setVisible(hasAudio);
         stopButton.setVisible(hasAudio);
-        if (hasAudio)
-            setMouseCursor(juce::MouseCursor::DraggingHandCursor);
         setTooltip(hasAudio ? "click to seek, drag into your daw to keep " + name : juce::String());
     }
 
@@ -128,8 +116,9 @@ public:
         {
             showingPause = playing;
             playButton.setIcon(playing ? IconFactory::createPauseIcon() : IconFactory::createPlayIcon());
+            repaint();   // the cursor dims or brightens with it
         }
-        if (isActive() || owner.separating)
+        if (playing || owner.separating)
             repaint();
     }
 
@@ -166,10 +155,14 @@ public:
             return;
         }
 
-        // Not separated yet: the output, dimmed, as the output waveform shows it behind progress.
-        drawPeaks(g, waveArea, owner.getSourcePeaks(waveArea.getWidth() - 2), 0.3f);
+        // Not separated yet: empty, with a hint, as the recording buffer is before it has audio.
         if (!owner.separating)
+        {
+            g.setFont(juce::FontOptions(14.0f));
+            g.setColour(juce::Colours::darkgrey);
+            g.drawText("choose a model and press separate", waveArea, juce::Justification::centred);
             return;
+        }
 
         const int width = juce::roundToInt((waveArea.getWidth() - 2) * juce::jlimit(0.0, 1.0, owner.shownProgress));
         if (width > 0)
@@ -216,17 +209,18 @@ public:
 private:
     double duration() const { return sampleRate > 0.0 ? audio.getNumSamples() / sampleRate : 0.0; }
 
+    // Every stem keeps its own place: bright while it plays, dimmed where it was paused or seeked.
     void drawCursor(juce::Graphics& g)
     {
-        if (!isActive() || duration() <= 0.0)
+        if (duration() <= 0.0)
             return;
-        const double position = owner.host.position();
-        if (position <= 0.0 && !owner.host.isPlaying())
+        const bool playing = isActive() && owner.host.isPlaying();
+        const double position = owner.host.position(file);
+        if (position <= 0.0 && !playing)
             return;
         const int x = waveArea.getX() + 1
             + (int) (juce::jlimit(0.0, 1.0, position / duration()) * (waveArea.getWidth() - 2));
-        g.setColour(owner.host.isPlaying() ? juce::Colours::white.withAlpha(0.9f)
-                                           : juce::Colours::white.withAlpha(0.5f));
+        g.setColour(playing ? juce::Colours::white.withAlpha(0.9f) : juce::Colours::white.withAlpha(0.5f));
         g.drawVerticalLine(x, (float) waveArea.getY() + 1.0f, (float) waveArea.getBottom() - 1.0f);
     }
 
@@ -253,8 +247,9 @@ StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::Propertie
     // The stems belong to the audio as it is now, not to whatever replaces it later.
     session = service->createSessionDirectory();
     source = session.getChildFile("source" + outputAudio.getFileExtension());
-    if (!outputAudio.copyFileTo(source) || !loadAudio(source, sourceAudio, sourceSampleRate))
-        status.setText("could not read the output audio", juce::dontSendNotification);
+    sourceReady = outputAudio.copyFileTo(source) && source.getSize() > 0;
+    if (!sourceReady)
+        status.setText("could not copy the output audio", juce::dontSendNotification);
 
     title.setText("stems", juce::dontSendNotification);
     title.setFont(Theme::Fonts::HeaderLarge);
@@ -386,7 +381,7 @@ void StemsDialog::updateControls()
     separateButton.setButtonText(separating ? "cancel" : "separate");
     separateButton.setButtonStyle(separating ? CustomButton::ButtonStyle::Standard : CustomButton::ButtonStyle::Gary);
     separateButton.setEnabled(separating || (!host.isGenerating() && currentModelId().isNotEmpty()
-                                             && sourceAudio.getNumSamples() > 0));
+                                             && sourceReady));
     modelBox.setEnabled(!separating);
 }
 
@@ -423,7 +418,7 @@ void StemsDialog::timerCallback()
 
     // A generation can start or end while this is open only before it took focus; keep the button honest.
     const bool canSeparate = separating || (!host.isGenerating() && currentModelId().isNotEmpty()
-                                            && sourceAudio.getNumSamples() > 0);
+                                            && sourceReady);
     if (separateButton.isEnabled() != canSeparate)
         updateControls();
 }

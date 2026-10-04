@@ -75,7 +75,7 @@ void Gary4juceAudioProcessorEditor::showStemsDialog()
 
     StemsDialog::Host host;
     host.togglePlayback = [this](const juce::File& stem) { toggleStemPlayback(stem); };
-    host.stopPlayback = [this] { stopStemPlayback(); };
+    host.stopPlayback = [this](const juce::File& stem) { stopStemPlayback(stem); };
     host.seek = [this](const juce::File& stem, double seconds) { seekStem(stem, seconds); };
     host.activeStem = [this]
     {
@@ -85,13 +85,7 @@ void Gary4juceAudioProcessorEditor::showStemsDialog()
     {
         return activePlaybackSource == PlaybackSource::Stem && audioProcessor.getIsPlayingOutput();
     };
-    host.position = [this]
-    {
-        if (activePlaybackSource != PlaybackSource::Stem)
-            return 0.0;
-        return audioProcessor.getIsPlayingOutput() ? audioProcessor.getOutputPlaybackPosition()
-                                                   : stemPausedPosition;
-    };
+    host.position = [this](const juce::File& stem) { return stemPosition(stem); };
     host.drag = [this](const juce::File& stem, const juce::String& name) { startStemDrag(stem, name); };
     host.isGenerating = [this] { return isGenerating; };
     host.releasePlayback = [this] { releaseStemPlayback(); };
@@ -118,10 +112,30 @@ namespace
     constexpr double kNoPosition = 0.0;
 }
 
+double Gary4juceAudioProcessorEditor::currentStemPosition() const
+{
+    if (activePlaybackSource != PlaybackSource::Stem)
+        return kNoPosition;
+    return audioProcessor.getIsPlayingOutput() ? audioProcessor.getOutputPlaybackPosition()
+                                               : stemPausedPosition;
+}
+
+double Gary4juceAudioProcessorEditor::stemPosition(const juce::File& stem) const
+{
+    if (activePlaybackSource == PlaybackSource::Stem && activeStemFile == stem)
+        return currentStemPosition();
+    const auto found = stemPositions.find(stem.getFullPathName());
+    return found != stemPositions.end() ? found->second : kNoPosition;
+}
+
 void Gary4juceAudioProcessorEditor::loadStemIntoPlayer(const juce::File& stem)
 {
     if (activePlaybackSource != PlaybackSource::Stem || activeStemFile != stem)
     {
+        // The stem being left keeps its place, as if paused there.
+        if (activePlaybackSource == PlaybackSource::Stem && activeStemFile != juce::File())
+            stemPositions[activeStemFile.getFullPathName()] = currentStemPosition();
+
         // Take the player over, as playOutputAudio does from the input.
         audioProcessor.stopOutputPlayback();
         isPlayingInput = false;
@@ -137,7 +151,13 @@ void Gary4juceAudioProcessorEditor::loadStemIntoPlayer(const juce::File& stem)
         audioProcessor.loadOutputAudioForPlayback(stem);
         activePlaybackSource = PlaybackSource::Stem;
         activeStemFile = stem;
-        stemPausedPosition = kNoPosition;
+        // and the one coming in picks up where it was left.
+        const auto remembered = stemPositions.find(stem.getFullPathName());
+        stemPausedPosition = remembered != stemPositions.end() ? remembered->second : kNoPosition;
+        if (remembered != stemPositions.end())
+            stemPositions.erase(remembered);
+        if (stemPausedPosition > kNoPosition)
+            audioProcessor.seekOutputPlayback(stemPausedPosition);
         stemPlaybackRunning = false;
     }
 }
@@ -159,12 +179,16 @@ void Gary4juceAudioProcessorEditor::toggleStemPlayback(const juce::File& stem)
     repaint();
 }
 
-void Gary4juceAudioProcessorEditor::stopStemPlayback()
+// Stop always goes back to the start, whether this stem is in the player or was left paused.
+void Gary4juceAudioProcessorEditor::stopStemPlayback(const juce::File& stem)
 {
-    if (activePlaybackSource == PlaybackSource::Stem)
+    stemPositions.erase(stem.getFullPathName());
+    if (activePlaybackSource == PlaybackSource::Stem && activeStemFile == stem)
+    {
         audioProcessor.stopOutputPlayback();
-    stemPausedPosition = kNoPosition;
-    stemPlaybackRunning = false;
+        stemPausedPosition = kNoPosition;
+        stemPlaybackRunning = false;
+    }
 }
 
 void Gary4juceAudioProcessorEditor::seekStem(const juce::File& stem, double seconds)
@@ -178,6 +202,7 @@ void Gary4juceAudioProcessorEditor::seekStem(const juce::File& stem, double seco
 
 void Gary4juceAudioProcessorEditor::releaseStemPlayback()
 {
+    stemPositions.clear();
     if (activePlaybackSource != PlaybackSource::Stem)
         return;
     audioProcessor.stopOutputPlayback();
