@@ -57,6 +57,11 @@
               file="Source/Components/Foundation/FoundationUI.cpp"/>
         <FILE id="fndUI0" name="FoundationUI.h" compile="0" resource="0" file="Source/Components/Foundation/FoundationUI.h"/>
       </GROUP>
+      <GROUP id="{6B1E5C2A-8F3D-4E7B-9A21-5C0D7E8F9A31}" name="Stems">
+        <FILE id="StSet1" name="StemsSettings.cpp" compile="1" resource="0"
+              file="Source/Components/Stems/StemsSettings.cpp"/>
+        <FILE id="StSet0" name="StemsSettings.h" compile="0" resource="0" file="Source/Components/Stems/StemsSettings.h"/>
+      </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
         <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0" file="Source/Components/Jerry/BeatPrompts.cpp"/>
         <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0" file="Source/Components/Jerry/BeatPrompts.h"/>
@@ -100,6 +105,14 @@
             file="Source/PluginEditor.Storage.cpp"/>
       <FILE id="PEFnd0" name="PluginEditor.Foundation.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Foundation.cpp"/>
+      <FILE id="PEStm0" name="PluginEditor.Stems.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Stems.cpp"/>
+      <GROUP id="{9C4D2B7E-1A3F-4C5D-8E6F-7A8B9C0D1E2F}" name="Stems">
+        <FILE id="StRun1" name="StemsRuntime.cpp" compile="1" resource="0"
+              file="Source/Stems/StemsRuntime.cpp"/>
+        <FILE id="StRun0" name="StemsRuntime.h" compile="0" resource="0" file="Source/Stems/StemsRuntime.h"/>
+        <FILE id="StAbi0" name="libstems_v1.h" compile="0" resource="0" file="Source/Stems/libstems_v1.h"/>
+      </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"
             file="Source/PluginEditorCareyHelpers.h"/>
@@ -130,6 +143,7 @@
     <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_cryptography" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
@@ -156,6 +170,7 @@
         <MODULEPATH id="juce_audio_plugin_client" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../JUCE/modules"/>
       </MODULEPATHS>
     </VS2022>
     <XCODE_MAC targetFolder="Builds/MacOSX">
@@ -176,6 +191,7 @@
         <MODULEPATH id="juce_graphics" path="../JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
   </EXPORTFORMATS>
