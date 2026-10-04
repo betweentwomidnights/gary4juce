@@ -59,7 +59,7 @@ private:
     juce::Label jobStatus;
     juce::Label storageLabel;
 
-    bool jobWasRunning = false;
+    bool renderedRunning = false;   // whether the last refresh() drew a running job
     juce::String lastMessage;
     bool lastMessageIsError = false;
 

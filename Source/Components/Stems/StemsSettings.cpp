@@ -258,20 +258,22 @@ void StemsSettings::timerCallback()
         progressValue = job.progress;   // negative shows the spinning bar
         refresh();
     }
-    else if (jobWasRunning)
+    else if (renderedRunning)
     {
+        // The panel last drew a running job, which has finished since, possibly before any tick
+        // saw it running (a job that fails at once does). Show how it ended.
         lastMessage = job.succeeded ? job.status : job.error;
         lastMessageIsError = !job.succeeded;
         progressValue = 0.0;
         refresh();
     }
-    jobWasRunning = job.running;
 }
 
 void StemsSettings::refresh()
 {
     const auto job = service->getJob();
     const bool running = job.running;
+    renderedRunning = running;
     const bool available = service->isRuntimeAvailableForPlatform();
     const bool runtimeInstalled = service->isRuntimeInstalled();
     const auto& release = stems::pinnedRuntime();
