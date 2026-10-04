@@ -80,8 +80,14 @@ namespace stems
                   "7e57dfda1e3de5b776a4382da9117871dad6a4d3a59a46323bbac45b50188dca", 15604112 },
             };
 #elif JUCE_MAC
-            // The macOS runtime (one zip: a signed libstems.dylib with Metal, ggml linked in) goes
-            // here once stems.cpp publishes it. Until then the panel says it is not available.
+            // One universal zip: a signed, notarized libstems.dylib with ggml linked in. Metal on
+            // Apple Silicon; the CPU (AVX2) on Intel.
+            r.tag = "v0.1.1";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.1/";
+            r.packages = {
+                { "stems-v0.1.1-macos-universal.zip",
+                  "9cf66e87c00ff25c8169fb50be48e6b0fc0943e2c9bbc2cac247374ec6e19299", 6126101 },
+            };
 #endif
             return r;
         }();

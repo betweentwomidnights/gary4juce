@@ -1,4 +1,4 @@
-/* Vendored from stems.cpp v0.1.0 (https://github.com/betweentwomidnights/stems.cpp, src/libstems_v1.h).
+/* Vendored from stems.cpp v0.1.1 (https://github.com/betweentwomidnights/stems.cpp, src/libstems_v1.h).
  * MIT License, Copyright (c) 2026 ath (tinycrops). Keep it identical to the release gary4juce pins.
  */
 /* libstems V1 — stable C ABI for embedding stems.cpp (stem separation on ggml).
@@ -81,7 +81,7 @@ typedef struct {
     uint32_t size;
     const char* model_path;     /* a stems.cpp GGUF, e.g. models/htdemucs-42M-v1.0-F32.gguf */
     const char* device;         /* NULL or "" = best GPU, falling back to CPU; "cpu" = CPU */
-    int32_t cpu_threads;        /* 0 = ggml default */
+    int32_t cpu_threads;        /* 0 = one per physical core (performance cores on Apple Silicon) */
 } stems_context_config_v1;
 
 /* Non-owning input view. n_samples is per channel. */

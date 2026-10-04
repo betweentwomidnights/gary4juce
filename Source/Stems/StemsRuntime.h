@@ -10,7 +10,7 @@
     data folder, so they follow the user's storage location and survive plugin
     updates:
 
-        <gary data>/stems/runtime/<tag>/   stems.dll + stems-ggml*.dll
+        <gary data>/stems/runtime/<tag>/   stems.dll + stems-ggml*.dll, or libstems.dylib
         <gary data>/stems/models/          *.gguf
 
     Every download is checked against a SHA-256 pinned below before it is used.

@@ -146,8 +146,13 @@ StemsSettings::StemsSettings(std::shared_ptr<stems::StemsService> s, juce::Prope
         refresh();
     };
     addAndMakeVisible(gpuToggle);
+#if JUCE_MAC
+    gpuHint.setText("Metal on Apple Silicon. Intel Macs always run on the CPU: slower, but it works.",
+                    juce::dontSendNotification);
+#else
     gpuHint.setText("works on NVIDIA, AMD and Intel GPUs. off runs on the CPU: slower, but always available.",
                     juce::dontSendNotification);
+#endif
     styleLabel(gpuHint, Theme::Fonts::Small, Theme::Colors::TextSecondary);
     addAndMakeVisible(gpuHint);
 
@@ -285,8 +290,14 @@ void StemsSettings::refresh()
     else if (running && job.kind == stems::StemsService::JobKind::InstallRuntime)
         runtimeStatus.setText("installing stems.cpp " + release.tag, juce::dontSendNotification);
     else
-        runtimeStatus.setText("not installed. stems.cpp " + release.tag + " for GPU and CPU, about 19 MB",
+    {
+        juce::int64 downloadBytes = 0;
+        for (const auto& package : release.packages)
+            downloadBytes += package.sizeBytes;
+        runtimeStatus.setText("not installed. stems.cpp " + release.tag + " for GPU and CPU, about "
+                                  + stems::formatBytes(downloadBytes),
                               juce::dontSendNotification);
+    }
 
     runtimeButton.setButtonText(runtimeInstalled ? "remove" : "install");
     runtimeButton.setButtonStyle(runtimeInstalled ? CustomButton::ButtonStyle::Standard
