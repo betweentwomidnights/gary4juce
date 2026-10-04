@@ -33,6 +33,42 @@ void Gary4juceAudioProcessorEditor::showStemsSettings()
     trackEditorModalWindow(options.launchAsync());
 }
 
+// --- the stems popup's window --------------------------------------------------------------------
+
+namespace
+{
+    // A DialogWindow like LaunchOptions::launchAsync makes (modal, deleted when closed), with one
+    // exception to the modality. JUCE delivers a file drag's hover to a component a modal window
+    // blocks, but not its drop, which left the recording buffer stuck in its yellow drop state when
+    // a stem was dragged onto it. While a stem drag from the popup is in progress, the editor may
+    // receive it; clicks stay blocked, which is what keeps generations from starting mid-separation.
+    class StemsWindow final : public juce::DialogWindow
+    {
+    public:
+        StemsWindow(juce::Component* content, juce::Component& editorToAllow, std::function<bool()> stemDragActive)
+            : juce::DialogWindow("stems", juce::Colour(0x1e, 0x1e, 0x1e), true, true,
+                                 juce::Component::getApproximateScaleFactorForComponent(&editorToAllow)),
+              editor(&editorToAllow), dragActive(std::move(stemDragActive))
+        {
+            setContentOwned(content, true);
+            centreAroundComponent(&editorToAllow, getWidth(), getHeight());
+            setResizable(false, false);
+            setUsingNativeTitleBar(true);
+        }
+
+        void closeButtonPressed() override { setVisible(false); }   // hiding ends the modal state and deletes it
+
+        bool canModalEventBeSentToComponent(const juce::Component* target) override
+        {
+            return target != nullptr && target == editor.getComponent() && dragActive();
+        }
+
+    private:
+        juce::Component::SafePointer<juce::Component> editor;
+        std::function<bool()> dragActive;
+    };
+}
+
 // --- the "stems" handle --------------------------------------------------------------------------
 
 void Gary4juceAudioProcessorEditor::updateStemsButtonState()
@@ -93,15 +129,11 @@ void Gary4juceAudioProcessorEditor::showStemsDialog()
     getStemsService();
     auto* dialog = new StemsDialog(stemsService, getUpdatePreferences(), std::move(host), outputAudioFile);
 
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned(dialog);
-    options.dialogTitle = "stems";
-    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-
-    trackEditorModalWindow(options.launchAsync());
+    // Dropping a stem on the recording buffer, as the output can be dropped there.
+    auto* window = new StemsWindow(dialog, *this, [this] { return isDragInProgress.load(); });
+    window->setVisible(true);
+    window->enterModalState(true, nullptr, true);
+    trackEditorModalWindow(window);
 }
 
 // --- stem playback, through the same player as the output ----------------------------------------
