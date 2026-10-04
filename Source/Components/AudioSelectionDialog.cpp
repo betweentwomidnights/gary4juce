@@ -85,8 +85,7 @@ AudioSelectionDialog::AudioSelectionDialog()
     addAndMakeVisible(zoomInButton);
 
     scrollBar.setAutoHide(false);
-    scrollBar.setColour(juce::ScrollBar::thumbColourId, juce::Colours::white.withAlpha(0.35f));
-    scrollBar.setColour(juce::ScrollBar::trackColourId, juce::Colour(0x2a, 0x2a, 0x2a));
+    scrollBar.setLookAndFeel(&scrollBarLookAndFeel);   // the same scrollbar as the main UI's
     scrollBar.addListener(this);
     addChildComponent(scrollBar);
 
@@ -124,6 +123,7 @@ AudioSelectionDialog::~AudioSelectionDialog()
 {
     stopTimer();
     scrollBar.removeListener(this);
+    scrollBar.setLookAndFeel(nullptr);
 
     // Stop playback and clean up audio
     transportSource.setSource(nullptr);

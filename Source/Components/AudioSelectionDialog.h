@@ -15,6 +15,7 @@
 
 #include <JuceHeader.h>
 #include "Base/CustomButton.h"
+#include "../Utils/CustomLookAndFeel.h"
 #include "../Utils/IconFactory.h"
 #include <utility>
 
@@ -85,6 +86,7 @@ private:
     // appears once zoomed in; Ctrl/Cmd + wheel zooms around the mouse, the wheel alone pans.
     double viewStart = 0.0;
     double viewDuration = 0.0;
+    CustomLookAndFeel scrollBarLookAndFeel;   // gary's scrollbars; declared first so it outlives the bar
     juce::ScrollBar scrollBar { false };
     juce::Rectangle<int> scrollArea;
     void setView(double start, double duration);
