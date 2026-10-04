@@ -45,8 +45,10 @@ public:
         std::function<void()> releasePlayback;                          // before the session goes
     };
 
-    StemsDialog(std::shared_ptr<stems::StemsService> service, juce::PropertiesFile& preferences,
-                Host host, const juce::File& outputAudio);
+    // writeSource puts the audio to separate (the output, or the recording buffer) into a WAV file
+    // in the popup's session; sourceName titles the popup ("output", "recording buffer").
+    StemsDialog(std::shared_ptr<stems::StemsService> service, juce::PropertiesFile& preferences, Host host,
+                const std::function<bool(const juce::File&)>& writeSource, const juce::String& sourceName);
     ~StemsDialog() override;
 
     void paint(juce::Graphics& g) override;
@@ -72,7 +74,7 @@ private:
     Host host;
 
     juce::File session;
-    juce::File source;                 // the output, copied into the session
+    juce::File source;                 // the audio being separated, as it was when the popup opened
     bool sourceReady = false;
 
     juce::Label title;

@@ -240,18 +240,18 @@ private:
 
 // --- dialog --------------------------------------------------------------------------------------
 
-StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::PropertiesFile& prefs,
-                         Host h, const juce::File& outputAudio)
+StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::PropertiesFile& prefs, Host h,
+                         const std::function<bool(const juce::File&)>& writeSource, const juce::String& sourceName)
     : service(std::move(s)), preferences(prefs), host(std::move(h))
 {
     // The stems belong to the audio as it is now, not to whatever replaces it later.
     session = service->createSessionDirectory();
-    source = session.getChildFile("source" + outputAudio.getFileExtension());
-    sourceReady = outputAudio.copyFileTo(source) && source.getSize() > 0;
+    source = session.getChildFile("source.wav");
+    sourceReady = writeSource(source) && source.getSize() > 0;
     if (!sourceReady)
-        status.setText("could not copy the output audio", juce::dontSendNotification);
+        status.setText("could not read the " + sourceName, juce::dontSendNotification);
 
-    title.setText("stems", juce::dontSendNotification);
+    title.setText(sourceName + " stems", juce::dontSendNotification);
     title.setFont(Theme::Fonts::HeaderLarge);
     title.setColour(juce::Label::textColourId, Theme::Colors::TextPrimary);
     addAndMakeVisible(title);

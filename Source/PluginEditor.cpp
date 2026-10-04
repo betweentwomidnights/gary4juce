@@ -771,6 +771,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     yueyMidiButton("YueyMidi", juce::DrawableButton::ImageFitted),
     yueyScoreButton("YueyScore", juce::DrawableButton::ImageFitted),
     stemsButton("Stems", juce::DrawableButton::ImageFitted),
+    stemsInputButton("StemsInput", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     sa3HelpButton("sa3 help", juce::DrawableButton::ImageFitted),
@@ -1867,10 +1868,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(yueyScoreButton);
 
     stemsButton.setTooltip("separate this output into stems");
-    stemsButton.onClick = [this]() { showStemsDialog(); };
-    stemsButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
-    stemsButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
-    addChildComponent(stemsButton);   // shown by updateStemsButtonState once stems can run
+    stemsButton.onClick = [this]() { showStemsDialog(false); };
+    stemsInputButton.setTooltip("separate the recording buffer into stems");
+    stemsInputButton.onClick = [this]() { showStemsDialog(true); };
+    for (auto* handle : { &stemsButton, &stemsInputButton })
+    {
+        handle->setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+        handle->setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+        addChildComponent(*handle);   // shown by updateStemsButtonState once stems can run
+    }
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
@@ -2973,12 +2979,11 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     // The same range editor is available in plugin and standalone builds.
     if (recordedSamples > 0 && !isRecording)
     {
-        // Draw hint text at bottom-right of waveform
+        // Hint at the bottom left; the stems handle has the bottom right.
         g.setFont(juce::FontOptions(13.0f));
         g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
-        // Create hint area from bottom-right of waveform without modifying original area
-        auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
-        g.drawText("double-click to select range", hintArea, juce::Justification::centredRight);
+        auto hintArea = juce::Rectangle<int>(area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
+        g.drawText("double-click to select range", hintArea, juce::Justification::centredLeft);
     }
 }
 
@@ -6588,10 +6593,11 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
         {
             g.setFont(juce::FontOptions(13.0f));
             g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+            // Bottom left; the stems handle has the bottom right.
             auto hintArea = juce::Rectangle<int>(
-                area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
+                area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
             g.drawText("double-click to select range", hintArea,
-                       juce::Justification::centredRight);
+                       juce::Justification::centredLeft);
         }
     }
     else
@@ -8476,6 +8482,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     drawScoreHandle(yueyMidiButton, "midi");
     drawScoreHandle(yueyScoreButton, "score");
     drawScoreHandle(stemsButton, "stems");
+    drawScoreHandle(stemsInputButton, "stems");
 }
 
 // ========== UPDATED RESIZED METHOD ==========
@@ -8984,9 +8991,11 @@ void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sec
     yueyScoreButton.setBounds(outputWaveformArea.getX() + 51,
                               outputWaveformArea.getY() + 5, 48, 25);
 
-    // The stem separator's handle, bottom right, below the crop overlay.
+    // The stem separator's handles, bottom right of each waveform (the output's below its crop overlay).
     stemsButton.setBounds(outputWaveformArea.getRight() - 55,
                           outputWaveformArea.getBottom() - 30, 50, 25);
+    stemsInputButton.setBounds(waveformArea.getRight() - 55,
+                               waveformArea.getBottom() - 30, 50, 25);
 }
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()
