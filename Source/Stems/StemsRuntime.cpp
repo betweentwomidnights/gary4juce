@@ -15,12 +15,22 @@
   #define NOMINMAX
  #endif
  #include <windows.h>
+#else
+ #include <dlfcn.h>
 #endif
 
 namespace stems
 {
     namespace
     {
+        // The C ABI library at the root of an installed runtime.
+#if JUCE_WINDOWS
+        constexpr auto kLibraryName = "stems.dll";
+#elif JUCE_MAC
+        constexpr auto kLibraryName = "libstems.dylib";
+#else
+        constexpr auto kLibraryName = "libstems.so";
+#endif
         constexpr auto kInstalledMarker = "installed.json";
         constexpr auto kPendingRemovalFile = "pending-removal.txt";
         constexpr int kDownloadChunkBytes = 1 << 20;
@@ -67,6 +77,9 @@ namespace stems
                 { "stems-v0.1.0-windows-x64-core.zip", "", 0 },
                 { "stems-v0.1.0-windows-x64-vulkan.zip", "", 0 },
             };
+#elif JUCE_MAC
+            // The macOS runtime (one zip: a signed libstems.dylib with Metal, ggml linked in) goes
+            // here once stems.cpp publishes it. Until then the panel says it is not available.
 #endif
             return r;
         }();
@@ -180,10 +193,23 @@ namespace stems
             return error.isEmpty() ? api : nullptr;
         }
 #else
-        const stems_api_v1* loadApi(const juce::File&, juce::String& error)
+        // RTLD_LOCAL keeps the runtime's symbols to itself, beside any other ggml in the process.
+        const stems_api_v1* loadApi(const juce::File& library, juce::String& error)
         {
-            error = "the stem separator is not available on this platform yet";
-            return nullptr;
+            void* module = dlopen(library.getFullPathName().toRawUTF8(), RTLD_NOW | RTLD_LOCAL);
+            if (module == nullptr)
+            {
+                const char* reason = dlerror();
+                error = "could not load " + library.getFileName()
+                    + (reason != nullptr ? ": " + juce::String::fromUTF8(reason) : juce::String());
+                return nullptr;
+            }
+            using GetApi = const stems_api_v1* (STEMS_CALL*)(uint32_t);
+            const auto getApi = reinterpret_cast<GetApi>(dlsym(module, "stems_get_api"));
+            const stems_api_v1* api = getApi != nullptr ? getApi(STEMS_ABI_VERSION_1) : nullptr;
+            if (api == nullptr || api->size < STEMS_API_V1_MIN_SIZE)
+                error = library.getFileName() + " does not provide the stems C ABI v1";
+            return error.isEmpty() ? api : nullptr;
         }
 #endif
 
@@ -255,7 +281,7 @@ namespace stems
         if (!isRuntimeAvailableForPlatform())
             return false;
         const auto dir = getRuntimeDirectory();
-        return dir.getChildFile("stems.dll").existsAsFile() && dir.getChildFile(kInstalledMarker).existsAsFile();
+        return dir.getChildFile(kLibraryName).existsAsFile() && dir.getChildFile(kInstalledMarker).existsAsFile();
     }
 
     bool StemsService::isModelInstalled(const juce::String& modelId) const
@@ -497,8 +523,8 @@ namespace stems
             zip.deleteFile();
         }
 
-        if (error.isEmpty() && !staging.getChildFile("stems.dll").existsAsFile())
-            error = "the runtime package has no stems.dll";
+        if (error.isEmpty() && !staging.getChildFile(kLibraryName).existsAsFile())
+            error = juce::String("the runtime package has no ") + kLibraryName;
 
         if (error.isEmpty())
         {
@@ -632,7 +658,7 @@ namespace stems
 
     bool StemsService::ensureEngine(juce::String& error)
     {
-        const auto library = getRuntimeDirectory().getChildFile("stems.dll");
+        const auto library = getRuntimeDirectory().getChildFile(kLibraryName);
         if (engine != nullptr && engine->library == library)
             return true;
         const auto* api = loadApi(library, error);
