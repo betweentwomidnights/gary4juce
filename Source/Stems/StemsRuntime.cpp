@@ -71,13 +71,13 @@ namespace stems
         {
             RuntimeRelease r;
 #if JUCE_WINDOWS
-            r.tag = "v0.1.0";
-            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.0/";
+            r.tag = "v0.1.1";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.1/";
             r.packages = {
-                { "stems-v0.1.0-windows-x64-core.zip",
-                  "551478bcc1b4a6e916b49d5cfe8047338f5de00962ed272eaca377c1b5de3d3e", 3591098 },
-                { "stems-v0.1.0-windows-x64-vulkan.zip",
-                  "7e57dfda1e3de5b776a4382da9117871dad6a4d3a59a46323bbac45b50188dca", 15604112 },
+                { "stems-v0.1.1-windows-x64-core.zip",
+                  "f19b397ea89251296f6423808ea42f49a5c78f1758e35cfc8917913905835b80", 3593570 },
+                { "stems-v0.1.1-windows-x64-vulkan.zip",
+                  "56d82849ad8be1ad48ef70c9fafa488b28c2dcf395ae286838e04f4f0e712243", 15604112 },
             };
 #elif JUCE_MAC
             // One universal zip: a signed, notarized libstems.dylib with ggml linked in. Metal on
