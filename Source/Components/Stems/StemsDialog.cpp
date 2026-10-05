@@ -204,6 +204,7 @@ public:
         const double fraction = juce::jlimit(0.0, 1.0, (double) (e.x - waveArea.getX() - 1) / juce::jmax(1, waveArea.getWidth() - 2));
         owner.host.seek(file, fraction * duration());
         owner.updateControls();
+        repaint();   // update() only repaints while playing, so a seek on a stopped stem needs this to show its cursor
     }
 
 private:
