@@ -71,22 +71,22 @@ namespace stems
         {
             RuntimeRelease r;
 #if JUCE_WINDOWS
-            r.tag = "v0.1.1";
-            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.1/";
+            r.tag = "v0.1.2";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.2/";
             r.packages = {
-                { "stems-v0.1.1-windows-x64-core.zip",
-                  "f19b397ea89251296f6423808ea42f49a5c78f1758e35cfc8917913905835b80", 3593570 },
-                { "stems-v0.1.1-windows-x64-vulkan.zip",
-                  "56d82849ad8be1ad48ef70c9fafa488b28c2dcf395ae286838e04f4f0e712243", 15604112 },
+                { "stems-v0.1.2-windows-x64-core.zip",
+                  "d67402feedf67e1e56cb202a2ed3ce37193ba7c8d1a209a15b36f448ddfaa865", 3593557 },
+                { "stems-v0.1.2-windows-x64-vulkan.zip",
+                  "87647c1f344de228111170514881863a578c39bca3bcd7e13b999d06cdeb3d22", 15608679 },
             };
 #elif JUCE_MAC
             // One universal zip: a signed, notarized libstems.dylib with ggml linked in. Metal on
             // Apple Silicon; the CPU (AVX2) on Intel.
-            r.tag = "v0.1.1";
-            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.1/";
+            r.tag = "v0.1.2";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.2/";
             r.packages = {
-                { "stems-v0.1.1-macos-universal.zip",
-                  "9cf66e87c00ff25c8169fb50be48e6b0fc0943e2c9bbc2cac247374ec6e19299", 6126101 },
+                { "stems-v0.1.2-macos-universal.zip",
+                  "e817d73c2cc7ab74870f2ddac70c8da1b04e650b7f9158824cf70a4f57f3d7a1", 6126642 },
             };
 #endif
             return r;

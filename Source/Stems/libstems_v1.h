@@ -1,4 +1,4 @@
-/* Vendored from stems.cpp v0.1.1 (https://github.com/betweentwomidnights/stems.cpp, src/libstems_v1.h).
+/* Vendored from stems.cpp v0.1.2 (https://github.com/betweentwomidnights/stems.cpp, src/libstems_v1.h).
  * MIT License, Copyright (c) 2026 ath (tinycrops). Keep it identical to the release gary4juce pins.
  */
 /* libstems V1 — stable C ABI for embedding stems.cpp (stem separation on ggml).
