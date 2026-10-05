@@ -2,7 +2,7 @@
 
 > this doc is probably a bit outdated right now. i am always learning new tricks with these models, and documentation hasn't been top of mind for me. this is a great place to add a contribution if you've found some clever ways to use this model inside of gary.
 
-carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with four modes: **lego**, **complete**, **cover**, and **extract**. each mode uses the same underlying model family, but the backend routing and the best practices are a little different depending on what you're trying to do.
+carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with three modes: **lego**, **complete**, and **cover**. (there's a fourth, **extract**, but it's hidden as of v5.0.0. see [extract mode](#extract-mode).) each mode uses the same underlying model family, but the backend routing and the best practices are a little different depending on what you're trying to do.
 
 backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
@@ -88,6 +88,12 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 ---
 
 ## extract mode
+
+**hidden as of v5.0.0.** the built-in stem separator (see the
+[stem separator section of the readme](../README.md#stem-separator)) does this
+job better, so the tab is gone from the plugin. the code is still there behind
+`CareyUI::kExtractTabVisible`, and it can probably be cleaned up for good unless
+something drastic changes for ace-step. the notes below are from before that.
 
 **what it does:** tries to pull out a target stem from your recorded audio using the carey workflow instead of a traditional separator.
 

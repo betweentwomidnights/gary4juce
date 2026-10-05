@@ -41,7 +41,7 @@ gary4juce now gives you **eight AI music models** directly in your DAW:
 - **gary** ([musicgen](https://github.com/facebookresearch/audiocraft)) - continuation/anti-looper. Extends your audio in creative directions
 - **jerry** ([stable-audio-open-small](https://huggingface.co/stabilityai/stable-audio-open-small)) - BPM-aware 12-second loop generation in under a second
 - **rc-jerry** ([foundation-1](https://huggingface.co/RoyalCities/Foundation-1)) - BPM and key-aware 4/8-bar loop generation with structured prompt assembly
-- **carey** ([ace-step](https://github.com/ace-step/ACE-Step-1.5)) - stem generation, extraction, audio continuation, and remix/cover with lyrics and multilingual support
+- **carey** ([ace-step](https://github.com/ace-step/ACE-Step-1.5)) - stem generation, audio continuation, and remix/cover with lyrics and multilingual support
 - **terry** ([melodyflow](https://huggingface.co/spaces/facebook/melodyflow)) - audio transformation. Turn your guitar into an orchestra
 - **darius** ([magenta-realtime](https://github.com/magenta/magenta-realtime)) - high-quality 48 kHz continuations with style control (probably deprecating this one soon)
 
@@ -296,7 +296,9 @@ carey uses ACE-Step.
 - **lego** - generate vocals/backing vocals over your audio
 - **complete** - extend audio into a full continuation
 - **cover** - remix/restyle with caption guidance
-- **extract** - attempt target stem extraction from your recording buffer
+
+there used to be an extract mode here. it's hidden as of v5.0.0 because the
+built-in [stem separator](#stem-separator) does that job better.
 
 shared lyrics editor, 50-language support, key/scale/time signature selection,
 caption popouts, and LoRA support live here.

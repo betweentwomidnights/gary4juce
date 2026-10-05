@@ -361,6 +361,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
         juce::jlimit(0, 3, readInt("careySubTab", 0)));
+    if (currentCareySubTab == CareyUI::SubTab::Extract && ! CareyUI::kExtractTabVisible)
+        currentCareySubTab = CareyUI::SubTab::Lego;
     currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
     currentCareyCompleteAdvancedOpen = readBool(
         "careyCompleteAdvanced", currentCareyCompleteAdvancedOpen);

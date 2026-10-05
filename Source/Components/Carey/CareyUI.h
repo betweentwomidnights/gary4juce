@@ -49,6 +49,13 @@ public:
         Extract
     };
 
+    // TODO: the extract sub-tab is hidden since v5.0.0. The embedded stem separator (stems.cpp)
+    // does what it was attempting, much better. Everything else about extract is still here, so
+    // this one switch brings it back. It can probably be removed for good (this code, the editor's
+    // extract plumbing, the backend route and docs/CAREY.md) unless something drastic changes
+    // for ace-step.
+    static constexpr bool kExtractTabVisible = false;
+
     CareyUI();
     ~CareyUI() override;
 
