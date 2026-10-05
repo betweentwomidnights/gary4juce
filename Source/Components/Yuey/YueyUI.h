@@ -110,6 +110,10 @@ public:
     std::function<void()> onRemix;
     std::function<void()> onContinue;
 
+    // The dice, drawn here so the score window's matches the one beside the prompt.
+    static void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds,
+                             bool isHovered, bool isPressed);
+
 private:
     enum class PromptTarget { Create = 0, Remix, Continue };
 
@@ -122,8 +126,6 @@ private:
     void openLyricsPopout();
     void updateLyricsButton();
     void closeAuxiliaryWindows();
-    void drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds,
-                      bool isHovered, bool isPressed);
     void drawPopoutIcon(juce::Graphics& g, juce::Rectangle<float> bounds,
                         bool isHovered, bool isPressed);
     void selectCreateLength(bool fixedBars, bool notify);

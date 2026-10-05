@@ -502,6 +502,9 @@ private:
     juce::int64 yueyDiceLastAttemptMs = 0;
     void refreshYueyDicePrompts();
     void rollYueyDicePrompt(YueyUI::SubTab tab);
+    // A prompt from the pool that is not `current`, or empty with `problem` saying why not.
+    juce::String pickYueyDicePrompt(bool instrumental, const juce::String& current,
+                                    juce::String& problem);
 
     // ---------- yuey score: owned by the output audio, not by the tab ----------
     struct YueyMidiLane
@@ -570,7 +573,8 @@ private:
     void startStemDrag(const juce::File& stem, const juce::String& stemName);
     void openYueyScoreEditor();
     void saveYueyWorkingScore(const juce::String& abc);
-    void renderYueyScore(const juce::String& abc, bool fullScore);
+    void renderYueyScore(const juce::String& abc, bool fullScore, const juce::String& prompt);
+    void saveYueyScorePrompt(const juce::String& prompt);
     void reportYueyWarnings(juce::DynamicObject* completedResponse);
     void recordYueyLastSeed(juce::DynamicObject* completedResponse);
 

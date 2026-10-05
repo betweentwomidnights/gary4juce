@@ -988,6 +988,34 @@ void Gary4juceAudioProcessorEditor::refreshYueyDicePrompts()
     });
 }
 
+juce::String Gary4juceAudioProcessorEditor::pickYueyDicePrompt(bool instrumental,
+                                                               const juce::String& current,
+                                                               juce::String& problem)
+{
+    // Prefer the bucket that matches, but a backend that only answered with
+    // one should still roll rather than do nothing.
+    const auto& preferred = instrumental ? yueyDiceInstrumental : yueyDiceVocal;
+    const auto& fallback = instrumental ? yueyDiceVocal : yueyDiceInstrumental;
+    const auto& pool = preferred.isEmpty() ? fallback : preferred;
+
+    if (pool.isEmpty())
+    {
+        refreshYueyDicePrompts();
+        problem = isServiceReachable(ServiceType::Yuey)
+            ? "fetching yuey prompts - roll again in a moment"
+            : "yuey not reachable - check connection first";
+        return {};
+    }
+
+    // Do not hand back what is already in the field: a dice that repeats reads
+    // as a dice that did nothing.
+    auto& random = juce::Random::getSystemRandom();
+    juce::String prompt = pool[random.nextInt(pool.size())];
+    for (int attempt = 0; attempt < 4 && prompt == current && pool.size() > 1; ++attempt)
+        prompt = pool[random.nextInt(pool.size())];
+    return prompt;
+}
+
 void Gary4juceAudioProcessorEditor::rollYueyDicePrompt(YueyUI::SubTab tab)
 {
     if (!yueyUI)
@@ -998,30 +1026,16 @@ void Gary4juceAudioProcessorEditor::rollYueyDicePrompt(YueyUI::SubTab tab)
         ? yueyUI->getCreateInstrumental()
         : yueyUI->getRemixInstrumental();
 
-    // Prefer the bucket that matches, but a backend that only answered with
-    // one should still roll rather than do nothing.
-    const auto& preferred = instrumental ? yueyDiceInstrumental : yueyDiceVocal;
-    const auto& fallback = instrumental ? yueyDiceVocal : yueyDiceInstrumental;
-    const auto& pool = preferred.isEmpty() ? fallback : preferred;
-
-    if (pool.isEmpty())
-    {
-        refreshYueyDicePrompts();
-        showStatusMessage(isServiceReachable(ServiceType::Yuey)
-            ? "fetching yuey prompts - roll again in a moment"
-            : "yuey not reachable - check connection first", 3000);
-        return;
-    }
-
-    // Do not hand back what is already in the field: a dice that repeats reads
-    // as a dice that did nothing.
     const juce::String current = tab == YueyUI::SubTab::Create ? yueyUI->getCreatePrompt()
         : tab == YueyUI::SubTab::Remix ? yueyUI->getRemixPrompt()
                                        : yueyUI->getContinuePrompt();
-    auto& random = juce::Random::getSystemRandom();
-    juce::String prompt = pool[random.nextInt(pool.size())];
-    for (int attempt = 0; attempt < 4 && prompt == current && pool.size() > 1; ++attempt)
-        prompt = pool[random.nextInt(pool.size())];
+    juce::String problem;
+    const auto prompt = pickYueyDicePrompt(instrumental, current, problem);
+    if (prompt.isEmpty())
+    {
+        showStatusMessage(problem, 3000);
+        return;
+    }
 
     switch (tab)
     {
@@ -1423,11 +1437,14 @@ public:
                     juce::String summary,
                     juce::String healthUrlIn,
                     juce::String transformUrlIn,
-                    std::function<void(const juce::String&, bool)> render,
-                    std::function<void(const juce::String&)> save)
+                    juce::String initialPrompt,
+                    std::function<juce::String(const juce::String&, juce::String&)> roll,
+                    std::function<void(const juce::String&, bool, const juce::String&)> render,
+                    std::function<void(const juce::String&, const juce::String&)> save)
         : originalAbc(std::move(original)),
           healthUrl(std::move(healthUrlIn)),
           transformUrl(std::move(transformUrlIn)),
+          onRoll(std::move(roll)),
           onRender(std::move(render)),
           onSave(std::move(save))
     {
@@ -1440,6 +1457,44 @@ public:
         meta.setFont(juce::FontOptions(11.0f));
         meta.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
         addAndMakeVisible(meta);
+
+        // The score carries the notes; this carries the sound. It is the create
+        // tab's prompt, so a render started here and one started there agree.
+        promptLabel.setText("style prompt", juce::dontSendNotification);
+        promptLabel.setFont(juce::FontOptions(11.0f));
+        promptLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
+        addAndMakeVisible(promptLabel);
+
+        promptEditor.setMultiLine(false);
+        promptEditor.setReturnKeyStartsNewLine(false);
+        promptEditor.setScrollbarsShown(false);
+        promptEditor.setPlaceholderText("describe the song or reinterpretation");
+        promptEditor.setText(initialPrompt, juce::dontSendNotification);
+        addAndMakeVisible(promptEditor);
+
+        diceButton.setButtonText("");
+        diceButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+        diceButton.setTooltip("roll a style prompt");
+        diceButton.onClick = [this]()
+        {
+            if (!onRoll)
+                return;
+            juce::String problem;
+            const auto rolled = onRoll(promptEditor.getText().trim(), problem);
+            if (rolled.isEmpty())
+            {
+                setStatus(problem, juce::Colours::orange);
+                return;
+            }
+            promptEditor.setText(rolled, juce::dontSendNotification);
+            revalidate(); // clears an earlier "roll again in a moment"
+        };
+        diceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+        {
+            YueyUI::drawDiceIcon(g, bounds.toFloat().reduced(2.0f),
+                                 diceButton.isMouseOver(), diceButton.isDown());
+        };
+        addAndMakeVisible(diceButton);
 
         editor.setMultiLine(true, false); // no word wrap: bar lines must line up
         editor.setReturnKeyStartsNewLine(true);
@@ -1497,7 +1552,8 @@ public:
         renderButton.onClick = [this]()
         {
             if (onRender)
-                onRender(editor.getText(), followBox.getSelectedId() == 2);
+                onRender(editor.getText(), followBox.getSelectedId() == 2,
+                         promptEditor.getText().trim());
             close();
         };
         addAndMakeVisible(renderButton);
@@ -1586,10 +1642,10 @@ public:
 
     ~YueyScorePopout() override
     {
-        // Keep whatever they left in the box, so closing the window is not a
+        // Keep whatever they left in the boxes, so closing the window is not a
         // way to lose an edit.
         if (onSave)
-            onSave(editor.getText());
+            onSave(editor.getText(), promptEditor.getText().trim());
     }
 
     void resized() override
@@ -1597,6 +1653,13 @@ public:
         auto area = getLocalBounds().reduced(10);
         title.setBounds(area.removeFromTop(20));
         meta.setBounds(area.removeFromTop(16));
+        area.removeFromTop(6);
+
+        auto promptRow = area.removeFromTop(26);
+        promptLabel.setBounds(promptRow.removeFromLeft(74));
+        diceButton.setBounds(promptRow.removeFromRight(26).reduced(0, 1));
+        promptRow.removeFromRight(4);
+        promptEditor.setBounds(promptRow.reduced(0, 1));
         area.removeFromTop(6);
 
         auto buttons = area.removeFromBottom(32);
@@ -1897,11 +1960,15 @@ private:
 
     juce::String originalAbc;
     juce::String healthUrl, transformUrl;
-    std::function<void(const juce::String&, bool)> onRender;
-    std::function<void(const juce::String&)> onSave;
+    // Gives a new prompt for the current one, or an empty string with the reason.
+    std::function<juce::String(const juce::String&, juce::String&)> onRoll;
+    std::function<void(const juce::String&, bool, const juce::String&)> onRender;
+    std::function<void(const juce::String&, const juce::String&)> onSave;
 
-    juce::Label title, meta, status, followLabel, followHint, editsNote;
+    juce::Label title, meta, status, followLabel, followHint, editsNote, promptLabel;
     juce::TextEditor editor;
+    CustomTextEditor promptEditor;
+    CustomButton diceButton;
     CustomComboBox followBox;
     CustomButton copyButton, revertButton, renderButton, closeButton;
     CustomButton halfTimeButton, doubleTimeButton, melodyToInsButton, swapButton,
@@ -1954,6 +2021,16 @@ void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
     if (!yueyScore.alignedToAudio)
         summary << "  ·  the output was edited after this was rendered";
 
+    // A score is rendered through /generate, which is the create tab's job, so
+    // the prompt is the create tab's. When that is empty and the score came out
+    // of a remix or a continuation, the prompt that made it is the next best
+    // thing to start from.
+    juce::String initialPrompt = currentYueyCreatePrompt.trim();
+    if (initialPrompt.isEmpty())
+        initialPrompt = yueyScore.sourceOp == "remix"    ? currentYueyRemixPrompt.trim()
+                      : yueyScore.sourceOp == "continue" ? currentYueyContinuePrompt.trim()
+                                                         : juce::String();
+
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
     // Asked directly rather than gated on the reachability snapshot, which can
     // lag a backend that just came up; the answer decides.
@@ -1961,15 +2038,27 @@ void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
         yueyScore.workingAbc, yueyScore.originalAbc, summary,
         getServiceUrl(ServiceType::Yuey, "/health"),
         getServiceUrl(ServiceType::Yuey, "/score/transform"),
-        [safeThis](const juce::String& abc, bool fullScore)
+        initialPrompt,
+        [safeThis](const juce::String& current, juce::String& problem) -> juce::String
         {
-            if (auto* editor = safeThis.getComponent())
-                editor->renderYueyScore(abc, fullScore);
+            auto* editor = safeThis.getComponent();
+            if (editor == nullptr)
+                return {};
+            // The render below is a create-style job, so it rolls from create's pool.
+            return editor->pickYueyDicePrompt(editor->currentYueyCreateInstrumental, current, problem);
         },
-        [safeThis](const juce::String& abc)
+        [safeThis](const juce::String& abc, bool fullScore, const juce::String& prompt)
         {
             if (auto* editor = safeThis.getComponent())
+                editor->renderYueyScore(abc, fullScore, prompt);
+        },
+        [safeThis](const juce::String& abc, const juce::String& prompt)
+        {
+            if (auto* editor = safeThis.getComponent())
+            {
                 editor->saveYueyWorkingScore(abc);
+                editor->saveYueyScorePrompt(prompt);
+            }
         });
 
     juce::DialogWindow::LaunchOptions options;
@@ -2000,7 +2089,24 @@ void Gary4juceAudioProcessorEditor::saveYueyWorkingScore(const juce::String& abc
     persistYueyScore();
 }
 
-void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, bool fullScore)
+void Gary4juceAudioProcessorEditor::saveYueyScorePrompt(const juce::String& prompt)
+{
+    if (prompt.trim() == currentYueyCreatePrompt.trim())
+        return;
+
+    // The create tab's box is where this prompt lives, so what the window shows
+    // and what the tab shows never disagree.
+    currentYueyCreatePrompt = prompt;
+    if (yueyUI == nullptr)
+        return;
+    yueyUI->setCreatePrompt(prompt);
+    // That setter does not notify; tell the handler a typed character would have.
+    if (yueyUI->onPromptChanged)
+        yueyUI->onPromptChanged(YueyUI::SubTab::Create, prompt);
+}
+
+void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, bool fullScore,
+                                                     const juce::String& prompt)
 {
     if (abc.trim().isEmpty())
     {
@@ -2019,6 +2125,7 @@ void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, boo
     }
 
     saveYueyWorkingScore(abc);
+    saveYueyScorePrompt(prompt);
 
     // Rendering a score is a yuey job, so put the user where the progress and
     // the result are going to appear.
