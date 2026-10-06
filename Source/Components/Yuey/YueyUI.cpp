@@ -319,7 +319,17 @@ YueyUI::YueyUI()
     bpmControl.setRange(40.0, 300.0, 1.0);
     bpmControl.setValue(120.0, false);
     bpmControl.onValueChange = [this](double) { if (onPlanningChanged) onPlanningChanged(); };
+    bpmControl.setComponentID("yuey-bpm-control");
     addAndMakeVisible(bpmControl);
+    styleLabel(hostBpmLabel, "120 bpm");
+    hostBpmLabel.setComponentID("yuey-host-bpm");
+    hostBpmLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    hostBpmLabel.setColour(juce::Label::textColourId, Theme::Colors::TextPrimary);
+    hostBpmLabel.setJustificationType(juce::Justification::centred);
+    hostBpmLabel.setTooltip("project tempo; change it in your DAW");
+    addAndMakeVisible(hostBpmLabel);
+    styleLabel(tempoLabel, "tempo");
+    addAndMakeVisible(tempoLabel);
 
     styleLabel(lengthLabel, "song length");
     addToContent(lengthLabel);
@@ -355,9 +365,17 @@ YueyUI::YueyUI()
             recordingSourceButton.setToggleState(true, juce::dontSendNotification);
             outputSourceButton.setToggleState(false, juce::dontSendNotification);
         }
+        const bool wasMidi = midiSourceSelected;
+        midiSourceSelected = false;
         audioSourceRecording = true;
         if (onAudioSourceChanged)
             onAudioSourceChanged(true);
+        if (wasMidi)
+        {
+            updateSubTabState();
+            if (onMidiSourceChanged)
+                onMidiSourceChanged(false);
+        }
     };
     addToContent(recordingSourceButton);
     outputSourceButton.setButtonText("output");
@@ -371,11 +389,39 @@ YueyUI::YueyUI()
             outputSourceButton.setToggleState(true, juce::dontSendNotification);
             recordingSourceButton.setToggleState(false, juce::dontSendNotification);
         }
+        const bool wasMidi = midiSourceSelected;
+        midiSourceSelected = false;
         audioSourceRecording = false;
         if (onAudioSourceChanged)
             onAudioSourceChanged(false);
+        if (wasMidi)
+        {
+            updateSubTabState();
+            if (onMidiSourceChanged)
+                onMidiSourceChanged(false);
+        }
     };
     addToContent(outputSourceButton);
+
+    midiSourceButton.setButtonText("midi");
+    midiSourceButton.setRadioGroupId(4101);
+    midiSourceButton.setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+    midiSourceButton.setTooltip("start from a melody and/or chords exported from your DAW, instead of audio");
+    midiSourceButton.onClick = [this]() { selectMidiSource(true); };
+    addToContent(midiSourceButton);
+
+    melodySlot.onFile = [this](const juce::File& file) { if (onMidiFile) onMidiFile(MidiLane::Melody, file); };
+    melodySlot.onClear = [this]() { if (onMidiCleared) onMidiCleared(MidiLane::Melody); };
+    chordsSlot.onFile = [this](const juce::File& file) { if (onMidiFile) onMidiFile(MidiLane::Chords, file); };
+    chordsSlot.onClear = [this]() { if (onMidiCleared) onMidiCleared(MidiLane::Chords); };
+    addToContent(melodySlot);
+    addToContent(chordsSlot);
+
+    styleLabel(midiNoteLabel, "", 10.0f);
+    midiNoteLabel.setColour(juce::Label::textColourId, juce::Colour(0xffe6a23c));
+    midiNoteLabel.setJustificationType(juce::Justification::topLeft);
+    midiNoteLabel.setMinimumHorizontalScale(1.0f);  // wrap instead of squeezing
+    addToContent(midiNoteLabel);
 
     styleLabel(continuationMethodLabel, "continuation method");
     addToContent(continuationMethodLabel);
@@ -476,9 +522,14 @@ YueyUI::~YueyUI()
     setLookAndFeel(nullptr);
 }
 
-void YueyUI::paint(juce::Graphics& g)
+void YueyUI::paint(juce::Graphics&)
 {
-    g.fillAll(Theme::Colors::Background);
+    // The editor paints the same panel background behind every model.
+}
+
+int YueyUI::getPreferredHeight(int width)
+{
+    return chromeHeight() + layoutContent(juce::jmax(280, width - 16));
 }
 
 void YueyUI::resized()
@@ -504,7 +555,17 @@ void YueyUI::resized()
     keyRootComboBox.setVisible(showPlanning);
     keyModeComboBox.setVisible(showPlanning && !isKeyNone());
     meterComboBox.setVisible(showPlanning);
-    bpmControl.setVisible(showPlanning);
+    bpmControl.setVisible(isStandalone);
+    hostBpmLabel.setVisible(!isStandalone);
+    tempoLabel.setVisible(!showPlanning);
+    const bool sourceTempo = currentSubTab == SubTab::Continue
+        && continuationMethod == ContinuationMethod::Audio && !midiActive();
+    bpmControl.setEnabled(!sourceTempo);
+    bpmControl.setTooltip(sourceTempo
+        ? "audio continuation follows the source audio's tempo"
+        : "render tempo; drag up/down or use the wheel; double-click to type bpm");
+    auto& tempoDisplay = isStandalone ? static_cast<juce::Component&>(bpmControl)
+                                     : static_cast<juce::Component&>(hostBpmLabel);
     if (showPlanning)
     {
         planningLabel.setBounds(chrome.removeFromTop(16));
@@ -513,21 +574,43 @@ void YueyUI::resized()
         keyRootComboBox.setBounds(planRow.removeFromLeft(quarter).reduced(2));
         keyModeComboBox.setBounds(planRow.removeFromLeft(quarter).reduced(2));
         meterComboBox.setBounds(planRow.removeFromLeft(quarter).reduced(2));
-        bpmControl.setBounds(planRow.reduced(2));
+        tempoDisplay.setBounds(planRow.reduced(2));
+        chrome.removeFromTop(5);
+    }
+    else
+    {
+        auto tempoRow = chrome.removeFromTop(30);
+        tempoLabel.setBounds(tempoRow.removeFromLeft(48));
+        tempoDisplay.setBounds(tempoRow.removeFromLeft(90).reduced(2));
         chrome.removeFromTop(5);
     }
 
     contentViewport->setBounds(chrome);
-    const int width = juce::jmax(280, contentViewport->getWidth() - contentViewport->getScrollBarThickness());
+    int width = juce::jmax(280, contentViewport->getWidth());
+    const int naturalHeight = chromeHeight() + layoutContent(width);
+    // Only reserve scrollbar space when the editor cannot fit the visible rows.
+    // Measure without resizing the viewed component to a temporary tall size:
+    // that made switching to MIDI scroll the prompt out of view.
+    if (naturalHeight > getHeight())
+        width = juce::jmax(280, width - contentViewport->getScrollBarThickness());
+    const int contentHeight = layoutContent(width);
+    contentComponent->setSize(width, contentHeight);
+    if (contentHeight <= contentViewport->getHeight())
+        contentViewport->setViewPosition(0, 0);
+    if (preferredHeight != naturalHeight)
+    {
+        preferredHeight = naturalHeight;
+        if (onLayoutHeightChanged) onLayoutHeightChanged();
+    }
+}
+
+int YueyUI::layoutContent(int width)
+{
     const bool continueTab = currentSubTab == SubTab::Continue;
     const bool scoreContinuation = continueTab && continuationMethod == ContinuationMethod::Score;
-    const int seedRowHeight = 34;
-    const int height = seedRowHeight + (currentSubTab == SubTab::Create ? 240
-        : currentSubTab == SubTab::Remix ? 265
-        : scoreContinuation ? 360 : 315);
-    contentComponent->setSize(width, height);
-
-    auto area = contentComponent->getLocalBounds().reduced(8, 4);
+    const bool midi = midiActive();
+    // Rows claim their own height; the unused bottom is never part of the viewport.
+    auto area = juce::Rectangle<int>(0, 0, width, 1200).reduced(8, 4);
     promptLabel.setBounds(area.removeFromTop(16));
     auto promptRow = area.removeFromTop(32);
     auto dice = promptRow.removeFromRight(22).withHeight(22).withY(promptRow.getY() + 2);
@@ -578,7 +661,25 @@ void YueyUI::resized()
         auto sourceRow = area.removeFromTop(30);
         recordingSourceButton.setBounds(sourceRow.removeFromLeft(104));
         outputSourceButton.setBounds(sourceRow.removeFromLeft(88));
-        if (continueTab)
+        midiSourceButton.setBounds(sourceRow.removeFromLeft(72));
+        if (midi)
+        {
+            area.removeFromTop(4);
+            const int gap = 8;
+            const int slotWidth = (area.getWidth() - gap) / 2;
+            const int slotHeight = juce::jmax(melodySlot.heightForWidth(slotWidth),
+                                              chordsSlot.heightForWidth(slotWidth));
+            auto slotRow = area.removeFromTop(slotHeight);
+            melodySlot.setBounds(slotRow.removeFromLeft(slotWidth));
+            slotRow.removeFromLeft(gap);
+            chordsSlot.setBounds(slotRow);
+            if (midiNote.isNotEmpty())
+            {
+                area.removeFromTop(2);
+                midiNoteLabel.setBounds(area.removeFromTop(28));
+            }
+        }
+        if (continueTab && !midi)
         {
             area.removeFromTop(3);
             continuationMethodLabel.setBounds(area.removeFromTop(16));
@@ -589,7 +690,7 @@ void YueyUI::resized()
         // The instrumental adapter forces a full chord-annotated transcription,
         // so with it on there is nothing to choose and the row is only taking
         // up space.
-        if ((currentSubTab == SubTab::Remix || scoreContinuation) && !remixInstrumental)
+        if (!midi && (currentSubTab == SubTab::Remix || scoreContinuation) && !remixInstrumental)
         // same rule as updateInstrumentalState; keep the two in step
         {
             area.removeFromTop(3);
@@ -617,6 +718,7 @@ void YueyUI::resized()
     area.removeFromTop(8);
     actionButton.setBounds(area.removeFromTop(36).reduced(2));
     infoLabel.setBounds(area.removeFromTop(28));
+    return infoLabel.getBottom() + 4;
 }
 
 juce::int64 YueyUI::getSeed() const
@@ -676,8 +778,9 @@ void YueyUI::updateSubTabState()
     const bool create = currentSubTab == SubTab::Create;
     const bool remix = currentSubTab == SubTab::Remix;
     const bool continuing = currentSubTab == SubTab::Continue;
-    const bool showTranscription = remix
-        || (continuing && continuationMethod == ContinuationMethod::Score);
+    // MIDI skips transcription: the score is the file.
+    const bool showTranscription = !midiActive()
+        && (remix || (continuing && continuationMethod == ContinuationMethod::Score));
     createSubTabButton.setButtonStyle(create ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     remixSubTabButton.setButtonStyle(remix ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     continueSubTabButton.setButtonStyle(continuing ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
@@ -693,19 +796,24 @@ void YueyUI::updateSubTabState()
 
     juce::Component* createComponents[] = {
         &planningLabel, &keyRootComboBox, &keyModeComboBox, &meterComboBox,
-        &bpmControl, &lengthLabel, &naturalLengthButton, &fixedLengthButton,
+        &lengthLabel, &naturalLengthButton, &fixedLengthButton,
         &createBarsComboBox, &letYueyPlanToggle
     };
     for (auto* component : createComponents)
         component->setVisible(create);
     juce::Component* remixComponents[] = {
-        &sourceLabel, &recordingSourceButton, &outputSourceButton,
+        &sourceLabel, &recordingSourceButton, &outputSourceButton, &midiSourceButton,
         &transcriptionLabel, &transcriptionModeComboBox, &continuationMethodLabel,
         &scoreContinuationButton, &audioContinuationButton, &continueLengthLabel,
         &continueNaturalButton, &continueFixedButton, &continueBarsComboBox
     };
     for (auto* component : remixComponents)
         component->setVisible(!create);
+
+    const bool midi = midiActive();
+    melodySlot.setVisible(midi);
+    chordsSlot.setVisible(midi);
+    midiNoteLabel.setVisible(midi && midiNote.isNotEmpty());
 
     transcriptionLabel.setVisible(showTranscription);
     transcriptionModeComboBox.setVisible(showTranscription);
@@ -717,12 +825,17 @@ void YueyUI::updateSubTabState()
                                        juce::dontSendNotification);
     actionButton.setButtonText(generating ? "working..."
         : create ? "create with yuey"
+        : midi ? (continuing ? "continue from midi" : "remix from midi")
         : continuing
             ? (continuationMethod == ContinuationMethod::Audio
                 ? "continue from audio" : "continue from score")
             : "transcribe + remix");
     infoLabel.setText(create
         ? "create plans a score before rendering audio"
+        : midi
+            ? (continuing
+                ? "your midi becomes the score; yuey extends it, then renders all of it fresh"
+                : "your midi becomes the score and is rendered as it is, with no transcription")
         : remix
             ? "remix transcribes the source score, then renders a new performance"
             : continuationMethod == ContinuationMethod::Audio
@@ -757,9 +870,11 @@ void YueyUI::updateLengthState()
     continueNaturalButton.setButtonStyle(!continueFixedBars ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     continueFixedButton.setButtonStyle(continueFixedBars ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     const bool continuing = currentSubTab == SubTab::Continue;
-    continuationMethodLabel.setVisible(continuing);
-    scoreContinuationButton.setVisible(continuing);
-    audioContinuationButton.setVisible(continuing);
+    // A midi continuation is always a score continuation, so there is no method to pick.
+    const bool choosesMethod = continuing && !midiActive();
+    continuationMethodLabel.setVisible(choosesMethod);
+    scoreContinuationButton.setVisible(choosesMethod);
+    audioContinuationButton.setVisible(choosesMethod);
     continueLengthLabel.setVisible(continuing);
     continueNaturalButton.setVisible(continuing);
     continueFixedButton.setVisible(continuing);
@@ -784,9 +899,10 @@ void YueyUI::updateInstrumentalState()
     // Matching the layout exactly: remix always transcribes, continue only when
     // it is continuing from a score. Anywhere else the row has no bounds, and a
     // visible component with stale bounds draws in the wrong place.
-    const bool transcribes = currentSubTab == SubTab::Remix
-        || (currentSubTab == SubTab::Continue
-            && continuationMethod == ContinuationMethod::Score);
+    const bool transcribes = !midiActive()
+        && (currentSubTab == SubTab::Remix
+            || (currentSubTab == SubTab::Continue
+                && continuationMethod == ContinuationMethod::Score));
     const bool transcriptionApplies = transcribes && !instrumental;
     transcriptionLabel.setVisible(transcriptionApplies);
     transcriptionModeComboBox.setVisible(transcriptionApplies);
@@ -801,8 +917,10 @@ void YueyUI::updateSourceState()
 {
     recordingSourceButton.setEnabled(recordingSourceAvailable);
     outputSourceButton.setEnabled(outputSourceAvailable);
-    recordingSourceButton.setToggleState(audioSourceRecording, juce::dontSendNotification);
-    outputSourceButton.setToggleState(!audioSourceRecording, juce::dontSendNotification);
+    // With midi chosen neither audio source is: the shared audio state is left as it was.
+    recordingSourceButton.setToggleState(!midiSourceSelected && audioSourceRecording, juce::dontSendNotification);
+    outputSourceButton.setToggleState(!midiSourceSelected && !audioSourceRecording, juce::dontSendNotification);
+    midiSourceButton.setToggleState(midiSourceSelected, juce::dontSendNotification);
 }
 
 void YueyUI::drawDiceIcon(juce::Graphics& g, juce::Rectangle<float> bounds,
@@ -910,7 +1028,18 @@ void YueyUI::setRemixInstrumental(bool enabled)
 
 void YueyUI::setBpm(double bpm)
 {
+    if (!std::isfinite(bpm) || bpm <= 0.0)
+        return;
+    hostBpm = bpm;
     bpmControl.setValue(juce::jlimit(40.0, 300.0, bpm), false);
+    const int decimals = juce::approximatelyEqual(bpm, std::round(bpm)) ? 0 : 2;
+    hostBpmLabel.setText(juce::String(bpm, decimals) + " bpm", juce::dontSendNotification);
+}
+
+void YueyUI::setIsStandalone(bool standalone)
+{
+    isStandalone = standalone;
+    resized();
 }
 
 juce::String YueyUI::getKey() const
@@ -1007,6 +1136,46 @@ void YueyUI::setAudioSourceAvailability(bool recordingAvailable, bool outputAvai
     recordingSourceAvailable = recordingAvailable;
     outputSourceAvailable = outputAvailable;
     updateSourceState();
+}
+
+void YueyUI::selectMidiSource(bool notify)
+{
+    midiSourceSelected = true;
+    updateSubTabState();
+    if (notify && onMidiSourceChanged)
+        onMidiSourceChanged(true);
+}
+
+void YueyUI::setMidiSourceSelected(bool selected)
+{
+    midiSourceSelected = selected;
+    updateSubTabState();
+}
+
+void YueyUI::showMidiEmpty(MidiLane lane)
+{
+    slotFor(lane).showEmpty();
+    resized();
+}
+
+void YueyUI::showMidiLoaded(MidiLane lane, const juce::File& file, const juce::String& summary)
+{
+    slotFor(lane).showLoaded(file, summary);
+    resized();
+}
+
+void YueyUI::showMidiInvalid(MidiLane lane, const juce::File& file, const juce::String& error)
+{
+    slotFor(lane).showInvalid(file, error);
+    resized();
+}
+
+void YueyUI::setMidiNote(const juce::String& text)
+{
+    midiNote = text;
+    midiNoteLabel.setText(text, juce::dontSendNotification);
+    midiNoteLabel.setVisible(midiActive() && text.isNotEmpty());
+    resized();
 }
 
 void YueyUI::setGenerateButtonEnabled(bool createEnabled, bool remixEnabled,

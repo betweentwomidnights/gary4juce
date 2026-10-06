@@ -200,6 +200,10 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("yueyCreatePrompt", currentYueyCreatePrompt);
     state->setProperty("yueyRemixPrompt", currentYueyRemixPrompt);
     state->setProperty("yueyContinuePrompt", currentYueyContinuePrompt);
+    // The two MIDI files are remembered by path and read again on restore.
+    state->setProperty("yueyMidiSelected", currentYueyMidiSelected);
+    state->setProperty("yueyMidiMelody", yueyMidiMelody.file.getFullPathName());
+    state->setProperty("yueyMidiChords", yueyMidiChords.file.getFullPathName());
     state->setProperty("yueyCreateInstrumental", currentYueyCreateInstrumental);
     state->setProperty("yueyRemixInstrumental", currentYueyRemixInstrumental);
     state->setProperty("yueyBpm", currentYueyBpm);
@@ -457,6 +461,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
                 break;
             }
     currentYueyCreatePrompt = currentYueyRemixPrompt = currentYueyContinuePrompt = sharedYueyPrompt;
+    currentYueyMidiSelected = readBool("yueyMidiSelected", false);
+    yueyMidiMelody.file = juce::File(readString("yueyMidiMelody", juce::String()));
+    yueyMidiChords.file = juce::File(readString("yueyMidiChords", juce::String()));
     currentYueyCreateInstrumental = readBool(
         "yueyCreateInstrumental", currentYueyCreateInstrumental);
     currentYueyRemixInstrumental = readBool(
@@ -656,6 +663,8 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
         yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
         yueyUI->setAudioSourceRecording(transformRecording);
+        yueyUI->setMidiSourceSelected(currentYueyMidiSelected);
+        restoreYueyMidi();
     }
 
     if (foundationUI != nullptr)
@@ -1557,7 +1566,16 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     // ========== YUEY UI ==========
     yueyUI = std::make_unique<YueyUI>();
+    yueyUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
     addAndMakeVisible(*yueyUI);
+    yueyUI->onLayoutHeightChanged = [this]()
+    {
+        if (currentTab == ModelTab::Yuey && editorLayoutMode == EditorLayoutMode::Wide)
+        {
+            resized();
+            repaint();
+        }
+    };
     yueyUI->onSubTabChanged = [this](YueyUI::SubTab tab)
     {
         currentYueySubTab = tab;
@@ -1600,7 +1618,21 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentYueyContinueBars = yueyUI->getContinueBars();
         currentYueyTranscriptionMode = yueyUI->getTranscriptionMode();
         currentYueyContinuationMethod = yueyUI->getContinuationMethod();
+        // The tempo and meter the midi score is written at may have just changed.
+        if (currentYueyMidiSelected)
+            refreshYueyMidi();
     };
+    yueyUI->onMidiSourceChanged = [this](bool selected)
+    {
+        currentYueyMidiSelected = selected;
+        refreshYueyMidi();
+        persistEditorState();
+    };
+    yueyUI->onMidiFile = [this](YueyUI::MidiLane lane, const juce::File& file)
+    {
+        loadYueyMidiFile(lane, file);
+    };
+    yueyUI->onMidiCleared = [this](YueyUI::MidiLane lane) { clearYueyMidi(lane); };
     yueyUI->onDice = [this](YueyUI::SubTab tab) { rollYueyDicePrompt(tab); };
     yueyUI->onCreate = [this]() { sendToYuey(); };
     yueyUI->onRemix = [this]() { sendToYuey(); };
@@ -1624,6 +1656,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
     yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
     yueyUI->setAudioSourceRecording(transformRecording);
+    yueyUI->setMidiSourceSelected(currentYueyMidiSelected);
+    restoreYueyMidi();
     updateYueyEnablementSnapshot();
 
     // ========== FOUNDATION CONTROLS SETUP ==========
@@ -2568,7 +2602,13 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         sa3UI->setBpm(currentBPM);
 
     if (yueyUI && !juce::JUCEApplicationBase::isStandaloneApp() && currentBPM > 0.0)
+    {
         yueyUI->setBpm(currentBPM);
+        // setBpm is deliberately silent. Rebuild summaries only when the score's
+        // effective tempo changes, including changes while another tab is open.
+        if (currentYueyMidiSelected && yueyMidiSummaryBpm != effectiveYueyBpm())
+            refreshYueyMidi();
+    }
 
     if (dariusUI)
     {
@@ -3112,7 +3152,8 @@ void Gary4juceAudioProcessorEditor::pollForResults()
         if (activeOperation == ActiveOp::YueyGenerate
             || activeOperation == ActiveOp::YueyRemix
             || activeOperation == ActiveOp::YueyContinue
-            || activeOperation == ActiveOp::YueyScoreTranscribe)
+            || activeOperation == ActiveOp::YueyScoreTranscribe
+            || activeOperation == ActiveOp::YueyRemixTranscribe)
             return juce::URL(getServiceUrl(ServiceType::Yuey, "/poll_status/" + sessionId));
         if (activeOperation == ActiveOp::TerryTransform)
             return juce::URL(getServiceUrl(ServiceType::Terry, "/api/juce/poll_status/" + sessionId));
@@ -3619,14 +3660,17 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 || activeOperation == ActiveOp::YueyRemix
                 || activeOperation == ActiveOp::YueyContinue;
 
-            if (activeOperation == ActiveOp::YueyScoreTranscribe
+            if ((activeOperation == ActiveOp::YueyScoreTranscribe || activeOperation == ActiveOp::YueyRemixTranscribe)
                 && status == "completed")
             {
                 const auto abc = responseObj->getProperty("abc").toString();
                 stopPolling();
                 isCurrentlyQueued = false;
                 audioProcessor.clearCurrentSessionId();
-                continueYueyFromTranscription(abc);
+                if (activeOperation == ActiveOp::YueyRemixTranscribe)
+                    remixYueyFromTranscription(abc);
+                else
+                    continueYueyFromTranscription(abc);
                 return;
             }
 
@@ -6438,6 +6482,7 @@ juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
         case ActiveOp::YueyContinue:
             return "continuing";
         case ActiveOp::YueyScoreTranscribe:
+        case ActiveOp::YueyRemixTranscribe:
             return "transcribing";
         case ActiveOp::GaryGenerate:
         case ActiveOp::GaryContinue:
@@ -6529,6 +6574,7 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
                     displayText = "queued for continuation";
                     break;
                 case ActiveOp::YueyScoreTranscribe:
+                case ActiveOp::YueyRemixTranscribe:
                     displayText = "queued for transcription";
                     break;
                 case ActiveOp::GaryGenerate:
@@ -6560,6 +6606,7 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
                     displayText = "continuing: " + juce::String(displayedProgress) + "%";
                     break;
                 case ActiveOp::YueyScoreTranscribe:
+                case ActiveOp::YueyRemixTranscribe:
                     displayText = "transcribing: " + juce::String(displayedProgress) + "%";
                     break;
                 case ActiveOp::GaryGenerate:
@@ -8728,7 +8775,11 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
             break;
         }
         case ModelTab::Terry:  preferredHeight = 430; break;
-        case ModelTab::Yuey:   preferredHeight = 470; break;
+        case ModelTab::Yuey:
+            preferredHeight = yueyUI != nullptr
+                ? yueyUI->getPreferredHeight(tabSectionBounds.getWidth()) + 45
+                : 470;
+            break;
         case ModelTab::Darius: break;
         case ModelTab::Jerry:
             if (jerrySubTab == JerrySubTab::SA3)

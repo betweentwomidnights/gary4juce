@@ -51,6 +51,9 @@
       <GROUP id="{4E70B11B-8D7F-4D97-9B62-659A6A594559}" name="Yuey">
         <FILE id="YuUiCp" name="YueyUI.cpp" compile="1" resource="0" file="Source/Components/Yuey/YueyUI.cpp"/>
         <FILE id="YuUiHp" name="YueyUI.h" compile="0" resource="0" file="Source/Components/Yuey/YueyUI.h"/>
+        <FILE id="YuSlCp" name="YueyMidiSlot.cpp" compile="1" resource="0"
+              file="Source/Components/Yuey/YueyMidiSlot.cpp"/>
+        <FILE id="YuSlHp" name="YueyMidiSlot.h" compile="0" resource="0" file="Source/Components/Yuey/YueyMidiSlot.h"/>
       </GROUP>
       <GROUP id="{F1D2E3A4-B5C6-7890-ABCD-EF1234567890}" name="Foundation">
         <FILE id="fndUI1" name="FoundationUI.cpp" compile="1" resource="0"
@@ -115,6 +118,15 @@
               file="Source/Stems/StemsRuntime.cpp"/>
         <FILE id="StRun0" name="StemsRuntime.h" compile="0" resource="0" file="Source/Stems/StemsRuntime.h"/>
         <FILE id="StAbi0" name="libstems_v1.h" compile="0" resource="0" file="Source/Stems/libstems_v1.h"/>
+      </GROUP>
+      <GROUP id="{3F8A6D21-5B7C-4E90-A1D3-6C2E9B4F7A58}" name="Yuey">
+        <FILE id="YmScr1" name="YueyMidiScore.cpp" compile="1" resource="0"
+              file="Source/Yuey/YueyMidiScore.cpp"/>
+        <FILE id="YmScr0" name="YueyMidiScore.h" compile="0" resource="0" file="Source/Yuey/YueyMidiScore.h"/>
+        <FILE id="YmImp1" name="YueyMidiImport.cpp" compile="1" resource="0"
+              file="Source/Yuey/YueyMidiImport.cpp"/>
+        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0" file="Source/Yuey/YueyMidiImport.h"/>
+        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0" file="Source/Yuey/YueyScoreTempo.h"/>
       </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"

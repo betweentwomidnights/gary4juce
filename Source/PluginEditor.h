@@ -17,6 +17,7 @@
 #include "Components/Jerry/SA3UI.h"
 #include "Components/Carey/CareyUI.h"
 #include "Components/Yuey/YueyUI.h"
+#include "Yuey/YueyMidiImport.h"
 #include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
@@ -195,7 +196,8 @@ private:
         YueyGenerate,
         YueyRemix,
         YueyContinue,
-        YueyScoreTranscribe
+        YueyScoreTranscribe,
+        YueyRemixTranscribe
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -478,7 +480,42 @@ private:
                         const juce::String& activity);
     void updateYueyEnablementSnapshot();
     void applyYueyPlanMetadata(const juce::String& abc);
-    void continueYueyFromTranscription(const juce::String& abc);
+    // symbolicMode and adoptPlan are for a score that came from a MIDI file: it conditions with its
+    // chords when it has any, and its serialization key (always C) says nothing about the music, so
+    // the tab's own key is left alone.
+    void continueYueyFromTranscription(const juce::String& abc, const juce::String& symbolicMode = {},
+                                       bool adoptPlan = true);
+    void remixYueyFromTranscription(const juce::String& abc);
+    double yueyTranscriptionBpm = 120.0; // capture the standalone target before the async transcription
+
+    // ---- MIDI as a source for remix and continue ----
+    // The two files live here, not in the tab: they belong to the session (and survive the editor
+    // being rebuilt), and nothing about the output audio or its score has anything to do with them.
+    struct YueyMidiInput
+    {
+        juce::File file;              // what the user gave us, kept even when it was refused
+        bool read = false;            // the file was read; clip is usable
+        yueymidi::Clip clip;
+        juce::String error;           // why it can't be used on its own
+        yueymidi::Score alone;        // what it converts to by itself, at the current tempo
+        bool usable() const { return read && alone.ok; }
+    };
+    YueyMidiInput yueyMidiMelody;
+    YueyMidiInput yueyMidiChords;
+    bool currentYueyMidiSelected = false;
+    bool yueyMidiReady = false;       // at least one usable lane, and the lanes agree
+    int yueyMidiSummaryBpm = 0;
+    int effectiveYueyBpm();
+    void readYueyMidi(YueyMidiInput& input, const juce::File& file);
+    void loadYueyMidiFile(YueyUI::MidiLane lane, const juce::File& file);
+    void clearYueyMidi(YueyUI::MidiLane lane);
+    // Re-checks both lanes at the current tempo and meter and tells the tab what to show.
+    void refreshYueyMidi();
+    // After the tab exists: read the files the saved session named and show them.
+    void restoreYueyMidi();
+    // The score the next render would use, from whichever lanes are usable.
+    bool buildYueyMidiScore(yueymidi::Score& score, juce::String& error);
+    void sendYueyMidi(bool remixing);
 
     // Ceiling the active yuey backend puts on a planner-chosen score. Seconds,
     // where 0 is unbounded and a negative value means unknown. Remembering the
