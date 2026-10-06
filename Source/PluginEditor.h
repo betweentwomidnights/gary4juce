@@ -502,6 +502,8 @@ private:
     juce::int64 yueyDiceLastAttemptMs = 0;
     void refreshYueyDicePrompts();
     void rollYueyDicePrompt(YueyUI::SubTab tab);
+    // Create, remix and continue share one prompt: this sets it everywhere it lives.
+    void setYueyPrompt(const juce::String& text);
     // A prompt from the pool that is not `current`, or empty with `problem` saying why not.
     juce::String pickYueyDicePrompt(bool instrumental, const juce::String& current,
                                     juce::String& problem);

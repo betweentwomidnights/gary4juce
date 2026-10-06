@@ -441,9 +441,22 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
         storedYueySubTab == 1 && legacyYueyRemixMode == 1 ? 2 : storedYueySubTab);
     currentYueyContinuationMethod = static_cast<YueyUI::ContinuationMethod>(
         juce::jlimit(0, 1, readInt("yueyContinuationMethod", 0)));
-    currentYueyCreatePrompt = readString("yueyCreatePrompt", currentYueyCreatePrompt);
-    currentYueyRemixPrompt = readString("yueyRemixPrompt", currentYueyRemixPrompt);
-    currentYueyContinuePrompt = readString("yueyContinuePrompt", currentYueyRemixPrompt);
+    // Create, remix and continue share one prompt now. A session saved before that can hold
+    // three; the one on the tab they were last looking at is the one they'd call current.
+    const juce::String storedYueyPrompts[] = {
+        readString("yueyCreatePrompt", currentYueyCreatePrompt),
+        readString("yueyRemixPrompt", currentYueyRemixPrompt),
+        readString("yueyContinuePrompt", currentYueyContinuePrompt)
+    };
+    juce::String sharedYueyPrompt = storedYueyPrompts[static_cast<int>(currentYueySubTab)];
+    if (sharedYueyPrompt.trim().isEmpty())
+        for (const auto& stored : storedYueyPrompts)
+            if (stored.trim().isNotEmpty())
+            {
+                sharedYueyPrompt = stored;
+                break;
+            }
+    currentYueyCreatePrompt = currentYueyRemixPrompt = currentYueyContinuePrompt = sharedYueyPrompt;
     currentYueyCreateInstrumental = readBool(
         "yueyCreateInstrumental", currentYueyCreateInstrumental);
     currentYueyRemixInstrumental = readBool(
@@ -1556,11 +1569,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentYueyContinuationMethod = method;
         persistEditorState();
     };
-    yueyUI->onPromptChanged = [this](YueyUI::SubTab tab, const juce::String& text)
+    yueyUI->onPromptChanged = [this](YueyUI::SubTab, const juce::String& text)
     {
-        if (tab == YueyUI::SubTab::Create) currentYueyCreatePrompt = text;
-        else if (tab == YueyUI::SubTab::Remix) currentYueyRemixPrompt = text;
-        else currentYueyContinuePrompt = text;
+        // One prompt for create, remix and continue, whichever box it came from.
+        setYueyPrompt(text);
         updateYueyEnablementSnapshot();
     };
     yueyUI->onLyricsChanged = [this](const juce::String& text)

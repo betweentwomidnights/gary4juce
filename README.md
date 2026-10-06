@@ -233,9 +233,13 @@ yuey uses YuE2.
   new style
 - **continue** - extend your audio from its score, or from the audio itself
 
+the prompt is shared across all three, so switching sub-tabs keeps what you
+typed.
+
 every render keeps its score: drag it into your DAW as MIDI, or open the score
 window to edit it, transpose it, or halve or double the tempo, and render it
-again.
+again. the score window has the same prompt box and dice, so you can change the
+sound without leaving it.
 
 full guide: [YUEY.md](docs/YUEY.md)
 

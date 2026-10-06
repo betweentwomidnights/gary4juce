@@ -988,6 +988,20 @@ void Gary4juceAudioProcessorEditor::refreshYueyDicePrompts()
     });
 }
 
+void Gary4juceAudioProcessorEditor::setYueyPrompt(const juce::String& text)
+{
+    currentYueyCreatePrompt = text;
+    currentYueyRemixPrompt = text;
+    currentYueyContinuePrompt = text;
+    // The box being typed in already holds it, and the setters leave that one alone.
+    if (yueyUI != nullptr)
+    {
+        yueyUI->setCreatePrompt(text);
+        yueyUI->setRemixPrompt(text);
+        yueyUI->setContinuePrompt(text);
+    }
+}
+
 juce::String Gary4juceAudioProcessorEditor::pickYueyDicePrompt(bool instrumental,
                                                                const juce::String& current,
                                                                juce::String& problem)
@@ -1458,7 +1472,7 @@ public:
         meta.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
         addAndMakeVisible(meta);
 
-        // The score carries the notes; this carries the sound. It is the create
+        // The score carries the notes; this carries the sound. It is the yuey
         // tab's prompt, so a render started here and one started there agree.
         promptLabel.setText("style prompt", juce::dontSendNotification);
         promptLabel.setFont(juce::FontOptions(11.0f));
@@ -2021,15 +2035,9 @@ void Gary4juceAudioProcessorEditor::openYueyScoreEditor()
     if (!yueyScore.alignedToAudio)
         summary << "  ·  the output was edited after this was rendered";
 
-    // A score is rendered through /generate, which is the create tab's job, so
-    // the prompt is the create tab's. When that is empty and the score came out
-    // of a remix or a continuation, the prompt that made it is the next best
-    // thing to start from.
-    juce::String initialPrompt = currentYueyCreatePrompt.trim();
-    if (initialPrompt.isEmpty())
-        initialPrompt = yueyScore.sourceOp == "remix"    ? currentYueyRemixPrompt.trim()
-                      : yueyScore.sourceOp == "continue" ? currentYueyContinuePrompt.trim()
-                                                         : juce::String();
+    // Create, remix and continue share one prompt, so this is the prompt the
+    // yuey tab shows, whichever sub-tab made the score.
+    const juce::String initialPrompt = currentYueyCreatePrompt.trim();
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
     // Asked directly rather than gated on the reachability snapshot, which can
@@ -2094,15 +2102,10 @@ void Gary4juceAudioProcessorEditor::saveYueyScorePrompt(const juce::String& prom
     if (prompt.trim() == currentYueyCreatePrompt.trim())
         return;
 
-    // The create tab's box is where this prompt lives, so what the window shows
-    // and what the tab shows never disagree.
-    currentYueyCreatePrompt = prompt;
-    if (yueyUI == nullptr)
-        return;
-    yueyUI->setCreatePrompt(prompt);
-    // That setter does not notify; tell the handler a typed character would have.
-    if (yueyUI->onPromptChanged)
-        yueyUI->onPromptChanged(YueyUI::SubTab::Create, prompt);
+    // It is the yuey tab's prompt, so what the window shows and what the tab
+    // shows never disagree.
+    setYueyPrompt(prompt);
+    updateYueyEnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::renderYueyScore(const juce::String& abc, bool fullScore,
