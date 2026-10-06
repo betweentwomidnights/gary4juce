@@ -3,6 +3,35 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.0-rc.3 - MIDI and Live Clips for yuey
+
+this Windows pre-release includes the embedded stem separator, selection-window
+zoom and shared yuey prompt from rc.2, plus MIDI as a source for yuey's remix
+and continue tabs. choose `midi`, then drop or pick a melody file, a chords file,
+or both. remix renders the imported score; continue extends it before rendering.
+create stays driven by the prompt, key and BPM.
+
+saved Ableton MIDI Live Clips (`.alc`) work too, as notes only: save a timeline
+clip to the User Library first, then drag it from Live's browser into Gary.
+instruments and effects are not imported. Drum Rack clips, active groove,
+envelopes, per-note expression and probability are refused. straight-grid,
+monophonic melody and root-position major/minor triads are supported. crop to
+whole bars, and give both lanes the same length; unsupported input gets an
+explanation rather than silently changing the score.
+
+standalone now shows the BPM wheel on remix and continue as well as create.
+hosted yuey tabs show the project's BPM read-only. MIDI, audio transcribe/remix
+and score continuation render at that tempo; audio continuation follows its
+source. imported file paths are saved with the session and reread on restore.
+
+the wide yuey panel uses the same dark-grey background as the other models and
+fits its visible controls, growing for MIDI summaries or errors. the prompt
+stays at the top when everything fits, with no unnecessary scrollbar. compact
+windows still scroll when they need to.
+
+the plugin still reports version 5.0.0; the release tag identifies this preview.
+the stable download links and updater feeds remain unchanged.
+
 ## v5.0.0 - yuey and stems
 
 **yue2 is now inside the DAW.** the yuey tab runs
