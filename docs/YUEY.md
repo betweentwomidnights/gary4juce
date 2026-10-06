@@ -91,6 +91,41 @@ melodic parts, not the voice.
   it holds on to your sound more closely, but the whole result is rebuilt, so
   it can lose a little fidelity.
 
+### midi instead of audio
+
+remix and continue can start from midi instead of a recording. pick "midi" next
+to recording and output, and two small slots show up: **melody** and **chords**.
+drop a `.mid` file on each, or click one to browse. either slot can be empty.
+there's no transcription, because your midi is already the score, and the
+tab looks the same as ever until you pick it.
+
+- **remix** renders your score as it is, in your style prompt.
+- **continue** is a score continuation that starts from your midi. yuey extends
+  it, with the same "let yuey choose" or "add bars" length, and then renders the
+  whole expanded piece fresh.
+
+yuey uses the length of the file you give it. there's no cropping here and
+nothing is looped or stretched, so trim your clip to the bars you want in your
+DAW before you export it. if you give it both files they have to be the same
+length and meter, and it'll tell you if they aren't. the tempo is the project's
+(or the bpm on the create tab, in the standalone), and your notes keep their
+place in beats, so changing it changes how long the piece lasts and nothing
+else.
+
+it only takes what it can write down exactly, and it says so when it can't:
+
+- the melody has to be one note at a time, on one track.
+- rhythms have to be on a straight grid. triplets and loose timing get
+  refused, so quantize first.
+- chords have to be root-position major or minor triads. inversions, sevenths
+  and rolled chords aren't supported yet.
+- no drums, pitch bends or controller moves (mod wheel, sustain, expression).
+
+the melody goes on the instrument lane and the chords are written as chord
+symbols, so with chords it renders in full-score mode and the chords count. i've
+only tried this instrumental. i don't know yet what a vocal render does with an
+imported melody.
+
 ### the score window
 
 every yuey render keeps its score. two handles on the output waveform get at
