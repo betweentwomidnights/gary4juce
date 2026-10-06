@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="4.0.14"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.0"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE" companyCopyright="Copyright (C) 2025-2026 Kevin Griffing">
@@ -49,10 +49,25 @@
         <FILE id="CrUiCp" name="CareyUI.cpp" compile="1" resource="0" file="Source/Components/Carey/CareyUI.cpp"/>
         <FILE id="u2yVAk" name="CareyUI.h" compile="0" resource="0" file="Source/Components/Carey/CareyUI.h"/>
       </GROUP>
+      <GROUP id="{4E70B11B-8D7F-4D97-9B62-659A6A594559}" name="Yuey">
+        <FILE id="YuUiCp" name="YueyUI.cpp" compile="1" resource="0" file="Source/Components/Yuey/YueyUI.cpp"/>
+        <FILE id="YuUiHp" name="YueyUI.h" compile="0" resource="0" file="Source/Components/Yuey/YueyUI.h"/>
+        <FILE id="YuSlCp" name="YueyMidiSlot.cpp" compile="1" resource="0"
+              file="Source/Components/Yuey/YueyMidiSlot.cpp"/>
+        <FILE id="YuSlHp" name="YueyMidiSlot.h" compile="0" resource="0" file="Source/Components/Yuey/YueyMidiSlot.h"/>
+      </GROUP>
       <GROUP id="{F1D2E3A4-B5C6-7890-ABCD-EF1234567890}" name="Foundation">
         <FILE id="fndUI1" name="FoundationUI.cpp" compile="1" resource="0"
               file="Source/Components/Foundation/FoundationUI.cpp"/>
         <FILE id="fndUI0" name="FoundationUI.h" compile="0" resource="0" file="Source/Components/Foundation/FoundationUI.h"/>
+      </GROUP>
+      <GROUP id="{6B1E5C2A-8F3D-4E7B-9A21-5C0D7E8F9A31}" name="Stems">
+        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0"
+              file="Source/Components/Stems/StemsDialog.cpp"/>
+        <FILE id="StDlg0" name="StemsDialog.h" compile="0" resource="0" file="Source/Components/Stems/StemsDialog.h"/>
+        <FILE id="StSet1" name="StemsSettings.cpp" compile="1" resource="0"
+              file="Source/Components/Stems/StemsSettings.cpp"/>
+        <FILE id="StSet0" name="StemsSettings.h" compile="0" resource="0" file="Source/Components/Stems/StemsSettings.h"/>
       </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
         <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0" file="Source/Components/Jerry/BeatPrompts.cpp"/>
@@ -83,6 +98,8 @@
             file="Source/PluginEditor.cpp"/>
       <FILE id="PECrC0" name="PluginEditor.Carey.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Carey.cpp"/>
+      <FILE id="PEYue0" name="PluginEditor.Yuey.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Yuey.cpp"/>
       <FILE id="PEJry0" name="PluginEditor.Jerry.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Jerry.cpp"/>
       <FILE id="PETry0" name="PluginEditor.Terry.cpp" compile="1" resource="0"
@@ -95,6 +112,23 @@
             file="Source/PluginEditor.Storage.cpp"/>
       <FILE id="PEFnd0" name="PluginEditor.Foundation.cpp" compile="1" resource="0"
             file="Source/PluginEditor.Foundation.cpp"/>
+      <FILE id="PEStm0" name="PluginEditor.Stems.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Stems.cpp"/>
+      <GROUP id="{9C4D2B7E-1A3F-4C5D-8E6F-7A8B9C0D1E2F}" name="Stems">
+        <FILE id="StRun1" name="StemsRuntime.cpp" compile="1" resource="0"
+              file="Source/Stems/StemsRuntime.cpp"/>
+        <FILE id="StRun0" name="StemsRuntime.h" compile="0" resource="0" file="Source/Stems/StemsRuntime.h"/>
+        <FILE id="StAbi0" name="libstems_v1.h" compile="0" resource="0" file="Source/Stems/libstems_v1.h"/>
+      </GROUP>
+      <GROUP id="{3F8A6D21-5B7C-4E90-A1D3-6C2E9B4F7A58}" name="Yuey">
+        <FILE id="YmScr1" name="YueyMidiScore.cpp" compile="1" resource="0"
+              file="Source/Yuey/YueyMidiScore.cpp"/>
+        <FILE id="YmScr0" name="YueyMidiScore.h" compile="0" resource="0" file="Source/Yuey/YueyMidiScore.h"/>
+        <FILE id="YmImp1" name="YueyMidiImport.cpp" compile="1" resource="0"
+              file="Source/Yuey/YueyMidiImport.cpp"/>
+        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0" file="Source/Yuey/YueyMidiImport.h"/>
+        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0" file="Source/Yuey/YueyScoreTempo.h"/>
+      </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"
             file="Source/PluginEditorCareyHelpers.h"/>
@@ -127,6 +161,7 @@
     <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_cryptography" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
@@ -153,6 +188,7 @@
         <MODULEPATH id="juce_audio_plugin_client" path="../../JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="../../JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../../JUCE/modules"/>
       </MODULEPATHS>
     </VS2022>
     <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="icon.icns" bigIcon="icon.icns">
@@ -173,6 +209,7 @@
         <MODULEPATH id="juce_graphics" path="../../JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../../JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../../JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../../JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
   </EXPORTFORMATS>

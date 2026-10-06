@@ -28,6 +28,8 @@ private:
     };
 
 public:
+    static constexpr int kRemoteMaximumDurationSeconds = 240;
+    static constexpr int kLocalMaximumDurationSeconds = 300;
     static constexpr int kFixedCoverSteps = 8;
     static constexpr double kFixedCoverCfg = 1.0;
     static constexpr int kDefaultCoverBaseSteps = 50;
@@ -46,6 +48,13 @@ public:
         Cover,
         Extract
     };
+
+    // TODO: the extract sub-tab is hidden since v5.0.0. The embedded stem separator (stems.cpp)
+    // does what it was attempting, much better. Everything else about extract is still here, so
+    // this one switch brings it back. It can probably be removed for good (this code, the editor's
+    // extract plumbing, the backend route and docs/CAREY.md) unless something drastic changes
+    // for ace-step.
+    static constexpr bool kExtractTabVisible = false;
 
     CareyUI();
     ~CareyUI() override;
@@ -280,8 +289,12 @@ public:
 
     void setCompleteDurationSeconds(int seconds)
     {
-        completeDurationSlider.setValue(juce::jlimit(30, 180, seconds), juce::dontSendNotification);
+        completeDurationSlider.setValue(
+            juce::jlimit(30, juce::roundToInt(completeDurationSlider.getMaximum()), seconds),
+            juce::dontSendNotification);
     }
+
+    void setCompleteMaximumDurationSeconds(int seconds);
 
     void setCompleteBpm(int bpm)
     {

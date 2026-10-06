@@ -29,9 +29,12 @@ void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
     }
     if (dariusUI)
         dariusUI->setAudioSourceRecording(useRecording);
+    if (yueyUI)
+        yueyUI->setAudioSourceRecording(useRecording);
 
     updateTerryEnablementSnapshot();
     updateSA3EnablementSnapshot();
+    updateYueyEnablementSnapshot();
 }
 
 void Gary4juceAudioProcessorEditor::setTerryLastSeed(const juce::String& seed)

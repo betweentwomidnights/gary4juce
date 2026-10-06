@@ -1,12 +1,14 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.14",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.14",
-  "sha256": "09c18fe332cf2b11b3a60539f2fbaa68230e0de6130ccdbcc7a3420d87c363ee",
-  "published_at": "2026-08-30T12:03:53Z",
+  "latest_version": "4.0.15",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.15",
+  "sha256": "465bdb232ddf283977046c65eb65db8c6633c40c65a52d07f9420223a0bc31ee",
+  "published_at": "2026-09-11T12:19:34Z",
   "notes": [
-    "SA3's continue slider now chooses how many seconds of new audio to add and follows the selected recording or output source.",
-    "Recommended gary4local: v0.3.1.",
+    "adjusted duration limits for sa3 and ace-step.",
+    "added the official RoyalCities sampler type to foundation-1.",
+    "if you were fine with durations and don't use foundation-1 much, you can go ahead and skip this release.",
+    "Recommended gary4local: v0.3.2.",
     "Close your DAW before replacing plugin files with a downloaded update."
   ]
 }

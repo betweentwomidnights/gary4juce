@@ -50,7 +50,25 @@ commit, so the tag identifies the build.
 ## Windows VST3 Package
 
 After creating the source-release commit and local tag, build the Release VST3
-from that clean tree. Stage the bundle from:
+from that clean tree.
+
+**Build from the command line with the 64-bit MSBuild,**
+`...\MSBuild\Current\Bin\amd64\MSBuild.exe`, not `...\Bin\MSBuild.exe`. The
+VST3 post-build step only writes `moduleinfo.json` when MSBuild reports a
+64-bit host; under the 32-bit one it skips it ("VST3 manifest generation is
+disabled ... host system processor detected to be x86") and the bundle keeps
+whatever manifest the last 64-bit build left, with the old version in it. The
+build still succeeds. Building in the Visual Studio IDE is fine, since it's
+64-bit itself. Looking MSBuild up with `vswhere -find "MSBuild\**\Bin\MSBuild.exe"`
+returns the 32-bit one first. that's how v5.0.0-rc.1's first build came out
+with a 4.0.15 manifest, before the `moduleinfo.json` check below caught it.
+
+```powershell
+$vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+& "$vs\MSBuild\Current\Bin\amd64\MSBuild.exe" Builds\VisualStudio2022\gary4juce.sln /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
+```
+
+Stage the bundle from:
 
 ```text
 Builds/VisualStudio2022/x64/Release/VST3/gary4juce.vst3

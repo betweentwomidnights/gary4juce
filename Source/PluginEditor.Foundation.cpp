@@ -133,6 +133,7 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
     jsonRequest->setProperty("behavior_tags", tagsArray);
 
     jsonRequest->setProperty("custom_prompt_override", foundationUI->getCustomPromptOverride());
+    jsonRequest->setProperty("inference_profile", foundationUI->getInferenceProfile());
     jsonRequest->setProperty("guidance_scale", foundationUI->getGuidance());
     jsonRequest->setProperty("steps", foundationUI->getSteps());
 

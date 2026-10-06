@@ -2,7 +2,7 @@
 
 > this doc is probably a bit outdated right now. i am always learning new tricks with these models, and documentation hasn't been top of mind for me. this is a great place to add a contribution if you've found some clever ways to use this model inside of gary.
 
-carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with four modes: **lego**, **complete**, **cover**, and **extract**. each mode uses the same underlying model family, but the backend routing and the best practices are a little different depending on what you're trying to do.
+carey brings the [ACE-Step](https://github.com/ace-step/ACE-Step-1.5) music generation model into gary4juce with three modes: **lego**, **complete**, and **cover**. (there's a fourth, **extract**, but it's hidden as of v5.0.0. see [extract mode](#extract-mode).) each mode uses the same underlying model family, but the backend routing and the best practices are a little different depending on what you're trying to do.
 
 backend repo: [ace-lego](https://github.com/betweentwomidnights/ace-lego)
 
@@ -48,7 +48,7 @@ the model doesn't perform well with audio shorter than ~1 minute. loop assist du
 ### tips
 
 - **as of april 22, 2026, this mode is much more reliable.** older complete-mode builds were more unhinged and could sometimes create very wild, interesting continuations, but the current backend uses the repainting branch of ace-step and lands in a more controllable place.
-- **duration slider** controls how long the output will be (30-180 seconds). the model generates the full duration including your input audio as the beginning. just like the other modes, longer duration is better even if you only want a 20 second sample to use.
+- **duration slider** controls how long the output will be. remote generation supports 30-240 seconds, while localhost supports up to 300 seconds. the model generates the full duration including your input audio as the beginning. just like the other modes, longer duration is better even if you only want a 20 second sample to use.
 - **use source as reference** passes your audio as both the conditioning input and a style reference, encouraging the continuation to stay closer to your original timbre and feel. i actually think this should be discontinued, tbh. it kind of lowers output fidelity even though it does help the model stick to your notes better.
 
 ### remote xl models
@@ -88,6 +88,12 @@ on the remote backend, complete mode uses ACE-Step v1.5 XL models. it defaults t
 ---
 
 ## extract mode
+
+**hidden as of v5.0.0.** the built-in stem separator (see the
+[stem separator section of the readme](../README.md#stem-separator)) does this
+job better, so the tab is gone from the plugin. the code is still there behind
+`CareyUI::kExtractTabVisible`, and it can probably be cleaned up for good unless
+something drastic changes for ace-step. the notes below are from before that.
 
 **what it does:** tries to pull out a target stem from your recorded audio using the carey workflow instead of a traditional separator.
 

@@ -48,7 +48,7 @@ Controls:
 
 - `prompt` - optional user prompt. Empty prompts still generate because the DAW BPM is appended.
 - dice button - rolls a backend prompt.
-- `duration` - total generation length in seconds, up to 300.
+- `duration` - total generation length in seconds, up to 240 on both remote and local backends.
 - `loop` - switches to bar-aligned loop generation.
 - `4 / 8 / 16` - loop length in bars when loop mode is enabled.
 
@@ -100,8 +100,8 @@ Controls:
 - prompt/dice/key/advanced controls work the same as generate.
 
 The slider's maximum follows the selected source so the combined result stays
-within SA3's 300-second limit. If the recording is 21 seconds, you can add up to
-279 seconds. Switching to `output` recalculates that limit from the output's
+within SA3's 240-second limit. If the recording is 21 seconds, you can add up to
+219 seconds. Switching to `output` recalculates that limit from the output's
 duration instead.
 
 Current launch note:

@@ -15,11 +15,13 @@
 
 #include <JuceHeader.h>
 #include "Base/CustomButton.h"
+#include "../Utils/CustomLookAndFeel.h"
 #include "../Utils/IconFactory.h"
 #include <utility>
 
 class AudioSelectionDialog : public juce::Component,
-                              public juce::Timer
+                              public juce::Timer,
+                              private juce::ScrollBar::Listener
 {
 public:
     AudioSelectionDialog();
@@ -68,11 +70,40 @@ private:
     double currentPlaybackPosition = 0.0;
     double pausedPosition = 0.0;
 
+    // Where playback stops: the selection's end when it starts inside the selection, otherwise
+    // the end of the file, so a seek past the end can still be heard.
+    double playStopTime = 0.0;
+
     // UI Components
     CustomButton playButton;
     CustomButton stopButton;
+    CustomButton zoomOutButton;
+    CustomButton zoomInButton;
     CustomButton confirmButton;
     CustomButton cancelButton;
+
+    // Zoom: the waveform shows [viewStart, viewStart + viewDuration] of the file. The scrollbar
+    // appears once zoomed in; Ctrl/Cmd + wheel zooms around the mouse, the wheel alone pans.
+    double viewStart = 0.0;
+    double viewDuration = 0.0;
+    CustomLookAndFeel scrollBarLookAndFeel;   // gary's scrollbars; declared first so it outlives the bar
+    juce::ScrollBar scrollBar { false };
+    juce::Rectangle<int> scrollArea;
+    void setView(double start, double duration);
+    void zoomAround(double factor, double anchorTime, double anchorFraction);
+    void zoomFromButton(double factor);
+    bool isZoomed() const;
+    double minViewDuration() const;
+    double timeToX(double timeSeconds) const;
+    juce::String formatTime(double timeSeconds) const;
+    void scrollBarMoved(juce::ScrollBar* bar, double newRangeStart) override;
+    void mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel) override;
+
+    // Click to seek, as on the output waveform; a drag of a few pixels moves the selection instead.
+    void seekTo(double timeSeconds);
+    bool pendingMove = false;
+    bool mouseMovedSinceDown = false;
+    int mouseDownX = 0;
 
     juce::Label titleLabel;
     juce::Label durationLabel;

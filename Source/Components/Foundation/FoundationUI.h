@@ -576,6 +576,10 @@ public:
 
     int getSteps() const { return juce::roundToInt(stepsSlider.getValue()); }
     double getGuidance() const { return guidanceSlider.getValue(); }
+    juce::String getInferenceProfile() const
+    {
+        return samplerProfileToggle.getToggleState() ? "royalcities" : "gary_fallback";
+    }
     int getSeed() const;
     juce::String getCustomPromptOverride() const { return overrideEditor.getText().trim(); }
     bool getAudio2AudioEnabled() const { return audio2audioToggle.getToggleState(); }
@@ -699,6 +703,8 @@ private:
 
     void updateContentLayout();
 
+    void updateSamplerProfileButton();
+
     // ==================== MEMBERS ====================
 
     juce::Label titleLabel;
@@ -799,6 +805,7 @@ private:
 
     // Advanced
     CustomButton advancedToggle;
+    CustomButton samplerProfileToggle;
     bool advancedOpen = false;
     juce::Label stepsLabel;
     CustomSlider stepsSlider;

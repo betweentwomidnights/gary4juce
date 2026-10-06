@@ -30,7 +30,7 @@ public:
     void stopHealthChecks();
 
     // Service type enum for different ports
-    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3, Yuey };
 
     struct LocalServiceHealthSnapshot
     {
@@ -41,13 +41,15 @@ public:
         bool careyOnline = false;
         bool foundationOnline = false;
         bool sa3Online = false;
+        bool yueyOnline = false;
         juce::int64 updatedAtMs = 0;
 
         int getOnlineCount() const
         {
             return (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
                 + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0)
-                + (foundationOnline ? 1 : 0) + (sa3Online ? 1 : 0);
+                + (foundationOnline ? 1 : 0) + (sa3Online ? 1 : 0)
+                + (yueyOnline ? 1 : 0);
         }
     };
 
@@ -197,7 +199,7 @@ private:
     double currentSampleRate = 44100.0;  // Default fallback, updated in prepareToPlay()
 
     // Recording settings
-    static constexpr double recordingLengthSeconds = 180.0;  // Extended for full-song Carey conditioning
+    static constexpr double recordingLengthSeconds = 300.0;  // Supports localhost Carey generation up to five minutes
     static constexpr double deferredRecordingLengthSeconds = 2.0;
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
 

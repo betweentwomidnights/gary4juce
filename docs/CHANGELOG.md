@@ -3,6 +3,114 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.0-rc.3 - MIDI and Live Clips for yuey
+
+this Windows pre-release includes the embedded stem separator, selection-window
+zoom and shared yuey prompt from rc.2, plus MIDI as a source for yuey's remix
+and continue tabs. choose `midi`, then drop or pick a melody file, a chords file,
+or both. remix renders the imported score; continue extends it before rendering.
+create stays driven by the prompt, key and BPM.
+
+saved Ableton MIDI Live Clips (`.alc`) work too, as notes only: save a timeline
+clip to the User Library first, then drag it from Live's browser into Gary.
+instruments and effects are not imported. Drum Rack clips, active groove,
+envelopes, per-note expression and probability are refused. straight-grid,
+monophonic melody and root-position major/minor triads are supported. crop to
+whole bars, and give both lanes the same length; unsupported input gets an
+explanation rather than silently changing the score.
+
+standalone now shows the BPM wheel on remix and continue as well as create.
+hosted yuey tabs show the project's BPM read-only. MIDI, audio transcribe/remix
+and score continuation render at that tempo; audio continuation follows its
+source. imported file paths are saved with the session and reread on restore.
+
+the wide yuey panel uses the same dark-grey background as the other models and
+fits its visible controls, growing for MIDI summaries or errors. the prompt
+stays at the top when everything fits, with no unnecessary scrollbar. compact
+windows still scroll when they need to.
+
+the plugin still reports version 5.0.0; the release tag identifies this preview.
+the stable download links and updater feeds remain unchanged.
+
+## v5.0.0 - yuey and stems
+
+**yue2 is now inside the DAW.** the yuey tab runs
+[YuE2](https://github.com/multimodal-art-projection/YuE) through
+[yuey.cpp](https://github.com/betweentwomidnights/yuey.cpp), a native C++/GGML
+build of the model, on the remote backend and on Windows gary4local v0.4.0
+(CUDA on NVIDIA, Vulkan on AMD and Intel). there's no Python in it at all, and
+it's the first of the native runtimes every gary4local service is moving to.
+
+it doesn't work quite the way official YuE does, on purpose. create renders
+over a chord scaffold built from your tempo, key and bar count, rolled from a
+pool of familiar progressions, instead of waiting 40 seconds to four minutes
+for the model to plan a whole song. "let yuey plan" brings the planning back,
+and key "none" drops both. remix transcribes your audio with SheetSage2 and
+renders the score again; continue can work from the score or from the audio
+itself. every render keeps its score, which you can drag in as MIDI or edit in
+the score window, with quick edits for tempo, transposition, lanes and chords.
+[docs/YUEY.md](YUEY.md) goes through each of these choices.
+
+instrumental is still best effort. YuE2 can sing when the score says not to,
+which is what the instrumental LoRA is for, and gary4local uses it when it's
+downloaded.
+
+sa3's generate and continue also get an "ending" choice. "ends here" asks SA3
+to plan the ending where the audio stops. "keeps going" composes six seconds
+past the end and throws them away, so the audio cuts off in full swing; chain
+continuations on it, then switch the last one to "ends here" for an outro.
+
+**stems are built in.** the output waveform and the recording buffer each get a
+`stems` handle that splits the audio into stems on your own computer, with
+[stems.cpp](https://github.com/betweentwomidnights/stems.cpp), our native
+C++/GGML build of HTDemucs and the RoFormer separators. there's no Python and
+no gary4local in it, nothing is uploaded, and it works the same with the remote
+backend. the runtime (about 19 MB on windows, 6 MB on mac) installs from the
+settings menu, from stems.cpp's GitHub release and checked against hashes
+pinned in the plugin. the models download from Hugging Face: htdemucs (four
+stems, six with guitar and piano, or the slower fine-tuned bag) and two
+RoFormers that split vocals from everything else. on windows it runs on Vulkan,
+so NVIDIA, AMD and Intel GPUs all work, with a toggle for the CPU. on apple
+silicon it runs on Metal, and intel macs are CPU only.
+
+stems are ephemeral. the popup works in its own temporary folder, deletes it
+when it closes, and keeps only the stems you drag out. dropping a stem on the
+recording buffer replaces it, which is how you pull the drums out of something
+you dragged in from the DAW. one of the RoFormers, viperx's, has no license
+upstream, and the readme says so.
+
+**carey's extract tab is hidden.** the stem separator does what extract was
+attempting, and does it better, so the tab is gone from carey. the code is still
+there behind one switch, in case something changes for ace-step, but i expect to
+remove it. if you closed a session with extract selected, it reopens on lego.
+
+**the yuey prompt is shared across create, remix and continue.** each sub-tab
+used to keep its own, and the score window had none, so re-rendering a score
+sent whatever the create tab held, which was nothing for a score that came out
+of a remix. there's one prompt now: switching sub-tabs keeps it, and the score
+window shows the same box and dice. if an older session saved three different
+prompts, it restores the one from the sub-tab you were last on.
+
+**the audio selection window zooms.** the magnifier buttons halve or double the
+visible range down to about one sample per pixel, ctrl or cmd plus the wheel
+zooms around the mouse, and the wheel alone pans. a click on the waveform seeks,
+as it does on the output.
+
+a job no longer sits frozen when the network drops its result partway through.
+yuey renders on the remote backend kept parking at 91-95 per cent with the
+result still waiting on the server: on Windows, a read the network had
+abandoned could block indefinitely, and the plugin never noticed. the result
+poll now has a deadline and a watchdog that cancels a stuck read and asks
+again. every tab shares that poll, so it isn't only yuey that benefits.
+
+## v4.0.15
+
+adjusted duration limits for sa3 and ace-step.
+added the official RoyalCities sampler type to foundation-1.
+
+if you were fine with durations and don't use foundation-1 much, you can go
+ahead and skip this release.
+
 ## v4.0.14 - clearer SA3 continuations
 
 SA3's continue slider now chooses how many seconds of new audio to add and

@@ -19,6 +19,10 @@
 class SA3UI : public juce::Component
 {
 public:
+    static constexpr int kMaximumDurationSeconds = 240;
+    static constexpr double kEndsHereTailPadSeconds = 0.0;
+    static constexpr double kKeepsGoingTailPadSeconds = 6.0;
+
     enum class SubTab
     {
         Generate = 0,
@@ -83,6 +87,10 @@ public:
 
     bool getLoopEnabled() const { return loopToggle.getToggleState(); }
     void setLoopEnabled(bool enabled);
+    bool getGenerateKeepsGoing() const { return generateKeepsGoing; }
+    void setGenerateKeepsGoing(bool keepsGoing);
+    bool getContinueKeepsGoing() const { return continueKeepsGoing; }
+    void setContinueKeepsGoing(bool keepsGoing);
     int getBars() const { return selectedBars; }
     void setBars(int bars);
 
@@ -116,6 +124,8 @@ public:
     std::function<void(const juce::String&)> onNegativePromptChanged;
     std::function<void(int)> onDurationChanged;
     std::function<void(bool)> onLoopChanged;
+    std::function<void(bool)> onGenerateKeepsGoingChanged;
+    std::function<void(bool)> onContinueKeepsGoingChanged;
     std::function<void(int)> onBarsChanged;
     std::function<void(int)> onStepsChanged;
     std::function<void(double)> onCfgChanged;
@@ -150,6 +160,7 @@ private:
     void setCurrentSubTabInternal(SubTab tab, bool notify);
     void updateSubTabButtonStyles();
     void updateLoopControls();
+    void updateTailPadButtonStyles();
     void updateBarsButtonStyles();
     void updateAdvancedToggleText();
     void updateKeyScaleVisibility(bool notify);
@@ -215,12 +226,19 @@ private:
     juce::ToggleButton continueOutputButton;
     juce::Label continuationLabel;
     CustomSlider continuationSlider;
-    int continuationMaximumAddSeconds = 300;
+    int continuationMaximumAddSeconds = kMaximumDurationSeconds;
 
     juce::Label durationLabel;
     CustomSlider durationSlider;
 
     CustomButton loopToggle;
+    juce::Label endingLabel;
+    CustomButton generateEndsHereButton;
+    CustomButton generateKeepsGoingButton;
+    CustomButton continueEndsHereButton;
+    CustomButton continueKeepsGoingButton;
+    bool generateKeepsGoing = false;
+    bool continueKeepsGoing = true;
     CustomButton bars4Button;
     CustomButton bars8Button;
     CustomButton bars16Button;

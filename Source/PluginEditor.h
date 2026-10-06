@@ -16,15 +16,20 @@
 #include "Components/Jerry/JerryUI.h"
 #include "Components/Jerry/SA3UI.h"
 #include "Components/Carey/CareyUI.h"
+#include "Components/Yuey/YueyUI.h"
+#include "Yuey/YueyMidiImport.h"
 #include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <vector>
 #include <cstdint>
+
+namespace stems { class StemsService; }
 
 //==============================================================================
 /**
@@ -52,7 +57,9 @@ public:
     void stopPolling();
     void pollForResults();
     void handlePollingResponse(const juce::String& responseText);
-    void saveGeneratedAudio(const juce::String& base64Audio);
+    // Returns false when the render never reached disk, so callers do not
+    // attach metadata to audio the user is not actually hearing.
+    bool saveGeneratedAudio(const juce::String& base64Audio);
 
     void loadOutputAudioFile();
     void drawOutputWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
@@ -107,6 +114,7 @@ private:
     bool localCareyOnline = false;
     bool localFoundationOnline = false;
     bool localSA3Online = false;
+    bool localYueyOnline = false;
     int localOnlineCount = 0;
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;
@@ -118,7 +126,7 @@ private:
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3 };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3, Yuey };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -162,7 +170,8 @@ private:
         Jerry,    // encompasses both Jerry SAOS and Foundation sub-tabs
         Carey,
         Terry,
-        Darius    // magenta
+        Darius,   // magenta
+        Yuey      // appended to preserve saved enum values from earlier versions
     };
 
     // Jerry sub-tabs: Stable Audio 3 beta, the original SAOS model, and Foundation-1
@@ -183,7 +192,12 @@ private:
         FoundationGenerate,
         SA3Generate,
         SA3Transform,
-        SA3Continue
+        SA3Continue,
+        YueyGenerate,
+        YueyRemix,
+        YueyContinue,
+        YueyScoreTranscribe,
+        YueyRemixTranscribe
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -191,6 +205,7 @@ private:
     CustomButton jerryTabButton;
     CustomButton careyTabButton;
     CustomButton terryTabButton;
+    CustomButton yueyTabButton;
 
     // Jerry sub-tab buttons (replace the title area when Jerry tab is active)
     CustomButton jerrySubTabSAOS;      // "jerry (SAOS)"
@@ -221,10 +236,16 @@ private:
     juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
     juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
     juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    juce::File getGaryDraggedMidiDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_midi"); }
+    // The score sidecar sits beside myOutput.wav because it describes that
+    // render. Anything replacing the output audio must drop this with it.
+    juce::File getYueyScoreDirectory() const { return activeGaryDataDirectory.getChildFile("myOutput.score"); }
     juce::String getDraggedAudioFileExtension() const;
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
     void showStorageSettings();
+    void showStemsSettings();
+    stems::StemsService& getStemsService();   // created on first use, in the active data folder
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);
     void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
@@ -430,6 +451,173 @@ private:
     juce::String getSelectedCareyCompleteLora() const;
     juce::String getSelectedCareyCoverLora() const;
 
+    // ========== YUEY ==========
+    std::unique_ptr<YueyUI> yueyUI;
+    YueyUI::SubTab currentYueySubTab = YueyUI::SubTab::Create;
+    YueyUI::ContinuationMethod currentYueyContinuationMethod = YueyUI::ContinuationMethod::Score;
+    juce::String currentYueyCreatePrompt;
+    juce::String currentYueyRemixPrompt;
+    juce::String currentYueyContinuePrompt;
+    bool currentYueyCreateInstrumental = false;
+    // Off by default: we write the score rather than paying yuey to plan one.
+    bool currentYueyLetYueyPlan = false;
+    int currentYueyScaffoldVariation = 0;
+    bool currentYueyRemixInstrumental = true;
+    double currentYueyBpm = 120.0;
+    juce::String currentYueyKey = "C major";
+    juce::String currentYueyLastSeed;
+    bool currentYueyUseSeed = false;
+    juce::String currentYueySeedText;
+    juce::String currentYueyMeter = "4/4";
+    bool currentYueyFixedBars = false;
+    int currentYueyBars = 16;
+    bool currentYueyContinueFixedBars = false;
+    int currentYueyContinueBars = 8;
+    juce::String currentYueyTranscriptionMode = "melody";
+    void sendToYuey();
+    void submitYueyJson(const juce::String& endpoint,
+                        const juce::String& json,
+                        ActiveOp operation,
+                        const juce::String& activity);
+    void updateYueyEnablementSnapshot();
+    void applyYueyPlanMetadata(const juce::String& abc);
+    // symbolicMode and adoptPlan are for a score that came from a MIDI file: it conditions with its
+    // chords when it has any, and its serialization key (always C) says nothing about the music, so
+    // the tab's own key is left alone.
+    void continueYueyFromTranscription(const juce::String& abc, const juce::String& symbolicMode = {},
+                                       bool adoptPlan = true);
+    void remixYueyFromTranscription(const juce::String& abc);
+    double yueyTranscriptionBpm = 120.0; // capture the standalone target before the async transcription
+
+    // ---- MIDI as a source for remix and continue ----
+    // The two files live here, not in the tab: they belong to the session (and survive the editor
+    // being rebuilt), and nothing about the output audio or its score has anything to do with them.
+    struct YueyMidiInput
+    {
+        juce::File file;              // what the user gave us, kept even when it was refused
+        bool read = false;            // the file was read; clip is usable
+        yueymidi::Clip clip;
+        juce::String error;           // why it can't be used on its own
+        yueymidi::Score alone;        // what it converts to by itself, at the current tempo
+        bool usable() const { return read && alone.ok; }
+    };
+    YueyMidiInput yueyMidiMelody;
+    YueyMidiInput yueyMidiChords;
+    bool currentYueyMidiSelected = false;
+    bool yueyMidiReady = false;       // at least one usable lane, and the lanes agree
+    int yueyMidiSummaryBpm = 0;
+    int effectiveYueyBpm();
+    void readYueyMidi(YueyMidiInput& input, const juce::File& file);
+    void loadYueyMidiFile(YueyUI::MidiLane lane, const juce::File& file);
+    void clearYueyMidi(YueyUI::MidiLane lane);
+    // Re-checks both lanes at the current tempo and meter and tells the tab what to show.
+    void refreshYueyMidi();
+    // After the tab exists: read the files the saved session named and show them.
+    void restoreYueyMidi();
+    // The score the next render would use, from whichever lanes are usable.
+    bool buildYueyMidiScore(yueymidi::Score& score, juce::String& error);
+    void sendYueyMidi(bool remixing);
+
+    // Ceiling the active yuey backend puts on a planner-chosen score. Seconds,
+    // where 0 is unbounded and a negative value means unknown. Remembering the
+    // url it came from means switching between localhost and remote refetches
+    // it without any extra bookkeeping.
+    double yueyNaturalMaxSeconds = -1.0;
+    juce::String yueyNaturalMaxSource;
+    juce::int64 yueyNaturalMaxLastAttemptMs = 0;
+    // Whether this backend answers audio_format "flac", read from the same
+    // /health response. Unknown counts as no: older servers reject the value.
+    bool yueyAcceptsFlac = false;
+    void refreshYueyNaturalMax();
+
+    // The dice pool, fetched once per backend. Two buckets, chosen by the
+    // instrumental toggle of whichever tab rolled: an instrumental job has a
+    // no-vocals preamble prefixed to its style, so a prompt naming a singer
+    // there would argue with it.
+    juce::StringArray yueyDiceInstrumental;
+    juce::StringArray yueyDiceVocal;
+    juce::String yueyDiceSource;
+    juce::int64 yueyDiceLastAttemptMs = 0;
+    void refreshYueyDicePrompts();
+    void rollYueyDicePrompt(YueyUI::SubTab tab);
+    // Create, remix and continue share one prompt: this sets it everywhere it lives.
+    void setYueyPrompt(const juce::String& text);
+    // A prompt from the pool that is not `current`, or empty with `problem` saying why not.
+    juce::String pickYueyDicePrompt(bool instrumental, const juce::String& current,
+                                    juce::String& problem);
+
+    // ---------- yuey score: owned by the output audio, not by the tab ----------
+    struct YueyMidiLane
+    {
+        juce::String name;      // e.g. "melody.mid", as the server keys it
+        juce::MemoryBlock bytes;
+    };
+
+    struct YueyScore
+    {
+        juce::String originalAbc;   // exactly what the server returned
+        juce::String workingAbc;    // editable copy; Q: may be retimed to the host
+        juce::String sourceOp;      // generate | remix | continue
+        double originalTempo = 0.0; // the Q: the server sent
+        double workingTempo = 0.0;  // the Q: currently in workingAbc
+        bool syncedToHost = false;  // workingAbc's Q: came from the DAW, not the model
+        bool alignedToAudio = true; // false once the output is cropped or trimmed
+        int bars = 0;
+        std::vector<YueyMidiLane> midi; // lanes with notes, in display order
+
+        bool isValid() const { return originalAbc.isNotEmpty(); }
+    };
+
+    YueyScore yueyScore;
+
+    bool hasYueyScore() const { return yueyScore.isValid(); }
+    void attachYueyScore(juce::DynamicObject* completedResponse, const juce::String& sourceOp);
+    void clearYueyScore();
+    void persistYueyScore();
+    void markYueyScoreUnaligned();
+    bool loadYueyScoreFromDisk();
+    juce::File getYueyMidiFile(const juce::String& laneName) const;
+
+    // The midi handle lives on the output waveform rather than in the tab,
+    // because the midi belongs to the render rather than to the request.
+    // Dragging it carries every lane at once. The listener is declared first
+    // so it outlives the button it listens to.
+    std::unique_ptr<juce::MouseListener> yueyMidiDragListener;
+    juce::DrawableButton yueyMidiButton;
+    bool yueyMidiDragStarted = false;
+    void installYueyMidiDrag();
+    void dragYueyMidi();
+    void updateYueyScoreOverlayState();
+    juce::DrawableButton yueyScoreButton;
+    // The embedded stem separator's handles, bottom right of the output waveform and of the recording
+    // buffer (PluginEditor.Stems.cpp).
+    juce::DrawableButton stemsButton;
+    juce::DrawableButton stemsInputButton;
+    int stemsButtonTimerTicks = 0;
+    juce::File activeStemFile;          // in the output player while activePlaybackSource == Stem
+    double stemPausedPosition = 0.0;
+    bool stemPlaybackRunning = false;   // started and not paused or stopped by the user
+    // Where each stem not in the player was left (path -> seconds), so switching stems pauses the
+    // one you leave rather than forgetting it. Cleared when the stems popup closes.
+    std::map<juce::String, double> stemPositions;
+    double currentStemPosition() const;
+    double stemPosition(const juce::File& stem) const;
+    void updateStemsButtonState();
+    void checkStemPlaybackStatus();
+    void showStemsDialog(bool fromRecordingBuffer);
+    void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
+    void toggleStemPlayback(const juce::File& stem);
+    void stopStemPlayback(const juce::File& stem);
+    void seekStem(const juce::File& stem, double seconds);
+    void releaseStemPlayback();
+    void startStemDrag(const juce::File& stem, const juce::String& stemName);
+    void openYueyScoreEditor();
+    void saveYueyWorkingScore(const juce::String& abc);
+    void renderYueyScore(const juce::String& abc, bool fullScore, const juce::String& prompt);
+    void saveYueyScorePrompt(const juce::String& prompt);
+    void reportYueyWarnings(juce::DynamicObject* completedResponse);
+    void recordYueyLastSeed(juce::DynamicObject* completedResponse);
+
     // ========== FOUNDATION ==========
     std::unique_ptr<FoundationUI> foundationUI;
     juce::String lastFoundationPromptSnapshot;
@@ -455,6 +643,8 @@ private:
     juce::String currentSA3ContinuePrompt = "";
     int currentSA3ContinueAddSeconds = 30;
     bool currentSA3ContinueLatentPrefix = false;
+    bool currentSA3GenerateKeepsGoing = false;
+    bool currentSA3ContinueKeepsGoing = true;
     SA3UI::SubTab currentSA3SubTab = SA3UI::SubTab::Generate;
     bool currentSA3AdvancedOpen = false;
     juce::String currentSA3LastSeed;
@@ -638,7 +828,7 @@ private:
 
     bool isPlayingOutput = false;
 
-    enum class PlaybackSource { None, Input, Output };
+    enum class PlaybackSource { None, Input, Output, Stem };
     PlaybackSource activePlaybackSource = PlaybackSource::None;
 
     bool isPlayingInput = false;
@@ -774,7 +964,7 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton, sa3HelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton, sa3HelpButton, yueyHelpButton;
     // foundationHelpButton is reused — visible when Jerry sub-tab is Foundation
 
     // Allow an extended grace period when we're at 0% but still receiving polls
@@ -806,7 +996,28 @@ private:
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
 
+    // The read the current poll is doing, so the timer can cut it loose. A
+    // WinInet read that the network has abandoned can block past its own
+    // receive timeout, and while it does pollInFlight stays set and every tick
+    // returns before reaching anything that could notice. Cancelling the
+    // stream from another thread is what reliably hands control back.
+    struct PollTransfer
+    {
+        std::mutex lock;
+        std::shared_ptr<juce::WebInputStream> stream;
+        std::atomic<juce::int64> startedMs{ 0 };
+        std::atomic<juce::int64> lastByteMs{ 0 };
+        std::atomic<juce::int64> cancelledMs{ 0 };
+    };
+    std::mutex pollTransferLock;
+    std::shared_ptr<PollTransfer> currentPollTransfer;
+    void superviseInFlightPoll();
+    void finishPollTransfer(const std::shared_ptr<PollTransfer>& transfer);
+    void abandonPollTransfer();
+
     std::unique_ptr<juce::PropertiesFile> updatePreferences;
+    // The embedded stem separator (Source/Stems). Shared so a job thread can finish after the editor.
+    std::shared_ptr<stems::StemsService> stemsService;
     std::atomic<bool> updateCheckInFlight{ false };
     bool hasCheckedForUpdatesThisEditorSession = false;
     bool updatePromptVisible = false;
