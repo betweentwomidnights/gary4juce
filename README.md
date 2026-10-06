@@ -84,6 +84,11 @@ gary4local. install the runtime and a model from the settings menu, press
 `stems`, and drag the ones you like into your DAW. [how it works](#stem-separator)
 is down in the usage section.
 
+also new: carey's extract tab is hidden, since the stem separator does that job
+better. the yuey prompt is shared across create, remix and continue now, and
+the score window has the prompt box and dice. the audio selection window zooms,
+so you can place the edges precisely.
+
 recommended local companion: gary4local v0.4.0, releasing alongside this one.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
