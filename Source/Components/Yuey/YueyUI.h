@@ -28,6 +28,7 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    int getPreferredHeight(int width);
 
     void setVisibleForTab(bool visible) { setVisible(visible); }
     juce::Rectangle<int> getTitleBounds() const { return titleBounds; }
@@ -55,8 +56,9 @@ public:
     void setCreateInstrumental(bool enabled);
     void setRemixInstrumental(bool enabled);
 
-    double getBpm() const { return bpmControl.getValue(); }
+    double getBpm() const { return isStandalone ? bpmControl.getValue() : hostBpm; }
     void setBpm(double bpm);
+    void setIsStandalone(bool standalone);
     juce::String getKey() const;
     bool isKeyNone() const;
     void setKey(const juce::String& key);
@@ -111,6 +113,7 @@ public:
     void setNaturalLengthCeiling(double seconds);
 
     std::function<void(SubTab)> onSubTabChanged;
+    std::function<void()> onLayoutHeightChanged;
     std::function<void(ContinuationMethod)> onContinuationMethodChanged;
     std::function<void(SubTab, const juce::String&)> onPromptChanged;
     std::function<void(const juce::String&)> onLyricsChanged;
@@ -134,6 +137,9 @@ private:
     enum class PromptTarget { Create = 0, Remix, Continue };
 
     void addToContent(juce::Component& component);
+    int layoutContent(int width);
+    int chromeHeight() const { return currentSubTab == SubTab::Create ? 120 : 104; }
+    int preferredHeight = 0;
     void updateSubTabState();
     void updateLengthState();
     void updateInstrumentalState();
@@ -190,6 +196,10 @@ private:
     CustomComboBox keyModeComboBox;
     CustomComboBox meterComboBox;
     BpmControl bpmControl;
+    juce::Label hostBpmLabel;
+    juce::Label tempoLabel;
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    double hostBpm = 120.0;
 
     juce::Label lengthLabel;
     CustomButton naturalLengthButton;

@@ -73,9 +73,9 @@ which takes the melody out and keeps only the backing part.
 
 remix runs your recording through SheetSage2, which writes it down as a score:
 the melody, and the chords too in full mode. yuey then renders that score
-again in your style prompt. the tempo comes from the transcription, and the
-render starts on the first downbeat it finds, so you don't get a bar of silence
-first.
+again in your style prompt. the recovered score uses the tempo wheel in the
+standalone, or your project's tempo in a DAW. the render starts on the first
+downbeat it finds, so you don't get a bar of silence first.
 
 SheetSage2 transcribes pitched melody. rap and spoken vocals usually come out
 with no vocal notes at all, so a remix of a rap track follows the beat's
@@ -86,16 +86,24 @@ melodic parts, not the voice.
 - **score continuation** transcribes your audio and composes what comes next
   from the score. it's a fresh render, so it won't sound exactly like your
   audio, but it follows its harmony and melody.
+  the score uses the standalone tempo wheel or the DAW's project tempo.
 - **audio continuation** carries the audio itself forward through the
   [real-audio adapter pair](https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4).
   it holds on to your sound more closely, but the whole result is rebuilt, so
   it can lose a little fidelity.
+  it follows the source audio's tempo, so the standalone tempo wheel stays
+  visible but can't be edited in this mode.
+
+the standalone tempo wheel is shared across create, remix and continue. in a
+DAW, all three tabs show the project tempo as a read-only value. ABC uses whole
+number tempos, so a fractional project BPM is rounded when writing the score.
 
 ### midi instead of audio
 
 remix and continue can start from midi instead of a recording. pick "midi" next
 to recording and output, and two small slots show up: **melody** and **chords**.
-drop a `.mid` file on each, or click one to browse. either slot can be empty.
+drop a `.mid`, `.midi` or saved Ableton `.alc` file on each, or click one to
+browse. either slot can be empty.
 there's no transcription, because your midi is already the score, and the
 tab looks the same as ever until you pick it.
 
@@ -107,8 +115,9 @@ tab looks the same as ever until you pick it.
 yuey uses the length of the file you give it. there's no cropping here and
 nothing is looped or stretched, so trim your clip to the bars you want in your
 DAW before you export it. if you give it both files they have to be the same
-length and meter, and it'll tell you if they aren't. the tempo is the project's
-(or the bpm on the create tab, in the standalone), and your notes keep their
+length and meter, and it'll tell you if they aren't. partial-bar endings are
+refused rather than padded. the tempo is the project's (or the standalone
+tempo wheel), and your notes keep their
 place in beats, so changing it changes how long the piece lasts and nothing
 else.
 
@@ -118,8 +127,19 @@ it only takes what it can write down exactly, and it says so when it can't:
 - rhythms have to be on a straight grid. triplets and loose timing get
   refused, so quantize first.
 - chords have to be root-position major or minor triads. inversions, sevenths
-  and rolled chords aren't supported yet.
+  and rolled chords aren't supported yet. each chord must end where the next
+  begins, and the last must reach the clip end; gaps and overlaps are refused.
 - no drums, pitch bends or controller moves (mod wheel, sustain, expression).
+
+saved MIDI Live Clips import their underlying notes, not their instruments or
+effects. a looping clip supplies one pass through its loop region; an unlooped
+clip ends at its saved end marker. notes outside that region aren't imported.
+clips with a phased start offset need cropping in Live or MIDI export first.
+Drum Rack and audio clips, assigned grooves, automation, note expression and
+note probability aren't supported. the same melody, chord and grid checks
+still apply. In Ableton, drag a timeline clip into your User Library first,
+then drag that saved `.alc` from the browser into a slot. Live does not offer
+a file when dragging directly from its timeline into the plugin.
 
 the melody goes on the instrument lane and the chords are written as chord
 symbols, so with chords it renders in full-score mode and the chords count. i've

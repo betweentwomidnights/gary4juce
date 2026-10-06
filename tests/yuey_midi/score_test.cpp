@@ -194,6 +194,22 @@ void rejectionCases()
     const Clip eightBars = melodyOf(ppq, 8 * bar, triad(0, 192, 48, false));
     expectRefused(buildScore(&tenBars, &eightBars, 120, 4, 4), "10 bars and the chords are 8", "length mismatch");
 
+    const Clip threeBeats = melodyOf(ppq, 3 * ppq, { { 0, ppq, 60 } });
+    const Clip fourBeats = melodyOf(ppq, bar, triad(0, bar, 48, false));
+    expectRefused(buildScore(&threeBeats, &fourBeats, 120, 4, 4),
+                  "different lengths within", "unequal lengths that round to the same bar count");
+    expectRefused(justMelody(threeBeats), "partway through a bar", "partial bar is not padded");
+
+    auto gaps = triad(0, ppq, 48, false);
+    const auto second = triad(2 * ppq, 2 * ppq, 55, false);
+    gaps.insert(gaps.end(), second.begin(), second.end());
+    expectRefused(justChords(melodyOf(ppq, bar, gaps)), "chord gaps", "gap between chords");
+    auto overlaps = triad(0, 3 * ppq, 48, false);
+    overlaps.insert(overlaps.end(), second.begin(), second.end());
+    expectRefused(justChords(melodyOf(ppq, bar, overlaps)), "overlaps", "overlapping chords");
+    expectRefused(justChords(melodyOf(ppq, bar, triad(0, 3 * ppq, 48, false))),
+                  "chord gaps", "last chord releases before clip end");
+
     // Different meters.
     const Clip waltz = melodyOf(ppq, 3 * 3 * ppq, { { 0, 96, 60 } }, 3, 4);
     expectRefused(buildScore(&waltz, &eightBars, 120, 4, 4), "in 3/4 but the chords are in 4/4", "meter mismatch");
@@ -222,7 +238,7 @@ void behaviourCases()
           "a file without a meter takes the other lane's");
 
     // Chords alone leave the Ins lane resting, with no invented melody.
-    auto onlyChords = buildScore(nullptr, &chordsBare, 100, 4, 4);
+    auto onlyChords = buildScore(nullptr, &chordsBare, 100, 3, 4);
     check(onlyChords.ok && onlyChords.hasChords && !onlyChords.hasMelody
               && onlyChords.abc.find("V: Ins\nZ|") != std::string::npos,
           "chords alone rest the melody lane");
@@ -249,6 +265,18 @@ void behaviourCases()
     // A clip that ends off the grid is refused, not rounded.
     Clip ragged = melodyOf(ppq, 4 * quarter + 1, { { 0, quarter, 60 } });
     expectRefused(justMelody(ragged), "straight grid", "a clip that ends a tick past a bar");
+
+    Clip otherPpq = melodyOf(96, 4 * 96, triad(0, 4 * 96, 48, false));
+    Clip oneBar = melodyOf(ppq, 4 * quarter, { { 0, quarter, 60 } });
+    check(buildScore(&oneBar, &otherPpq, 120, 4, 4).ok, "equal beat lengths with different PPQs are accepted");
+    otherPpq.endTick = 3 * 96;
+    otherPpq.notes = triad(0, 3 * 96, 48, false);
+    expectRefused(buildScore(&oneBar, &otherPpq, 120, 4, 4), "different lengths within",
+                  "different beat lengths across PPQs are rejected");
+
+    // A leading rest can be written exactly before the first chord symbol.
+    auto leading = justChords(melodyOf(ppq, 4 * quarter, triad(quarter, 3 * quarter, 48, false)));
+    check(leading.ok && leading.abc.find("z8\"C\"z24|") != std::string::npos, "leading chord silence is preserved");
 }
 }  // namespace
 

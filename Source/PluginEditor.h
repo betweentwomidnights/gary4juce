@@ -196,7 +196,8 @@ private:
         YueyGenerate,
         YueyRemix,
         YueyContinue,
-        YueyScoreTranscribe
+        YueyScoreTranscribe,
+        YueyRemixTranscribe
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
@@ -484,6 +485,8 @@ private:
     // the tab's own key is left alone.
     void continueYueyFromTranscription(const juce::String& abc, const juce::String& symbolicMode = {},
                                        bool adoptPlan = true);
+    void remixYueyFromTranscription(const juce::String& abc);
+    double yueyTranscriptionBpm = 120.0; // capture the standalone target before the async transcription
 
     // ---- MIDI as a source for remix and continue ----
     // The two files live here, not in the tab: they belong to the session (and survive the editor
@@ -501,6 +504,7 @@ private:
     YueyMidiInput yueyMidiChords;
     bool currentYueyMidiSelected = false;
     bool yueyMidiReady = false;       // at least one usable lane, and the lanes agree
+    int yueyMidiSummaryBpm = 0;
     int effectiveYueyBpm();
     void readYueyMidi(YueyMidiInput& input, const juce::File& file);
     void loadYueyMidiFile(YueyUI::MidiLane lane, const juce::File& file);

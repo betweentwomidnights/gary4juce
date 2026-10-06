@@ -3,9 +3,11 @@
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "Yuey/YueyScoreTempo.h"
 
 namespace
 {
+using yuey::retimeAbcTempo;
 juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
                                              const juce::String& lyrics,
                                              bool instrumental,
@@ -263,29 +265,6 @@ double readAbcTempo(const juce::String& abc)
     return 0.0;
 }
 
-// Rewrites Q: in place, keeping the beat unit and every other line byte-exact.
-// We adapt the score to the host; we never ask the host to move.
-juce::String retimeAbcTempo(const juce::String& abc, double bpm)
-{
-    if (bpm <= 0.0)
-        return abc;
-
-    juce::StringArray lines;
-    lines.addLines(abc);
-    bool rewrote = false;
-    for (auto& line : lines)
-    {
-        if (rewrote || !line.trim().startsWith("Q:") || !line.contains("="))
-            continue;
-        const auto unit = line.upToFirstOccurrenceOf("=", false, false);
-        if (!unit.contains("Q:"))
-            continue;
-        line = unit + "=" + juce::String(juce::roundToInt(bpm));
-        rewrote = true;
-    }
-    return rewrote ? lines.joinIntoString("\n") : abc;
-}
-
 // The server always emits melody_vocal and melody_instrumental keys, but their
 // values are empty when that lane has no notes. Writing those out would hand
 // the DAW a zero-byte .mid, so an empty value counts as absent.
@@ -523,28 +502,17 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     }
     const auto encodedAudio = juce::Base64::toBase64(audioBytes.getData(), audioBytes.getSize());
 
-    if (remixing)
+    if (remixing || currentYueyContinuationMethod == YueyUI::ContinuationMethod::Score)
     {
-        auto payload = makeYueySongPayload(currentYueyRemixPrompt,
-                                            currentCareyLyrics,
-                                            currentYueyRemixInstrumental,
-        yueyAcceptsFlac ? "flac" : "wav");
-        payload->setProperty("audio_data", encodedAudio);
-        payload->setProperty("transcription_mode", currentYueyTranscriptionMode);
-        payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
-        submitYueyJson("/cover", juce::JSON::toString(juce::var(payload.get())),
-                        ActiveOp::YueyRemix, "transcribing and remixing");
-        return;
-    }
-
-    if (currentYueyContinuationMethod == YueyUI::ContinuationMethod::Score)
-    {
+        // /cover owns its transcription tempo. Split the same work into two
+        // existing requests so the recovered score can follow our target tempo.
+        yueyTranscriptionBpm = currentYueyBpm;
         juce::DynamicObject::Ptr transcription = new juce::DynamicObject();
         transcription->setProperty("audio_data", encodedAudio);
         transcription->setProperty("transcription_mode", currentYueyTranscriptionMode);
         submitYueyJson("/transcribe", juce::JSON::toString(juce::var(transcription.get())),
-                        ActiveOp::YueyScoreTranscribe,
-                        "transcribing score for continuation");
+                        remixing ? ActiveOp::YueyRemixTranscribe : ActiveOp::YueyScoreTranscribe,
+                        remixing ? "transcribing score for remix" : "transcribing score for continuation");
         return;
     }
 
@@ -574,11 +542,13 @@ void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::St
         return;
     }
 
+    const auto renderAbc = adoptPlan ? retimeAbcTempo(abc,
+        juce::JUCEApplicationBase::isStandaloneApp() ? yueyTranscriptionBpm : effectiveYueyBpm()) : abc;
     auto payload = makeYueySongPayload(currentYueyContinuePrompt,
                                         currentCareyLyrics,
                                         currentYueyRemixInstrumental,
         yueyAcceptsFlac ? "flac" : "wav");
-    payload->setProperty("abc_prefix", abc);
+    payload->setProperty("abc_prefix", renderAbc);
     if (symbolicMode.isNotEmpty())
         payload->setProperty("symbolic_mode", symbolicMode);
     if (currentYueyContinueFixedBars)
@@ -601,10 +571,29 @@ void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::St
     payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
 
     if (adoptPlan)
-        applyYueyPlanMetadata(abc);
+        applyYueyPlanMetadata(renderAbc);
     submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
                     ActiveOp::YueyContinue,
                     adoptPlan ? "continuing from transcribed score" : "continuing from your midi");
+}
+
+void Gary4juceAudioProcessorEditor::remixYueyFromTranscription(const juce::String& abc)
+{
+    if (abc.trim().isEmpty())
+    {
+        handleGenerationFailure("remix failed: transcription returned no score");
+        return;
+    }
+    const auto renderAbc = retimeAbcTempo(abc,
+        juce::JUCEApplicationBase::isStandaloneApp() ? yueyTranscriptionBpm : effectiveYueyBpm());
+    auto payload = makeYueySongPayload(currentYueyRemixPrompt, currentCareyLyrics,
+                                     currentYueyRemixInstrumental, yueyAcceptsFlac ? "flac" : "wav");
+    payload->setProperty("abc", renderAbc);
+    payload->setProperty("symbolic_mode", currentYueyTranscriptionMode == "full" ? "full" : "melody");
+    payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
+    applyYueyPlanMetadata(renderAbc);
+    submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
+                  ActiveOp::YueyRemix, "remixing from transcribed score");
 }
 
 // ---------------------------------------------------------------------------
@@ -635,7 +624,7 @@ void Gary4juceAudioProcessorEditor::readYueyMidi(YueyMidiInput& input, const juc
 {
     input = YueyMidiInput {};
     input.file = file;  // kept even when it is refused, so the slot has something to point at
-    const auto result = yueymidi::readMidiFile(file);
+    const auto result = yueymidi::readInputFile(file);
     input.read = result.ok;
     input.clip = result.clip;
     input.error = result.error;
@@ -682,6 +671,7 @@ void Gary4juceAudioProcessorEditor::restoreYueyMidi()
 void Gary4juceAudioProcessorEditor::refreshYueyMidi()
 {
     const int bpm = effectiveYueyBpm();
+    yueyMidiSummaryBpm = bpm;
     int meterNumerator = 4, meterDenominator = 4;
     parseMeter(yueyUI != nullptr ? yueyUI->getMeter() : currentYueyMeter, meterNumerator, meterDenominator);
 
@@ -893,6 +883,8 @@ void Gary4juceAudioProcessorEditor::applyYueyPlanMetadata(const juce::String& ab
         currentYueyBpm = yueyUI->getBpm();
         currentYueyKey = yueyUI->getKey();
         currentYueyMeter = yueyUI->getMeter();
+        if (currentYueyMidiSelected)
+            refreshYueyMidi();
     }
     persistEditorState();
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // One MIDI input slot on the yuey tab, melody or chords: a lane label, an outlined box that takes
-// a dropped .mid file or opens a file picker, and a line under it that says what was loaded or why
+// a dropped MIDI or .alc file or opens a file picker, and a line under it that says what was loaded or why
 // it wasn't. It holds no MIDI itself. The editor reads the file and tells the slot what to show.
 
 #pragma once

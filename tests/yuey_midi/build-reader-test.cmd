@@ -1,7 +1,7 @@
 @echo off
 rem Builds and runs reader_test.cpp against the plugin's Debug shared-code library. Build that
 rem first: MSBuild Builds\VisualStudio2022\gary4juce_SharedCode.vcxproj /p:Configuration=Debug /p:Platform=x64
-rem Usage: build-reader-test.cmd [folder holding chords_test_short.mid and melody_test_short.mid]
+rem Usage: build-reader-test.cmd [folder holding chords_test_short.mid, melody_test.mid and melody_test_short.mid]
 setlocal enabledelayedexpansion
 call "%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 

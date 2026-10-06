@@ -14,7 +14,7 @@ const juce::Colour kError(0xffe6a23c);  // the orange the score window uses for 
 bool isMidiFile(const juce::File& file)
 {
     const auto extension = file.getFileExtension().toLowerCase();
-    return extension == ".mid" || extension == ".midi";
+    return extension == ".mid" || extension == ".midi" || extension == ".alc";
 }
 
 // Where the last file came from, shared by both slots: someone picking a melody and then chords
@@ -95,10 +95,12 @@ void YueyMidiSlot::updateTooltip()
     switch (state)
     {
         case State::Empty:
-            setTooltip("drop a .mid file here, or click to browse for the " + lane);
+            setTooltip("drop a .mid, .midi or Ableton .alc file here, or click to browse for the " + lane
+                       + "\nLive Clips import notes only, one saved region; instruments and effects aren't loaded");
             break;
         case State::Loaded:
-            setTooltip(file.getFullPathName() + "\nclick the x to remove it, or drop another file to replace it");
+            setTooltip(file.getFullPathName() + "\nclick the x to remove it, or drop another file to replace it"
+                + (file.hasFileExtension("alc") ? "\nLive Clip: notes only, one saved region; instruments and effects aren't loaded" : ""));
             break;
         case State::Invalid:
             setTooltip(note);
@@ -126,7 +128,7 @@ void YueyMidiSlot::paint(juce::Graphics& g)
     if (state == State::Empty)
     {
         g.setColour(Theme::Colors::TextSecondary.withAlpha(0.6f));
-        g.drawText("drop .mid here", inner, juce::Justification::centredLeft);
+        g.drawText("drop MIDI / .alc", inner, juce::Justification::centredLeft);
 
         // A folder: the picker's handle.
         const auto tint = Theme::Colors::TextSecondary.withAlpha(overIcon ? 1.0f : 0.7f);
@@ -196,7 +198,7 @@ void YueyMidiSlot::browse()
 {
     const auto start = lastFolder().isDirectory() ? lastFolder()
                                                   : juce::File::getSpecialLocation(juce::File::userHomeDirectory);
-    chooser = std::make_unique<juce::FileChooser>("choose a MIDI file for the " + lane, start, "*.mid;*.midi");
+    chooser = std::make_unique<juce::FileChooser>("choose MIDI or a Live Clip for the " + lane, start, "*.mid;*.midi;*.alc");
     juce::Component::SafePointer<YueyMidiSlot> safe(this);
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                          [safe](const juce::FileChooser& finished)
@@ -231,7 +233,7 @@ void YueyMidiSlot::filesDropped(const juce::StringArray& files, int, int)
 {
     dragOver = false;
     repaint();
-    if (files.size() != 1)
+    if (!isInterestedInFileDrag(files))
         return;
     const juce::File dropped(files[0]);
     lastFolder() = dropped.getParentDirectory();

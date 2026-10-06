@@ -126,6 +126,7 @@
         <FILE id="YmImp1" name="YueyMidiImport.cpp" compile="1" resource="0"
               file="Source/Yuey/YueyMidiImport.cpp"/>
         <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0" file="Source/Yuey/YueyMidiImport.h"/>
+        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0" file="Source/Yuey/YueyScoreTempo.h"/>
       </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"

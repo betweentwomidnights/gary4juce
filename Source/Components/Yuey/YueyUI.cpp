@@ -319,7 +319,17 @@ YueyUI::YueyUI()
     bpmControl.setRange(40.0, 300.0, 1.0);
     bpmControl.setValue(120.0, false);
     bpmControl.onValueChange = [this](double) { if (onPlanningChanged) onPlanningChanged(); };
+    bpmControl.setComponentID("yuey-bpm-control");
     addAndMakeVisible(bpmControl);
+    styleLabel(hostBpmLabel, "120 bpm");
+    hostBpmLabel.setComponentID("yuey-host-bpm");
+    hostBpmLabel.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    hostBpmLabel.setColour(juce::Label::textColourId, Theme::Colors::TextPrimary);
+    hostBpmLabel.setJustificationType(juce::Justification::centred);
+    hostBpmLabel.setTooltip("project tempo; change it in your DAW");
+    addAndMakeVisible(hostBpmLabel);
+    styleLabel(tempoLabel, "tempo");
+    addAndMakeVisible(tempoLabel);
 
     styleLabel(lengthLabel, "song length");
     addToContent(lengthLabel);
@@ -512,9 +522,14 @@ YueyUI::~YueyUI()
     setLookAndFeel(nullptr);
 }
 
-void YueyUI::paint(juce::Graphics& g)
+void YueyUI::paint(juce::Graphics&)
 {
-    g.fillAll(Theme::Colors::Background);
+    // The editor paints the same panel background behind every model.
+}
+
+int YueyUI::getPreferredHeight(int width)
+{
+    return chromeHeight() + layoutContent(juce::jmax(280, width - 16));
 }
 
 void YueyUI::resized()
@@ -540,7 +555,17 @@ void YueyUI::resized()
     keyRootComboBox.setVisible(showPlanning);
     keyModeComboBox.setVisible(showPlanning && !isKeyNone());
     meterComboBox.setVisible(showPlanning);
-    bpmControl.setVisible(showPlanning);
+    bpmControl.setVisible(isStandalone);
+    hostBpmLabel.setVisible(!isStandalone);
+    tempoLabel.setVisible(!showPlanning);
+    const bool sourceTempo = currentSubTab == SubTab::Continue
+        && continuationMethod == ContinuationMethod::Audio && !midiActive();
+    bpmControl.setEnabled(!sourceTempo);
+    bpmControl.setTooltip(sourceTempo
+        ? "audio continuation follows the source audio's tempo"
+        : "render tempo; drag up/down or use the wheel; double-click to type bpm");
+    auto& tempoDisplay = isStandalone ? static_cast<juce::Component&>(bpmControl)
+                                     : static_cast<juce::Component&>(hostBpmLabel);
     if (showPlanning)
     {
         planningLabel.setBounds(chrome.removeFromTop(16));
@@ -549,24 +574,43 @@ void YueyUI::resized()
         keyRootComboBox.setBounds(planRow.removeFromLeft(quarter).reduced(2));
         keyModeComboBox.setBounds(planRow.removeFromLeft(quarter).reduced(2));
         meterComboBox.setBounds(planRow.removeFromLeft(quarter).reduced(2));
-        bpmControl.setBounds(planRow.reduced(2));
+        tempoDisplay.setBounds(planRow.reduced(2));
+        chrome.removeFromTop(5);
+    }
+    else
+    {
+        auto tempoRow = chrome.removeFromTop(30);
+        tempoLabel.setBounds(tempoRow.removeFromLeft(48));
+        tempoDisplay.setBounds(tempoRow.removeFromLeft(90).reduced(2));
         chrome.removeFromTop(5);
     }
 
     contentViewport->setBounds(chrome);
-    const int width = juce::jmax(280, contentViewport->getWidth() - contentViewport->getScrollBarThickness());
+    int width = juce::jmax(280, contentViewport->getWidth());
+    const int naturalHeight = chromeHeight() + layoutContent(width);
+    // Only reserve scrollbar space when the editor cannot fit the visible rows.
+    // Measure without resizing the viewed component to a temporary tall size:
+    // that made switching to MIDI scroll the prompt out of view.
+    if (naturalHeight > getHeight())
+        width = juce::jmax(280, width - contentViewport->getScrollBarThickness());
+    const int contentHeight = layoutContent(width);
+    contentComponent->setSize(width, contentHeight);
+    if (contentHeight <= contentViewport->getHeight())
+        contentViewport->setViewPosition(0, 0);
+    if (preferredHeight != naturalHeight)
+    {
+        preferredHeight = naturalHeight;
+        if (onLayoutHeightChanged) onLayoutHeightChanged();
+    }
+}
+
+int YueyUI::layoutContent(int width)
+{
     const bool continueTab = currentSubTab == SubTab::Continue;
     const bool scoreContinuation = continueTab && continuationMethod == ContinuationMethod::Score;
-    const int seedRowHeight = 34;
-    const int height = seedRowHeight + (currentSubTab == SubTab::Create ? 240
-        : currentSubTab == SubTab::Remix ? 265
-        : scoreContinuation ? 360 : 315);
-    // The midi section's height depends on what the slots have to say, so it is measured after
-    // the layout below instead of guessed here.
     const bool midi = midiActive();
-    contentComponent->setSize(width, midi ? 1200 : height);
-
-    auto area = contentComponent->getLocalBounds().reduced(8, 4);
+    // Rows claim their own height; the unused bottom is never part of the viewport.
+    auto area = juce::Rectangle<int>(0, 0, width, 1200).reduced(8, 4);
     promptLabel.setBounds(area.removeFromTop(16));
     auto promptRow = area.removeFromTop(32);
     auto dice = promptRow.removeFromRight(22).withHeight(22).withY(promptRow.getY() + 2);
@@ -674,8 +718,7 @@ void YueyUI::resized()
     area.removeFromTop(8);
     actionButton.setBounds(area.removeFromTop(36).reduced(2));
     infoLabel.setBounds(area.removeFromTop(28));
-    if (midi)
-        contentComponent->setSize(width, infoLabel.getBottom() + 4);
+    return infoLabel.getBottom() + 4;
 }
 
 juce::int64 YueyUI::getSeed() const
@@ -753,7 +796,7 @@ void YueyUI::updateSubTabState()
 
     juce::Component* createComponents[] = {
         &planningLabel, &keyRootComboBox, &keyModeComboBox, &meterComboBox,
-        &bpmControl, &lengthLabel, &naturalLengthButton, &fixedLengthButton,
+        &lengthLabel, &naturalLengthButton, &fixedLengthButton,
         &createBarsComboBox, &letYueyPlanToggle
     };
     for (auto* component : createComponents)
@@ -985,7 +1028,18 @@ void YueyUI::setRemixInstrumental(bool enabled)
 
 void YueyUI::setBpm(double bpm)
 {
+    if (!std::isfinite(bpm) || bpm <= 0.0)
+        return;
+    hostBpm = bpm;
     bpmControl.setValue(juce::jlimit(40.0, 300.0, bpm), false);
+    const int decimals = juce::approximatelyEqual(bpm, std::round(bpm)) ? 0 : 2;
+    hostBpmLabel.setText(juce::String(bpm, decimals) + " bpm", juce::dontSendNotification);
+}
+
+void YueyUI::setIsStandalone(bool standalone)
+{
+    isStandalone = standalone;
+    resized();
 }
 
 juce::String YueyUI::getKey() const

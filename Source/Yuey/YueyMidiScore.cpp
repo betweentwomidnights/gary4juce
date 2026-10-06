@@ -127,6 +127,7 @@ struct Lane
     int meterNumerator = 4;
     int meterDenominator = 4;
     std::int64_t barTicks = 0;
+    std::int64_t endTick = 0;
     std::vector<Note> notes;  // sorted by onset, then pitch
 };
 
@@ -196,6 +197,17 @@ std::vector<UnitChord> readChords(const Lane& lane, std::int64_t grid)
         if (symbol.empty())
             fail(lane.prefix + "the chord at " + whereIs(lane, notes[i].onset)
                  + " isn't a root-position major or minor triad. those are the only chords supported for now");
+        // A symbol lasts until the next symbol (or the end of the score). There is no
+        // chord-release token in this dialect, so accepting a gap or overlap would
+        // change the MIDI's harmony timing.
+        const auto off = notes[i].onset + notes[i].duration;
+        const auto next = j < notes.size() ? notes[j].onset : lane.endTick;
+        if (off < next)
+            fail(lane.prefix + "the chord at " + whereIs(lane, notes[i].onset)
+                 + " ends before the next chord or clip end. chord gaps aren't supported; hold it to that point and export again");
+        if (off > next)
+            fail(lane.prefix + "the chord at " + whereIs(lane, notes[i].onset)
+                 + " overlaps the next chord. end it at the next chord and export again");
         chords.push_back({ toUnits(*lane.clip, notes[i].onset, grid), symbol });
         i = j;
     }
@@ -399,22 +411,33 @@ Score buildScore(const Clip* melodyClip, const Clip* chordClip, int bpm,
         if (grid > 1024)
             fail("the rhythm is finer than a 1/1024 note");
 
-        // Bars: the length the user exported, rounded up to whole bars. Never cropped, looped
-        // or extended.
+        // Compare exact beat lengths across PPQs before counting bars. Rounding each
+        // lane up would hide mismatched partial bars and silently add rests.
         int bars = 0;
         std::vector<int> laneBars;
+        std::vector<std::pair<std::int64_t, std::int64_t>> beatLengths;
         for (auto* lane : lanes)
         {
             std::int64_t end = lane->clip->endTick;
             for (const auto& note : lane->notes)
                 end = std::max(end, note.onset + note.duration);
+            lane->endTick = end;
+            const auto divisor = std::gcd(end, static_cast<std::int64_t>(lane->clip->ppq));
+            beatLengths.emplace_back(end / divisor, lane->clip->ppq / divisor);
             const std::int64_t endUnits = toUnits(*lane->clip, end, grid);
             const std::int64_t barUnits = grid * meterN / meterD;
             laneBars.push_back(static_cast<int>(std::max<std::int64_t>(1, (endUnits + barUnits - 1) / barUnits)));
         }
-        if (both && laneBars[0] != laneBars[1])
-            fail("the melody is " + std::to_string(laneBars[0]) + " bars and the chords are "
-                 + std::to_string(laneBars[1]) + ". trim them to the same length in your DAW and export again");
+        if (both && beatLengths[0] != beatLengths[1])
+        {
+            if (laneBars[0] != laneBars[1])
+                fail("the melody is " + std::to_string(laneBars[0]) + " bars and the chords are "
+                     + std::to_string(laneBars[1]) + ". trim them to the same length in your DAW and export again");
+            fail("the melody and chords have different lengths within the last bar. trim them to the same length in your DAW and export again");
+        }
+        for (const auto* lane : lanes)
+            if (lane->endTick % lane->barTicks != 0)
+                fail(lane->prefix + "the clip ends partway through a bar. trim it to whole bars in your DAW and export again");
         bars = laneBars[0];
 
         std::vector<UnitNote> melody;
