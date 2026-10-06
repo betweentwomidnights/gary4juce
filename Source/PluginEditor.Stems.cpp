@@ -1,0 +1,330 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+#include "Stems/StemsRuntime.h"
+#include "Components/Stems/StemsSettings.h"
+#include "Components/Stems/StemsDialog.h"
+
+stems::StemsService& Gary4juceAudioProcessorEditor::getStemsService()
+{
+    if (stemsService == nullptr)
+        stemsService = std::make_shared<stems::StemsService>(activeGaryDataDirectory);
+    return *stemsService;
+}
+
+void Gary4juceAudioProcessorEditor::showStemsSettings()
+{
+    if (!ensureGaryDataDirectoryAvailable(true))
+        return;
+
+    getStemsService();
+    auto* panel = new StemsSettings(stemsService, getUpdatePreferences());
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(panel);
+    options.dialogTitle = "stem separator";
+    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = false;
+
+    trackEditorModalWindow(options.launchAsync());
+}
+
+// --- the stems popup's window --------------------------------------------------------------------
+
+namespace
+{
+    // A DialogWindow like LaunchOptions::launchAsync makes (modal, deleted when closed), with one
+    // exception to the modality. JUCE delivers a file drag's hover to a component a modal window
+    // blocks, but not its drop, which left the recording buffer stuck in its yellow drop state when
+    // a stem was dragged onto it. While a stem drag from the popup is in progress, the editor may
+    // receive it; clicks stay blocked, which is what keeps generations from starting mid-separation.
+    class StemsWindow final : public juce::DialogWindow
+    {
+    public:
+        StemsWindow(juce::Component* content, juce::Component& editorToAllow, std::function<bool()> stemDragActive)
+            : juce::DialogWindow("stems", juce::Colour(0x1e, 0x1e, 0x1e), true, true,
+                                 juce::Component::getApproximateScaleFactorForComponent(&editorToAllow)),
+              editor(&editorToAllow), dragActive(std::move(stemDragActive))
+        {
+            setContentOwned(content, true);
+            centreAroundComponent(&editorToAllow, getWidth(), getHeight());
+            setResizable(false, false);
+            setUsingNativeTitleBar(true);
+        }
+
+        void closeButtonPressed() override { setVisible(false); }   // hiding ends the modal state and deletes it
+
+        bool canModalEventBeSentToComponent(const juce::Component* target) override
+        {
+            return target != nullptr && target == editor.getComponent() && dragActive();
+        }
+
+    private:
+        juce::Component::SafePointer<juce::Component> editor;
+        std::function<bool()> dragActive;
+    };
+}
+
+// --- the "stems" handle --------------------------------------------------------------------------
+
+void Gary4juceAudioProcessorEditor::updateStemsButtonState()
+{
+    const bool haveOutput = hasOutputAudio && outputAudioFile.existsAsFile();
+    const bool haveInput = recordedSamples > 0 && !isRecording;
+    bool canSeparate = false;
+    if (haveOutput || haveInput)
+    {
+        auto& service = getStemsService();
+        if (service.isRuntimeInstalled())
+            for (const auto& model : stems::modelCatalog())
+                if (service.isModelInstalled(model.id)) { canSeparate = true; break; }
+    }
+
+    const auto apply = [this](juce::DrawableButton& handle, bool visible)
+    {
+        if (handle.isVisible() != visible || handle.isEnabled() == isGenerating)
+        {
+            handle.setVisible(visible);
+            handle.setEnabled(!isGenerating);
+            repaint(handle.getBounds());
+        }
+    };
+    apply(stemsButton, canSeparate && haveOutput);
+    apply(stemsInputButton, canSeparate && haveInput);
+}
+
+void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
+{
+    if (isGenerating)
+    {
+        showStatusMessage("wait for the current generation to finish", 2500);
+        return;
+    }
+    if (fromRecordingBuffer ? (recordedSamples <= 0 || isRecording)
+                            : (!hasOutputAudio || !outputAudioFile.existsAsFile()))
+    {
+        showStatusMessage(fromRecordingBuffer ? "nothing in the recording buffer to separate"
+                                              : "no output audio to separate", 2500);
+        return;
+    }
+    if (!ensureGaryDataDirectoryAvailable(true))
+        return;
+
+    StemsDialog::Host host;
+    host.togglePlayback = [this](const juce::File& stem) { toggleStemPlayback(stem); };
+    host.stopPlayback = [this](const juce::File& stem) { stopStemPlayback(stem); };
+    host.seek = [this](const juce::File& stem, double seconds) { seekStem(stem, seconds); };
+    host.activeStem = [this]
+    {
+        return activePlaybackSource == PlaybackSource::Stem ? activeStemFile : juce::File();
+    };
+    host.isPlaying = [this]
+    {
+        return activePlaybackSource == PlaybackSource::Stem && audioProcessor.getIsPlayingOutput();
+    };
+    host.position = [this](const juce::File& stem) { return stemPosition(stem); };
+    host.drag = [this](const juce::File& stem, const juce::String& name) { startStemDrag(stem, name); };
+    host.isGenerating = [this] { return isGenerating; };
+    host.releasePlayback = [this] { releaseStemPlayback(); };
+
+    // The popup separates a copy, so whatever happens to the buffer or the output afterwards (a
+    // stem dropped back onto the buffer, say) leaves its stems alone.
+    std::function<bool(const juce::File&)> writeSource;
+    if (fromRecordingBuffer)
+        writeSource = [this](const juce::File& destination) { return audioProcessor.saveRecordingToFile(destination); };
+    else
+        writeSource = [this](const juce::File& destination) { return outputAudioFile.copyFileTo(destination); };
+
+    getStemsService();
+    auto* dialog = new StemsDialog(stemsService, getUpdatePreferences(), std::move(host), writeSource,
+                                   fromRecordingBuffer ? "recording buffer" : "output");
+
+    // Dropping a stem on the recording buffer, as the output can be dropped there.
+    auto* window = new StemsWindow(dialog, *this, [this] { return isDragInProgress.load(); });
+    window->setVisible(true);
+    window->enterModalState(true, nullptr, true);
+    trackEditorModalWindow(window);
+}
+
+// --- stem playback, through the same player as the output ----------------------------------------
+
+namespace
+{
+    // How far a finished or stopped stem is from the start, so play resumes where it should.
+    constexpr double kNoPosition = 0.0;
+}
+
+double Gary4juceAudioProcessorEditor::currentStemPosition() const
+{
+    if (activePlaybackSource != PlaybackSource::Stem)
+        return kNoPosition;
+    return audioProcessor.getIsPlayingOutput() ? audioProcessor.getOutputPlaybackPosition()
+                                               : stemPausedPosition;
+}
+
+double Gary4juceAudioProcessorEditor::stemPosition(const juce::File& stem) const
+{
+    if (activePlaybackSource == PlaybackSource::Stem && activeStemFile == stem)
+        return currentStemPosition();
+    const auto found = stemPositions.find(stem.getFullPathName());
+    return found != stemPositions.end() ? found->second : kNoPosition;
+}
+
+void Gary4juceAudioProcessorEditor::loadStemIntoPlayer(const juce::File& stem)
+{
+    if (activePlaybackSource != PlaybackSource::Stem || activeStemFile != stem)
+    {
+        // The stem being left keeps its place, as if paused there.
+        if (activePlaybackSource == PlaybackSource::Stem && activeStemFile != juce::File())
+            stemPositions[activeStemFile.getFullPathName()] = currentStemPosition();
+
+        // Take the player over, as playOutputAudio does from the input.
+        audioProcessor.stopOutputPlayback();
+        isPlayingInput = false;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+
+        audioProcessor.loadOutputAudioForPlayback(stem);
+        activePlaybackSource = PlaybackSource::Stem;
+        activeStemFile = stem;
+        // and the one coming in picks up where it was left.
+        const auto remembered = stemPositions.find(stem.getFullPathName());
+        stemPausedPosition = remembered != stemPositions.end() ? remembered->second : kNoPosition;
+        if (remembered != stemPositions.end())
+            stemPositions.erase(remembered);
+        if (stemPausedPosition > kNoPosition)
+            audioProcessor.seekOutputPlayback(stemPausedPosition);
+        stemPlaybackRunning = false;
+    }
+}
+
+void Gary4juceAudioProcessorEditor::toggleStemPlayback(const juce::File& stem)
+{
+    loadStemIntoPlayer(stem);
+    if (audioProcessor.getIsPlayingOutput())
+    {
+        audioProcessor.pauseOutputPlayback();
+        stemPausedPosition = audioProcessor.getOutputPlaybackPosition();
+        stemPlaybackRunning = false;
+    }
+    else
+    {
+        audioProcessor.startOutputPlayback(stemPausedPosition);
+        stemPlaybackRunning = true;
+    }
+    repaint();
+}
+
+// Stop always goes back to the start, whether this stem is in the player or was left paused.
+void Gary4juceAudioProcessorEditor::stopStemPlayback(const juce::File& stem)
+{
+    stemPositions.erase(stem.getFullPathName());
+    if (activePlaybackSource == PlaybackSource::Stem && activeStemFile == stem)
+    {
+        audioProcessor.stopOutputPlayback();
+        stemPausedPosition = kNoPosition;
+        stemPlaybackRunning = false;
+    }
+}
+
+void Gary4juceAudioProcessorEditor::seekStem(const juce::File& stem, double seconds)
+{
+    // Seeking a stem that is not loaded loads it, without playing, at that point; as the output
+    // does, play then starts there, and a stem already playing carries on from it.
+    loadStemIntoPlayer(stem);
+    audioProcessor.seekOutputPlayback(seconds);
+    stemPausedPosition = seconds;
+}
+
+void Gary4juceAudioProcessorEditor::releaseStemPlayback()
+{
+    stemPositions.clear();
+    if (activePlaybackSource != PlaybackSource::Stem)
+        return;
+    audioProcessor.stopOutputPlayback();
+    activePlaybackSource = PlaybackSource::None;
+    activeStemFile = juce::File();
+    stemPausedPosition = kNoPosition;
+    stemPlaybackRunning = false;
+}
+
+void Gary4juceAudioProcessorEditor::checkStemPlaybackStatus()
+{
+    // Played to the end: the next play starts from the beginning, as the output's does.
+    if (activePlaybackSource == PlaybackSource::Stem && stemPlaybackRunning
+        && !audioProcessor.getIsPlayingOutput())
+    {
+        stemPlaybackRunning = false;
+        stemPausedPosition = kNoPosition;
+    }
+}
+
+// --- drag a stem into the DAW, the way the output is dragged -------------------------------------
+
+void Gary4juceAudioProcessorEditor::startStemDrag(const juce::File& stem, const juce::String& stemName)
+{
+    if (isDragInProgress.load() || !isEditorValid.load() || !stem.existsAsFile())
+        return;
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+
+    isDragInProgress.store(true);
+    juce::File dragFile;
+    {
+        juce::ScopedLock lock(fileLock);
+        const auto draggedAudioDir = getGaryDraggedAudioDirectory();
+        if (!draggedAudioDir.exists() && !draggedAudioDir.createDirectory().wasOk())
+        {
+            showStatusMessage("drag failed - folder creation error", 2000);
+            isDragInProgress.store(false);
+            return;
+        }
+
+        // Only a dragged stem is kept: this copy, in the user's dragged audio format.
+        const auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
+        dragFile = draggedAudioDir.getChildFile("gary4juce_" + juce::File::createLegalFileName(stemName)
+                                                + "_" + timestamp + getDraggedAudioFileExtension());
+        if (!createDraggedAudioFile(stem, dragFile) || !dragFile.existsAsFile() || dragFile.getSize() <= 0)
+        {
+            dragFile.deleteFile();
+            showStatusMessage("drag failed - could not create "
+                + getDraggedAudioFileExtension().substring(1).toUpperCase() + " file", 3000);
+            isDragInProgress.store(false);
+            return;
+        }
+    }
+
+    juce::StringArray files;
+    files.add(dragFile.getFullPathName());
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    const bool started = performExternalDragDropOfFiles(files, true, nullptr, [asyncAlive, editor, stemName]()
+    {
+        juce::MessageManager::callAsync([asyncAlive, editor, stemName]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+            editor->showStatusMessage(stemName + " dragged", 2000);
+            editor->isDragInProgress.store(false);
+        });
+    });
+    if (!started)
+    {
+        showStatusMessage("drag failed - try again", 2000);
+        juce::ScopedLock lock(fileLock);
+        dragFile.deleteFile();
+        isDragInProgress.store(false);
+    }
+}

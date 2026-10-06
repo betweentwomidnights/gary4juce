@@ -864,19 +864,24 @@ void YueyUI::drawPopoutIcon(juce::Graphics& g, juce::Rectangle<float> bounds,
                                              juce::PathStrokeType::rounded));
 }
 
+// The three boxes show one prompt, so a change in one is written to the other two. Writing
+// into the box someone is typing in would move their caret, hence the guard.
 void YueyUI::setCreatePrompt(const juce::String& text)
 {
-    createPromptEditor.setText(text, juce::dontSendNotification);
+    if (createPromptEditor.getText() != text)
+        createPromptEditor.setText(text, juce::dontSendNotification);
 }
 
 void YueyUI::setRemixPrompt(const juce::String& text)
 {
-    remixPromptEditor.setText(text, juce::dontSendNotification);
+    if (remixPromptEditor.getText() != text)
+        remixPromptEditor.setText(text, juce::dontSendNotification);
 }
 
 void YueyUI::setContinuePrompt(const juce::String& text)
 {
-    continuePromptEditor.setText(text, juce::dontSendNotification);
+    if (continuePromptEditor.getText() != text)
+        continuePromptEditor.setText(text, juce::dontSendNotification);
 }
 
 void YueyUI::setLyricsText(const juce::String& text)

@@ -3,6 +3,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Stems/StemsRuntime.h"
 
 #include <array>
 #include <unordered_map>
@@ -616,6 +617,8 @@ void Gary4juceAudioProcessorEditor::initializeGaryDataDirectory()
 
     activeGaryDataDirectory = defaultGaryDataDirectory();
     usingGaryDataFallback = true;
+    if (stemsService != nullptr)
+        stemsService->setDataDirectory(activeGaryDataDirectory);
     updateStorageButtonState();
     showStatusMessage("no writable storage folder is currently available", 10000);
     DBG("No writable gary4juce data directory. Configured error: " + configuredError);
@@ -677,6 +680,9 @@ void Gary4juceAudioProcessorEditor::activateGaryDataDirectory(const juce::File& 
 
     if (foundationUI != nullptr)
         foundationUI->setDataDirectory(activeGaryDataDirectory);
+
+    if (stemsService != nullptr)
+        stemsService->setDataDirectory(activeGaryDataDirectory);
 
     updateStorageButtonState();
 }
@@ -865,7 +871,7 @@ void Gary4juceAudioProcessorEditor::updateStorageButtonState()
     settingsButton.setButtonStyle(usingGaryDataFallback
         ? CustomButton::ButtonStyle::Terry
         : CustomButton::ButtonStyle::Standard);
-    settingsButton.setTooltip("gary settings: layout & storage\n"
+    settingsButton.setTooltip("gary settings: layout, storage & stem separator\n"
         + juce::String(usingGaryDataFallback ? "recovery storage: " : "audio storage: ")
         + activeGaryDataDirectory.getFullPathName());
 }

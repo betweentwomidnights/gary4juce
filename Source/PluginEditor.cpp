@@ -13,6 +13,7 @@
 #include "PluginEditorTextHelpers.h"
 #include "./Utils/BarTrim.h"
 #include "./Components/Base/CustomComboBox.h"
+#include "./Stems/StemsRuntime.h"
 
 using plugin_editor_detail::loopTypeIndexToString;
 using plugin_editor_detail::loopTypeStringToIndex;
@@ -360,6 +361,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
         juce::jlimit(0, 3, readInt("careySubTab", 0)));
+    if (currentCareySubTab == CareyUI::SubTab::Extract && ! CareyUI::kExtractTabVisible)
+        currentCareySubTab = CareyUI::SubTab::Lego;
     currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
     currentCareyCompleteAdvancedOpen = readBool(
         "careyCompleteAdvanced", currentCareyCompleteAdvancedOpen);
@@ -438,9 +441,22 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
         storedYueySubTab == 1 && legacyYueyRemixMode == 1 ? 2 : storedYueySubTab);
     currentYueyContinuationMethod = static_cast<YueyUI::ContinuationMethod>(
         juce::jlimit(0, 1, readInt("yueyContinuationMethod", 0)));
-    currentYueyCreatePrompt = readString("yueyCreatePrompt", currentYueyCreatePrompt);
-    currentYueyRemixPrompt = readString("yueyRemixPrompt", currentYueyRemixPrompt);
-    currentYueyContinuePrompt = readString("yueyContinuePrompt", currentYueyRemixPrompt);
+    // Create, remix and continue share one prompt now. A session saved before that can hold
+    // three; the one on the tab they were last looking at is the one they'd call current.
+    const juce::String storedYueyPrompts[] = {
+        readString("yueyCreatePrompt", currentYueyCreatePrompt),
+        readString("yueyRemixPrompt", currentYueyRemixPrompt),
+        readString("yueyContinuePrompt", currentYueyContinuePrompt)
+    };
+    juce::String sharedYueyPrompt = storedYueyPrompts[static_cast<int>(currentYueySubTab)];
+    if (sharedYueyPrompt.trim().isEmpty())
+        for (const auto& stored : storedYueyPrompts)
+            if (stored.trim().isNotEmpty())
+            {
+                sharedYueyPrompt = stored;
+                break;
+            }
+    currentYueyCreatePrompt = currentYueyRemixPrompt = currentYueyContinuePrompt = sharedYueyPrompt;
     currentYueyCreateInstrumental = readBool(
         "yueyCreateInstrumental", currentYueyCreateInstrumental);
     currentYueyRemixInstrumental = readBool(
@@ -691,7 +707,8 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     {
         compactLayout = 1,
         wideLayout,
-        audioStorage
+        audioStorage,
+        stemSeparator
     };
 
     juce::PopupMenu menu;
@@ -703,6 +720,7 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     menu.addSeparator();
     menu.addItem(audioStorage,
         usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
+    menu.addItem(stemSeparator, "stem separator...");
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     menu.showMenuAsync(
@@ -720,6 +738,8 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
                 safeThis->setEditorLayoutMode(EditorLayoutMode::Wide);
             else if (result == audioStorage)
                 safeThis->showStorageSettings();
+            else if (result == stemSeparator)
+                safeThis->showStemsSettings();
         });
 }
 
@@ -765,6 +785,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     cropButton("Crop", juce::DrawableButton::ImageFitted),
     yueyMidiButton("YueyMidi", juce::DrawableButton::ImageFitted),
     yueyScoreButton("YueyScore", juce::DrawableButton::ImageFitted),
+    stemsButton("Stems", juce::DrawableButton::ImageFitted),
+    stemsInputButton("StemsInput", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
     sa3HelpButton("sa3 help", juce::DrawableButton::ImageFitted),
@@ -1547,11 +1569,10 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentYueyContinuationMethod = method;
         persistEditorState();
     };
-    yueyUI->onPromptChanged = [this](YueyUI::SubTab tab, const juce::String& text)
+    yueyUI->onPromptChanged = [this](YueyUI::SubTab, const juce::String& text)
     {
-        if (tab == YueyUI::SubTab::Create) currentYueyCreatePrompt = text;
-        else if (tab == YueyUI::SubTab::Remix) currentYueyRemixPrompt = text;
-        else currentYueyContinuePrompt = text;
+        // One prompt for create, remix and continue, whichever box it came from.
+        setYueyPrompt(text);
         updateYueyEnablementSnapshot();
     };
     yueyUI->onLyricsChanged = [this](const juce::String& text)
@@ -1724,7 +1745,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     settingsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     settingsButton.setIcon(IconFactory::createSettingsIcon());
-    settingsButton.setTooltip("gary settings: layout & storage");
+    settingsButton.setTooltip("gary settings: layout, storage & stem separator");
     settingsButton.onClick = [this]() { showGarySettingsMenu(); };
 
     // Backend toggle button setup
@@ -1859,6 +1880,17 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     yueyScoreButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     yueyScoreButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(yueyScoreButton);
+
+    stemsButton.setTooltip("separate this output into stems");
+    stemsButton.onClick = [this]() { showStemsDialog(false); };
+    stemsInputButton.setTooltip("separate the recording buffer into stems");
+    stemsInputButton.onClick = [this]() { showStemsDialog(true); };
+    for (auto* handle : { &stemsButton, &stemsInputButton })
+    {
+        handle->setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+        handle->setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+        addChildComponent(*handle);   // shown by updateStemsButtonState once stems can run
+    }
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
@@ -2257,6 +2289,9 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     dismissEditorModalWindows();
     uploadFileChooser.reset();
     storageFolderChooser.reset();
+    // A download or test still running finishes on its own thread, which holds the service.
+    if (stemsService != nullptr)
+        stemsService->cancelJob();
 
     isEditorValid.store(false, std::memory_order_release);
     if (editorAsyncAlive != nullptr)
@@ -2517,6 +2552,13 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         persistEditorState();
     }
 
+    // Whether stems can run changes from the settings panel and with each output; once a second.
+    if (++stemsButtonTimerTicks >= 20)
+    {
+        stemsButtonTimerTicks = 0;
+        updateStemsButtonState();
+    }
+
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
     double currentBPM = audioProcessor.getCurrentBPM();
     if (jerryUI && !juce::JUCEApplicationBase::isStandaloneApp())
@@ -2554,7 +2596,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     maybeShowDeferredUpdatePrompt();
 
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
-    if (isPlayingOutput || isPlayingInput)
+    if (isPlayingOutput || isPlayingInput || stemPlaybackRunning)
     {
         checkPlaybackStatus();
     }
@@ -2951,12 +2993,11 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     // The same range editor is available in plugin and standalone builds.
     if (recordedSamples > 0 && !isRecording)
     {
-        // Draw hint text at bottom-right of waveform
+        // Hint at the bottom left; the stems handle has the bottom right.
         g.setFont(juce::FontOptions(13.0f));
         g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
-        // Create hint area from bottom-right of waveform without modifying original area
-        auto hintArea = juce::Rectangle<int>(area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
-        g.drawText("double-click to select range", hintArea, juce::Justification::centredRight);
+        auto hintArea = juce::Rectangle<int>(area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
+        g.drawText("double-click to select range", hintArea, juce::Justification::centredLeft);
     }
 }
 
@@ -6566,10 +6607,11 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
         {
             g.setFont(juce::FontOptions(13.0f));
             g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+            // Bottom left; the stems handle has the bottom right.
             auto hintArea = juce::Rectangle<int>(
-                area.getX(), area.getBottom() - 15, area.getWidth() - 4, 15);
+                area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
             g.drawText("double-click to select range", hintArea,
-                       juce::Justification::centredRight);
+                       juce::Justification::centredLeft);
         }
     }
     else
@@ -6898,6 +6940,8 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
 // Updated checkPlaybackStatus() - full stop when audio finishes naturally
 void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 {
+    checkStemPlaybackStatus();
+
     if (isPlayingInput && activePlaybackSource == PlaybackSource::Input)
     {
         currentInputPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
@@ -8451,6 +8495,8 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
     drawScoreHandle(yueyMidiButton, "midi");
     drawScoreHandle(yueyScoreButton, "score");
+    drawScoreHandle(stemsButton, "stems");
+    drawScoreHandle(stemsInputButton, "stems");
 }
 
 // ========== UPDATED RESIZED METHOD ==========
@@ -8958,6 +9004,12 @@ void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sec
                              outputWaveformArea.getY() + 5, 42, 25);
     yueyScoreButton.setBounds(outputWaveformArea.getX() + 51,
                               outputWaveformArea.getY() + 5, 48, 25);
+
+    // The stem separator's handles, bottom right of each waveform (the output's below its crop overlay).
+    stemsButton.setBounds(outputWaveformArea.getRight() - 55,
+                          outputWaveformArea.getBottom() - 30, 50, 25);
+    stemsInputButton.setBounds(waveformArea.getRight() - 55,
+                               waveformArea.getBottom() - 30, 50, 25);
 }
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()

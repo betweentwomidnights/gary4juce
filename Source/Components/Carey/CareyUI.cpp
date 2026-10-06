@@ -237,6 +237,7 @@ CareyUI::CareyUI()
     coverSubTabButton.setTooltip("works best with xl models, and is the most fun when using a lora");
     prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
     extractSubTabButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
+    extractSubTabButton.setVisible(kExtractTabVisible);
 
     keyScaleLabel.setText("key", juce::dontSendNotification);
     keyScaleLabel.setFont(juce::FontOptions(11.0f));
@@ -1353,11 +1354,18 @@ void CareyUI::resized()
 
     area.removeFromTop(6);
     auto subTabRow = area.removeFromTop(30);
-    const int tabWidth = subTabRow.getWidth() / 4;
+    const int tabWidth = subTabRow.getWidth() / (kExtractTabVisible ? 4 : 3);
     legoSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     completeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-    coverSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-    extractSubTabButton.setBounds(subTabRow.reduced(2, 2));
+    if constexpr (kExtractTabVisible)
+    {
+        coverSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
+        extractSubTabButton.setBounds(subTabRow.reduced(2, 2));
+    }
+    else
+    {
+        coverSubTabButton.setBounds(subTabRow.reduced(2, 2));
+    }
 
     const bool showGlobalMusicFields = (currentSubTab != SubTab::Extract);
     keyScaleLabel.setVisible(showGlobalMusicFields);
@@ -1404,6 +1412,10 @@ void CareyUI::addToContent(juce::Component& component)
 
 void CareyUI::setCurrentSubTabInternal(SubTab tab, bool notify)
 {
+    // A state saved before extract was hidden may still name it.
+    if (tab == SubTab::Extract && ! kExtractTabVisible)
+        tab = SubTab::Lego;
+
     if (currentSubTab == tab && notify)
         return;
 

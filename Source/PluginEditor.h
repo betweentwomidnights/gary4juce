@@ -23,9 +23,12 @@
 #include "Utils/IconFactory.h"
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <vector>
 #include <cstdint>
+
+namespace stems { class StemsService; }
 
 //==============================================================================
 /**
@@ -240,6 +243,8 @@ private:
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
     void showStorageSettings();
+    void showStemsSettings();
+    stems::StemsService& getStemsService();   // created on first use, in the active data folder
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);
     void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
@@ -497,6 +502,11 @@ private:
     juce::int64 yueyDiceLastAttemptMs = 0;
     void refreshYueyDicePrompts();
     void rollYueyDicePrompt(YueyUI::SubTab tab);
+    // Create, remix and continue share one prompt: this sets it everywhere it lives.
+    void setYueyPrompt(const juce::String& text);
+    // A prompt from the pool that is not `current`, or empty with `problem` saying why not.
+    juce::String pickYueyDicePrompt(bool instrumental, const juce::String& current,
+                                    juce::String& problem);
 
     // ---------- yuey score: owned by the output audio, not by the tab ----------
     struct YueyMidiLane
@@ -541,9 +551,32 @@ private:
     void dragYueyMidi();
     void updateYueyScoreOverlayState();
     juce::DrawableButton yueyScoreButton;
+    // The embedded stem separator's handles, bottom right of the output waveform and of the recording
+    // buffer (PluginEditor.Stems.cpp).
+    juce::DrawableButton stemsButton;
+    juce::DrawableButton stemsInputButton;
+    int stemsButtonTimerTicks = 0;
+    juce::File activeStemFile;          // in the output player while activePlaybackSource == Stem
+    double stemPausedPosition = 0.0;
+    bool stemPlaybackRunning = false;   // started and not paused or stopped by the user
+    // Where each stem not in the player was left (path -> seconds), so switching stems pauses the
+    // one you leave rather than forgetting it. Cleared when the stems popup closes.
+    std::map<juce::String, double> stemPositions;
+    double currentStemPosition() const;
+    double stemPosition(const juce::File& stem) const;
+    void updateStemsButtonState();
+    void checkStemPlaybackStatus();
+    void showStemsDialog(bool fromRecordingBuffer);
+    void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
+    void toggleStemPlayback(const juce::File& stem);
+    void stopStemPlayback(const juce::File& stem);
+    void seekStem(const juce::File& stem, double seconds);
+    void releaseStemPlayback();
+    void startStemDrag(const juce::File& stem, const juce::String& stemName);
     void openYueyScoreEditor();
     void saveYueyWorkingScore(const juce::String& abc);
-    void renderYueyScore(const juce::String& abc, bool fullScore);
+    void renderYueyScore(const juce::String& abc, bool fullScore, const juce::String& prompt);
+    void saveYueyScorePrompt(const juce::String& prompt);
     void reportYueyWarnings(juce::DynamicObject* completedResponse);
     void recordYueyLastSeed(juce::DynamicObject* completedResponse);
 
@@ -753,7 +786,7 @@ private:
 
     bool isPlayingOutput = false;
 
-    enum class PlaybackSource { None, Input, Output };
+    enum class PlaybackSource { None, Input, Output, Stem };
     PlaybackSource activePlaybackSource = PlaybackSource::None;
 
     bool isPlayingInput = false;
@@ -936,6 +969,8 @@ private:
     void abandonPollTransfer();
 
     std::unique_ptr<juce::PropertiesFile> updatePreferences;
+    // The embedded stem separator (Source/Stems). Shared so a job thread can finish after the editor.
+    std::shared_ptr<stems::StemsService> stemsService;
     std::atomic<bool> updateCheckInFlight{ false };
     bool hasCheckedForUpdatesThisEditorSession = false;
     bool updatePromptVisible = false;

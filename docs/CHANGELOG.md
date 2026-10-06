@@ -3,7 +3,7 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
-## v5.0.0 - yuey
+## v5.0.0 - yuey and stems
 
 **yue2 is now inside the DAW.** the yuey tab runs
 [YuE2](https://github.com/multimodal-art-projection/YuE) through
@@ -30,6 +30,42 @@ sa3's generate and continue also get an "ending" choice. "ends here" asks SA3
 to plan the ending where the audio stops. "keeps going" composes six seconds
 past the end and throws them away, so the audio cuts off in full swing; chain
 continuations on it, then switch the last one to "ends here" for an outro.
+
+**stems are built in.** the output waveform and the recording buffer each get a
+`stems` handle that splits the audio into stems on your own computer, with
+[stems.cpp](https://github.com/betweentwomidnights/stems.cpp), our native
+C++/GGML build of HTDemucs and the RoFormer separators. there's no Python and
+no gary4local in it, nothing is uploaded, and it works the same with the remote
+backend. the runtime (about 19 MB on windows, 6 MB on mac) installs from the
+settings menu, from stems.cpp's GitHub release and checked against hashes
+pinned in the plugin. the models download from Hugging Face: htdemucs (four
+stems, six with guitar and piano, or the slower fine-tuned bag) and two
+RoFormers that split vocals from everything else. on windows it runs on Vulkan,
+so NVIDIA, AMD and Intel GPUs all work, with a toggle for the CPU. on apple
+silicon it runs on Metal, and intel macs are CPU only.
+
+stems are ephemeral. the popup works in its own temporary folder, deletes it
+when it closes, and keeps only the stems you drag out. dropping a stem on the
+recording buffer replaces it, which is how you pull the drums out of something
+you dragged in from the DAW. one of the RoFormers, viperx's, has no license
+upstream, and the readme says so.
+
+**carey's extract tab is hidden.** the stem separator does what extract was
+attempting, and does it better, so the tab is gone from carey. the code is still
+there behind one switch, in case something changes for ace-step, but i expect to
+remove it. if you closed a session with extract selected, it reopens on lego.
+
+**the yuey prompt is shared across create, remix and continue.** each sub-tab
+used to keep its own, and the score window had none, so re-rendering a score
+sent whatever the create tab held, which was nothing for a score that came out
+of a remix. there's one prompt now: switching sub-tabs keeps it, and the score
+window shows the same box and dice. if an older session saved three different
+prompts, it restores the one from the sub-tab you were last on.
+
+**the audio selection window zooms.** the magnifier buttons halve or double the
+visible range down to about one sample per pixel, ctrl or cmd plus the wheel
+zooms around the mouse, and the wheel alone pans. a click on the waveform seeks,
+as it does on the output.
 
 a job no longer sits frozen when the network drops its result partway through.
 yuey renders on the remote backend kept parking at 91-95 per cent with the
