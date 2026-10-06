@@ -200,6 +200,10 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("yueyCreatePrompt", currentYueyCreatePrompt);
     state->setProperty("yueyRemixPrompt", currentYueyRemixPrompt);
     state->setProperty("yueyContinuePrompt", currentYueyContinuePrompt);
+    // The two MIDI files are remembered by path and read again on restore.
+    state->setProperty("yueyMidiSelected", currentYueyMidiSelected);
+    state->setProperty("yueyMidiMelody", yueyMidiMelody.file.getFullPathName());
+    state->setProperty("yueyMidiChords", yueyMidiChords.file.getFullPathName());
     state->setProperty("yueyCreateInstrumental", currentYueyCreateInstrumental);
     state->setProperty("yueyRemixInstrumental", currentYueyRemixInstrumental);
     state->setProperty("yueyBpm", currentYueyBpm);
@@ -457,6 +461,9 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
                 break;
             }
     currentYueyCreatePrompt = currentYueyRemixPrompt = currentYueyContinuePrompt = sharedYueyPrompt;
+    currentYueyMidiSelected = readBool("yueyMidiSelected", false);
+    yueyMidiMelody.file = juce::File(readString("yueyMidiMelody", juce::String()));
+    yueyMidiChords.file = juce::File(readString("yueyMidiChords", juce::String()));
     currentYueyCreateInstrumental = readBool(
         "yueyCreateInstrumental", currentYueyCreateInstrumental);
     currentYueyRemixInstrumental = readBool(
@@ -656,6 +663,8 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
         yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
         yueyUI->setAudioSourceRecording(transformRecording);
+        yueyUI->setMidiSourceSelected(currentYueyMidiSelected);
+        restoreYueyMidi();
     }
 
     if (foundationUI != nullptr)
@@ -1600,7 +1609,21 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentYueyContinueBars = yueyUI->getContinueBars();
         currentYueyTranscriptionMode = yueyUI->getTranscriptionMode();
         currentYueyContinuationMethod = yueyUI->getContinuationMethod();
+        // The tempo and meter the midi score is written at may have just changed.
+        if (currentYueyMidiSelected)
+            refreshYueyMidi();
     };
+    yueyUI->onMidiSourceChanged = [this](bool selected)
+    {
+        currentYueyMidiSelected = selected;
+        refreshYueyMidi();
+        persistEditorState();
+    };
+    yueyUI->onMidiFile = [this](YueyUI::MidiLane lane, const juce::File& file)
+    {
+        loadYueyMidiFile(lane, file);
+    };
+    yueyUI->onMidiCleared = [this](YueyUI::MidiLane lane) { clearYueyMidi(lane); };
     yueyUI->onDice = [this](YueyUI::SubTab tab) { rollYueyDicePrompt(tab); };
     yueyUI->onCreate = [this]() { sendToYuey(); };
     yueyUI->onRemix = [this]() { sendToYuey(); };
@@ -1624,6 +1647,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
     yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
     yueyUI->setAudioSourceRecording(transformRecording);
+    yueyUI->setMidiSourceSelected(currentYueyMidiSelected);
+    restoreYueyMidi();
     updateYueyEnablementSnapshot();
 
     // ========== FOUNDATION CONTROLS SETUP ==========

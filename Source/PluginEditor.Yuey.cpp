@@ -355,7 +355,10 @@ void Gary4juceAudioProcessorEditor::updateYueyEnablementSnapshot()
 
     const bool reachable = isServiceReachable(ServiceType::Yuey);
     const bool createReady = reachable && !currentYueyCreatePrompt.trim().isEmpty();
-    const bool selectedSourceReady = transformRecording ? recordingAvailable : outputAvailable;
+    // With midi chosen the source is the two slots, not the audio buffers; the audio-source state
+    // the other models share is left as it is.
+    const bool selectedSourceReady = currentYueyMidiSelected ? yueyMidiReady
+        : (transformRecording ? recordingAvailable : outputAvailable);
     const bool remixReady = reachable && selectedSourceReady
         && !currentYueyRemixPrompt.trim().isEmpty();
     const bool continueReady = reachable && selectedSourceReady
@@ -502,6 +505,13 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     if (!currentYueyRemixInstrumental && currentCareyLyrics.trim().isEmpty())
         showStatusMessage("no lyrics - yuey will sing whatever it likes", 4000);
 
+    // A midi source is already a score: nothing to load, nothing to transcribe.
+    if (currentYueyMidiSelected)
+    {
+        sendYueyMidi(remixing);
+        return;
+    }
+
     const auto sourceFile = transformRecording ? getGaryBufferFile() : getGaryOutputFile();
     juce::MemoryBlock audioBytes;
     if (!sourceFile.existsAsFile() || !sourceFile.loadFileAsData(audioBytes) || audioBytes.getSize() == 0)
@@ -554,7 +564,9 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
                     ActiveOp::YueyContinue, "continuing from source audio");
 }
 
-void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::String& abc)
+void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::String& abc,
+                                                                  const juce::String& symbolicMode,
+                                                                  bool adoptPlan)
 {
     if (abc.trim().isEmpty())
     {
@@ -567,6 +579,8 @@ void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::St
                                         currentYueyRemixInstrumental,
         yueyAcceptsFlac ? "flac" : "wav");
     payload->setProperty("abc_prefix", abc);
+    if (symbolicMode.isNotEmpty())
+        payload->setProperty("symbolic_mode", symbolicMode);
     if (currentYueyContinueFixedBars)
     {
         const int sourceBars = countYueyScoreBars(abc);
@@ -586,9 +600,193 @@ void Gary4juceAudioProcessorEditor::continueYueyFromTranscription(const juce::St
     }
     payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
 
-    applyYueyPlanMetadata(abc);
+    if (adoptPlan)
+        applyYueyPlanMetadata(abc);
     submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
-                    ActiveOp::YueyContinue, "continuing from transcribed score");
+                    ActiveOp::YueyContinue,
+                    adoptPlan ? "continuing from transcribed score" : "continuing from your midi");
+}
+
+// ---------------------------------------------------------------------------
+// MIDI as a source for remix and continue
+//
+// The tab's two slots hold a melody file and a chords file. Either may be empty; one that was
+// refused doesn't count. Whatever is usable becomes the score, converted here, so there is no
+// transcription and no new backend API: remix sends it to /generate as a complete abc, and
+// continue as the abc_prefix the planner extends.
+
+namespace
+{
+// "6/8" -> 6 and 8. The tab's meter box is always a fraction.
+void parseMeter(const juce::String& meter, int& numerator, int& denominator)
+{
+    const auto parts = juce::StringArray::fromTokens(meter, "/", "");
+    numerator = parts.size() == 2 ? parts[0].getIntValue() : 4;
+    denominator = parts.size() == 2 ? parts[1].getIntValue() : 4;
+    if (numerator <= 0 || denominator <= 0)
+    {
+        numerator = 4;
+        denominator = 4;
+    }
+}
+}  // namespace
+
+void Gary4juceAudioProcessorEditor::readYueyMidi(YueyMidiInput& input, const juce::File& file)
+{
+    input = YueyMidiInput {};
+    input.file = file;  // kept even when it is refused, so the slot has something to point at
+    const auto result = yueymidi::readMidiFile(file);
+    input.read = result.ok;
+    input.clip = result.clip;
+    input.error = result.error;
+}
+
+int Gary4juceAudioProcessorEditor::effectiveYueyBpm()
+{
+    // Inside a host the project owns the tempo; standalone it is the tab's tempo control.
+    const bool hostOwnsTempo = !juce::JUCEApplicationBase::isStandaloneApp()
+        && audioProcessor.getCurrentBPM() > 0.0;
+    const double bpm = hostOwnsTempo ? audioProcessor.getCurrentBPM()
+                     : yueyUI != nullptr ? yueyUI->getBpm()
+                                         : currentYueyBpm;
+    return juce::jmax(1, juce::roundToInt(bpm));
+}
+
+void Gary4juceAudioProcessorEditor::loadYueyMidiFile(YueyUI::MidiLane lane, const juce::File& file)
+{
+    readYueyMidi(lane == YueyUI::MidiLane::Melody ? yueyMidiMelody : yueyMidiChords, file);
+    refreshYueyMidi();
+    persistEditorState();
+}
+
+void Gary4juceAudioProcessorEditor::clearYueyMidi(YueyUI::MidiLane lane)
+{
+    (lane == YueyUI::MidiLane::Melody ? yueyMidiMelody : yueyMidiChords) = YueyMidiInput {};
+    refreshYueyMidi();
+    persistEditorState();
+}
+
+void Gary4juceAudioProcessorEditor::restoreYueyMidi()
+{
+    for (auto* input : { &yueyMidiMelody, &yueyMidiChords })
+    {
+        const auto file = input->file;
+        if (file != juce::File())
+            readYueyMidi(*input, file);
+        else
+            *input = YueyMidiInput {};
+    }
+    refreshYueyMidi();
+}
+
+void Gary4juceAudioProcessorEditor::refreshYueyMidi()
+{
+    const int bpm = effectiveYueyBpm();
+    int meterNumerator = 4, meterDenominator = 4;
+    parseMeter(yueyUI != nullptr ? yueyUI->getMeter() : currentYueyMeter, meterNumerator, meterDenominator);
+
+    // What each lane makes on its own. This is what a slot's summary and its error come from, and
+    // it is what decides whether the lane counts as populated.
+    yueyMidiMelody.alone = {};
+    yueyMidiChords.alone = {};
+    if (yueyMidiMelody.read)
+        yueyMidiMelody.alone = yueymidi::buildScore(&yueyMidiMelody.clip, nullptr, bpm, meterNumerator, meterDenominator);
+    if (yueyMidiChords.read)
+        yueyMidiChords.alone = yueymidi::buildScore(nullptr, &yueyMidiChords.clip, bpm, meterNumerator, meterDenominator);
+
+    if (yueyUI != nullptr)
+    {
+        auto show = [this, bpm](YueyUI::MidiLane lane, const YueyMidiInput& input)
+        {
+            if (input.file == juce::File())
+                yueyUI->showMidiEmpty(lane);
+            else if (input.usable())
+                yueyUI->showMidiLoaded(lane, input.file, yueymidi::summaryText(input.alone, bpm));
+            else
+                yueyUI->showMidiInvalid(lane, input.file, input.read ? input.alone.error : input.error);
+        };
+        show(YueyUI::MidiLane::Melody, yueyMidiMelody);
+        show(YueyUI::MidiLane::Chords, yueyMidiChords);
+    }
+
+    // Two usable lanes also have to agree with each other: same length, same meter. The importer
+    // reports a mismatch rather than cropping one to fit or repeating the shorter.
+    juce::String note;
+    bool ready = yueyMidiMelody.usable() || yueyMidiChords.usable();
+    if (yueyMidiMelody.usable() && yueyMidiChords.usable())
+    {
+        const auto together = yueymidi::buildScore(&yueyMidiMelody.clip, &yueyMidiChords.clip, bpm,
+                                                    meterNumerator, meterDenominator);
+        if (!together.ok)
+        {
+            note = together.error;
+            ready = false;
+        }
+    }
+    yueyMidiReady = ready;
+    if (yueyUI != nullptr)
+        yueyUI->setMidiNote(note);
+    updateYueyEnablementSnapshot();
+}
+
+bool Gary4juceAudioProcessorEditor::buildYueyMidiScore(yueymidi::Score& score, juce::String& error)
+{
+    const int bpm = effectiveYueyBpm();
+    int meterNumerator = 4, meterDenominator = 4;
+    parseMeter(yueyUI != nullptr ? yueyUI->getMeter() : currentYueyMeter, meterNumerator, meterDenominator);
+
+    // Only a lane that converts on its own is used; one that was refused stays out of the score.
+    auto usable = [&](const YueyMidiInput& input, bool melody) -> const yueymidi::Clip*
+    {
+        if (!input.read)
+            return nullptr;
+        const auto alone = melody ? yueymidi::buildScore(&input.clip, nullptr, bpm, meterNumerator, meterDenominator)
+                                  : yueymidi::buildScore(nullptr, &input.clip, bpm, meterNumerator, meterDenominator);
+        return alone.ok ? &input.clip : nullptr;
+    };
+    const auto* melody = usable(yueyMidiMelody, true);
+    const auto* chords = usable(yueyMidiChords, false);
+    if (melody == nullptr && chords == nullptr)
+    {
+        error = "add a melody or chords file first";
+        return false;
+    }
+    score = yueymidi::buildScore(melody, chords, bpm, meterNumerator, meterDenominator);
+    if (!score.ok)
+        error = score.error;
+    return score.ok;
+}
+
+void Gary4juceAudioProcessorEditor::sendYueyMidi(bool remixing)
+{
+    yueymidi::Score score;
+    juce::String error;
+    if (!buildYueyMidiScore(score, error))
+    {
+        showStatusMessage("midi: " + error, 6000);
+        return;
+    }
+
+    // Chord symbols only condition the render in full mode; a melody alone can use melody mode. The
+    // backend may still force full when the instrumental adapter is loaded.
+    const juce::String symbolicMode = score.hasChords ? "full" : "melody";
+    const juce::String abc(score.abc);
+
+    if (!remixing)
+    {
+        // The existing score continuation, fed our score instead of a transcription: the whole
+        // expanded piece is rendered afresh. The key is always C here, so the tab's is left alone.
+        continueYueyFromTranscription(abc, symbolicMode, false);
+        return;
+    }
+
+    auto payload = makeYueySongPayload(currentYueyRemixPrompt, currentCareyLyrics, currentYueyRemixInstrumental,
+                                       yueyAcceptsFlac ? "flac" : "wav");
+    payload->setProperty("abc", abc);  // never together with abc_prefix
+    payload->setProperty("symbolic_mode", symbolicMode);
+    payload->setProperty("seed", yueyUI != nullptr ? yueyUI->getSeed() : -1);
+    submitYueyJson("/generate", juce::JSON::toString(juce::var(payload.get())),
+                   ActiveOp::YueyRemix, "rendering your midi");
 }
 
 void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
