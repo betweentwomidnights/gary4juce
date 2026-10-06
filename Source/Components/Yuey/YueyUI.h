@@ -9,6 +9,7 @@
 #include "../Base/CustomButton.h"
 #include "../Base/CustomComboBox.h"
 #include "../Base/CustomTextEditor.h"
+#include "YueyMidiSlot.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
 
@@ -85,6 +86,18 @@ public:
     void setAudioSourceRecording(bool recording);
     void setAudioSourceAvailability(bool recordingAvailable, bool outputAvailable);
 
+    // MIDI as a third source beside recording and output, for remix and continue. It is yuey's
+    // own choice: the recording/output state is shared with the other models and stays theirs.
+    // The editor reads the files; this only shows what it found.
+    enum class MidiLane { Melody = 0, Chords };
+    bool getMidiSourceSelected() const { return midiSourceSelected; }
+    void setMidiSourceSelected(bool selected);  // no notification, for restoring state
+    void showMidiEmpty(MidiLane lane);
+    void showMidiLoaded(MidiLane lane, const juce::File& file, const juce::String& summary);
+    void showMidiInvalid(MidiLane lane, const juce::File& file, const juce::String& error);
+    // One line under both slots, for what only the pair can say, like different lengths.
+    void setMidiNote(const juce::String& text);
+
     void setGenerateButtonEnabled(bool canCreate, bool canRemix, bool canContinue,
                                   bool generating);
     // adoptTempo is false inside a host: the project owns the tempo, and the
@@ -102,6 +115,9 @@ public:
     std::function<void(SubTab, const juce::String&)> onPromptChanged;
     std::function<void(const juce::String&)> onLyricsChanged;
     std::function<void(bool)> onAudioSourceChanged;
+    std::function<void(bool)> onMidiSourceChanged;
+    std::function<void(MidiLane, const juce::File&)> onMidiFile;  // dropped or picked
+    std::function<void(MidiLane)> onMidiCleared;
     std::function<void()> onPlanningChanged;
     // Which tab asked. The editor owns the pool and the prompt fields, so it
     // decides what a roll means; this only reports that one happened.
@@ -122,6 +138,10 @@ private:
     void updateLengthState();
     void updateInstrumentalState();
     void updateSourceState();
+    // The midi slots show on remix and continue while "midi" is the source; create is unchanged.
+    bool midiActive() const { return midiSourceSelected && currentSubTab != SubTab::Create; }
+    YueyMidiSlot& slotFor(MidiLane lane) { return lane == MidiLane::Melody ? melodySlot : chordsSlot; }
+    void selectMidiSource(bool notify);
     void openPromptPopout(PromptTarget target);
     void openLyricsPopout();
     void updateLyricsButton();
@@ -180,6 +200,12 @@ private:
     juce::Label sourceLabel;
     juce::ToggleButton recordingSourceButton;
     juce::ToggleButton outputSourceButton;
+    juce::ToggleButton midiSourceButton;
+    bool midiSourceSelected = false;
+    YueyMidiSlot melodySlot { "melody" };
+    YueyMidiSlot chordsSlot { "chords" };
+    juce::Label midiNoteLabel;
+    juce::String midiNote;
     bool audioSourceRecording = false;
     bool recordingSourceAvailable = false;
     bool outputSourceAvailable = false;
