@@ -143,6 +143,11 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
 
     if (isAudio2Audio)
     {
+        if (!validateAudioDurationForModel(getGaryBufferFile(), 240.0, "foundation"))
+        {
+            cancelOp();
+            return;
+        }
         if (!ensureGaryDataDirectoryAvailable())
         {
             cancelOp();

@@ -604,6 +604,8 @@ void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
 
 void Gary4juceAudioProcessorEditor::sendToCarey()
 {
+    if (!validateAudioDurationForModel(getGaryBufferFile(), audioProcessor.getIsUsingLocalhost() ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds, "carey"))
+        return;
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");
@@ -1221,6 +1223,8 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
 void Gary4juceAudioProcessorEditor::sendToCareyExtract()
 {
+    if (!validateAudioDurationForModel(getGaryBufferFile(), audioProcessor.getIsUsingLocalhost() ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds, "carey"))
+        return;
     if (audioProcessor.getIsUsingLocalhost())
     {
         showStatusMessage("carey extract is remote-only for now");
@@ -1590,6 +1594,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
 
 void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 {
+    if (!validateAudioDurationForModel(getGaryBufferFile(), audioProcessor.getIsUsingLocalhost() ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds, "carey"))
+        return;
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");
@@ -1997,6 +2003,8 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
 void Gary4juceAudioProcessorEditor::sendToCareyCover()
 {
+    if (!validateAudioDurationForModel(getGaryBufferFile(), audioProcessor.getIsUsingLocalhost() ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds, "carey"))
+        return;
     if (!isServiceReachable(ServiceType::Carey))
     {
         showStatusMessage("carey not reachable - check connection first");
