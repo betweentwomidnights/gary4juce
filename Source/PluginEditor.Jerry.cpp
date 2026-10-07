@@ -1159,6 +1159,7 @@ void Gary4juceAudioProcessorEditor::updateSA3EnablementSnapshot()
         return;
 
     const bool serviceReady = isServiceReachable(ServiceType::SA3);
+    sa3UI->setMaximumDurationSeconds(getSA3MaximumDurationSeconds());
     sa3UI->setRemoteAvailable(serviceReady);
     sa3UI->setTransformAudioSourceRecording(transformRecording);
     sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
@@ -1474,7 +1475,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
     const juce::String prompt = currentSA3Prompt.trim();
 
     currentSA3DurationSeconds = juce::jlimit(
-        1, SA3UI::kMaximumDurationSeconds, sa3UI->getDurationSeconds());
+        1, getSA3MaximumDurationSeconds(), sa3UI->getDurationSeconds());
     currentSA3LoopEnabled = sa3UI->getLoopEnabled();
     currentSA3GenerateKeepsGoing = sa3UI->getGenerateKeepsGoing();
     currentSA3Bars = sa3UI->getBars();
@@ -1688,7 +1689,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
     currentSA3TransformStrength = juce::jlimit(0.01, 1.0, sa3UI->getTransformStrength());
     transformRecording = sa3UI->getTransformAudioSourceRecording();
     if (!validateAudioDurationForModel(transformRecording ? getGaryBufferFile() : getGaryOutputFile(),
-                                      SA3UI::kMaximumDurationSeconds, "sa3"))
+                                      getSA3MaximumDurationSeconds(), "sa3"))
         return;
     audioProcessor.setTransformRecording(transformRecording);
     currentSA3Steps = sa3UI->getSteps();
@@ -1919,7 +1920,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
 
     currentSA3ContinuePrompt = prompt;
     currentSA3ContinueAddSeconds = juce::jlimit(
-        0, SA3UI::kMaximumDurationSeconds, sa3UI->getContinueAddSeconds());
+        0, getSA3MaximumDurationSeconds(), sa3UI->getContinueAddSeconds());
     transformRecording = sa3UI->getContinueAudioSourceRecording();
     audioProcessor.setTransformRecording(transformRecording);
     currentSA3Steps = sa3UI->getSteps();
@@ -1958,9 +1959,10 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
         updateSA3EnablementSnapshot();
         return;
     }
-    if (requestedTotalSeconds > (double)SA3UI::kMaximumDurationSeconds)
+    if (requestedTotalSeconds > (double)getSA3MaximumDurationSeconds())
     {
-        showStatusMessage("total continuation output must stay under 240 seconds", 4000);
+        showStatusMessage("total continuation output must stay at or below "
+            + juce::String(getSA3MaximumDurationSeconds()) + " seconds", 4000);
         updateSA3EnablementSnapshot();
         return;
     }

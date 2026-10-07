@@ -8,7 +8,9 @@ gary4juce, gary4local and stems.cpp v0.1.2.
 Drop or choose a mono/stereo audio file in the recording buffer. Up to ten
 minutes imports directly, independent of the selected model and backend. Larger
 files open the existing selection window, whose maximum selection is ten minutes.
-Double-click the buffer to choose a shorter section. The original file remains
+Double-click the buffer to choose a shorter section. The window starts at the
+active model's maximum input duration (or the file length, if shorter), and both
+handles enforce that maximum. The original file remains
 the source for later reselection, so choosing a section does not edit the file.
 
 Live recording remains five minutes. Long imports grow buffer storage on demand;
@@ -23,8 +25,8 @@ encoding/uploading it, without silently cropping. SA3 continuation still checks
 source plus added duration against its total limit. The output crop tool handles
 an oversized output source.
 
-Generation ceilings have not been raised. Carey input uses 300 seconds local
-and 240 remote; SA3 uses the frontend's existing 240-second ceiling. Gary/Terry
+Carey and SA3 use 380 seconds local and 240 remote, for source audio and output
+duration. SA3 continuation reserves source duration within that total. Gary/Terry
 retain 30-second input windows; Yuey and Foundation retain the prior 240-second
 import ceiling. Darius retains its bar-aligned context-copy behavior. MIDI and
 pure text generation are independent of these audio input checks.
@@ -65,7 +67,8 @@ needs a real long-track test.
   source with installed v0.1.2/F16 HTDemucs. All four WAVs preserve the complete
   frame count, sample rate and channel count.
 - Existing MIDI reader/tempo suite: 103 checks pass.
-- Final import/UI-only run: 30 checks pass, including the SA3 transform handler.
+- Final import/UI-only run: 50 checks pass, including local/remote duration sliders, continuation totals,
+  source guards and the selection dialog's initial length and both handle caps.
 - Compact/wide editor renders check the long-input hint.
 
 An earlier native CLI test on RTX 5070 Laptop/Vulkan measured 32.3 seconds for
@@ -85,10 +88,12 @@ manual validation before merging/releasing.
 
 ## Longer generation
 
-SA3 Medium is documented at approximately 380 seconds, not 388; its local API
-currently defaults to 300. ACE-Step advertises up to 600 seconds with
-GPU-dependent limits; our local completion wrapper rejects above 300. Treat
-extensions as model-specific work rather than a global longer-local limit.
+SA3 Medium is documented at approximately 380 seconds, not 388. The local SA3
+API default and Carey completion wrapper now allow 380 seconds to match the
+frontend. These backend updates must ship with the next gary4local release.
+ACE-Step advertises up to 600 seconds with GPU-dependent limits; the frontend
+retains a 380-second local ceiling. Treat further extensions as model-specific
+work rather than a global longer-local limit.
 
 Sources: [Stability's SA3 duration comparison](https://stability.ai/explainers/ai-temp-track-replacement-generating-music-for-a-rough-cut),
 [ACE-Step GPU compatibility](https://ace-step.github.io/ACE-Step-1.5/en/GPU_COMPATIBILITY).

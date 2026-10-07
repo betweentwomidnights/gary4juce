@@ -54,6 +54,7 @@ public:
     std::function<void(const juce::AudioBuffer<float>&, double, double)> onConfirm;  // Called with selected segment, sample rate, and selection start time
 
 private:
+    friend struct FullTrackAudioTest;
     // Audio data
     juce::AudioBuffer<float> audioBuffer;
     double audioSampleRate = 44100.0;

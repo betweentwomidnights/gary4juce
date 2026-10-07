@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "../../Source/PluginEditor.h"
 #include "../../Source/Components/Stems/StemsDialog.h"
+#include "../../Source/Components/AudioSelectionDialog.h"
 #include "../../Source/Stems/StemsRuntime.h"
 #include <iostream>
 
@@ -67,6 +68,7 @@ int FullTrackAudioTest::run(int argc, char** argv) {
         check(processor.getRecordingBuffer().getNumSamples() == liveCapacity, "short reload releases expanded allocation");
     }
     {
+        processor.setUsingLocalhost(false);
         Gary4juceAudioProcessorEditor editor(processor);
         editor.stopTimer();
         processor.stopHealthChecks();
@@ -87,16 +89,66 @@ int FullTrackAudioTest::run(int argc, char** argv) {
         check(!editor.isGenerating && editor.statusMessage.contains("limited"), "cover guard creates no generation job");
         editor.sendToGary();
         check(!editor.isGenerating && editor.statusMessage.contains("limited"), "Gary guard creates no generation job");
+        // Exercise the local handler against a source above its new 380s ceiling.
+        editor.loadAudioFileIntoBuffer(longFile);
         processor.setUsingLocalhost(true);
         editor.localSA3Online = true;
         editor.sa3UI->setTransformAudioSourceRecording(true);
         editor.sendSA3Transform();
         check(!editor.isGenerating && editor.statusMessage.contains("limited"), "SA3 transform guard creates no generation job");
+        editor.loadAudioFileIntoBuffer(source);
         editor.currentTab = Gary4juceAudioProcessorEditor::ModelTab::Carey;
         processor.setUsingLocalhost(true);
-        check(editor.getCurrentModelInputLimit() == 300, "local input hint uses local limit");
+        check(editor.getCurrentModelInputLimit() == 380, "local Carey input hint uses 380s limit");
+        check(editor.getRecordingSelectionMaximumDuration() == 380, "local Carey selection capped at 380s");
+        editor.updateCareyTabAvailability();
+        editor.careyUI->setCompleteDurationSeconds(380);
+        check(editor.careyUI->getCompleteDurationSeconds() == 380, "local Carey output slider reaches 380s");
+        check(editor.validateAudioDurationForModel(editor.getGaryBufferFile(), editor.getCurrentModelInputLimit(), "carey"), "330s source accepted by local Carey");
         processor.setUsingLocalhost(false);
         check(editor.getCurrentModelInputLimit() == 240, "backend switch updates input limit");
+        check(editor.getRecordingSelectionMaximumDuration() == 240, "remote Carey selection retains 240s cap");
+        editor.updateCareyTabAvailability();
+        check(editor.careyUI->getCompleteDurationSeconds() == 240, "remote Carey output clamps on backend switch");
+        editor.currentTab = Gary4juceAudioProcessorEditor::ModelTab::Jerry;
+        processor.setUsingLocalhost(true);
+        editor.updateSA3EnablementSnapshot();
+        check(editor.getCurrentModelInputLimit() == 380, "local SA3 input uses 380s limit");
+        check(editor.getRecordingSelectionMaximumDuration() == 380, "local SA3 selection capped at 380s");
+        check(editor.getInputDurationHint().isEmpty(), "330s input no longer warns on local SA3");
+        editor.sa3UI->setDurationSeconds(380);
+        check(editor.sa3UI->getDurationSeconds() == 380, "local SA3 output slider reaches 380s");
+        check(editor.sa3UI->getContinueMaximumAddSeconds() == 50, "local SA3 continuation reserves source duration");
+        editor.sa3UI->setContinueAddSeconds(51);
+        check(editor.sa3UI->getContinueAddSeconds() == 50, "local SA3 continuation cannot exceed total 380s");
+        processor.setUsingLocalhost(false);
+        editor.updateSA3EnablementSnapshot();
+        check(editor.sa3UI->getDurationSeconds() == 240, "remote SA3 duration clamps on backend switch");
+        check(editor.sa3UI->getContinueMaximumAddSeconds() == 0, "oversized remote SA3 source disables continuation");
+        check(editor.getRecordingSelectionMaximumDuration() == 240, "remote SA3 selection retains 240s cap");
+        editor.currentTab = Gary4juceAudioProcessorEditor::ModelTab::Terry;
+        check(editor.getRecordingSelectionMaximumDuration() == 30, "Terry selection capped at 30s after full-track import");
+        {
+            AudioSelectionDialog dialog;
+            dialog.stopTimer();
+            dialog.deviceManager.closeAudioDevice();
+            dialog.setSelectionWindowConstraints(1.0, editor.getRecordingSelectionMaximumDuration(), 30.0);
+            check(dialog.loadAudioFile(longFile), "selection dialog reads ten-minute source");
+            check(dialog.selectionDuration == 30.0, "Terry selection opens at exactly 30s");
+            dialog.setInitialSelectionStartTime(200.0);
+            dialog.dragStartSelectionTime = dialog.selectionStartTime;
+            dialog.dragStartSelectionDuration = dialog.selectionDuration;
+            dialog.selectionDragMode = AudioSelectionDialog::SelectionDragMode::ResizeRight;
+            dialog.updateSelectionFromResizeDrag(dialog.waveformArea.getRight());
+            check(dialog.selectionDuration == 30.0, "right handle cannot exceed active model limit");
+            dialog.selectionDragMode = AudioSelectionDialog::SelectionDragMode::ResizeLeft;
+            dialog.updateSelectionFromResizeDrag(dialog.waveformArea.getX());
+            check(dialog.selectionDuration == 30.0, "left handle cannot exceed active model limit");
+            writeImage(dialog, root.getChildFile("terry-full-track-selection.png"));
+            dialog.setSelectionWindowConstraints(1.0, 380.0, 380.0);
+            dialog.setInitialSelectionStartTime(0.0);
+            check(dialog.selectionDuration == 380.0, "local model selection opens at exactly 380s");
+        }
         editor.switchToTab(Gary4juceAudioProcessorEditor::ModelTab::Jerry);
         editor.hasStatusMessage = false;
         editor.setEditorLayoutMode(Gary4juceAudioProcessorEditor::EditorLayoutMode::Compact);

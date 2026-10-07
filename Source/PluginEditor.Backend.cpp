@@ -53,7 +53,7 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     }
 
     if (sa3UI)
-        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+        updateSA3EnablementSnapshot();
 
     // Local and remote SA3 can expose different LoRA registries.
     availableSA3Loras.clear();

@@ -9,8 +9,10 @@ the recording buffer accepts imports up to ten minutes for stem separation,
 independently of the selected model or backend. longer files open the selection
 window. the buffer grows only when needed; live recording remains five minutes.
 an orange hint explains when a model needs a shorter section, and requests
-validate the source duration before upload. generation and remote limits stay
-as before. no stem checkboxes: the shipped Demucs and RoFormer models would
+validate the source duration before upload. double-click selection starts at the
+active model's input limit and cannot expand beyond it. SA3 and Carey allow up
+to 380 seconds on localhost; their remote limits remain 240 seconds.
+no stem checkboxes: the shipped Demucs and RoFormer models would
 still perform the same inference.
 
 stem input/output uses bounded blocks, and the popup builds waveform peaks from

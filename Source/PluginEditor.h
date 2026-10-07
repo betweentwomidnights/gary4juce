@@ -926,6 +926,8 @@ private:
     bool validateAudioDurationForModel(const juce::File& file, double maximumSeconds,
                                       const juce::String& modelName);
     double getCurrentModelInputLimit() const;
+    int getSA3MaximumDurationSeconds() const;
+    double getRecordingSelectionMaximumDuration() const;
     juce::String getInputDurationHint() const;
     void showOutputAudioSelectionDialog();
     juce::File lastDraggedAudioFile;  // Stores path for double-click reselection

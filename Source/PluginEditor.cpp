@@ -307,7 +307,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentSA3Prompt = readString("sa3Prompt", currentSA3Prompt);
     currentSA3Bpm = juce::jlimit(40.0, 300.0,
         readDouble("sa3ManualBpm", currentSA3Bpm));
-    currentSA3DurationSeconds = juce::jlimit(1, SA3UI::kMaximumDurationSeconds,
+    currentSA3DurationSeconds = juce::jlimit(1, SA3UI::kLocalMaximumDurationSeconds,
         readInt("sa3Duration", currentSA3DurationSeconds));
     currentSA3LoopEnabled = readBool("sa3Loop", currentSA3LoopEnabled);
     currentSA3Bars = readInt("sa3Bars", currentSA3Bars);
@@ -321,7 +321,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
         0.01, 1.0, readDouble("sa3TransformStrength", currentSA3TransformStrength));
     currentSA3ContinuePrompt = readString("sa3ContinuePrompt", currentSA3ContinuePrompt);
     currentSA3ContinueAddSeconds = juce::jlimit(
-        1, SA3UI::kMaximumDurationSeconds, readInt("sa3ContinueAddSeconds",
+        1, SA3UI::kLocalMaximumDurationSeconds, readInt("sa3ContinueAddSeconds",
             readInt("sa3ContinueSeconds", currentSA3ContinueAddSeconds)));
     currentSA3ContinueLatentPrefix = readBool(
         "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
@@ -552,6 +552,7 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
 
     if (sa3UI != nullptr)
     {
+        sa3UI->setMaximumDurationSeconds(getSA3MaximumDurationSeconds());
         sa3UI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
             ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
         sa3UI->setPromptText(currentSA3Prompt);
@@ -1081,6 +1082,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // ========== SA3 CONTROLS SETUP ==========
     sa3UI = std::make_unique<SA3UI>();
     addAndMakeVisible(*sa3UI);
+    sa3UI->setMaximumDurationSeconds(getSA3MaximumDurationSeconds());
     const bool isStandaloneApp = juce::JUCEApplicationBase::isStandaloneApp();
     sa3UI->setIsStandalone(isStandaloneApp);
     sa3UI->onBpmChanged = [this](double bpm)
@@ -1095,7 +1097,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     sa3UI->onDurationChanged = [this](int seconds)
     {
-        currentSA3DurationSeconds = juce::jlimit(1, SA3UI::kMaximumDurationSeconds, seconds);
+        currentSA3DurationSeconds = juce::jlimit(1, getSA3MaximumDurationSeconds(), seconds);
     };
     sa3UI->onLoopChanged = [this](bool enabled)
     {
@@ -1170,7 +1172,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     sa3UI->onContinueAddSecondsChanged = [this](int seconds)
     {
-        currentSA3ContinueAddSeconds = juce::jlimit(1, SA3UI::kMaximumDurationSeconds, seconds);
+        currentSA3ContinueAddSeconds = juce::jlimit(1, getSA3MaximumDurationSeconds(), seconds);
     };
     sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
     {
@@ -6908,6 +6910,20 @@ double Gary4juceAudioProcessorEditor::getInputWaveformDisplayDuration() const
                                   : juce::jmin(30.0, fullBufferDuration);
 }
 
+int Gary4juceAudioProcessorEditor::getSA3MaximumDurationSeconds() const
+{
+    return audioProcessor.getIsUsingLocalhost()
+        ? SA3UI::kLocalMaximumDurationSeconds : SA3UI::kRemoteMaximumDurationSeconds;
+}
+
+double Gary4juceAudioProcessorEditor::getRecordingSelectionMaximumDuration() const
+{
+    const double modelLimit = getCurrentModelInputLimit();
+    return modelLimit > 0.0
+        ? juce::jmin(modelLimit, Gary4juceAudioProcessor::kMaximumImportedAudioSeconds)
+        : Gary4juceAudioProcessor::kMaximumImportedAudioSeconds;
+}
+
 double Gary4juceAudioProcessorEditor::getCurrentModelInputLimit() const
 {
     switch (currentTab)
@@ -6917,7 +6933,7 @@ double Gary4juceAudioProcessorEditor::getCurrentModelInputLimit() const
         case ModelTab::Carey: return audioProcessor.getIsUsingLocalhost()
             ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds;
         case ModelTab::Jerry: return jerrySubTab == JerrySubTab::SA3
-            ? SA3UI::kMaximumDurationSeconds : (jerrySubTab == JerrySubTab::Foundation ? 240.0 : 0.0);
+            ? getSA3MaximumDurationSeconds() : (jerrySubTab == JerrySubTab::Foundation ? 240.0 : 0.0);
         case ModelTab::Yuey: return currentYueyMidiSelected ? 0.0 : 240.0;
         default: return 0.0;   // Darius already creates its short, bar-aligned context copy.
     }
@@ -7581,7 +7597,9 @@ try
         // Create the AudioSelectionDialog
         auto* dialog = new AudioSelectionDialog();
 
-        const double editableDuration = juce::jmin(fileDuration, maxBufferDuration);
+        const double selectionLimit = forceSelectionDialog
+            ? getRecordingSelectionMaximumDuration() : maxBufferDuration;
+        const double editableDuration = juce::jmin(fileDuration, selectionLimit);
         dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
 
         // Load the audio file into the dialog
