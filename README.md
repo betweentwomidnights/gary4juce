@@ -11,12 +11,12 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v5.0.0 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0)
-- [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
+- [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
 
 **recommended local companions:**
 
 - windows: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
-- macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
+- macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -51,7 +51,7 @@ gary's output or your recording buffer into stems on your own machine.
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> yuey runs on the remote backend for everyone, and locally on Windows through gary4local v0.4.0. localhost mac support is in the works.
+> yuey runs on the remote backend for everyone, and locally through gary4local v0.4.0 on Windows and macOS.
 
 ---
 
@@ -63,8 +63,7 @@ Put it on your master, press play, record some audio, and start iterating.
 [YuE2](https://github.com/multimodal-art-projection/YuE) through
 [yuey.cpp](https://github.com/betweentwomidnights/yuey.cpp), our native C++
 build of it. it's on the remote backend for everyone, and on a local backend
-for PC users through gary4local v0.4.0 for now. i'm working on localhost mac
-support as i type this.
+through gary4local v0.4.0 on both Windows and macOS.
 
 yuey isn't used quite the way official YuE is. it's bent toward working inside
 a session: a chord scaffold in your tempo and key, transcribe-and-remix, and a
@@ -99,8 +98,9 @@ the recording buffer to select a shorter section for generation: the window
 starts at the active model's input limit and won't stretch past it. local SA3
 and Carey allow 380 seconds; their remote limits remain 240 seconds.
 
-recommended local companion: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0),
-released alongside this one. after updating gary4local, press `update runtime`
+recommended local companions: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
+on Windows and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
+on macOS, released alongside this one. after updating gary4local, press `update runtime`
 on yuey's row for v0.2.2's short MIDI score fix.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
@@ -109,7 +109,8 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ## roadmap
 
-- [ ] bring local yuey to macOS through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
+- [x] bring local yuey to macOS (gary4local mac v0.4.0)
+- [ ] unify gary4local into one cross-platform app through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
 - [x] introduce optional lightweight native stem separator
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow (if it actually works like it should...)
 
