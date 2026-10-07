@@ -492,6 +492,8 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     }
 
     const auto sourceFile = transformRecording ? getGaryBufferFile() : getGaryOutputFile();
+    if (!validateAudioDurationForModel(sourceFile, 240.0, "yuey"))
+        return;
     juce::MemoryBlock audioBytes;
     if (!sourceFile.existsAsFile() || !sourceFile.loadFileAsData(audioBytes) || audioBytes.getSize() == 0)
     {

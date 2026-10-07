@@ -83,6 +83,8 @@ void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()
 
 void Gary4juceAudioProcessorEditor::sendToTerry()
 {
+    if (!validateAudioDurationForModel(transformRecording ? getGaryBufferFile() : getGaryOutputFile(), 30.0, "terry"))
+        return;
     setActiveOp(ActiveOp::TerryTransform);
 
     auto cancelTerryOperation = [this]() {

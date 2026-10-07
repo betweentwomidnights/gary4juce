@@ -3,6 +3,31 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.0-rc.4 - full-track audio import
+
+the recording buffer accepts imports up to ten minutes for stem separation,
+independently of the selected model or backend. longer files open the selection
+window. the buffer grows only when needed; live recording remains five minutes.
+an orange hint explains when a model needs a shorter section, and requests
+validate the source duration before upload. double-click selection starts at the
+active model's input limit and cannot expand beyond it. SA3 and Carey allow up
+to 380 seconds on localhost; their remote limits remain 240 seconds.
+no stem checkboxes: the shipped Demucs and RoFormer models would
+still perform the same inference.
+
+stem input/output uses bounded blocks, and the popup builds waveform peaks from
+disk rather than keeping every full stem decoded in memory. long imports are
+saved and played in full, with no silent five-minute truncation.
+
+the local connection indicator now reads `/7 online`, matching the seven
+managed services. Darius keeps its separate backend and health indicator.
+
+pair this with [gary4local v0.4.0-rc.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0-rc.4)
+or [gary4local-rocm v0.4.0-rocm.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0-rocm.4).
+after updating gary4local, press `update runtime` on yuey's row for v0.2.2's
+short MIDI score fix. the plugin still reports version 5.0.0; the tag identifies
+this preview.
+
 ## v5.0.0-rc.3 - MIDI and Live Clips for yuey
 
 this Windows pre-release includes the embedded stem separator, selection-window

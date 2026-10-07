@@ -81,7 +81,9 @@ public:
     bool isRecording() const;  // Declaration only - implementation in .cpp
     float getRecordingProgress() const;  // Declaration only - implementation in .cpp
     bool saveRecordingToFile(const juce::File& file);
-    void loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer);
+    // Imports may be longer than live recording, and grow storage only when needed.
+    static constexpr double kMaximumImportedAudioSeconds = 600.0;
+    bool loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer);
     void clearRecordingBuffer();
     const juce::AudioBuffer<float>& getRecordingBuffer() const { return recordingBuffer; }
     int getRecordedSamples() const;  // Declaration only - implementation in .cpp

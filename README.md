@@ -256,7 +256,7 @@ The Jerry tab now has three sub-tabs:
 
 #### sa3 - stable-audio-3
 
-- Generate text-to-audio up to 300 seconds.
+- Generate text-to-audio up to 380 seconds on localhost or 240 seconds remotely.
 - Toggle loop mode for 4/8/16-bar loop generation.
 - Transform either the saved recording buffer or the current output audio.
 - Continue either the saved recording buffer or the current output audio.
@@ -353,6 +353,20 @@ mac). the models download from Hugging Face.
 - drop a stem on the recording buffer to replace what's in it. that's how you
   pull the drums out of something you dragged in from the DAW.
 - it's disabled while a generation is running.
+
+you can now drop or pick up to ten minutes of audio into the recording buffer,
+regardless of the selected model or local/remote connection, then separate the
+whole track. larger files open the selection window so you can choose a section
+up to ten minutes. double-click the buffer to select a shorter section for
+generation: the window opens at the active model's input limit, and the handles
+cannot stretch past it (30 seconds on Terry; 380 on local SA3/Carey or 240 remotely).
+an orange hint shows when the buffer exceeds the selected model's
+input limit; oversized requests are stopped before upload. importing a full
+track does not raise a generator's duration limit.
+
+the buffer grows for long imports when needed; live recording keeps its existing
+five-minute limit. separation still computes all the model's stems. the current
+Demucs and RoFormer models do not gain inference speed from choosing fewer outputs.
 
 it runs on the GPU by default (Vulkan on windows, so NVIDIA, AMD and Intel all
 work, and Metal on apple silicon), with a toggle for the CPU. on the CPU,

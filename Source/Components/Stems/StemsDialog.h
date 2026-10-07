@@ -93,6 +93,7 @@ private:
 public:
     // Min/max per pixel column, averaged across channels, as the output waveform draws them.
     static std::vector<std::pair<float, float>> computePeaks(const juce::AudioBuffer<float>& audio, int width);
+    static std::vector<std::pair<float, float>> computeFilePeaks(const juce::File& file, int width);
     static void drawPeaks(juce::Graphics& g, juce::Rectangle<int> area,
                           const std::vector<std::pair<float, float>>& peaks, float opacity);
 

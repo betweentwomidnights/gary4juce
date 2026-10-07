@@ -19,7 +19,8 @@
 class SA3UI : public juce::Component
 {
 public:
-    static constexpr int kMaximumDurationSeconds = 240;
+    static constexpr int kRemoteMaximumDurationSeconds = 240;
+    static constexpr int kLocalMaximumDurationSeconds = 380;
     static constexpr double kEndsHereTailPadSeconds = 0.0;
     static constexpr double kKeepsGoingTailPadSeconds = 6.0;
 
@@ -50,6 +51,8 @@ public:
     double getBpm() const { return isStandaloneMode ? bpmControl.getValue() : bpmValue; }
     void setIsStandalone(bool standalone);
     void setRemoteAvailable(bool available);
+    void setMaximumDurationSeconds(int seconds);
+    int getMaximumDurationSeconds() const { return maximumDurationSeconds; }
     void setGenerateButtonEnabled(bool enabled, bool isGenerating);
     void setDiceButtonsEnabled(bool enabled);
     void setGenerateButtonText(const juce::String& text);
@@ -226,7 +229,10 @@ private:
     juce::ToggleButton continueOutputButton;
     juce::Label continuationLabel;
     CustomSlider continuationSlider;
-    int continuationMaximumAddSeconds = kMaximumDurationSeconds;
+    int maximumDurationSeconds = kRemoteMaximumDurationSeconds;
+    double continueSourceDuration = 0.0;
+    bool continueSourceAvailable = false;
+    int continuationMaximumAddSeconds = kRemoteMaximumDurationSeconds;
 
     juce::Label durationLabel;
     CustomSlider durationSlider;

@@ -29,7 +29,7 @@ private:
 
 public:
     static constexpr int kRemoteMaximumDurationSeconds = 240;
-    static constexpr int kLocalMaximumDurationSeconds = 300;
+    static constexpr int kLocalMaximumDurationSeconds = 380;
     static constexpr int kFixedCoverSteps = 8;
     static constexpr double kFixedCoverCfg = 1.0;
     static constexpr int kDefaultCoverBaseSteps = 50;

@@ -635,7 +635,14 @@ bool Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
             juce::String(snapshotChannels) + " channels");
 
         // Create temp buffer and copy data while holding the lock
-        tempBuffer.setSize(snapshotChannels, snapshotSamples);
+        try
+        {
+            tempBuffer.setSize(snapshotChannels, snapshotSamples);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return false;
+        }
 
         for (int channel = 0; channel < snapshotChannels; ++channel)
         {
@@ -737,38 +744,49 @@ bool Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     return true;
 }
 
-void Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer)
+bool Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer)
 {
+    const int samplesToCopy = sourceBuffer.getNumSamples();
+    if (samplesToCopy <= 0 || sourceBuffer.getNumChannels() <= 0
+        || samplesToCopy > kMaximumImportedAudioSeconds * currentSampleRate)
+        return false;
+
+    // Allocate and copy on the caller's thread before taking the audio-thread lock.
+    // Ordinary instances retain the five-minute allocation; long imports grow it on demand.
+    juce::AudioBuffer<float> imported;
+    try
+    {
+        imported.setSize(juce::jmax(getTotalNumInputChannels(), getTotalNumOutputChannels()),
+                         juce::jmax(maxRecordingSamples, samplesToCopy));
+        imported.clear();
+        for (int ch = 0; ch < juce::jmin(sourceBuffer.getNumChannels(), imported.getNumChannels()); ++ch)
+            imported.copyFrom(ch, 0, sourceBuffer, ch, 0, samplesToCopy);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return false;   // preserve the previous buffer on failure
+    }
+
     juce::ScopedLock lock(bufferLock);
 
     recordingStartPending = false;
     recordingStopPending = false;
 
     // Clear existing recording state
-    recordingBuffer.clear();
+    recordingBuffer = std::move(imported);
     bufferWritePosition = 0;
     deferredRecordingSamples = 0;
     deferredRecordingOverflowed = false;
     recording = false;
     atomicRecording = false;
 
-    // Calculate how many samples to copy (up to the full recording buffer capacity)
-    int samplesToCopy = juce::jmin(sourceBuffer.getNumSamples(),
-                                    recordingBuffer.getNumSamples());
-
-    // Copy audio data channel by channel
-    for (int ch = 0; ch < juce::jmin(sourceBuffer.getNumChannels(),
-                                      recordingBuffer.getNumChannels()); ++ch)
-    {
-        recordingBuffer.copyFrom(ch, 0, sourceBuffer, ch, 0, samplesToCopy);
-    }
-
     // Update tracking variables
     recordedSamples = samplesToCopy;
     atomicRecordedSamples = samplesToCopy;
-    savedSamples = samplesToCopy;  // Mark as "saved"
+    savedSamples = 0;   // the new buffer is saved only after its file is successfully replaced
 
     DBG("Loaded " + juce::String(samplesToCopy) + " samples into recording buffer from dropped file");
+    return true;
 }
 
 // Thread-safe getters

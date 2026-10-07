@@ -40,6 +40,7 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::DragAndDropContainer,
     public juce::FileDragAndDropTarget
 {
+    friend struct FullTrackAudioTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;
@@ -932,6 +933,12 @@ private:
     // Drag and drop functionality (input)
     bool isDragHoveringInput = false;
     void loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog = false);
+    bool validateAudioDurationForModel(const juce::File& file, double maximumSeconds,
+                                      const juce::String& modelName);
+    double getCurrentModelInputLimit() const;
+    int getSA3MaximumDurationSeconds() const;
+    double getRecordingSelectionMaximumDuration() const;
+    juce::String getInputDurationHint() const;
     void showOutputAudioSelectionDialog();
     juce::File lastDraggedAudioFile;  // Stores path for double-click reselection
     double lastSelectionStartTime = 0.0;  // Stores last selection position for reopening dialog

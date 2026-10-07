@@ -437,7 +437,7 @@ SA3UI::SA3UI()
     continuationLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(continuationLabel);
 
-    continuationSlider.setRange(1.0, (double)kMaximumDurationSeconds, 1.0);
+    continuationSlider.setRange(1.0, (double)maximumDurationSeconds, 1.0);
     continuationSlider.setValue(30.0, juce::dontSendNotification);
     continuationSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     continuationSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
@@ -513,7 +513,7 @@ SA3UI::SA3UI()
     durationLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(durationLabel);
 
-    durationSlider.setRange(1.0, (double)kMaximumDurationSeconds, 1.0);
+    durationSlider.setRange(1.0, (double)maximumDurationSeconds, 1.0);
     durationSlider.setValue(30.0, juce::dontSendNotification);
     durationSlider.setSliderStyle(juce::Slider::LinearHorizontal);
     durationSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 20);
@@ -922,14 +922,16 @@ void SA3UI::setContinuePromptText(const juce::String& text)
 
 void SA3UI::setContinueAddSeconds(int seconds)
 {
-    continuationSlider.setValue(juce::jlimit(1, kMaximumDurationSeconds, seconds), juce::dontSendNotification);
+    continuationSlider.setValue(juce::jlimit(1, maximumDurationSeconds, seconds), juce::dontSendNotification);
 }
 
 void SA3UI::setContinueSourceDuration(double sourceDurationSeconds, bool sourceAvailable)
 {
+    continueSourceDuration = sourceDurationSeconds;
+    continueSourceAvailable = sourceAvailable;
     const double safeSourceDuration = juce::jmax(0.0, sourceDurationSeconds);
     continuationMaximumAddSeconds = sourceAvailable
-        ? juce::jmax(0, (int)std::floor((double)kMaximumDurationSeconds - safeSourceDuration))
+        ? juce::jmax(0, (int)std::floor((double)maximumDurationSeconds - safeSourceDuration))
         : 0;
 
     const bool canContinue = sourceAvailable && continuationMaximumAddSeconds >= 1;
@@ -953,10 +955,17 @@ void SA3UI::setContinueSourceDuration(double sourceDurationSeconds, bool sourceA
     }
     else if (sourceAvailable)
     {
-        continuationSlider.setTooltip("the selected source is already at the 240 second limit");
+        continuationSlider.setTooltip("the selected source is already at the "
+            + juce::String(maximumDurationSeconds) + " second limit");
     }
     else
     {
+        const int previousValue = getContinueAddSeconds();
+        continuationSlider.setRange(1.0, (double)maximumDurationSeconds, 1.0);
+        const int clampedValue = juce::jlimit(1, maximumDurationSeconds, previousValue);
+        continuationSlider.setValue(clampedValue, juce::dontSendNotification);
+        if (clampedValue != previousValue && onContinueAddSecondsChanged)
+            onContinueAddSecondsChanged(clampedValue);
         continuationSlider.setTooltip("select an available recording or output to continue");
     }
 }
@@ -977,9 +986,24 @@ void SA3UI::setContinueAudioSourceAvailability(bool recordingAvailable, bool out
     setTransformAudioSourceAvailability(recordingAvailable, outputAvailable);
 }
 
+void SA3UI::setMaximumDurationSeconds(int seconds)
+{
+    const int maximum = juce::jlimit(1, kLocalMaximumDurationSeconds, seconds);
+    if (maximumDurationSeconds == maximum)
+        return;
+    maximumDurationSeconds = maximum;
+    const int previousValue = getDurationSeconds();
+    durationSlider.setRange(1.0, (double)maximum, 1.0);
+    const int clampedValue = juce::jlimit(1, maximum, previousValue);
+    durationSlider.setValue(clampedValue, juce::dontSendNotification);
+    if (clampedValue != previousValue && onDurationChanged)
+        onDurationChanged(clampedValue);
+    setContinueSourceDuration(continueSourceDuration, continueSourceAvailable);
+}
+
 void SA3UI::setDurationSeconds(int seconds)
 {
-    durationSlider.setValue(juce::jlimit(1, kMaximumDurationSeconds, seconds), juce::dontSendNotification);
+    durationSlider.setValue(juce::jlimit(1, maximumDurationSeconds, seconds), juce::dontSendNotification);
 }
 
 void SA3UI::setLoopEnabled(bool enabled)
