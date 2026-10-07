@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v4.0.15 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.15)
+- [gary4juce v5.0.0 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0)
 - [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.3.2](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.3.2)
+- windows: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
 - macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -57,7 +57,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.0
+### v5.0.0 - 10/7
 
 **yue2 is now inside the DAW.** the new yuey tab runs
 [YuE2](https://github.com/multimodal-art-projection/YuE) through
@@ -70,6 +70,11 @@ yuey isn't used quite the way official YuE is. it's bent toward working inside
 a session: a chord scaffold in your tempo and key, transcribe-and-remix, and a
 score window with quick edits. [docs/YUEY.md](docs/YUEY.md) explains the
 choices.
+
+remix and continue also accept MIDI and saved Ableton MIDI clips, with separate
+melody and chords slots. save a timeline clip to your User Library first, then
+drag the `.alc` from Live's browser. standalone shows the tempo wheel on every
+yuey sub-tab; in a DAW, it displays the project BPM.
 
 also new: sa3's generate and continue have an "ending" choice. "ends here"
 lands the ending where the audio stops. "keeps going" cuts off still in full
@@ -89,7 +94,14 @@ better. the yuey prompt is shared across create, remix and continue now, and
 the score window has the prompt box and dice. the audio selection window zooms,
 so you can place the edges precisely.
 
-recommended local companion: gary4local v0.4.0, releasing alongside this one.
+you can import up to ten minutes of audio for stem separation. double-click
+the recording buffer to select a shorter section for generation: the window
+starts at the active model's input limit and won't stretch past it. local SA3
+and Carey allow 380 seconds; their remote limits remain 240 seconds.
+
+recommended local companion: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0),
+released alongside this one. after updating gary4local, press `update runtime`
+on yuey's row for v0.2.2's short MIDI score fix.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
@@ -97,7 +109,7 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ## roadmap
 
-- [ ] bring yuey to [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
+- [ ] bring local yuey to macOS through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
 - [x] introduce optional lightweight native stem separator
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow (if it actually works like it should...)
 
@@ -196,8 +208,6 @@ or the local gary4local service on Windows/macOS:
 
 Public upstream repo: https://github.com/stability-ai/stable-audio-3
 
-Local SA3 training source of truth: https://github.com/dada-bots/underfit
-
 ### Darius backend
 
 Darius is too heavy to run alongside the other gary4local services.
@@ -240,6 +250,12 @@ yuey uses YuE2.
 
 the prompt is shared across all three, so switching sub-tabs keeps what you
 typed.
+
+choose `midi` in remix or continue to drop or pick a melody file, a chords file,
+or both. `.mid`, `.midi` and saved MIDI Live Clips (`.alc`) are supported. crop
+to whole bars and give both lanes the same length; Gary imports the notes,
+not the clip's instrument or effects. the guide explains the supported rhythms
+and chord shapes.
 
 every render keeps its score: drag it into your DAW as MIDI, or open the score
 window to edit it, transpose it, or halve or double the tempo, and render it
@@ -389,81 +405,7 @@ learn more: https://github.com/betweentwomidnights/stems.cpp
 
 ---
 
-## finetuning
-
-gary4juce gets better as more finetunes exist.
-
-### MusicGen
-
-Train through Audiocraft:
-
-https://github.com/facebookresearch/audiocraft
-
-As of late 2025, Google Colab is painful for Audiocraft training due to
-dependency conflicts. Local training is the practical path.
-
-### Stable Audio Open Small
-
-Train with stable-audio-tools:
-
-https://github.com/Stability-AI/stable-audio-tools
-
-Encode, train, select checkpoints, upload to Hugging Face, then load through the
-Jerry localhost finetune picker.
-
-### Stable Audio 3
-
-Local SA3 training for both gary4local companions now uses dadabots'
-[underfit](https://github.com/dada-bots/underfit) as the source of truth.
-
-SA3 LoRA workflows are new and still settling. The v4 plugin UI is already
-shaped around multi-LoRA strength sliders and LoRA-aware dice pools so the
-backend can grow into that workflow cleanly.
-
-Upstream repo: https://github.com/stability-ai/stable-audio-3
-
-### Magenta Realtime
-
-Magenta Realtime is one of the friendlier finetuning paths:
-
-https://github.com/magenta/magenta-realtime
-
-Upload weights to a Hugging Face model repo and point the Darius tab at it.
-
----
-
-## project structure
-
-```text
-gary4juce/
-+-- Source/
-|   +-- PluginProcessor.cpp/h
-|   +-- PluginEditor.cpp/h
-|   +-- Components/
-|   |   +-- Gary/GaryUI.cpp/h
-|   |   +-- Jerry/JerryUI.cpp/h
-|   |   +-- Jerry/SA3UI.cpp/h
-|   |   +-- Foundation/FoundationUI.cpp/h
-|   |   +-- Carey/CareyUI.cpp/h
-|   |   +-- Terry/TerryUI.cpp/h
-|   |   +-- Stems/StemsDialog.cpp/h, StemsSettings.cpp/h
-|   |   \-- Darius/DariusUI.cpp/h
-|   +-- Stems/
-|   |   +-- StemsRuntime.cpp/h
-|   |   \-- libstems_v1.h
-|   \-- Utils/
-|       +-- Theme.h
-|       +-- IconFactory.cpp/h
-|       \-- BarTrim.h
-+-- docs/
-|   +-- CAREY.md
-|   +-- SA3.md
-|   +-- CHANGELOG.md
-|   \-- RELEASING.md
-\-- gary4juce.jucer
-```
-
-### building from source
+## building from source
 
 Requirements:
 
@@ -480,17 +422,6 @@ Steps:
 
 Maintainers: see the [release checklist](docs/RELEASING.md) for packaging and
 verification.
-
----
-
-## known issues
-
-- **SA3 launch notes:** output loudness and continuation tails are still being tuned.
-- **SA3 local backend:** available through gary4local on Windows and gary4local mac.
-- **Windows Defender:** not codesigned, so Windows may complain.
-- **Darius hardware:** 24 GB+ VRAM is strongly recommended.
-- **Terry variability:** Melodyflow is experimental and can be wonderfully strange.
-- **Carey complete mode:** useful, but the upstream-style accompaniment workflow still needs a proper UI/backend pass.
 
 ---
 

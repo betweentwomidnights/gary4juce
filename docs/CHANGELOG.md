@@ -3,61 +3,7 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
-## v5.0.0-rc.4 - full-track audio import
-
-the recording buffer accepts imports up to ten minutes for stem separation,
-independently of the selected model or backend. longer files open the selection
-window. the buffer grows only when needed; live recording remains five minutes.
-an orange hint explains when a model needs a shorter section, and requests
-validate the source duration before upload. double-click selection starts at the
-active model's input limit and cannot expand beyond it. SA3 and Carey allow up
-to 380 seconds on localhost; their remote limits remain 240 seconds.
-no stem checkboxes: the shipped Demucs and RoFormer models would
-still perform the same inference.
-
-stem input/output uses bounded blocks, and the popup builds waveform peaks from
-disk rather than keeping every full stem decoded in memory. long imports are
-saved and played in full, with no silent five-minute truncation.
-
-the local connection indicator now reads `/7 online`, matching the seven
-managed services. Darius keeps its separate backend and health indicator.
-
-pair this with [gary4local v0.4.0-rc.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0-rc.4)
-or [gary4local-rocm v0.4.0-rocm.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0-rocm.4).
-after updating gary4local, press `update runtime` on yuey's row for v0.2.2's
-short MIDI score fix. the plugin still reports version 5.0.0; the tag identifies
-this preview.
-
-## v5.0.0-rc.3 - MIDI and Live Clips for yuey
-
-this Windows pre-release includes the embedded stem separator, selection-window
-zoom and shared yuey prompt from rc.2, plus MIDI as a source for yuey's remix
-and continue tabs. choose `midi`, then drop or pick a melody file, a chords file,
-or both. remix renders the imported score; continue extends it before rendering.
-create stays driven by the prompt, key and BPM.
-
-saved Ableton MIDI Live Clips (`.alc`) work too, as notes only: save a timeline
-clip to the User Library first, then drag it from Live's browser into Gary.
-instruments and effects are not imported. Drum Rack clips, active groove,
-envelopes, per-note expression and probability are refused. straight-grid,
-monophonic melody and root-position major/minor triads are supported. crop to
-whole bars, and give both lanes the same length; unsupported input gets an
-explanation rather than silently changing the score.
-
-standalone now shows the BPM wheel on remix and continue as well as create.
-hosted yuey tabs show the project's BPM read-only. MIDI, audio transcribe/remix
-and score continuation render at that tempo; audio continuation follows its
-source. imported file paths are saved with the session and reread on restore.
-
-the wide yuey panel uses the same dark-grey background as the other models and
-fits its visible controls, growing for MIDI summaries or errors. the prompt
-stays at the top when everything fits, with no unnecessary scrollbar. compact
-windows still scroll when they need to.
-
-the plugin still reports version 5.0.0; the release tag identifies this preview.
-the stable download links and updater feeds remain unchanged.
-
-## v5.0.0 - yuey and stems
+## v5.0.0 - 2026-10-07 - yuey and stems
 
 **yue2 is now inside the DAW.** the yuey tab runs
 [YuE2](https://github.com/multimodal-art-projection/YuE) through
@@ -127,6 +73,83 @@ result still waiting on the server: on Windows, a read the network had
 abandoned could block indefinitely, and the plugin never noticed. the result
 poll now has a deadline and a watchdog that cancels a stuck read and asks
 again. every tab shares that poll, so it isn't only yuey that benefits.
+
+**MIDI and Live Clips can be the source.** remix and continue have a third
+source choice with melody and chords slots. the importer accepts straight-grid,
+monophonic melodies and root-position major/minor triads; unsupported input gets
+an explanation. saved Ableton MIDI clips carry notes only. save a timeline clip
+to the User Library before dragging it from Live's browser. standalone tempo is
+editable on every yuey sub-tab; hosted tabs show the project BPM read-only.
+the wide panel now fits those controls on the shared dark-grey background.
+
+**full-track stem imports go up to ten minutes.** audio and stems are read and
+written in bounded blocks, and waveform peaks come from disk. the recording
+buffer grows for imports; live recording stays at five minutes. generation
+keeps each model's limit, shown by an orange hint and checked before upload.
+double-click selection starts at that limit and cannot expand beyond it.
+local SA3 and Carey allow 380 seconds, while remote requests stay at 240.
+the local connection indicator shows the seven managed services as `/7 online`;
+Darius keeps its separate backend.
+
+pair this with [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0).
+after updating the app, press `update runtime` on yuey's row to install
+[yuey.cpp v0.2.2](https://github.com/betweentwomidnights/yuey.cpp/releases/tag/v0.2.2).
+that fixes the short MIDI score failure reported as
+`invalid YuE2 AR sampling configuration`.
+
+## v5.0.0-rc.4 - full-track audio import
+
+the recording buffer accepts imports up to ten minutes for stem separation,
+independently of the selected model or backend. longer files open the selection
+window. the buffer grows only when needed; live recording remains five minutes.
+an orange hint explains when a model needs a shorter section, and requests
+validate the source duration before upload. double-click selection starts at the
+active model's input limit and cannot expand beyond it. SA3 and Carey allow up
+to 380 seconds on localhost; their remote limits remain 240 seconds.
+no stem checkboxes: the shipped Demucs and RoFormer models would
+still perform the same inference.
+
+stem input/output uses bounded blocks, and the popup builds waveform peaks from
+disk rather than keeping every full stem decoded in memory. long imports are
+saved and played in full, with no silent five-minute truncation.
+
+the local connection indicator now reads `/7 online`, matching the seven
+managed services. Darius keeps its separate backend and health indicator.
+
+pair this with [gary4local v0.4.0-rc.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0-rc.4)
+or [gary4local-rocm v0.4.0-rocm.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0-rocm.4).
+after updating gary4local, press `update runtime` on yuey's row for v0.2.2's
+short MIDI score fix. the plugin still reports version 5.0.0; the tag identifies
+this preview.
+
+## v5.0.0-rc.3 - MIDI and Live Clips for yuey
+
+this Windows pre-release includes the embedded stem separator, selection-window
+zoom and shared yuey prompt from rc.2, plus MIDI as a source for yuey's remix
+and continue tabs. choose `midi`, then drop or pick a melody file, a chords file,
+or both. remix renders the imported score; continue extends it before rendering.
+create stays driven by the prompt, key and BPM.
+
+saved Ableton MIDI Live Clips (`.alc`) work too, as notes only: save a timeline
+clip to the User Library first, then drag it from Live's browser into Gary.
+instruments and effects are not imported. Drum Rack clips, active groove,
+envelopes, per-note expression and probability are refused. straight-grid,
+monophonic melody and root-position major/minor triads are supported. crop to
+whole bars, and give both lanes the same length; unsupported input gets an
+explanation rather than silently changing the score.
+
+standalone now shows the BPM wheel on remix and continue as well as create.
+hosted yuey tabs show the project's BPM read-only. MIDI, audio transcribe/remix
+and score continuation render at that tempo; audio continuation follows its
+source. imported file paths are saved with the session and reread on restore.
+
+the wide yuey panel uses the same dark-grey background as the other models and
+fits its visible controls, growing for MIDI summaries or errors. the prompt
+stays at the top when everything fits, with no unnecessary scrollbar. compact
+windows still scroll when they need to.
+
+the plugin still reports version 5.0.0; the release tag identifies this preview.
+the stable download links and updater feeds remain unchanged.
 
 ## v4.0.15
 

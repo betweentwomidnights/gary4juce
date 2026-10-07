@@ -1,14 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "4.0.15",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.15",
-  "sha256": "465bdb232ddf283977046c65eb65db8c6633c40c65a52d07f9420223a0bc31ee",
-  "published_at": "2026-09-11T12:19:34Z",
+  "latest_version": "5.0.0",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0",
+  "sha256": "554f8127edac4528b56da023e4f8db721689ff2e0abff920aa4d23097f9a5985",
+  "published_at": "2026-10-07T10:00:40Z",
   "notes": [
-    "adjusted duration limits for sa3 and ace-step.",
-    "added the official RoyalCities sampler type to foundation-1.",
-    "if you were fine with durations and don't use foundation-1 much, you can go ahead and skip this release.",
-    "Recommended gary4local: v0.3.2.",
-    "Close your DAW before replacing plugin files with a downloaded update."
+    "YuE2 in project tempo: create, remix, continue, editable scores and MIDI/Live Clip import.",
+    "Built-in local stems; audio imports up to ten minutes. Carey's extract tab is hidden.",
+    "Selections follow model limits. Local SA3/Carey: 380s; remote: 240s. SA3 can end a piece or keep it going.",
+    "Pair with gary4local v0.4.0 and update Yuey's runtime. Close your DAW before replacing plugin files."
   ]
 }
