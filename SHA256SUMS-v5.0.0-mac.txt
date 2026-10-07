@@ -1,0 +1,3 @@
+8e453e9c8f15eb08c5715f32d7d7c49af87db124d4daa00e455edeeb8065757f  gary4juce-v5.0.0-mac-AU.dmg
+b7a74051eeade1d6dd365d90e1557879384741215096e8ec8eb7e05ea7bc3920  gary4juce-v5.0.0-mac-VST3.dmg
+2951f747dc7827269a5fbf7a94aacc27e9462eeefd54737d078944a5d43600f5  gary4juce-v5.0.0-mac-STANDALONE.dmg
