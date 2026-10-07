@@ -8425,7 +8425,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     {
         g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
         const auto lineOne = getLocalConnectionLineOne();
-        const auto lineTwo = juce::String(localOnlineCount) + "/6 online";
+        const auto lineTwo = juce::String(localOnlineCount) + "/7 online";
         const bool anyOnline = localOnlineCount > 0;
         const bool activeOnline = isActiveLocalServiceOnline();
 
