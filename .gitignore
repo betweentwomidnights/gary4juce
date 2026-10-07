@@ -37,6 +37,7 @@ Desktop.ini
 *.temp
 *.log
 .release/
+.storage-test/
 
 # IDE files
 .vscode/

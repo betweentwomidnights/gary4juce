@@ -14,6 +14,7 @@
 #include "./Utils/BarTrim.h"
 #include "./Components/Base/CustomComboBox.h"
 #include "./Stems/StemsRuntime.h"
+#include <limits>
 
 using plugin_editor_detail::loopTypeIndexToString;
 using plugin_editor_detail::loopTypeStringToIndex;
@@ -3996,6 +3997,8 @@ bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
 void Gary4juceAudioProcessorEditor::sendToGary()
 {
+    if (!validateAudioDurationForModel(getGaryBufferFile(), 30.0, "gary"))
+        return;
     setActiveOp(ActiveOp::GaryGenerate);
 
     auto cancelGaryOperation = [this]() {
@@ -6901,8 +6904,53 @@ double Gary4juceAudioProcessorEditor::getInputWaveformDisplayDuration() const
     const double contentDuration = juce::jmax(
         (double)recordedSamples / sampleRate,
         (double)savedSamples / sampleRate);
-    return contentDuration > 30.0 ? fullBufferDuration
+    return contentDuration > 30.0 ? juce::jmax(fullBufferDuration, contentDuration)
                                   : juce::jmin(30.0, fullBufferDuration);
+}
+
+double Gary4juceAudioProcessorEditor::getCurrentModelInputLimit() const
+{
+    switch (currentTab)
+    {
+        case ModelTab::Gary:
+        case ModelTab::Terry: return 30.0;
+        case ModelTab::Carey: return audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds;
+        case ModelTab::Jerry: return jerrySubTab == JerrySubTab::SA3
+            ? SA3UI::kMaximumDurationSeconds : (jerrySubTab == JerrySubTab::Foundation ? 240.0 : 0.0);
+        case ModelTab::Yuey: return currentYueyMidiSelected ? 0.0 : 240.0;
+        default: return 0.0;   // Darius already creates its short, bar-aligned context copy.
+    }
+}
+
+juce::String Gary4juceAudioProcessorEditor::getInputDurationHint() const
+{
+    const double limit = getCurrentModelInputLimit();
+    const double seconds = (double)audioProcessor.getRecordedSamples()
+        / juce::jmax(1.0, audioProcessor.getCurrentSampleRate());
+    if (limit <= 0.0 || seconds <= limit + 0.001)
+        return {};
+    return "full track for stems; double-click: model input max " + juce::String(limit, 0) + "s";
+}
+
+bool Gary4juceAudioProcessorEditor::validateAudioDurationForModel(const juce::File& file,
+    double maximumSeconds, const juce::String& modelName)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+    {
+        showStatusMessage("could not read audio for " + modelName, 5000);
+        return false;
+    }
+    const double seconds = (double)reader->lengthInSamples / reader->sampleRate;
+    if (seconds <= maximumSeconds + 0.001)
+        return true;
+    showStatusMessage(modelName + " input is limited to " + juce::String(maximumSeconds, 0)
+        + "s on " + audioProcessor.getCurrentBackendType()
+        + ". double-click buffer / crop output to select shorter audio", 9000);
+    return false;   // never upload or silently crop an oversized source
 }
 
 void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
@@ -7389,6 +7437,7 @@ void Gary4juceAudioProcessorEditor::filesDropped(const juce::StringArray& files,
 }
 
 void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog)
+try
 {
     // If this is a different file than the last one, reset the selection position
     if (audioFile != lastDraggedAudioFile)
@@ -7424,25 +7473,16 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
     DBG("Dropped file: " + audioFile.getFileName() +
         " - Duration: " + juce::String(fileDuration, 2) + "s");
 
-    // Dynamic direct-load limit: short-window models cap conditioning audio at 30 seconds.
-    const double hostSampleRate = audioProcessor.getCurrentSampleRate();
-    const double maxBufferDuration = juce::jmax(1.0,
-        (double)audioProcessor.getMaxRecordingSamples() / hostSampleRate);
-    const bool isCareyTab = (currentTab == ModelTab::Carey);
-    const bool isSA3Tab = (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3);
-    const bool shortWindowPreferred = (currentTab == ModelTab::Gary ||
-                                       currentTab == ModelTab::Terry ||
-                                       currentTab == ModelTab::Darius);
-    const double careyDurationLimit = audioProcessor.getIsUsingLocalhost()
-        ? (double)CareyUI::kLocalMaximumDurationSeconds
-        : (double)CareyUI::kRemoteMaximumDurationSeconds;
-    const double longWindowLimit = isCareyTab
-        ? careyDurationLimit
-        : (isSA3Tab ? (double)SA3UI::kMaximumDurationSeconds
-                    : (double)CareyUI::kRemoteMaximumDurationSeconds);
-    const double directLoadLimit = shortWindowPreferred
-        ? juce::jmin(maxBufferDuration, 30.0)
-        : juce::jmin(maxBufferDuration, longWindowLimit);
+    if (!std::isfinite(fileDuration) || fileDuration <= 0.0 || reader->numChannels > 2
+        || reader->lengthInSamples > std::numeric_limits<int>::max())
+    {
+        showStatusMessage("import a readable mono or stereo audio file", 5000);
+        return;
+    }
+    // Import length is independent of the selected generator or backend.
+    // Each request validates its own conditioning limit before reading/uploading audio.
+    const double maxBufferDuration = Gary4juceAudioProcessor::kMaximumImportedAudioSeconds;
+    const double directLoadLimit = maxBufferDuration;
 
     if (fileDuration <= directLoadLimit && !forceSelectionDialog)
     {
@@ -7451,7 +7491,11 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
 
         // Read entire file into temp buffer
         juce::AudioBuffer<float> tempBuffer((int)reader->numChannels, (int)reader->lengthInSamples);
-        reader->read(&tempBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
+        if (!reader->read(&tempBuffer, 0, (int)reader->lengthInSamples, 0, true, true))
+        {
+            showStatusMessage("couldn't decode audio file", 5000);
+            return;
+        }
 
         // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
         double fileSampleRate = reader->sampleRate;
@@ -7501,7 +7545,13 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         }
         inputPlaybackSnapshotSamples = 0;
         inputPlaybackDuration = 0.0;
-        audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
+        if (!audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer))
+        {
+            showStatusMessage("couldn't load audio: maximum 10 minutes or insufficient memory", 6000);
+            return;
+        }
+        savedSamples = 0;
+        tempBuffer.setSize(0, 0);   // release the import copy before saving a snapshot
 
         if (!ensureGaryDataDirectoryAvailable())
             return;
@@ -7531,22 +7581,8 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
         // Create the AudioSelectionDialog
         auto* dialog = new AudioSelectionDialog();
 
-        // Double-click editing exposes free start/end handles. File-import
-        // selection keeps the model-specific conditioning limits below.
-        if (forceSelectionDialog)
-        {
-            const double editableDuration = juce::jmin(fileDuration, maxBufferDuration);
-            dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
-        }
-        else if (isSA3Tab)
-            dialog->setSelectionWindowConstraints(10.0, SA3UI::kMaximumDurationSeconds,
-                SA3UI::kMaximumDurationSeconds);  // SA3: long conditioning
-        else if (isCareyTab && careyUI && careyUI->getCurrentSubTab() == CareyUI::SubTab::Complete)
-            dialog->setSelectionWindowConstraints(10.0, careyDurationLimit, 30.0);  // Complete: short preferred
-        else if (isCareyTab)
-            dialog->setSelectionWindowConstraints(30.0, careyDurationLimit, careyDurationLimit);  // Carey: long preferred
-        else
-            dialog->setSelectionWindowConstraints(10.0, 30.0, 30.0);    // Gary/Terry/Darius: standard
+        const double editableDuration = juce::jmin(fileDuration, maxBufferDuration);
+        dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
 
         // Load the audio file into the dialog
         if (!dialog->loadAudioFile(audioFile))
@@ -7599,7 +7635,16 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             editor->lastSelectionStartTime = selectionStartTime;
 
             // Make a copy of the selected buffer
-            juce::AudioBuffer<float> tempBuffer(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
+            juce::AudioBuffer<float> tempBuffer;
+            try
+            {
+                tempBuffer.setSize(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
+            }
+            catch (const std::bad_alloc&)
+            {
+                editor->showStatusMessage("not enough memory to load this selection", 6000);
+                return;
+            }
             for (int ch = 0; ch < selectedBuffer.getNumChannels(); ++ch)
             {
                 tempBuffer.copyFrom(ch, 0, selectedBuffer, ch, 0, selectedBuffer.getNumSamples());
@@ -7625,7 +7670,16 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
                     ", Resampled samples: " + juce::String(resampledNumSamples));
 
                 // Create resampled buffer
-                juce::AudioBuffer<float> resampledBuffer(tempBuffer.getNumChannels(), resampledNumSamples);
+                juce::AudioBuffer<float> resampledBuffer;
+                try
+                {
+                    resampledBuffer.setSize(tempBuffer.getNumChannels(), resampledNumSamples);
+                }
+                catch (const std::bad_alloc&)
+                {
+                    editor->showStatusMessage("not enough memory to resample this selection", 6000);
+                    return;
+                }
 
                 // Resample each channel using JUCE's Lagrange interpolator
                 for (int channel = 0; channel < tempBuffer.getNumChannels(); ++channel)
@@ -7662,7 +7716,14 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
             editor->inputPlaybackSnapshotSamples = 0;
             editor->inputPlaybackDuration = 0.0;
-            editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer);
+            const double finalDuration = (double)tempBuffer.getNumSamples() / hostSampleRate;
+            if (!editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer))
+            {
+                editor->showStatusMessage("couldn't load selection: maximum 10 minutes or insufficient memory", 6000);
+                return;
+            }
+            editor->savedSamples = 0;
+            tempBuffer.setSize(0, 0);
 
             if (!editor->ensureGaryDataDirectoryAvailable())
                 return;
@@ -7679,7 +7740,6 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             editor->savedSamples = editor->audioProcessor.getSavedSamples();
 
             // Calculate actual duration from the final buffer
-            double finalDuration = (double)tempBuffer.getNumSamples() / hostSampleRate;
             editor->showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
 
             editor->updateAllGenerationButtonStates();
@@ -7703,6 +7763,10 @@ void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& au
             }
         };
     }
+}
+catch (const std::bad_alloc&)
+{
+    showStatusMessage("not enough memory to import this audio", 6000);
 }
 
 void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
@@ -8432,8 +8496,11 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         }
         else if (recordedSamples > 0)
         {
-            statusText = "READY";
-            g.setColour(juce::Colours::white);
+            statusText = getInputDurationHint();
+            const bool oversized = statusText.isNotEmpty();
+            if (!oversized)
+                statusText = "READY";
+            g.setColour(oversized ? juce::Colours::orange : juce::Colours::white);
         }
         else
         {
@@ -8443,7 +8510,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
                 : "press PLAY in DAW to start recording";
             g.setColour(juce::Colours::grey);
         }
-        g.drawText(statusText, inputStatusArea, juce::Justification::centred);
+        g.drawFittedText(statusText, inputStatusArea, juce::Justification::centred, 1, 0.75f);
     }
 
     if (recordedSamples > 0)

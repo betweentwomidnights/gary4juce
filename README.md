@@ -354,6 +354,18 @@ mac). the models download from Hugging Face.
   pull the drums out of something you dragged in from the DAW.
 - it's disabled while a generation is running.
 
+you can now drop or pick up to ten minutes of audio into the recording buffer,
+regardless of the selected model or local/remote connection, then separate the
+whole track. larger files open the selection window so you can choose a section
+up to ten minutes. double-click the buffer to select a shorter section for
+generation. an orange hint shows when the buffer exceeds the selected model's
+input limit; oversized requests are stopped before upload. importing a full
+track does not raise a generator's duration limit.
+
+the buffer grows for long imports when needed; live recording keeps its existing
+five-minute limit. separation still computes all the model's stems. the current
+Demucs and RoFormer models do not gain inference speed from choosing fewer outputs.
+
 it runs on the GPU by default (Vulkan on windows, so NVIDIA, AMD and Intel all
 work, and Metal on apple silicon), with a toggle for the CPU. on the CPU,
 htdemucs is the one to use. the RoFormers are much slower there. intel macs are

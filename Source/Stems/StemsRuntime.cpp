@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <map>
+#include <limits>
 
 #if JUCE_WINDOWS
  #ifndef WIN32_LEAN_AND_MEAN
@@ -687,7 +688,18 @@ namespace stems
             return false;
         juce::Thread::launch([self = shared_from_this(), modelId, useGpu, source, outputDirectory]
         {
-            self->runSeparation(modelId, useGpu, source, outputDirectory);
+            try
+            {
+                self->runSeparation(modelId, useGpu, source, outputDirectory);
+            }
+            catch (const std::bad_alloc&)
+            {
+                self->finishJob(false, "not enough memory to separate this audio");
+            }
+            catch (const std::exception& error)
+            {
+                self->finishJob(false, juce::String(error.what()));
+            }
         });
         return true;
     }
@@ -705,18 +717,27 @@ namespace stems
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
         std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(source));
-        if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels == 0)
+        if (reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels == 0
+            || reader->numChannels > 2 || reader->sampleRate <= 0.0
+            || reader->lengthInSamples > std::numeric_limits<int>::max())
             return finishJob(false, "could not read " + source.getFileName());
         const int channels = (int) reader->numChannels;
         const int length = (int) reader->lengthInSamples;
         const double sampleRate = reader->sampleRate;
-        juce::AudioBuffer<float> input(channels, length);
-        reader->read(&input, 0, length, 0, true, true);
-        reader.reset();
         std::vector<float> planar((size_t) channels * (size_t) length);
-        for (int c = 0; c < channels; ++c)
-            std::copy(input.getReadPointer(c), input.getReadPointer(c) + length,
-                      planar.begin() + (std::ptrdiff_t) c * length);
+        constexpr int blockSize = 16384;
+        juce::AudioBuffer<float> input(channels, blockSize);
+        for (int offset = 0; offset < length; offset += blockSize)
+        {
+            if (cancelled())
+                return finishJob(false, "cancelled");
+            const int count = juce::jmin(blockSize, length - offset);
+            if (!reader->read(&input, 0, count, offset, true, true))
+                return finishJob(false, "could not decode " + source.getFileName());
+            for (int c = 0; c < channels; ++c)
+                std::copy_n(input.getReadPointer(c), count, planar.data() + (size_t)c * length + offset);
+        }
+        reader.reset();
 
         juce::String loadError;
         if (!ensureEngine(loadError))
@@ -737,6 +758,7 @@ namespace stems
         stems_context* context = nullptr;
         if (api->context_create(&config, &context, &err) != STEMS_STATUS_OK_V1)
             return finishJob(false, juce::String::fromUTF8(err.message));
+        std::unique_ptr<stems_context, decltype(api->context_destroy)> contextOwner(context, api->context_destroy);
 
         stems_model_info_v1 info {};
         info.size = sizeof info;
@@ -762,11 +784,13 @@ namespace stems
         stems_result_v1 result {};
         result.size = sizeof result;
         api->result_init(&result);
+        const auto freeResult = [api](stems_result_v1* r) { api->result_free(r); };
+        const std::unique_ptr<stems_result_v1, decltype(freeResult)> resultOwner(&result, freeResult);
 
         setProgress(0.0, "separating");
         const auto status = api->separate(context, &request, &result, &err);
         const juce::String separateError = juce::String::fromUTF8(err.message);
-        api->context_destroy(context);   // frees the weights now; nothing stays in VRAM
+        contextOwner.reset();   // release weights before writing; RAII also covers exceptions
         if (status == STEMS_STATUS_CANCELLED_V1)
         {
             api->result_free(&result);
@@ -803,12 +827,7 @@ namespace stems
             writeError = "cannot create " + modelDir.getFullPathName();
         for (uint32_t s = 0; writeError.isEmpty() && s < result.n_sources; ++s)
         {
-            juce::AudioBuffer<float> stem((int) result.n_channels, (int) result.n_samples);
-            for (uint32_t c = 0; c < result.n_channels; ++c)
-            {
-                const float* src = result.samples + ((size_t) s * result.n_channels + c) * (size_t) result.n_samples;
-                juce::FloatVectorOperations::multiply(stem.getWritePointer((int) c), src, gain, (int) result.n_samples);
-            }
+            juce::AudioBuffer<float> stem((int) result.n_channels, blockSize);
             const auto file = modelDir.getChildFile(juce::File::createLegalFileName(names[(int) s]) + ".wav");
             juce::WavAudioFormat wav;
             auto stream = std::make_unique<juce::FileOutputStream>(file);
@@ -816,8 +835,24 @@ namespace stems
                 stream.get(), (double) result.sample_rate, result.n_channels, 24, {}, 0));
             if (writer != nullptr)
                 stream.release();   // the writer owns it now; on failure it stays ours to delete
-            if (writer == nullptr || !writer->writeFromAudioSampleBuffer(stem, 0, stem.getNumSamples()))
+            if (writer == nullptr)
                 writeError = "could not write " + file.getFileName();
+            for (uint64_t offset = 0; writeError.isEmpty() && offset < result.n_samples; offset += blockSize)
+            {
+                if (cancelled())
+                {
+                    writeError = "cancelled";
+                    break;
+                }
+                const int count = (int)std::min<uint64_t>(blockSize, result.n_samples - offset);
+                for (uint32_t c = 0; c < result.n_channels; ++c)
+                {
+                    const float* src = result.samples + ((size_t)s * result.n_channels + c) * (size_t)result.n_samples + offset;
+                    juce::FloatVectorOperations::multiply(stem.getWritePointer((int)c), src, gain, count);
+                }
+                if (!writer->writeFromAudioSampleBuffer(stem, 0, count))
+                    writeError = "could not write " + file.getFileName();
+            }
             writer.reset();
             files.add(file);
         }

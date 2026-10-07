@@ -16,17 +16,13 @@ namespace
     constexpr int kFooterHeight = 46;
     constexpr int kDialogWidth = 720;
 
-    bool loadAudio(const juce::File& file, juce::AudioBuffer<float>& audio, double& sampleRate)
+    double audioDuration(const juce::File& file)
     {
         juce::AudioFormatManager formats;
         formats.registerBasicFormats();
         std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
-        if (reader == nullptr || reader->lengthInSamples <= 0)
-            return false;
-        audio.setSize((int) reader->numChannels, (int) reader->lengthInSamples);
-        reader->read(&audio, 0, audio.getNumSamples(), 0, true, true);
-        sampleRate = reader->sampleRate;
-        return true;
+        return reader != nullptr && reader->sampleRate > 0.0
+            ? reader->lengthInSamples / reader->sampleRate : 0.0;
     }
 }
 
@@ -61,6 +57,39 @@ std::vector<std::pair<float, float>> StemsDialog::computePeaks(const juce::Audio
     return peaks;
 }
 
+std::vector<std::pair<float, float>> StemsDialog::computeFilePeaks(const juce::File& file, int width)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (width <= 0 || reader == nullptr || reader->lengthInSamples <= 0 || reader->numChannels == 0)
+        return {};
+    constexpr int blockSize = 16384;
+    juce::AudioBuffer<float> block((int)reader->numChannels, blockSize);
+    std::vector<std::pair<float, float>> peaks((size_t)width, { 0.0f, 0.0f });
+    for (int x = 0; x < width; ++x)
+    {
+        const auto start = reader->lengthInSamples * x / width;
+        const auto end = reader->lengthInSamples * (x + 1) / width;
+        for (auto offset = start; offset < end; offset += blockSize)
+        {
+            const int count = (int)juce::jmin<juce::int64>(blockSize, end - offset);
+            if (!reader->read(&block, 0, count, offset, true, true))
+                return {};
+            for (int i = 0; i < count; ++i)
+            {
+                float value = 0.0f;
+                for (int c = 0; c < block.getNumChannels(); ++c)
+                    value += block.getSample(c, i);
+                value /= (float)block.getNumChannels();
+                peaks[(size_t)x].first = juce::jmin(peaks[(size_t)x].first, value);
+                peaks[(size_t)x].second = juce::jmax(peaks[(size_t)x].second, value);
+            }
+        }
+    }
+    return peaks;
+}
+
 void StemsDialog::drawPeaks(juce::Graphics& g, juce::Rectangle<int> area,
                             const std::vector<std::pair<float, float>>& peaks, float opacity)
 {
@@ -88,7 +117,8 @@ public:
     StemCell(StemsDialog& dialog, const juce::String& stemName, const juce::File& stemFile)
         : owner(dialog), name(stemName), file(stemFile)
     {
-        hasAudio = file.existsAsFile() && loadAudio(file, audio, sampleRate);
+        durationSeconds = file.existsAsFile() ? audioDuration(file) : 0.0;
+        hasAudio = durationSeconds > 0.0;
 
         playButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
         playButton.setIcon(IconFactory::createPlayIcon());
@@ -129,7 +159,9 @@ public:
         top.removeFromRight(4);
         playButton.setBounds(top.removeFromRight(36).reduced(2, 1));
         waveArea = getLocalBounds().withTrimmedTop(kNameHeight + 4);
-        peaks = hasAudio ? computePeaks(audio, waveArea.getWidth() - 2) : decltype(peaks)();
+        const int width = juce::jmax(0, waveArea.getWidth() - 2);
+        if (hasAudio && peaks.size() != (size_t)width)
+            peaks = computeFilePeaks(file, width);
     }
 
     void paint(juce::Graphics& g) override
@@ -208,7 +240,7 @@ public:
     }
 
 private:
-    double duration() const { return sampleRate > 0.0 ? audio.getNumSamples() / sampleRate : 0.0; }
+    double duration() const { return durationSeconds; }
 
     // Every stem keeps its own place: bright while it plays, dimmed where it was paused or seeked.
     void drawCursor(juce::Graphics& g)
@@ -228,8 +260,7 @@ private:
     StemsDialog& owner;
     juce::String name;
     juce::File file;
-    juce::AudioBuffer<float> audio;
-    double sampleRate = 0.0;
+    double durationSeconds = 0.0;
     bool hasAudio = false;
     std::vector<std::pair<float, float>> peaks;
     juce::Rectangle<int> waveArea;

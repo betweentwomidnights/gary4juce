@@ -1687,6 +1687,9 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
     currentSA3TransformPrompt = prompt;
     currentSA3TransformStrength = juce::jlimit(0.01, 1.0, sa3UI->getTransformStrength());
     transformRecording = sa3UI->getTransformAudioSourceRecording();
+    if (!validateAudioDurationForModel(transformRecording ? getGaryBufferFile() : getGaryOutputFile(),
+                                      SA3UI::kMaximumDurationSeconds, "sa3"))
+        return;
     audioProcessor.setTransformRecording(transformRecording);
     currentSA3Steps = sa3UI->getSteps();
     currentSA3Cfg = sa3UI->getCfgScale();

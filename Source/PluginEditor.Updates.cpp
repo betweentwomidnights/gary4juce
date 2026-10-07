@@ -605,7 +605,14 @@ juce::PropertiesFile& Gary4juceAudioProcessorEditor::getUpdatePreferences()
         options.osxLibrarySubFolder = "Application Support";
         options.commonToAllUsers = false;
         options.storageFormat = juce::PropertiesFile::storeAsXML;
-        updatePreferences = std::make_unique<juce::PropertiesFile>(options);
+       #if JUCE_DEBUG
+        const auto testDirectory = juce::SystemStats::getEnvironmentVariable("GARY4JUCE_STORAGE_TEST_DIRECTORY", {}).trim();
+        if (testDirectory.isNotEmpty())
+            updatePreferences = std::make_unique<juce::PropertiesFile>(
+                juce::File(testDirectory).getChildFile("test-updater.settings"), options);
+       #endif
+        if (updatePreferences == nullptr)
+            updatePreferences = std::make_unique<juce::PropertiesFile>(options);
     }
 
     return *updatePreferences;
