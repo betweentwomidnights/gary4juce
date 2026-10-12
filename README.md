@@ -368,6 +368,11 @@ mac). the models download from Hugging Face.
   rest are deleted when you close the popup.
 - drop a stem on the recording buffer to replace what's in it. that's how you
   pull the drums out of something you dragged in from the DAW.
+- with `mdx23c_drumsep` downloaded, a drums stem gets a `split kit` button that
+  splits it into kick, snare, toms, hi-hat, ride and crash, right there in the
+  popup. pick DrumSep from the menu to split the audio itself instead, which is
+  what you want for a drum loop. a `from` menu beside it switches between the
+  two.
 - it's disabled while a generation is running.
 
 you can now drop or pick up to ten minutes of audio into the recording buffer,
@@ -381,25 +386,43 @@ input limit; oversized requests are stopped before upload. importing a full
 track does not raise a generator's duration limit.
 
 the buffer grows for long imports when needed; live recording keeps its existing
-five-minute limit. separation still computes all the model's stems. the current
-Demucs and RoFormer models do not gain inference speed from choosing fewer outputs.
+five-minute limit. separation still computes all the model's stems. none of
+the models gets faster from choosing fewer outputs.
 
 it runs on the GPU by default (Vulkan on windows, so NVIDIA, AMD and Intel all
 work, and Metal on apple silicon), with a toggle for the CPU. on the CPU,
-htdemucs is the one to use. the RoFormers are much slower there. intel macs are
-CPU only.
+htdemucs and the UVR cleanup models are the ones to use. the RoFormers are much
+slower there, and DrumSep runs at about a tenth of realtime. intel macs are CPU
+only.
 
 | model | stems | download |
 |---|---|---|
+| **stems** | | |
 | `htdemucs` | drums, bass, other, vocals | 100 MB |
 | `htdemucs_6s` | drums, bass, other, vocals, guitar, piano | 71 MB |
 | `htdemucs_ft` | same four as htdemucs, best quality, about 4x slower | 401 MB |
+| **vocals and instrumental** | | |
 | `mel_band_roformer_kim` | vocals, instrumental | 436 MB |
 | `bs_roformer_viperx_317` | vocals, instrumental | 610 MB |
+| `mdx_net_kim_vocal_2` | vocals, instrumental; small and quick | 64 MB |
+| **noise, echo and reverb** | | |
+| `uvr_denoise` | noise, denoised | 121 MB |
+| `uvr_denoise_lite` | noise, denoised; smaller and quicker | 17 MB |
+| `uvr_deecho_normal` | no_echo, echo | 121 MB |
+| `uvr_deecho_aggressive` | echo, no_echo; removes more | 121 MB |
+| `uvr_deecho_dereverb` | no_reverb, reverb; echo and reverb together | 213 MB |
+| `bs_roformer_dereverb_room` | noreverb, reverb; for vocals recorded in a room | 112 MB |
+| **drum kit** | | |
+| `mdx23c_drumsep` | kick, snare, toms, hh, ride, crash; feed it drums | 417 MB |
 
-`htdemucs` is the default. `bs_roformer_viperx_317` has no license upstream, so
-check the [license section](#license) before you use it for anything beyond
-your own sessions.
+the cleanup models each give you both halves, the clean audio and what was
+taken out of it, so you can keep either. the two de-echo models list them in
+opposite orders because that's how UVR trained them.
+
+`htdemucs` is the default. `bs_roformer_viperx_317`, `mdx_net_kim_vocal_2`,
+`mdx23c_drumsep` and the five `uvr_` models have no license upstream, and
+`bs_roformer_dereverb_room` is GPL-3.0, so check the [license section](#license)
+before you use them for anything beyond your own sessions.
 
 learn more: https://github.com/betweentwomidnights/stems.cpp
 

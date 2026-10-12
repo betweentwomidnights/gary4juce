@@ -3,6 +3,26 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.1-rc.1 - cleanup models and drum kits
+
+the stem separator moves to stems.cpp v0.1.5 and gets eight more models:
+UVR's DeNoise and DeNoise Lite, De-Echo Normal and Aggressive, and
+DeEcho-DeReverb; anvuew's room dereverb for vocals recorded in a room;
+Kim_Vocal_2, a small and quick vocal splitter; and DrumSep, which splits drums
+into kick, snare, toms, hi-hat, ride and crash. each downloads from Hugging
+Face in the stem separator settings and is checked against a pinned hash. the
+settings list and the popup's model menu are now grouped by what a model is
+for, and the list scrolls.
+
+DrumSep is made for drums. after a separation with htdemucs, the drums stem
+gets a `split kit` button that splits it in place. picking DrumSep from the
+menu splits the audio itself, which is the one for a drum loop, and a `from`
+menu switches between the two.
+
+the runtime from v5.0.0 (stems.cpp v0.1.2) can't load the new models, so the
+settings panel offers to update it. the stems handle stays hidden until you
+do. the plugin reports version 5.0.1; the tag identifies this preview.
+
 ## v5.0.0 - 2026-10-07 - yuey and stems
 
 **yue2 is now inside the DAW.** the yuey tab runs

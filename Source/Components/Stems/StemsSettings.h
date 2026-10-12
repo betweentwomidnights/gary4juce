@@ -16,12 +16,15 @@
 #include <JuceHeader.h>
 #include "../Base/CustomButton.h"
 #include "../../Stems/StemsRuntime.h"
+#include "../../Utils/CustomLookAndFeel.h"
 
 #include <memory>
 
 class StemsSettings : public juce::Component,
                       private juce::Timer
 {
+    friend struct StemsModelsTest;
+
 public:
     static constexpr auto kModelPreference = "stemsModel";
     static constexpr auto kUseGpuPreference = "stemsUseGpu";
@@ -37,6 +40,7 @@ private:
 
     void timerCallback() override;
     void refresh();
+    void layoutModels();
     void selectModel(const juce::String& modelId);
     juce::String selectedModelId() const;
     bool useGpu() const;
@@ -55,6 +59,11 @@ private:
 #endif
     juce::Label gpuHint;
     juce::Label modelsHeading;
+    // The catalog outgrew the window: its rows scroll, under one heading per group.
+    juce::Viewport modelsViewport;
+    juce::Component modelsContent;
+    CustomLookAndFeel scrollbarLookAndFeel;
+    std::vector<std::unique_ptr<juce::Label>> groupHeadings;
     std::vector<std::unique_ptr<ModelRow>> modelRows;
     CustomButton testButton { "test" };
     CustomButton cancelButton { "cancel" };

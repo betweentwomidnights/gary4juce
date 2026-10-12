@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.0"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.1"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE" companyCopyright="Copyright (C) 2025-2026 Kevin Griffing">
@@ -61,8 +61,7 @@
         <FILE id="fndUI0" name="FoundationUI.h" compile="0" resource="0" file="Source/Components/Foundation/FoundationUI.h"/>
       </GROUP>
       <GROUP id="{6B1E5C2A-8F3D-4E7B-9A21-5C0D7E8F9A31}" name="Stems">
-        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0"
-              file="Source/Components/Stems/StemsDialog.cpp"/>
+        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0" file="Source/Components/Stems/StemsDialog.cpp"/>
         <FILE id="StDlg0" name="StemsDialog.h" compile="0" resource="0" file="Source/Components/Stems/StemsDialog.h"/>
         <FILE id="StSet1" name="StemsSettings.cpp" compile="1" resource="0"
               file="Source/Components/Stems/StemsSettings.cpp"/>
@@ -125,8 +124,10 @@
         <FILE id="YmScr0" name="YueyMidiScore.h" compile="0" resource="0" file="Source/Yuey/YueyMidiScore.h"/>
         <FILE id="YmImp1" name="YueyMidiImport.cpp" compile="1" resource="0"
               file="Source/Yuey/YueyMidiImport.cpp"/>
-        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0" file="Source/Yuey/YueyMidiImport.h"/>
-        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0" file="Source/Yuey/YueyScoreTempo.h"/>
+        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0"
+              file="Source/Yuey/YueyMidiImport.h"/>
+        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0"
+              file="Source/Yuey/YueyScoreTempo.h"/>
       </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"

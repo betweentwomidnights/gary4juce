@@ -35,12 +35,12 @@ release packages.
 
 ## stems.cpp ABI header
 
-`Source/Stems/libstems_v1.h` is vendored from stems.cpp v0.1.2 under the MIT
+`Source/Stems/libstems_v1.h` is vendored from stems.cpp v0.1.5 under the MIT
 License, Copyright (c) 2026 ath (tinycrops). The upstream license also credits
 portions Copyright (c) 2026 betweentwomidnights.
 
-- Source: https://github.com/betweentwomidnights/stems.cpp/tree/v0.1.2
-- License: https://github.com/betweentwomidnights/stems.cpp/blob/v0.1.2/LICENSE
+- Source: https://github.com/betweentwomidnights/stems.cpp/tree/v0.1.5
+- License: https://github.com/betweentwomidnights/stems.cpp/blob/v0.1.5/LICENSE
 
 The MIT license text is included as `stems.cpp-MIT.txt` in binary release
 packages. The stems.cpp runtime and model weights download separately and are

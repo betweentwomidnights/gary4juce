@@ -15,6 +15,7 @@ namespace
     constexpr int kNameHeight = 24;
     constexpr int kFooterHeight = 46;
     constexpr int kDialogWidth = 720;
+    constexpr auto kDefaultHint = "choose a model and press separate";
 
     double audioDuration(const juce::File& file)
     {
@@ -135,6 +136,16 @@ public:
         playButton.setVisible(hasAudio);
         stopButton.setVisible(hasAudio);
         setTooltip(hasAudio ? "click to seek, drag into your daw to keep " + name : juce::String());
+
+        // A drums stem, with DrumSep installed, can be split into its kit in place.
+        if (const auto* splitter = hasAudio ? owner.splitterFor(name) : nullptr)
+        {
+            splitButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
+            splitButton.setTooltip("split these " + name + " into " + splitter->stemsSummary
+                                   + " with " + splitter->id);
+            splitButton.onClick = [this] { owner.splitStem(name); };
+            addAndMakeVisible(splitButton);
+        }
     }
 
     bool isActive() const { return hasAudio && owner.host.activeStem() == file; }
@@ -150,6 +161,7 @@ public:
         }
         if (playing || owner.separating)
             repaint();
+        splitButton.setEnabled(!owner.separating && !owner.host.isGenerating());
     }
 
     void resized() override
@@ -158,6 +170,8 @@ public:
         stopButton.setBounds(top.removeFromRight(36).reduced(2, 1));
         top.removeFromRight(4);
         playButton.setBounds(top.removeFromRight(36).reduced(2, 1));
+        top.removeFromRight(8);
+        splitButton.setBounds(top.removeFromRight(80).reduced(2, 1));
         waveArea = getLocalBounds().withTrimmedTop(kNameHeight + 4);
         const int width = juce::jmax(0, waveArea.getWidth() - 2);
         if (hasAudio && peaks.size() != (size_t)width)
@@ -192,7 +206,10 @@ public:
         {
             g.setFont(juce::FontOptions(14.0f));
             g.setColour(juce::Colours::darkgrey);
-            g.drawText("choose a model and press separate", waveArea, juce::Justification::centred);
+            // A longer hint (DrumSep's) reads once, in the first cell, not six times.
+            const auto text = owner.emptyCellHint();
+            if (owner.cells.front().get() == this || text == kDefaultHint)
+                g.drawFittedText(text, waveArea.reduced(8, 0), juce::Justification::centred, 2);
             return;
         }
 
@@ -265,6 +282,7 @@ private:
     std::vector<std::pair<float, float>> peaks;
     juce::Rectangle<int> waveArea;
     CustomButton playButton, stopButton;
+    CustomButton splitButton { "split kit" };
     bool showingPause = false;
     juce::Point<int> downPosition;
     bool dragStarted = false, dragging = false;
@@ -273,8 +291,8 @@ private:
 // --- dialog --------------------------------------------------------------------------------------
 
 StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::PropertiesFile& prefs, Host h,
-                         const std::function<bool(const juce::File&)>& writeSource, const juce::String& sourceName)
-    : service(std::move(s)), preferences(prefs), host(std::move(h))
+                         const std::function<bool(const juce::File&)>& writeSource, const juce::String& sourceTitle)
+    : service(std::move(s)), preferences(prefs), host(std::move(h)), sourceName(sourceTitle)
 {
     // The stems belong to the audio as it is now, not to whatever replaces it later.
     session = service->createSessionDirectory();
@@ -289,10 +307,16 @@ StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::Propertie
     addAndMakeVisible(title);
 
     const auto preferred = preferences.getValue(StemsSettings::kModelPreference, stems::defaultModelId());
+    const stems::ModelInfo* previous = nullptr;
     for (const auto& model : stems::modelCatalog())
     {
         if (!service->isModelInstalled(model.id))
             continue;
+        if (previous != nullptr && previous->group != model.group)
+            modelBox.addSeparator();
+        if (previous == nullptr || previous->group != model.group)
+            modelBox.addSectionHeading(stems::groupName(model.group));
+        previous = &model;
         modelIds.add(model.id);
         modelBox.addItem(model.id + "  (" + model.stemsSummary + ")", modelIds.size());
     }
@@ -303,9 +327,21 @@ StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::Propertie
         preferences.setValue(StemsSettings::kModelPreference, currentModelId());
         preferences.saveIfNeeded();
         status.setText({}, juce::dontSendNotification);
+        rebuildInputs();
         rebuildCells();
     };
     addAndMakeVisible(modelBox);
+
+    inputBox.setTooltip("what this model separates");
+    inputBox.onChange = [this]
+    {
+        const int index = inputBox.getSelectedId() - 1;
+        inputParent = juce::isPositiveAndBelow(index, inputParents.size()) ? inputParents[index] : juce::String();
+        inputChosen = true;
+        status.setText({}, juce::dontSendNotification);
+        rebuildCells();
+    };
+    addChildComponent(inputBox);
 
     separateButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
     separateButton.onClick = [this]
@@ -327,6 +363,7 @@ StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::Propertie
     hint.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
     addAndMakeVisible(hint);
 
+    rebuildInputs();
     rebuildCells();
     updateControls();
     startTimerHz(30);
@@ -349,13 +386,112 @@ juce::String StemsDialog::currentModelId() const
     return juce::isPositiveAndBelow(index, modelIds.size()) ? modelIds[index] : juce::String();
 }
 
+bool StemsDialog::currentModelSplits() const
+{
+    const auto* model = stems::findModel(currentModelId());
+    return model != nullptr && model->splits.isNotEmpty();
+}
+
+juce::String StemsDialog::currentKey() const
+{
+    const auto model = currentModelId();
+    return currentModelSplits() && inputParent.isNotEmpty() ? model + "<" + inputParent : model;
+}
+
+const stems::ModelInfo* StemsDialog::splitterFor(const juce::String& stemName) const
+{
+    for (const auto& id : modelIds)
+        if (const auto* model = stems::findModel(id); model != nullptr && model->splits == stemName)
+            return model;
+    return nullptr;
+}
+
+juce::String StemsDialog::emptyCellHint() const
+{
+    if (currentModelSplits() && inputParent.isEmpty())
+    {
+        const auto* model = stems::findModel(currentModelId());
+        return "made for " + model->splits + ". for a full mix, separate it with htdemucs, then press split kit on its "
+            + model->splits;
+    }
+    return kDefaultHint;
+}
+
+// The separations whose stem a splitting model can take: every one in this popup with a stem of
+// that name, each listed under the model that made it.
+void StemsDialog::rebuildInputs()
+{
+    inputBox.clear(juce::dontSendNotification);
+    inputParents.clear();
+    const auto* model = stems::findModel(currentModelId());
+    if (model == nullptr || model->splits.isEmpty())
+    {
+        inputBox.setVisible(false);
+        resized();
+        return;
+    }
+
+    inputParents.add({});
+    inputBox.addItem("from the " + sourceName, 1);
+    juce::String latest;
+    int latestOrder = -1;
+    for (const auto& id : modelIds)
+    {
+        const auto found = separations.find(id);
+        if (found == separations.end() || !found->second.names.contains(model->splits))
+            continue;
+        inputParents.add(id);
+        inputBox.addItem("from " + id + " " + model->splits, inputParents.size());
+        if (found->second.order > latestOrder)
+        {
+            latest = id;
+            latestOrder = found->second.order;
+        }
+    }
+
+    // Unless the user picked one that is still there, split the newest stem: a drums stem made in
+    // this popup is far likelier to be what DrumSep should take than the full mix it came from.
+    if (!inputChosen || !inputParents.contains(inputParent))
+    {
+        inputParent = latest;
+        inputChosen = false;
+    }
+    inputBox.setSelectedId(inputParents.indexOf(inputParent) + 1, juce::dontSendNotification);
+    inputBox.setVisible(true);
+    resized();
+}
+
+void StemsDialog::splitStem(const juce::String& stemName)
+{
+    const auto* splitter = splitterFor(stemName);
+    const auto parent = currentModelId();
+    if (splitter == nullptr || separating || separations.find(parent) == separations.end())
+        return;
+
+    // Switch to the splitter without making it the remembered model: the next popup should not
+    // open on DrumSep, which would split the whole mix.
+    modelBox.setSelectedId(modelIds.indexOf(splitter->id) + 1, juce::dontSendNotification);
+    inputParent = parent;
+    inputChosen = true;
+    status.setText({}, juce::dontSendNotification);
+    rebuildInputs();
+    // A kit already split from this stem is shown, not split again.
+    if (separations.find(currentKey()) != separations.end())
+    {
+        rebuildCells();
+        updateControls();
+        return;
+    }
+    separate();
+}
+
 void StemsDialog::rebuildCells()
 {
     cells.clear();
-    const auto model = currentModelId();
-    const auto found = separations.find(model);
-    const bool separated = found != separations.end() && !(separating && separatingModel == model);
-    const auto names = separated ? found->second.names : stems::stemNamesFor(model);
+    const auto key = currentKey();
+    const auto found = separations.find(key);
+    const bool separated = found != separations.end() && !(separating && separatingKey == key);
+    const auto names = separated ? found->second.names : stems::stemNamesFor(currentModelId());
     for (int i = 0; i < names.size(); ++i)
     {
         const juce::File file = separated ? found->second.files[i] : juce::File();
@@ -389,18 +525,41 @@ void StemsDialog::separate()
         status.setText("wait for the current generation to finish", juce::dontSendNotification);
         return;
     }
+    // A split takes a parent separation's stem and writes beside it, in from-<parent>/<model>/.
+    const auto key = currentKey();
+    auto input = source;
+    auto outputDirectory = session;
+    if (key != model)
+    {
+        const auto* splitter = stems::findModel(model);
+        const auto parent = separations.find(inputParent);
+        const int index = parent != separations.end() ? parent->second.names.indexOf(splitter->splits) : -1;
+        if (index < 0)
+            return;
+        input = parent->second.files[index];
+        outputDirectory = session.getChildFile("from-" + inputParent);
+        if (!outputDirectory.createDirectory())
+        {
+            status.setText("cannot create " + outputDirectory.getFullPathName(), juce::dontSendNotification);
+            return;
+        }
+    }
+
     // A stem of this model may be playing, and its file is about to be rewritten.
     host.releasePlayback();
     const bool useGpu = preferences.getBoolValue(StemsSettings::kUseGpuPreference, true);
-    if (!service->startSeparation(model, useGpu, source, session))
+    if (!service->startSeparation(model, useGpu, input, outputDirectory))
     {
         status.setText("the stem separator is busy with a download or test in settings",
                        juce::dontSendNotification);
         return;
     }
-    separations.erase(model);
+    separations.erase(key);
+    // Splits of this model's stems came from the files it is about to replace.
+    for (auto it = separations.begin(); it != separations.end();)
+        it = it->first.endsWith("<" + model) ? separations.erase(it) : std::next(it);
     separating = true;
-    separatingModel = model;
+    separatingKey = key;
     targetProgress = shownProgress = 0.0;
     loadingModel = true;
     status.setText({}, juce::dontSendNotification);
@@ -415,6 +574,7 @@ void StemsDialog::updateControls()
     separateButton.setEnabled(separating || (!host.isGenerating() && currentModelId().isNotEmpty()
                                              && sourceReady));
     modelBox.setEnabled(!separating);
+    inputBox.setEnabled(!separating);
 }
 
 void StemsDialog::timerCallback()
@@ -436,10 +596,11 @@ void StemsDialog::timerCallback()
         {
             separating = false;
             if (job.succeeded && job.kind == stems::StemsService::JobKind::Separate)
-                separations[separatingModel] = { job.stemNames, job.stemFiles };
+                separations[separatingKey] = { job.stemNames, job.stemFiles, ++separationCount };
             else
                 status.setText(job.error == "cancelled" ? juce::String("cancelled") : job.error,
                                juce::dontSendNotification);
+            rebuildInputs();
             rebuildCells();
             updateControls();
         }
@@ -469,6 +630,11 @@ void StemsDialog::resized()
     auto bar = area.removeFromTop(kTopBarHeight);
     separateButton.setBounds(bar.removeFromRight(120));
     bar.removeFromRight(10);
+    if (inputBox.isVisible())
+    {
+        inputBox.setBounds(bar.removeFromRight(260));
+        bar.removeFromRight(10);
+    }
     modelBox.setBounds(bar);
     area.removeFromTop(12);
 

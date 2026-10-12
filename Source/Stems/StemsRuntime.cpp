@@ -72,22 +72,22 @@ namespace stems
         {
             RuntimeRelease r;
 #if JUCE_WINDOWS
-            r.tag = "v0.1.2";
-            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.2/";
+            r.tag = "v0.1.5";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.5/";
             r.packages = {
-                { "stems-v0.1.2-windows-x64-core.zip",
-                  "d67402feedf67e1e56cb202a2ed3ce37193ba7c8d1a209a15b36f448ddfaa865", 3593557 },
-                { "stems-v0.1.2-windows-x64-vulkan.zip",
-                  "87647c1f344de228111170514881863a578c39bca3bcd7e13b999d06cdeb3d22", 15608679 },
+                { "stems-v0.1.5-windows-x64-core.zip",
+                  "784b1c40b5facf34fe16590b5e0180e770d65c9bcdb4ff8d014f4bb439ac79da", 3785297 },
+                { "stems-v0.1.5-windows-x64-vulkan.zip",
+                  "acf010832f462f8cee8e09f36a215820b9a5abd0995e4399f9c77753bdef98b8", 15608309 },
             };
 #elif JUCE_MAC
             // One universal zip: a signed, notarized libstems.dylib with ggml linked in. Metal on
             // Apple Silicon; the CPU (AVX2) on Intel.
-            r.tag = "v0.1.2";
-            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.2/";
+            r.tag = "v0.1.5";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.5/";
             r.packages = {
-                { "stems-v0.1.2-macos-universal.zip",
-                  "e817d73c2cc7ab74870f2ddac70c8da1b04e650b7f9158824cf70a4f57f3d7a1", 6126642 },
+                { "stems-v0.1.5-macos-universal.zip",
+                  "0876b0328936aede3c5eb2dd65ec9005862b856e6447ace15f3b652728c78071", 6536039 },
             };
 #endif
             return r;
@@ -98,30 +98,78 @@ namespace stems
     const std::vector<ModelInfo>& modelCatalog()
     {
         // From the thepatch/*-GGUF repositories. F16 where it was published (each model card has its
-        // parity numbers); viperx's BS-RoFormer only as F32.
+        // parity numbers); everything else only as F32. Grouped as the settings list shows them; the
+        // stem order is the one each model writes (checked against stems.cpp v0.1.5's output).
         static const std::vector<ModelInfo> catalog = {
-            { "htdemucs", "drums, bass, other, vocals", "",
+            { "htdemucs", ModelGroup::Stems, "drums, bass, other, vocals", "",
               huggingFaceUrl("htdemucs-GGUF", "htdemucs-42M-v1.0-F16.gguf"),
               { "htdemucs-42M-v1.0-F16.gguf",
                 "0531c009533f69d292f71263815d447ce23224062fbf6335db19d3577efb87c7", 105072000 } },
-            { "htdemucs_6s", "drums, bass, other, vocals, guitar, piano", "",
+            { "htdemucs_6s", ModelGroup::Stems, "drums, bass, other, vocals, guitar, piano", "",
               huggingFaceUrl("htdemucs-GGUF", "htdemucs_6s-27M-v1.0-F16.gguf"),
               { "htdemucs_6s-27M-v1.0-F16.gguf",
                 "37f766646feb272ab022d83f054f0d395f7326915b3edd72535adb7c432aba13", 74318816 } },
-            { "htdemucs_ft", "drums, bass, other, vocals", "best quality, 4x slower",
+            { "htdemucs_ft", ModelGroup::Stems, "drums, bass, other, vocals", "best quality, 4x slower",
               huggingFaceUrl("htdemucs-GGUF", "htdemucs_ft-4x42M-v1.0-F16.gguf"),
               { "htdemucs_ft-4x42M-v1.0-F16.gguf",
                 "a3eb551fbdcd55f8f01a43984445e1675398b56d7fba3cba84f0b669c3da228a", 420284832 } },
-            { "mel_band_roformer_kim", "vocals, instrumental", "",
+            { "mel_band_roformer_kim", ModelGroup::Vocals, "vocals, instrumental", "",
               huggingFaceUrl("mel-band-roformer-kim-GGUF", "mel_band_roformer_kim-0.2B-v1.0-F16.gguf"),
               { "mel_band_roformer_kim-0.2B-v1.0-F16.gguf",
                 "096e097b66367654c9b909979a55cf873a7a4d784f4599d4754ff420492ee139", 456987072 } },
-            { "bs_roformer_viperx_317", "vocals, instrumental", "no stated upstream license",
+            { "bs_roformer_viperx_317", ModelGroup::Vocals, "vocals, instrumental", "no stated upstream license",
               huggingFaceUrl("bs-roformer-viperx-317-GGUF", "bs_roformer_viperx_317-0.2B-v1.0-F32.gguf"),
               { "bs_roformer_viperx_317-0.2B-v1.0-F32.gguf",
                 "57425b20ea63d886bcecf8e59a1374613d4a4bb81373262f9e7463d718c02162", 639074304 } },
+            { "mdx_net_kim_vocal_2", ModelGroup::Vocals, "vocals, instrumental", "small and quick; no stated upstream license",
+              huggingFaceUrl("mdx-net-kim-vocal-2-GGUF", "mdx_net_kim_vocal_2-17M-v1.0-F32.gguf"),
+              { "mdx_net_kim_vocal_2-17M-v1.0-F32.gguf",
+                "fb8810bb08c96724b1bee802f05ce943303429157b8b05b9189a272fd74d3a83", 66709536 } },
+            { "uvr_denoise", ModelGroup::Cleanup, "noise, denoised", "no stated upstream license",
+              huggingFaceUrl("uvr-vr-GGUF", "uvr_denoise-32M-v1.0-F32.gguf"),
+              { "uvr_denoise-32M-v1.0-F32.gguf",
+                "194ba9028567b9db80b1783ae63736a7dcadefce0865eacfd2a4d06be714604b", 126704832 } },
+            { "uvr_denoise_lite", ModelGroup::Cleanup, "noise, denoised", "smaller and quicker; no stated upstream license",
+              huggingFaceUrl("uvr-vr-GGUF", "uvr_denoise_lite-4M-v1.0-F32.gguf"),
+              { "uvr_denoise_lite-4M-v1.0-F32.gguf",
+                "34d259e2550ca4dd1e3c7e51c05a0a0ba883d9bebf8ae756da0dd06382e29bcb", 17584320 } },
+            { "uvr_deecho_normal", ModelGroup::Cleanup, "no_echo, echo", "no stated upstream license",
+              huggingFaceUrl("uvr-vr-GGUF", "uvr_deecho_normal-32M-v1.0-F32.gguf"),
+              { "uvr_deecho_normal-32M-v1.0-F32.gguf",
+                "7a28d774629e0d51930835fdc77e3e0e798414ddae70dd394364c773b1fe2500", 126704864 } },
+            { "uvr_deecho_aggressive", ModelGroup::Cleanup, "echo, no_echo", "stronger; no stated upstream license",
+              huggingFaceUrl("uvr-vr-GGUF", "uvr_deecho_aggressive-32M-v1.0-F32.gguf"),
+              { "uvr_deecho_aggressive-32M-v1.0-F32.gguf",
+                "9279ebbb42f9bf2cfe53e26fb90e6ba7849685d9edb6b207f3b5dedf530be208", 126704896 } },
+            { "uvr_deecho_dereverb", ModelGroup::Cleanup, "no_reverb, reverb", "echo and reverb; no stated upstream license",
+              huggingFaceUrl("uvr-vr-GGUF", "uvr_deecho_dereverb-56M-v1.0-F32.gguf"),
+              { "uvr_deecho_dereverb-56M-v1.0-F32.gguf",
+                "23fd6610a854835dd69925c4ab39e229c79a5e563c7c8c79c585694e3df57e2a", 223149472 } },
+            { "bs_roformer_dereverb_room", ModelGroup::Cleanup, "noreverb, reverb", "vocals recorded in a room; GPL-3.0",
+              huggingFaceUrl("bs-roformer-dereverb-room-GGUF", "bs_roformer_dereverb_room-29M-v1.0-F32.gguf"),
+              { "bs_roformer_dereverb_room-29M-v1.0-F32.gguf",
+                "3af2436aabce675b06fd2668583a4f12bccd9be009b3193e9f49ed8f11e52b3f", 117804928 } },
+            // A drum kit, not a mix: in the popup it splits a drum loop, or the drums stem of a
+            // separation, into its pieces. Slow on the CPU, about 0.1x realtime.
+            { "mdx23c_drumsep", ModelGroup::Drums, "kick, snare, toms, hh, ride, crash", "for drums; no stated upstream license",
+              huggingFaceUrl("mdx23c-drumsep-GGUF", "mdx23c_drumsep-0.1B-v1.0-F32.gguf"),
+              { "mdx23c_drumsep-0.1B-v1.0-F32.gguf",
+                "0b6bce6ca5d52ae300e31f457e12595f11fbde81d5d2b65bb96813f6e0fd51dd", 437545920 },
+              "drums" },
         };
         return catalog;
+    }
+
+    juce::String groupName(ModelGroup group)
+    {
+        switch (group)
+        {
+            case ModelGroup::Stems:   return "stems";
+            case ModelGroup::Vocals:  return "vocals and instrumental";
+            case ModelGroup::Cleanup: return "noise, echo and reverb";
+            case ModelGroup::Drums:   return "drum kit";
+        }
+        return {};
     }
 
     const ModelInfo* findModel(const juce::String& id)
@@ -291,6 +339,16 @@ namespace stems
             return false;
         const auto dir = getRuntimeDirectory();
         return dir.getChildFile(kLibraryName).existsAsFile() && dir.getChildFile(kInstalledMarker).existsAsFile();
+    }
+
+    juce::String StemsService::installedOlderRuntimeTag() const
+    {
+        const auto pinned = pinnedRuntime().tag;
+        for (const auto& dir : getStemsDirectory().getChildFile("runtime").findChildFiles(juce::File::findDirectories, false))
+            if (dir.getFileName() != pinned && !dir.getFileName().startsWithChar('.')
+                && dir.getChildFile(kLibraryName).existsAsFile() && dir.getChildFile(kInstalledMarker).existsAsFile())
+                return dir.getFileName();
+        return {};
     }
 
     bool StemsService::isModelInstalled(const juce::String& modelId) const

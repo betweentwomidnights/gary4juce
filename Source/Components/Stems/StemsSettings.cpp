@@ -7,8 +7,11 @@
 namespace
 {
     constexpr int kMargin = 16;
+    constexpr int kPanelWidth = 620;
     constexpr int kRowHeight = 46;
     constexpr int kHeadingHeight = 22;
+    constexpr int kGroupHeadingHeight = 26;
+    constexpr int kModelsMaxHeight = 380;   // about seven rows; the rest scroll
 
     void styleLabel(juce::Label& label, juce::FontOptions font, juce::Colour colour)
     {
@@ -26,11 +29,15 @@ namespace
 }
 
 // One model: pick it, see what it separates into and how big it is, download or delete it.
-class StemsSettings::ModelRow : public juce::Component
+class StemsSettings::ModelRow : public juce::Component,
+                                 public juce::SettableTooltipClient
 {
 public:
     explicit ModelRow(const stems::ModelInfo& info) : model(info)
     {
+        // DrumSep's six stems and a note can outrun the row.
+        setTooltip(model.stemsSummary + (model.note.isNotEmpty() ? "\n" + model.note : juce::String()));
+
         select.setRadioGroupId(1001);
         select.setColour(juce::ToggleButton::tickColourId, Theme::Colors::PrimaryRed);
         select.setColour(juce::ToggleButton::tickDisabledColourId, juce::Colour(0xff555555));
@@ -105,8 +112,8 @@ StemsSettings::StemsSettings(std::shared_ptr<stems::StemsService> s, juce::Prope
     styleLabel(title, Theme::Fonts::HeaderLarge, Theme::Colors::TextPrimary);
     addAndMakeVisible(title);
 
-    subtitle.setText("splits gary's output into stems on this computer, with stems.cpp. "
-                     "nothing is uploaded, and it works with the remote backend too.",
+    subtitle.setText("splits gary's output into stems, or strips noise, echo and reverb, on this computer "
+                     "with stems.cpp. nothing is uploaded, and it works with the remote backend too.",
                      juce::dontSendNotification);
     styleLabel(subtitle, Theme::Fonts::Body, Theme::Colors::TextSecondary);
     subtitle.setJustificationType(juce::Justification::topLeft);
@@ -158,8 +165,24 @@ StemsSettings::StemsSettings(std::shared_ptr<stems::StemsService> s, juce::Prope
 
     styleHeading(modelsHeading, "models");
     addAndMakeVisible(modelsHeading);
+    modelsViewport.setViewedComponent(&modelsContent, false);
+    modelsViewport.setScrollBarsShown(true, false);
+    scrollbarLookAndFeel.setScrollbarAccentColour(Theme::Colors::PrimaryRed);
+    modelsViewport.getVerticalScrollBar().setLookAndFeel(&scrollbarLookAndFeel);
+    addAndMakeVisible(modelsViewport);
     for (const auto& model : stems::modelCatalog())
     {
+        // The catalog lists each group's models together; a heading starts each group.
+        if (modelRows.empty() || modelRows.back()->model.group != model.group)
+        {
+            auto heading = std::make_unique<juce::Label>();
+            heading->setText(stems::groupName(model.group), juce::dontSendNotification);
+            styleLabel(*heading, Theme::Fonts::Small, Theme::Colors::PrimaryRed);
+            heading->setJustificationType(juce::Justification::bottomLeft);
+            modelsContent.addAndMakeVisible(*heading);
+            groupHeadings.push_back(std::move(heading));
+        }
+
         auto row = std::make_unique<ModelRow>(model);
         row->onSelect = [this](const juce::String& id) { selectModel(id); };
         row->onDownload = [this](const juce::String& id)
@@ -188,9 +211,10 @@ StemsSettings::StemsSettings(std::shared_ptr<stems::StemsService> s, juce::Prope
                     safeThis->refresh();
                 });
         };
-        addAndMakeVisible(*row);
+        modelsContent.addAndMakeVisible(*row);
         modelRows.push_back(std::move(row));
     }
+    const int modelsHeight = (int) groupHeadings.size() * kGroupHeadingHeight + (int) modelRows.size() * kRowHeight;
 
     testButton.setButtonStyle(CustomButton::ButtonStyle::Gary);
     testButton.setTooltip("separates three seconds of test audio with the selected model");
@@ -217,10 +241,10 @@ StemsSettings::StemsSettings(std::shared_ptr<stems::StemsService> s, juce::Prope
     addAndMakeVisible(storageLabel);
 
     // The sum of what resized() lays out, top to bottom.
-    setSize(560, kMargin + 30 + 36                                // title, subtitle
+    setSize(kPanelWidth, kMargin + 30 + 36                        // title, subtitle
                  + 8 + kHeadingHeight + 34                        // runtime
                  + 8 + kHeadingHeight + 34 + 18                   // processing
-                 + 8 + kHeadingHeight + (int) modelRows.size() * kRowHeight
+                 + 8 + kHeadingHeight + juce::jmin(modelsHeight, kModelsMaxHeight)
                  + 12 + 32 + 24                                   // test / progress, status
                  + 8 + 18 + kMargin);                             // storage line
     refresh();
@@ -230,6 +254,7 @@ StemsSettings::StemsSettings(std::shared_ptr<stems::StemsService> s, juce::Prope
 StemsSettings::~StemsSettings()
 {
     stopTimer();
+    modelsViewport.getVerticalScrollBar().setLookAndFeel(nullptr);
 }
 
 bool StemsSettings::useGpu() const
@@ -281,25 +306,30 @@ void StemsSettings::refresh()
     renderedRunning = running;
     const bool available = service->isRuntimeAvailableForPlatform();
     const bool runtimeInstalled = service->isRuntimeInstalled();
+    // A runtime from an earlier gary4juce. It is not loaded: this build pins its own tag.
+    const auto olderTag = runtimeInstalled ? juce::String() : service->installedOlderRuntimeTag();
     const auto& release = stems::pinnedRuntime();
+    juce::int64 downloadBytes = 0;
+    for (const auto& package : release.packages)
+        downloadBytes += package.sizeBytes;
 
     if (!available)
         runtimeStatus.setText("not available on this platform yet", juce::dontSendNotification);
     else if (runtimeInstalled)
         runtimeStatus.setText("stems.cpp " + release.tag + " installed", juce::dontSendNotification);
     else if (running && job.kind == stems::StemsService::JobKind::InstallRuntime)
-        runtimeStatus.setText("installing stems.cpp " + release.tag, juce::dontSendNotification);
+        runtimeStatus.setText((olderTag.isNotEmpty() ? "updating to stems.cpp " : "installing stems.cpp ")
+                                  + release.tag, juce::dontSendNotification);
+    else if (olderTag.isNotEmpty())
+        runtimeStatus.setText("stems.cpp " + olderTag + " installed. update to " + release.tag
+                                  + " for the new models, about " + stems::formatBytes(downloadBytes),
+                              juce::dontSendNotification);
     else
-    {
-        juce::int64 downloadBytes = 0;
-        for (const auto& package : release.packages)
-            downloadBytes += package.sizeBytes;
         runtimeStatus.setText("not installed. stems.cpp " + release.tag + " for GPU and CPU, about "
                                   + stems::formatBytes(downloadBytes),
                               juce::dontSendNotification);
-    }
 
-    runtimeButton.setButtonText(runtimeInstalled ? "remove" : "install");
+    runtimeButton.setButtonText(runtimeInstalled ? "remove" : olderTag.isNotEmpty() ? "update" : "install");
     runtimeButton.setButtonStyle(runtimeInstalled ? CustomButton::ButtonStyle::Standard
                                                   : CustomButton::ButtonStyle::Gary);
     runtimeButton.setEnabled(available && !running);
@@ -361,13 +391,14 @@ void StemsSettings::resized()
 
     area.removeFromTop(8);
     modelsHeading.setBounds(area.removeFromTop(kHeadingHeight));
-    for (auto& row : modelRows)
-        row->setBounds(area.removeFromTop(kRowHeight));
+    const int modelsHeight = (int) groupHeadings.size() * kGroupHeadingHeight + (int) modelRows.size() * kRowHeight;
+    modelsViewport.setBounds(area.removeFromTop(juce::jmin(modelsHeight, kModelsMaxHeight)));
+    layoutModels();
 
     area.removeFromTop(12);
     {
         auto line = area.removeFromTop(32);
-        testButton.setBounds(line.removeFromRight(170));
+        testButton.setBounds(line.removeFromRight(240));
         line.removeFromRight(8);
         cancelButton.setBounds(line.removeFromRight(90));
         line.removeFromRight(8);
@@ -375,4 +406,23 @@ void StemsSettings::resized()
     }
     jobStatus.setBounds(area.removeFromTop(24));
     storageLabel.setBounds(area.removeFromBottom(18));
+}
+
+void StemsSettings::layoutModels()
+{
+    const int scrollbar = modelsViewport.getScrollBarThickness();
+    const int width = modelsViewport.getWidth() - scrollbar - 4;
+    int y = 0;
+    size_t heading = 0;
+    for (size_t i = 0; i < modelRows.size(); ++i)
+    {
+        if (i == 0 || modelRows[i - 1]->model.group != modelRows[i]->model.group)
+        {
+            groupHeadings[heading++]->setBounds(0, y, width, kGroupHeadingHeight - 4);
+            y += kGroupHeadingHeight;
+        }
+        modelRows[i]->setBounds(0, y, width, kRowHeight);
+        y += kRowHeight;
+    }
+    modelsContent.setSize(juce::jmax(0, width), y);
 }
