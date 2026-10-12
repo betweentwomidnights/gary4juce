@@ -1,15 +1,14 @@
 {
   "channel": "stable-mac",
-  "latest_version": "4.0.9-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac",
+  "latest_version": "5.0.0-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac",
   "sha256": null,
-  "published_at": "2026-08-08T04:20:29Z",
+  "published_at": "2026-10-07T11:02:46Z",
   "notes": [
-    "An optional wide layout puts the input and output audio on the left and model controls on the right.",
-    "Open gary settings with the gear button to switch between wide and compact mode; the layout you pick is remembered.",
-    "The gear button replaces the storage button, and moving the gary4juce audio folder now lives in that same settings menu.",
-    "All three downloads contain universal x86_64/arm64 binaries and license information.",
-    "Recommended gary4local-mac: v0.2.0.",
+    "YuE2 in project tempo: create, remix, continue, editable scores and MIDI/Live Clip import.",
+    "Built-in local stems (Metal on Apple silicon, CPU on Intel); audio imports up to ten minutes. Carey's extract tab is hidden.",
+    "Selections follow model limits. Local SA3/Carey: 380s; remote: 240s. SA3 can end a piece or keep it going.",
+    "Universal x86_64/arm64 downloads. Pair with gary4local-mac v0.4.0 for local Yuey.",
     "Close your DAW and the standalone app before replacing files with a downloaded update."
   ]
 }
