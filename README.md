@@ -57,51 +57,32 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.0 - 10/7
+### upcoming v5.0.1
 
-**yue2 is now inside the DAW.** the new yuey tab runs
-[YuE2](https://github.com/multimodal-art-projection/YuE) through
-[yuey.cpp](https://github.com/betweentwomidnights/yuey.cpp), our native C++
-build of it. it's on the remote backend for everyone, and on a local backend
-through gary4local v0.4.0 on both Windows and macOS.
+**eight more stem separation models.** the stem separator moves to
+[stems.cpp v0.1.5](https://github.com/betweentwomidnights/stems.cpp/releases/tag/v0.1.5)
+and picks up UVR's DeNoise and DeNoise Lite, De-Echo Normal and Aggressive,
+and DeEcho-DeReverb, anvuew's room dereverb for vocals recorded in a room,
+Kim_Vocal_2 for small and quick vocal splits, and DrumSep. the cleanup models
+give you both halves, the clean audio and what was taken out, so you can drag
+either one into your DAW. download them from the settings menu, then
+`stem separator...`. the [model table](#stem-separator) has what each one does.
 
-yuey isn't used quite the way official YuE is. it's bent toward working inside
-a session: a chord scaffold in your tempo and key, transcribe-and-remix, and a
-score window with quick edits. [docs/YUEY.md](docs/YUEY.md) explains the
-choices.
+**DrumSep splits drum kits** into kick, snare, toms, hi-hat, ride and crash.
+separate with htdemucs, then press `split kit` on the drums stem. for a drum
+loop, pick DrumSep from the menu and it splits the audio itself.
 
-remix and continue also accept MIDI and saved Ableton MIDI clips, with separate
-melody and chords slots. save a timeline clip to your User Library first, then
-drag the `.alc` from Live's browser. standalone shows the tempo wheel on every
-yuey sub-tab; in a DAW, it displays the project BPM.
+**the `stems` handle is easier to find.** it shows on every waveform with
+audio now. until the stem separator is set up it's dimmed, and clicking it
+opens the settings. if you installed the runtime with v5.0.0, it'll ask you to
+update it (about 19 MB), since the new models need stems.cpp v0.1.5.
 
-also new: sa3's generate and continue have an "ending" choice. "ends here"
-lands the ending where the audio stops. "keeps going" cuts off still in full
-swing, for chaining continuations.
-
-**stems are built in now.** there's a `stems` handle on the output waveform
-and on the recording buffer. it splits the audio into stems on your own
-computer with [stems.cpp](https://github.com/betweentwomidnights/stems.cpp),
-our native C++ build of HTDemucs and the RoFormer separators. nothing gets
-uploaded, it works with the remote backend too, and it doesn't need
-gary4local. install the runtime and a model from the settings menu, press
-`stems`, and drag the ones you like into your DAW. [how it works](#stem-separator)
-is down in the usage section.
-
-also new: carey's extract tab is hidden, since the stem separator does that job
-better. the yuey prompt is shared across create, remix and continue now, and
-the score window has the prompt box and dice. the audio selection window zooms,
-so you can place the edges precisely.
-
-you can import up to ten minutes of audio for stem separation. double-click
-the recording buffer to select a shorter section for generation: the window
-starts at the active model's input limit and won't stretch past it. local SA3
-and Carey allow 380 seconds; their remote limits remain 240 seconds.
+thanks to kostas ([@tsigoulas](https://github.com/tsigoulas)) for asking for
+these models and checking them against UVR5.
 
 recommended local companions: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
 on Windows and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
-on macOS, released alongside this one. after updating gary4local, press `update runtime`
-on yuey's row for v0.2.2's short MIDI score fix.
+on macOS. the stem separator runs inside gary4juce and doesn't need either.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
