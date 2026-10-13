@@ -1919,14 +1919,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(yueyScoreButton);
 
     stemsButton.setTooltip("separate this output into stems");
-    stemsButton.onClick = [this]() { showStemsDialog(false); };
+    stemsButton.onClick = [this]() { stemsHandleClicked(false); };
     stemsInputButton.setTooltip("separate the recording buffer into stems");
-    stemsInputButton.onClick = [this]() { showStemsDialog(true); };
+    stemsInputButton.onClick = [this]() { stemsHandleClicked(true); };
     for (auto* handle : { &stemsButton, &stemsInputButton })
     {
         handle->setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
         handle->setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
-        addChildComponent(*handle);   // shown by updateStemsButtonState once stems can run
+        addChildComponent(*handle);   // shown by updateStemsButtonState once its waveform has audio
     }
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
@@ -8613,15 +8613,18 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
         auto bounds = button.getBounds().toFloat();
         const bool lit = button.isOver() || button.isDown();
+        // Dimmed while it cannot run: stems before setup (a click opens its settings) or during a
+        // generation (disabled). Its tooltip says why.
+        const bool enabled = button.isEnabled() && !(bool) button.getProperties()["needsSetup"];
 
         g.setColour(juce::Colours::black.withAlpha(0.6f));
         g.fillRoundedRectangle(bounds, 3.0f);
         g.setColour(lit ? juce::Colours::orange.withAlpha(0.85f)
-                        : juce::Colours::white.withAlpha(0.35f));
+                        : juce::Colours::white.withAlpha(enabled ? 0.35f : 0.15f));
         g.drawRoundedRectangle(bounds, 3.0f, 1.0f);
 
         g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        g.setColour(lit ? juce::Colours::orange : juce::Colours::white.withAlpha(0.85f));
+        g.setColour(lit ? juce::Colours::orange : juce::Colours::white.withAlpha(enabled ? 0.85f : 0.3f));
         g.drawText(text, button.getBounds(), juce::Justification::centred);
     };
 

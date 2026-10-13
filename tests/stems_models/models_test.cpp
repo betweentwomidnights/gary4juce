@@ -4,6 +4,7 @@
 // writes the stems the catalog names in its order, and split an htdemucs drums stem with DrumSep.
 // Writes PNGs of the panels into the test folder.
 #include <JuceHeader.h>
+#include "../../Source/PluginEditor.h"
 #include "../../Source/Components/Stems/StemsDialog.h"
 #include "../../Source/Components/Stems/StemsSettings.h"
 #include "../../Source/Stems/StemsRuntime.h"
@@ -205,6 +206,96 @@ int StemsModelsTest::run(int argc, char** argv) {
         check(finish(), "htdemucs reruns");
         dialog.modelBox.setSelectedId(dialog.modelIds.indexOf("mdx23c_drumsep") + 1, juce::sendNotificationSync);
         check(dialog.inputParent == "htdemucs", "drumsep defaults to the newest drums stem");
+    }
+
+    // The waveforms' stems handles: shown whenever there is audio, dimmed with a pointer to settings
+    // until the runtime and a model are installed.
+    if (juce::SystemStats::getEnvironmentVariable("GARY4JUCE_STORAGE_TEST_DIRECTORY", {}) != root.getFullPathName()) {
+        check(false, "GARY4JUCE_STORAGE_TEST_DIRECTORY must be the test folder for the editor checks");
+    } else {
+        Gary4juceAudioProcessor processor;
+        processor.stopHealthChecks();
+        processor.prepareToPlay(48000.0, 512);
+        processor.setUsingLocalhost(false);
+        Gary4juceAudioProcessorEditor editor(processor);
+        editor.stopTimer();
+        processor.stopHealthChecks();
+
+        // A data folder holding only a stand-in runtime of the given tag (stems.dll and its marker).
+        const auto fakeData = [&](const juce::String& name, const juce::String& tag) {
+            const auto dir = root.getChildFile("handle-" + name);
+            dir.deleteRecursively();
+            if (tag.isNotEmpty()) {
+                const auto runtime = dir.getChildFile("stems").getChildFile("runtime").getChildFile(tag);
+                runtime.createDirectory();
+                runtime.getChildFile("stems.dll").replaceWithText("stand-in");
+                runtime.getChildFile("installed.json").replaceWithText("{}");
+            }
+            return dir;
+        };
+        const auto handleState = [&](const juce::File& dataDirectory, bool generating) {
+            editor.stemsService = std::make_shared<stems::StemsService>(dataDirectory);
+            editor.isGenerating = generating;
+            editor.updateStemsButtonState();
+        };
+        auto& handle = editor.stemsButton;
+        const auto needsSetup = [&] { return (bool) handle.getProperties()["needsSetup"]; };
+        // A click on the handle: true when it opened the stem separator settings window.
+        const auto clickOpensSettings = [&] {
+            const auto settingsWindows = [] {
+                int count = 0;
+                for (int i = 0; i < juce::TopLevelWindow::getNumTopLevelWindows(); ++i)
+                    if (juce::TopLevelWindow::getTopLevelWindow(i)->getName() == "gary settings > stem separator")
+                        ++count;
+                return count;
+            };
+            const int before = settingsWindows();
+            if (handle.onClick)
+                handle.onClick();
+            const bool opened = settingsWindows() > before;
+            for (int i = juce::TopLevelWindow::getNumTopLevelWindows(); --i >= 0;)
+                if (auto* window = juce::TopLevelWindow::getTopLevelWindow(i); window->getName() == "gary settings > stem separator")
+                    delete window;
+            return opened;
+        };
+        editor.hasOutputAudio = true;
+        editor.outputAudioFile = input;
+
+        handleState(fakeData("none", {}), false);
+        check(handle.isVisible() && handle.isEnabled() && needsSetup(), "handle shows, dimmed and clickable, before setup");
+        check(handle.getTooltip() == "click to install the stem separator (also in gary settings > stem separator...)",
+              "tooltip offers installing: " + handle.getTooltip());
+        writeImage(editor, root.getChildFile("editor-stems-setup.png"));
+        check(clickOpensSettings(), "clicking it opens the stem separator settings");
+
+        handleState(fakeData("old", "v0.1.2"), false);
+        check(needsSetup() && handle.getTooltip().startsWith("click to update the stem separator runtime"),
+              "tooltip offers updating v0.1.2: " + handle.getTooltip());
+
+        handleState(fakeData("nomodel", release.tag), false);
+        check(needsSetup() && handle.getTooltip().startsWith("click to download a stem separation model"),
+              "tooltip offers downloading a model: " + handle.getTooltip());
+
+        handleState(fakeData("none", {}), true);
+        check(handle.isEnabled() && needsSetup(), "setup stays a click away during a generation");
+
+        handleState(data, false);
+        check(handle.isVisible() && handle.isEnabled() && !needsSetup()
+              && handle.getTooltip() == "separate this output into stems",
+              "handle ready once a model is installed: " + handle.getTooltip());
+        writeImage(editor, root.getChildFile("editor-stems-enabled.png"));
+
+        handleState(data, true);
+        check(!handle.isEnabled() && handle.getTooltip() == "wait for the current generation to finish",
+              "handle disabled during a generation");
+        check(!clickOpensSettings(), "a ready handle does not open settings");
+
+        editor.isGenerating = false;
+        editor.hasOutputAudio = false;
+        editor.updateStemsButtonState();
+        check(!handle.isVisible(), "no handle without output audio");
+        check(!editor.stemsInputButton.isVisible(), "no recording-buffer handle without recorded audio");
+        editor.stemsService = nullptr;
     }
 
     {

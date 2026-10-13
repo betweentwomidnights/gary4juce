@@ -10,6 +10,8 @@ set "HERE=%~dp0"
 set "ROOT=%HERE%..\.."
 set "OUT=%TEMP%\gary-stems-models-test"
 if not exist "%OUT%" mkdir "%OUT%"
+rem The editor checks only run against an isolated storage folder, never the user's session.
+set "GARY4JUCE_STORAGE_TEST_DIRECTORY=%~1"
 
 set "DEFS=/D_DEBUG /DDEBUG /DWIN32 /D_WINDOWS /D_CRT_SECURE_NO_WARNINGS"
 set "DEFS=%DEFS% /DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 /DJUCE_STRICT_REFCOUNTEDPOINTER=1"

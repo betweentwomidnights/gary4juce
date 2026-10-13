@@ -358,10 +358,12 @@ Learn more: https://github.com/magenta/magenta-realtime
 ### stem separator
 
 this one isn't a tab. it's a `stems` handle at the bottom right of the output
-waveform, and of the recording buffer once it has audio. it shows up after
-you've installed the runtime and at least one model: settings menu, then
-`stem separator...`. the runtime is small (about 19 MB on windows, 6 MB on
-mac). the models download from Hugging Face.
+waveform, and of the recording buffer once it has audio. it stays dimmed until
+you've installed the runtime and at least one model. click it then and it opens
+the stem separator settings, which also live in the settings menu under
+`stem separator...`. the
+runtime is small (about 19 MB on windows, 6 MB on mac). the models download
+from Hugging Face.
 
 - pick a model, press separate. every stem gets its own waveform you can play,
   pause and seek.

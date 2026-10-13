@@ -24,7 +24,8 @@ void Gary4juceAudioProcessorEditor::showStemsSettings()
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(panel);
-    options.dialogTitle = "stem separator";
+    // Named by where it lives, for anyone who got here from a stems handle instead of the menu.
+    options.dialogTitle = "gary settings > stem separator";
     options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
@@ -71,30 +72,56 @@ namespace
 
 // --- the "stems" handle --------------------------------------------------------------------------
 
+juce::String Gary4juceAudioProcessorEditor::stemsSetupStep()
+{
+    auto& service = getStemsService();
+    if (!service.isRuntimeInstalled())
+        return service.installedOlderRuntimeTag().isNotEmpty() ? "update the stem separator runtime for this version"
+                                                               : "install the stem separator";
+    for (const auto& model : stems::modelCatalog())
+        if (service.isModelInstalled(model.id))
+            return {};
+    return "download a stem separation model";
+}
+
+void Gary4juceAudioProcessorEditor::stemsHandleClicked(bool fromRecordingBuffer)
+{
+    if (stemsSetupStep().isNotEmpty())
+        showStemsSettings();
+    else
+        showStemsDialog(fromRecordingBuffer);
+}
+
+// The handle shows on any waveform with audio, so the stem separator can be found without opening
+// settings. Until it can run it is dimmed, and a click opens its settings; the tooltip says what is
+// missing and where those settings live. During a generation it is disabled.
 void Gary4juceAudioProcessorEditor::updateStemsButtonState()
 {
     const bool haveOutput = hasOutputAudio && outputAudioFile.existsAsFile();
     const bool haveInput = recordedSamples > 0 && !isRecording;
-    bool canSeparate = false;
-    if (haveOutput || haveInput)
-    {
-        auto& service = getStemsService();
-        if (service.isRuntimeInstalled())
-            for (const auto& model : stems::modelCatalog())
-                if (service.isModelInstalled(model.id)) { canSeparate = true; break; }
-    }
+    const bool available = (haveOutput || haveInput) && getStemsService().isRuntimeAvailableForPlatform();
+    const auto setupStep = available ? stemsSetupStep() : juce::String();
+    const bool needsSetup = setupStep.isNotEmpty();
 
-    const auto apply = [this](juce::DrawableButton& handle, bool visible)
+    const auto apply = [&](juce::DrawableButton& handle, bool haveAudio, const juce::String& readyTip)
     {
-        if (handle.isVisible() != visible || handle.isEnabled() == isGenerating)
+        const bool visible = available && haveAudio;
+        const bool enabled = needsSetup || !isGenerating;
+        const auto tip = needsSetup ? "click to " + setupStep + " (also in gary settings > stem separator...)"
+                       : isGenerating ? juce::String("wait for the current generation to finish")
+                                      : readyTip;
+        if (handle.isVisible() != visible || handle.isEnabled() != enabled || handle.getTooltip() != tip
+            || (bool) handle.getProperties()["needsSetup"] != needsSetup)
         {
             handle.setVisible(visible);
-            handle.setEnabled(!isGenerating);
+            handle.setEnabled(enabled);
+            handle.setTooltip(tip);
+            handle.getProperties().set("needsSetup", needsSetup);   // drawn dimmed, see paint()
             repaint(handle.getBounds());
         }
     };
-    apply(stemsButton, canSeparate && haveOutput);
-    apply(stemsInputButton, canSeparate && haveInput);
+    apply(stemsButton, haveOutput, "separate this output into stems");
+    apply(stemsInputButton, haveInput, "separate the recording buffer into stems");
 }
 
 void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)

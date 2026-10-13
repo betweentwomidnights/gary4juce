@@ -41,6 +41,7 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::FileDragAndDropTarget
 {
     friend struct FullTrackAudioTest;
+    friend struct StemsModelsTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;
@@ -603,6 +604,9 @@ private:
     double currentStemPosition() const;
     double stemPosition(const juce::File& stem) const;
     void updateStemsButtonState();
+    // What the stem separator needs before it can run ("install the stem separator", ...), or empty.
+    juce::String stemsSetupStep();
+    void stemsHandleClicked(bool fromRecordingBuffer);   // the popup, or its settings until set up
     void checkStemPlaybackStatus();
     void showStemsDialog(bool fromRecordingBuffer);
     void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
