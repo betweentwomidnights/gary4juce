@@ -689,9 +689,6 @@ private:
     juce::String preferredJerryModelKey;
     juce::String preferredJerryFinetuneRepo;
     juce::String preferredJerryFinetuneCheckpoint;
-    bool currentJerryCustomFinetuneOpen = false;
-    juce::String currentJerryCustomFinetuneRepo;
-    juce::String currentJerryCustomFinetuneCheckpoint;
 
     // Gary model API methods
     void fetchGaryAvailableModels();
@@ -701,13 +698,6 @@ private:
     void fetchJerryAvailableModels(bool force = false);
     void handleJerryModelsResponse(const juce::String& responseText);
 
-    // Custom finetune methods
-    void fetchJerryCheckpoints(const juce::String& repo);
-    void handleJerryCheckpointsResponse(const juce::String& responseText);
-    void addCustomJerryModel(const juce::String& repo, const juce::String& checkpoint);
-    void handleAddCustomModelResponse(const juce::String& responseText,
-                                       const juce::String& repo,
-                                       const juce::String& checkpoint);
     juce::String extractCheckpointInfo(const juce::String& checkpoint);
 
     void fetchJerryPrompts(const juce::String& repo, const juce::String& checkpoint);

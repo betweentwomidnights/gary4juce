@@ -70,18 +70,6 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("jerryFinetuneCheckpoint", currentJerryFinetuneCheckpoint);
     state->setProperty("jerryIsFinetune", currentJerryIsFinetune);
     state->setProperty("jerrySampler", currentJerrySamplerType);
-    state->setProperty("jerryCustomFinetuneOpen",
-        jerryUI != nullptr
-            ? jerryUI->getCustomFinetuneSectionOpen()
-            : currentJerryCustomFinetuneOpen);
-    state->setProperty("jerryCustomFinetuneRepo",
-        jerryUI != nullptr
-            ? jerryUI->getCustomFinetuneRepoText()
-            : currentJerryCustomFinetuneRepo);
-    state->setProperty("jerryCustomFinetuneCheckpoint",
-        jerryUI != nullptr
-            ? jerryUI->getCustomFinetuneCheckpointText()
-            : currentJerryCustomFinetuneCheckpoint);
 
     state->setProperty("sa3Prompt", currentSA3Prompt);
     state->setProperty("sa3ManualBpm", currentStandaloneBpm);
@@ -294,12 +282,6 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentJerryFinetuneCheckpoint = readString("jerryFinetuneCheckpoint", currentJerryFinetuneCheckpoint);
     currentJerryIsFinetune = readBool("jerryIsFinetune", currentJerryIsFinetune);
     currentJerrySamplerType = readString("jerrySampler", currentJerrySamplerType);
-    currentJerryCustomFinetuneOpen = readBool(
-        "jerryCustomFinetuneOpen", currentJerryCustomFinetuneOpen);
-    currentJerryCustomFinetuneRepo = readString(
-        "jerryCustomFinetuneRepo", currentJerryCustomFinetuneRepo);
-    currentJerryCustomFinetuneCheckpoint = readString(
-        "jerryCustomFinetuneCheckpoint", currentJerryCustomFinetuneCheckpoint);
     preferredJerryModelKey = currentJerryModelKey;
     preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
     preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
@@ -544,10 +526,6 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         jerryUI->setSmartLoop(generateAsLoop);
         jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
         jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
-        jerryUI->setUsingLocalhost(isUsingLocalhost);
-        jerryUI->restoreCustomFinetuneState(currentJerryCustomFinetuneOpen,
-                                            currentJerryCustomFinetuneRepo,
-                                            currentJerryCustomFinetuneCheckpoint);
     }
 
     if (sa3UI != nullptr)
@@ -1056,14 +1034,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             DBG("Jerry sampler type changed to: " + samplerType);
         };
 
-    jerryUI->onFetchCheckpoints = [this](const juce::String& repo) {
-        fetchJerryCheckpoints(repo);
-    };
-
-    jerryUI->onAddCustomModel = [this](const juce::String& repo, const juce::String& checkpoint) {
-        addCustomJerryModel(repo, checkpoint);
-    };
-
     jerryUI->setPromptText(currentJerryPrompt);
     jerryUI->setCfg(currentJerryCfg);
     jerryUI->setSteps(currentJerrySteps);
@@ -1072,12 +1042,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
     jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
     jerryUI->setButtonsEnabled(false, isServiceReachable(ServiceType::Jerry), isGenerating);
-
-    // Update localhost status
-    jerryUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
-    jerryUI->restoreCustomFinetuneState(currentJerryCustomFinetuneOpen,
-                                        currentJerryCustomFinetuneRepo,
-                                        currentJerryCustomFinetuneCheckpoint);
 
     // ========== SA3 CONTROLS SETUP ==========
     sa3UI = std::make_unique<SA3UI>();

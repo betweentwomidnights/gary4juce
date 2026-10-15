@@ -45,13 +45,6 @@ void Gary4juceAudioProcessorEditor::toggleBackend()
     // Update connection status display
     updateConnectionStatus(false);
 
-    // Clear any loading state when switching backends
-    if (jerryUI)
-    {
-        jerryUI->setLoadingModel(false);
-        jerryUI->setUsingLocalhost(isUsingLocalhost);
-    }
-
     if (sa3UI)
         updateSA3EnablementSnapshot();
 
@@ -401,13 +394,8 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
     updateAllGenerationButtonStates();
     updateJerrySubTabStates();
 
-    if (service == ServiceType::Jerry)
-    {
-        if (!online && jerryUI)
-            jerryUI->setLoadingModel(false);
-        else if (online && currentTab == ModelTab::Jerry)
-            fetchJerryAvailableModels();
-    }
+    if (service == ServiceType::Jerry && online && currentTab == ModelTab::Jerry)
+        fetchJerryAvailableModels();
 
     if (service == ServiceType::Carey && currentTab == ModelTab::Carey
         && (statusChanged || online))
