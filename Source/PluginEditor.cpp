@@ -817,9 +817,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             const bool wasJerry = (currentTab == ModelTab::Jerry);
             switchToTab(ModelTab::Jerry);
 
-            // If we were already on Jerry, still allow remote SAOS prompt refresh.
-            if (wasJerry && !audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+            // If we were already on Jerry, still allow a SAOS prompt refresh.
+            if (wasJerry)
+                maybeFetchJerryPrompts();
         };
     addAndMakeVisible(jerryTabButton);
 
@@ -1008,23 +1008,21 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 DBG("  Checkpoint: " + currentJerryFinetuneCheckpoint);
                 DBG("  Sampler: " + currentJerrySamplerType);
             }
-            if (!audioProcessor.getIsUsingLocalhost())
+            // Avoid hammering the backend, but fetch the bank whenever the
+            // selection changes, on localhost as on the remote backend.
+            if (isFinetune
+                && currentJerryFinetuneRepo.isNotEmpty()
+                && currentJerryFinetuneCheckpoint.isNotEmpty())
             {
-                // Remote mode: avoid hammering, but ensure we fetch when selection changes.
-                if (isFinetune
-                    && currentJerryFinetuneRepo.isNotEmpty()
-                    && currentJerryFinetuneCheckpoint.isNotEmpty())
-                {
-                    DBG("[prompts] onModelChanged -> remote -> fetching by repo+ckpt: "
-                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
-                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
-                }
-                else
-                {
-                    // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
-                    DBG("[prompts] onModelChanged -> remote -> using prefer=finetune (TTL guarded)");
-                    maybeFetchRemoteJerryPrompts(); // will no-op if TTL/in-flight/cache says so
-                }
+                DBG("[prompts] onModelChanged -> fetching by repo+ckpt: "
+                    + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
+                fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
+            }
+            else
+            {
+                // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
+                DBG("[prompts] onModelChanged -> using prefer=finetune (TTL guarded)");
+                maybeFetchJerryPrompts(); // will no-op if TTL/in-flight/cache says so
             }
         };
 
@@ -2337,9 +2335,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         if (showJerry && jerrySubTab == JerrySubTab::SAOS)
         {
             fetchJerryAvailableModels();
-
-            if (!audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+            maybeFetchJerryPrompts();
         }
     }
 

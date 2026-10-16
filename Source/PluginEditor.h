@@ -706,7 +706,7 @@ private:
         const juce::String& jsonText,
         int statusCode = 200);
 
-    void maybeFetchRemoteJerryPrompts(); // gatekeeper for remote mode, avoids hammering
+    void maybeFetchJerryPrompts(); // gatekeeper for either backend, avoids hammering
 
     // Optional local cache to avoid re-fetching
     juce::HashMap<juce::String, juce::String> promptsCache; // key: repo + "|" + checkpoint

@@ -171,8 +171,7 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
             // models..." until you leave the tab and come back.
             fetchJerryAvailableModels();
 
-            if (!audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+            maybeFetchJerryPrompts();
         }
     }
     if (foundationUI)
@@ -534,9 +533,9 @@ void Gary4juceAudioProcessorEditor::fetchJerryPrompts(const juce::String& repo,
         });
 }
 
-void Gary4juceAudioProcessorEditor::maybeFetchRemoteJerryPrompts()
+void Gary4juceAudioProcessorEditor::maybeFetchJerryPrompts()
 {
-    DBG("[prompts] maybeFetchRemoteJerryPrompts called");
+    DBG("[prompts] maybeFetchJerryPrompts called");
     if (promptsFetchInFlight) { DBG("[prompts] in flight - skipping"); return; }
 
     const auto now = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
@@ -564,7 +563,8 @@ void Gary4juceAudioProcessorEditor::maybeFetchRemoteJerryPrompts()
 
     promptsFetchInFlight = true;
 
-    juce::URL promptsUrl(getServiceUrl(ServiceType::Jerry, "/audio/models/prompts"));
+    juce::URL promptsUrl(getServiceUrl(ServiceType::Jerry,
+        audioProcessor.getIsUsingLocalhost() ? "/models/prompts" : "/audio/models/prompts"));
     promptsUrl = promptsUrl.withParameter("prefer", "finetune");
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
