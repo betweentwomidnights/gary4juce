@@ -80,8 +80,14 @@ update it (about 19 MB), since the new models need stems.cpp v0.1.5.
 thanks to kostas ([@tsigoulas](https://github.com/tsigoulas)) for asking for
 these models and checking them against UVR5.
 
-recommended local companions: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
-on Windows and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
+**jerry on localhost follows gary4local's C++ service.** the model dropdown
+lists the base model and the finetunes you've downloaded in gary4local's jerry
+models panel, the same way it lists the remote backend's, so the localhost `+`
+for adding a Hugging Face checkpoint is gone. jerry grunge's dice prompts load
+on localhost now too.
+
+recommended local companions: [gary4local v0.5.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.5.0)
+on Windows, releasing alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 on macOS. the stem separator runs inside gary4juce and doesn't need either.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
