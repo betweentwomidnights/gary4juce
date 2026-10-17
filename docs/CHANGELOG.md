@@ -31,6 +31,24 @@ to find it again.
 the runtime from v5.0.0 (stems.cpp v0.1.2) can't load the new models. the
 stems handle and the settings panel both offer to update it.
 
+jerry on localhost follows gary4local's new C++ jerry service. the model
+dropdown lists the base model and the finetunes you've downloaded in
+gary4local, the same way it lists the remote backend's, so the localhost-only
+`+` section for adding a Hugging Face checkpoint is gone. picking a finetune
+now loads its dice prompts on localhost too; before, only the remote backend
+did.
+
+## v5.0.1-rc.2 - jerry on gary4local's C++ runtime
+
+jerry on localhost follows gary4local's new C++ jerry service. the model
+dropdown lists the base model and the finetunes you've downloaded in
+gary4local, the same way it lists the remote backend's, so the localhost-only
+`+` section for adding a Hugging Face checkpoint is gone. picking a finetune
+now loads its dice prompts on localhost too; before, only the remote backend
+did.
+
+everything else is the same as v5.0.1-rc.1.
+
 ## v5.0.1-rc.1 - cleanup models and drum kits
 
 the stem separator moves to stems.cpp v0.1.5 and gets eight more models:
