@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.0 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0)
+- [gary4juce v5.0.1 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.1)
 - [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
+- windows: [gary4local v0.5.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.5.0)
 - macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -57,7 +57,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.1
+### v5.0.1 - 10/18
 
 **eight more stem separation models.** the stem separator moves to
 [stems.cpp v0.1.5](https://github.com/betweentwomidnights/stems.cpp/releases/tag/v0.1.5)
@@ -87,7 +87,7 @@ for adding a Hugging Face checkpoint is gone. jerry grunge's dice prompts load
 on localhost now too.
 
 recommended local companions: [gary4local v0.5.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.5.0)
-on Windows, releasing alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
+on Windows, released alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 on macOS. the stem separator runs inside gary4juce and doesn't need either.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
