@@ -42,12 +42,14 @@ public:
     static constexpr int kDefaultExtractSteps = 80;
     static constexpr double kDefaultExtractCfg = 10.0;
 
+    // Saved sessions store these numbers: append, never renumber.
     enum class SubTab
     {
         Lego = 0,
-        Complete,
-        Cover,
-        Extract
+        Continue = 1,  // saved as "complete" before v5.1, which extended the audio
+        Cover = 2,
+        Extract = 3,
+        Generate = 4
     };
 
     // TODO: the extract sub-tab is hidden since v5.0.0. The embedded stem separator (stems.cpp)
@@ -525,14 +527,24 @@ public:
         else timeSigComboBox.setSelectedId(1, juce::dontSendNotification);
     }
 
-    void setGenerateButtonEnabled(bool enabled, bool isGenerating)
+    // `backendOnline` and `hasInputAudio` decide each mode's button; generate
+    // is the one mode that needs no recording.
+    void setGenerateButtonEnabled(bool backendOnline, bool hasInputAudio, bool isGenerating)
     {
+        lastBackendOnline = backendOnline;
+        lastHasInputAudio = hasInputAudio;
+        lastIsGenerating = isGenerating;
+        const bool enabled = backendOnline && hasInputAudio;
+
         legoGenerateButton.setEnabled(enabled && !isGenerating);
         legoGenerateButton.setButtonText(isGenerating ? "generating..." : "send to carey");
 
-        const bool completeAvailable = (bool) onCompleteGenerate;
-        completeGenerateButton.setEnabled(completeAvailable && enabled && !isGenerating);
-        completeGenerateButton.setButtonText(isGenerating ? "generating..." : "continue with carey");
+        // Continue's panel serves generate too.
+        const bool generating = currentSubTab == SubTab::Generate;
+        const bool panelAvailable = generating ? (bool) onGenerateGenerate : (bool) onCompleteGenerate;
+        completeGenerateButton.setEnabled(panelAvailable && backendOnline && (generating || hasInputAudio) && !isGenerating);
+        completeGenerateButton.setButtonText(isGenerating ? "generating..."
+                                                          : (generating ? "generate with carey" : "continue with carey"));
 
         const bool coverAvailable = (bool) onCoverGenerate;
         coverGenerateButton.setEnabled(coverAvailable && enabled && !isGenerating);
@@ -577,6 +589,7 @@ public:
     std::function<void(double)> onCompleteCfgChanged;
     std::function<void(int)> onCompleteDurationChanged;
     std::function<void()> onCompleteGenerate;
+    std::function<void()> onGenerateGenerate;
     std::function<void(bool)> onCompleteUseSrcAsRefChanged;
 
     std::function<void(const juce::String&)> onCoverCaptionChanged;
@@ -642,8 +655,9 @@ private:
     juce::Random random;
 
     juce::Label careyLabel;
+    CustomButton generateSubTabButton;
     CustomButton legoSubTabButton;
-    CustomButton completeSubTabButton;
+    CustomButton completeSubTabButton;  // continue: it extended the audio as "complete" before v5.1
     CustomButton coverSubTabButton;
     CustomButton extractSubTabButton;
     CustomLookAndFeel customLookAndFeel;
@@ -771,6 +785,9 @@ private:
     bool extractAdvancedOpen = false;
     bool coverModelSelectionEnabled = true;
     bool extractRemoteGenerationEnabled = true;
+    bool lastBackendOnline = false;
+    bool lastHasInputAudio = false;
+    bool lastIsGenerating = false;
     juce::Component::SafePointer<juce::TextEditor> activeCaptionPopoutEditor;
     CaptionPopoutTarget activeCaptionPopoutTarget = CaptionPopoutTarget::None;
     std::vector<juce::Component::SafePointer<juce::DialogWindow>> auxiliaryWindows;

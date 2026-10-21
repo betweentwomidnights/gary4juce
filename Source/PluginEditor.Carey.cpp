@@ -232,8 +232,7 @@ void Gary4juceAudioProcessorEditor::updateCareyEnablementSnapshot()
     const bool hasInputAudio = savedSamples > 0 && getGaryBufferFile().existsAsFile();
     const bool backendLooksOnline = isServiceReachable(ServiceType::Carey);
 
-    const bool canGenerate = backendLooksOnline && hasInputAudio;
-    careyUI->setGenerateButtonEnabled(canGenerate, isGenerating);
+    careyUI->setGenerateButtonEnabled(backendLooksOnline, hasInputAudio, isGenerating);
 }
 
 double Gary4juceAudioProcessorEditor::getCareyBpmForRequest() const
@@ -506,7 +505,8 @@ void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
 // cancels it on the backend too.
 void Gary4juceAudioProcessorEditor::startCareyJob(CareyJob job)
 {
-    if (!validateAudioDurationForModel(getGaryBufferFile(), audioProcessor.getIsUsingLocalhost() ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds, "carey"))
+    if (job.needsSourceAudio
+        && !validateAudioDurationForModel(getGaryBufferFile(), audioProcessor.getIsUsingLocalhost() ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds, "carey"))
         return;
     if (!isServiceReachable(ServiceType::Carey))
     {
@@ -515,7 +515,7 @@ void Gary4juceAudioProcessorEditor::startCareyJob(CareyJob job)
     }
     if (!ensureGaryDataDirectoryAvailable())
         return;
-    if (!getGaryBufferFile().existsAsFile())
+    if (job.needsSourceAudio && !getGaryBufferFile().existsAsFile())
     {
         showStatusMessage("missing myBuffer.wav - save your recording first");
         return;
@@ -691,7 +691,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
     const juce::File bufferFile = getGaryBufferFile();
 
     // Lego needs a base model: turbo and sft do not take the task.
-    startCareyJob({ "lego", [=](const carey_native::Props& props, carey_native::Request& request,
+    startCareyJob({ "lego", true, [=](const carey_native::Props& props, carey_native::Request& request,
                                 double& trimToSeconds, juce::String& error)
     {
         if (!careySelectModels(props, "base", xl, lora, loraScale, *json, error))
@@ -728,7 +728,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
     const bool xl = currentCareyXl;
     const juce::File bufferFile = getGaryBufferFile();
 
-    startCareyJob({ "extract", [=](const carey_native::Props& props, carey_native::Request& request,
+    startCareyJob({ "extract", true, [=](const carey_native::Props& props, carey_native::Request& request,
                                    double&, juce::String& error)
     {
         if (!careySelectModels(props, "base", xl, {}, 1.0, *json, error))
@@ -770,7 +770,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
     const bool useSourceAsReference = currentCompleteUseSrcAsRef;
     const juce::File bufferFile = getGaryBufferFile();
 
-    startCareyJob({ "continue", [=](const carey_native::Props& props, carey_native::Request& request,
+    startCareyJob({ "continue", true, [=](const carey_native::Props& props, carey_native::Request& request,
                                     double&, juce::String& error)
     {
         if (!careySelectModels(props, variant, xl, lora, loraScale, *json, error))
@@ -788,6 +788,43 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
         json->setProperty("repainting_end", (double) targetSeconds);
         if (useSourceAsReference)
             request.referenceAudio = request.sourceAudio;
+        request.json = juce::var(json.get());
+        return true;
+    } });
+}
+
+// Generate: a new piece from the caption and lyrics alone, with continue's
+// settings, which generate shares.
+void Gary4juceAudioProcessorEditor::sendToCareyGenerate()
+{
+    int bpm = juce::jmax(1, juce::roundToInt(getCareyBpmForRequest()));
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        const int standaloneBpm = juce::jlimit(40, 240, currentCareyCompleteBpm);
+        if (standaloneBpm > 0)
+            bpm = standaloneBpm;
+    }
+
+    const juce::String variant = careyVariant(currentCareyCompleteModel, true);
+    const bool turbo = variant == "turbo";
+    const int steps = turbo ? CareyUI::kFixedCompleteTurboSteps : juce::jlimit(32, 100, currentCareyCompleteSteps);
+    const double cfg = turbo ? CareyUI::kFixedCompleteTurboCfg : juce::jlimit(3.0, 10.0, currentCompleteCfg);
+    const int maximumSeconds = isUsingLocalhost ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds;
+    const int seconds = juce::jlimit(30, maximumSeconds, currentCareyCompleteDurationSeconds);
+    const juce::int64 seed = careyUI != nullptr && careyUI->getSeed() >= 0 ? careyUI->getSeed() : carey_native::newSeed();
+    const auto json = careyRequest("text2music", currentCareyCompleteCaption.trim(), currentCareyLyrics, bpm,
+                                   currentCareyKeyScale, currentCareyTimeSig, currentCareyLanguage, steps, cfg, seed);
+    json->setProperty("duration", (double) seconds);
+
+    const juce::String lora = getSelectedCareyCompleteLora();
+    const double loraScale = juce::jlimit(0.0, 1.0, currentCareyCompleteLoraScale);
+    const bool xl = currentCareyXl;
+
+    startCareyJob({ "generate", false, [=](const carey_native::Props& props, carey_native::Request& request,
+                                           double&, juce::String& error)
+    {
+        if (!careySelectModels(props, variant, xl, lora, loraScale, *json, error))
+            return false;
         request.json = juce::var(json.get());
         return true;
     } });
@@ -815,7 +852,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
     const bool useSourceAsReference = currentCoverUseSrcAsRef;
     const juce::File bufferFile = getGaryBufferFile();
 
-    startCareyJob({ "cover", [=](const carey_native::Props& props, carey_native::Request& request,
+    startCareyJob({ "cover", true, [=](const carey_native::Props& props, carey_native::Request& request,
                                  double& trimToSeconds, juce::String& error)
     {
         if (!careySelectModels(props, variant, xl, lora, loraScale, *json, error))

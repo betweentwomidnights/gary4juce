@@ -442,6 +442,7 @@ private:
     struct CareyJob
     {
         juce::String label;  // the mode, for the status bar
+        bool needsSourceAudio = true;
         std::function<bool(const carey_native::Props&, carey_native::Request&,
                            double& trimToSeconds, juce::String& error)> prepare;
     };
@@ -452,6 +453,7 @@ private:
     void sendToCarey();
     void sendToCareyExtract();
     void sendToCareyComplete();
+    void sendToCareyGenerate();
     void sendToCareyCover();
     void setCareyLastSeed(const juce::String& seed);
     void updateCareyEnablementSnapshot();

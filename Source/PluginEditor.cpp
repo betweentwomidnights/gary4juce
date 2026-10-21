@@ -348,7 +348,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentTerrySeedText = readString("terrySeedText", currentTerrySeedText);
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
-        juce::jlimit(0, 3, readInt("careySubTab", 0)));
+        juce::jlimit(0, 4, readInt("careySubTab", 0)));
     if (currentCareySubTab == CareyUI::SubTab::Extract && ! CareyUI::kExtractTabVisible)
         currentCareySubTab = CareyUI::SubTab::Lego;
     currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
@@ -391,7 +391,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
             if (foundationState->hasProperty("standaloneBpm"))
                 legacyStandaloneBpm = static_cast<double>(foundationState->getProperty("standaloneBpm"));
     }
-    else if (initialTab == ModelTab::Carey && currentCareySubTab == CareyUI::SubTab::Complete)
+    else if (initialTab == ModelTab::Carey && currentCareySubTab == CareyUI::SubTab::Continue)
         legacyStandaloneBpm = currentCareyCompleteBpm;
 
     currentStandaloneBpm = juce::jlimit(40.0, 240.0,
@@ -1351,7 +1351,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentCareySubTab = tab;
         if (tab == CareyUI::SubTab::Lego
-            || tab == CareyUI::SubTab::Complete
+            || tab == CareyUI::SubTab::Continue
+            || tab == CareyUI::SubTab::Generate
             || tab == CareyUI::SubTab::Cover)
             refreshCareyAvailableLoras(true);
         resized();
@@ -1434,6 +1435,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentCareyCompleteDurationSeconds = juce::jlimit(30, maximumSeconds, seconds);
     };
     careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
+    careyUI->onGenerateGenerate = [this]() { sendToCareyGenerate(); };
     // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
 
@@ -1525,7 +1527,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setLastSeed(currentCareyLastSeed);
     careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
     syncCareyLoraUi();
-    careyUI->setGenerateButtonEnabled(false, false);
+    careyUI->setGenerateButtonEnabled(false, false, false);
 
     // Restore persisted lyrics + language from processor (shared across all tabs)
     currentCareyLyrics = audioProcessor.getCareyLyrics();
@@ -8821,7 +8823,8 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
                 switch (careyUI->getCurrentSubTab())
                 {
                 case CareyUI::SubTab::Lego:     advancedOpen = careyUI->getLegoAdvancedOpen(); break;
-                case CareyUI::SubTab::Complete: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
+                case CareyUI::SubTab::Continue:
+                case CareyUI::SubTab::Generate: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
                 case CareyUI::SubTab::Cover:    advancedOpen = careyUI->getCoverAdvancedOpen(); break;
                 case CareyUI::SubTab::Extract:  advancedOpen = careyUI->getExtractAdvancedOpen(); break;
                 }

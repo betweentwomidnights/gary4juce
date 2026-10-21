@@ -232,7 +232,10 @@ CareyUI::CareyUI()
 
     prepareSubTabButton(legoSubTabButton, juce::String::fromUTF8("lego \xe2\x9a\xa0"), SubTab::Lego);
     legoSubTabButton.setTooltip("it seems lego mode doesn't work well with xl models, which sucks if you want the model to adhere to lyrics well. we default to ace-step-v15-base");
-    prepareSubTabButton(completeSubTabButton, "complete", SubTab::Complete);
+    prepareSubTabButton(generateSubTabButton, "generate", SubTab::Generate);
+    generateSubTabButton.setTooltip("a new piece from the caption and lyrics alone, no recording needed");
+    prepareSubTabButton(completeSubTabButton, "continue", SubTab::Continue);
+    completeSubTabButton.setTooltip("keeps your recording and extends it to the target length");
     prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
     coverSubTabButton.setTooltip("works best with xl models, and is the most fun when using a lora");
     prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
@@ -764,12 +767,13 @@ CareyUI::CareyUI()
 
     completeGenerateButton.setButtonText("continue with carey");
     completeGenerateButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
-    completeGenerateButton.setTooltip("complete mode request wiring in progress");
+    completeGenerateButton.setTooltip({});
     completeGenerateButton.setEnabled(false);
     completeGenerateButton.onClick = [this]()
     {
-        if (onCompleteGenerate)
-            onCompleteGenerate();
+        const auto& handler = currentSubTab == SubTab::Generate ? onGenerateGenerate : onCompleteGenerate;
+        if (handler)
+            handler();
     };
     addToContent(completeGenerateButton);
 
@@ -1364,7 +1368,8 @@ void CareyUI::resized()
 
     area.removeFromTop(6);
     auto subTabRow = area.removeFromTop(30);
-    const int tabWidth = subTabRow.getWidth() / (kExtractTabVisible ? 4 : 3);
+    const int tabWidth = subTabRow.getWidth() / (kExtractTabVisible ? 5 : 4);
+    generateSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     legoSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     completeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     if constexpr (kExtractTabVisible)
@@ -1430,6 +1435,7 @@ void CareyUI::setCurrentSubTabInternal(SubTab tab, bool notify)
 
     currentSubTab = tab;
     updateSubTabButtonStyles();
+    setGenerateButtonEnabled(lastBackendOnline, lastHasInputAudio, lastIsGenerating);
     resized();
 
     if (notify && onSubTabChanged)
@@ -1438,9 +1444,11 @@ void CareyUI::setCurrentSubTabInternal(SubTab tab, bool notify)
 
 void CareyUI::updateSubTabButtonStyles()
 {
+    generateSubTabButton.setButtonStyle(currentSubTab == SubTab::Generate
+        ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     legoSubTabButton.setButtonStyle(currentSubTab == SubTab::Lego
         ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
-    completeSubTabButton.setButtonStyle(currentSubTab == SubTab::Complete
+    completeSubTabButton.setButtonStyle(currentSubTab == SubTab::Continue
         ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     coverSubTabButton.setButtonStyle(currentSubTab == SubTab::Cover
         ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
@@ -1460,7 +1468,9 @@ void CareyUI::updateContentLayout()
     const int contentWidth = juce::jmax(220, viewportWidth - scrollbarWidth - 4);
 
     const bool showingLego = (currentSubTab == SubTab::Lego);
-    const bool showingComplete = (currentSubTab == SubTab::Complete);
+    // Generate shares continue's panel, less what concerns a recording.
+    const bool showingComplete = (currentSubTab == SubTab::Continue || currentSubTab == SubTab::Generate);
+    const bool showingGenerate = (currentSubTab == SubTab::Generate);
     const bool showingCover = (currentSubTab == SubTab::Cover);
     const bool showingExtract = (currentSubTab == SubTab::Extract);
     setLegoControlsVisible(showingLego);
@@ -1643,8 +1653,11 @@ void CareyUI::updateContentLayout()
             completeDurationSlider.setBounds(durationRow);
             y += 36;
 
-            completeUseSrcAsRefToggle.setBounds(fullRow(22));
-            y += 30;
+            if (!showingGenerate)
+            {
+                completeUseSrcAsRefToggle.setBounds(fullRow(22));
+                y += 30;
+            }
 
             auto seedRow = fullRow(22);
             useSeedToggle.setBounds(seedRow.removeFromLeft(92));
@@ -1660,6 +1673,10 @@ void CareyUI::updateContentLayout()
         completeGenerateButton.setBounds(completeGenerateRow);
         y += 44;
 
+        completeInfoLabel.setText(showingGenerate
+            ? "generate makes a new piece from the caption and lyrics, no recording needed."
+            : "continue extends your audio to the target length. use dice for ideas and lyrics when needed.",
+            juce::dontSendNotification);
         completeInfoLabel.setBounds(fullRow(32));
         y += 40;
     }
@@ -1872,7 +1889,7 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
     completeCfgSlider.setVisible(showAdvanced);
     completeDurationLabel.setVisible(showAdvanced);
     completeDurationSlider.setVisible(showAdvanced);
-    completeUseSrcAsRefToggle.setVisible(showAdvanced);
+    completeUseSrcAsRefToggle.setVisible(showAdvanced && currentSubTab != SubTab::Generate);
 }
 
 void CareyUI::updateCompleteModelControls(bool notify)
