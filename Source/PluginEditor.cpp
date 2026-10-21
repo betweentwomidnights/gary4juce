@@ -157,6 +157,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("careyCompleteCaption", currentCareyCompleteCaption);
     state->setProperty("careyCompleteLora", currentCareyCompleteLora);
     state->setProperty("careyCompleteModel", currentCareyCompleteModel);
+    state->setProperty("careyXl", currentCareyXl);
     state->setProperty("careyCompleteBpm", currentStandaloneBpm);
     state->setProperty("careyCompleteSteps", currentCareyCompleteSteps);
     state->setProperty("careyCompleteCfg", currentCompleteCfg);
@@ -375,6 +376,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentCareyCompleteCaption = readString("careyCompleteCaption", currentCareyCompleteCaption);
     currentCareyCompleteLora = readString("careyCompleteLora", currentCareyCompleteLora);
     currentCareyCompleteModel = readString("careyCompleteModel", currentCareyCompleteModel);
+    // Before v5.1 the size followed the backend: XL on the remote one, 2B locally.
+    currentCareyXl = readBool("careyXl", currentCareyCompleteModel.startsWith("xl-") || !audioProcessor.getIsUsingLocalhost());
     currentCareyCompleteBpm = readInt("careyCompleteBpm", currentCareyCompleteBpm);
     double legacyStandaloneBpm = currentJerryManualBpm;
     if (initialTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
@@ -1493,10 +1496,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
     careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
-    careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
-    careyUI->setCoverRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
-    careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
+    careyUI->setExtractRemoteGenerationEnabled(true);
+    careyUI->setModelFamilyXl(currentCareyXl);
+    careyUI->onModelFamilyChanged = [this](bool xl)
+    {
+        currentCareyXl = xl;
+        applyCareyModelFamily();
+    };
     careyUI->setCoverModel(currentCoverModel);
     careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);

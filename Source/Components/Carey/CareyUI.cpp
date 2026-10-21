@@ -239,6 +239,23 @@ CareyUI::CareyUI()
     extractSubTabButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
     extractSubTabButton.setVisible(kExtractTabVisible);
 
+    auto prepareFamilyButton = [this](CustomButton& button, const juce::String& text, bool xl)
+    {
+        button.setButtonText(text);
+        button.onClick = [this, xl]()
+        {
+            if (modelFamilyXl == xl)
+                return;
+            setModelFamilyXl(xl);
+            if (onModelFamilyChanged)
+                onModelFamilyChanged(modelFamilyXl);
+        };
+        addAndMakeVisible(button);
+    };
+    prepareFamilyButton(modelFamily2bButton, "2B", false);
+    prepareFamilyButton(modelFamilyXlButton, "XL", true);
+    updateModelFamilyButtons();
+
     keyScaleLabel.setText("key", juce::dontSendNotification);
     keyScaleLabel.setFont(juce::FontOptions(11.0f));
     keyScaleLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
@@ -661,11 +678,11 @@ CareyUI::CareyUI()
     addToContent(completeModelLabel);
 
     completeTurboModelToggle.setToggleState(true, juce::dontSendNotification);
-    completeTurboModelToggle.onClick = [this]() { setCompleteModel(completeRemoteModelSelectionEnabled ? "xl-turbo" : "turbo"); };
+    completeTurboModelToggle.onClick = [this]() { setCompleteModel("turbo"); };
     addToContent(completeTurboModelToggle);
 
     completeBaseModelToggle.setToggleState(false, juce::dontSendNotification);
-    completeBaseModelToggle.onClick = [this]() { setCompleteModel(completeRemoteModelSelectionEnabled ? "xl-base" : "base"); };
+    completeBaseModelToggle.onClick = [this]() { setCompleteModel("base"); };
     addToContent(completeBaseModelToggle);
 
     completeSftModelToggle.setToggleState(false, juce::dontSendNotification);
@@ -891,11 +908,11 @@ CareyUI::CareyUI()
     addToContent(coverModelLabel);
 
     coverTurboModelToggle.setToggleState(true, juce::dontSendNotification);
-    coverTurboModelToggle.onClick = [this]() { setCoverModel(coverRemoteModelSelectionEnabled ? "xl-turbo" : "turbo"); };
+    coverTurboModelToggle.onClick = [this]() { setCoverModel("turbo"); };
     addToContent(coverTurboModelToggle);
 
     coverBaseModelToggle.setToggleState(false, juce::dontSendNotification);
-    coverBaseModelToggle.onClick = [this]() { setCoverModel(coverRemoteModelSelectionEnabled ? "xl-base" : "base"); };
+    coverBaseModelToggle.onClick = [this]() { setCoverModel("base"); };
     addToContent(coverBaseModelToggle);
 
     coverNoiseStrengthLabel.setText("noise strength", juce::dontSendNotification);
@@ -1135,9 +1152,6 @@ CareyUI::CareyUI()
 
 juce::String CareyUI::getCompleteModel() const
 {
-    if (completeRemoteModelSelectionEnabled)
-        return completeBaseModelToggle.getToggleState() ? "xl-base" : "xl-turbo";
-
     if (completeSftModelToggle.getToggleState())
         return "sft";
     if (completeBaseModelToggle.getToggleState())
@@ -1152,20 +1166,55 @@ void CareyUI::setCompleteModel(const juce::String& model)
     const bool useSftModel = !useTurboModel && normalized.contains("sft");
     const bool useBaseModel = !useTurboModel && !useSftModel;
 
-    if (completeRemoteModelSelectionEnabled)
-    {
-        completeTurboModelToggle.setToggleState(useTurboModel, juce::dontSendNotification);
-        completeBaseModelToggle.setToggleState(!useTurboModel, juce::dontSendNotification);
-        completeSftModelToggle.setToggleState(false, juce::dontSendNotification);
-    }
-    else
-    {
-        completeTurboModelToggle.setToggleState(useTurboModel, juce::dontSendNotification);
-        completeBaseModelToggle.setToggleState(useBaseModel, juce::dontSendNotification);
-        completeSftModelToggle.setToggleState(useSftModel, juce::dontSendNotification);
-    }
+    completeTurboModelToggle.setToggleState(useTurboModel, juce::dontSendNotification);
+    completeBaseModelToggle.setToggleState(useBaseModel, juce::dontSendNotification);
+    completeSftModelToggle.setToggleState(useSftModel, juce::dontSendNotification);
 
     updateCompleteModelControls(true);
+}
+
+void CareyUI::setAvailableDits(const juce::StringArray& dits)
+{
+    availableDits = dits;
+    updateModelFamilyButtons();
+    updateCompleteModelControls(false);
+    updateCoverModelControls(false);
+}
+
+void CareyUI::setModelFamilyXl(bool xl)
+{
+    modelFamilyXl = xl;
+    updateModelFamilyButtons();
+    updateCompleteModelControls(false);
+    updateCoverModelControls(false);
+}
+
+// Whether the backend lists `variant` (base, sft or turbo) in the chosen
+// family. Before the backend has answered, every variant counts.
+bool CareyUI::isVariantAvailable(const juce::String& variant) const
+{
+    return availableDits.isEmpty() || carey_native::resolveDit(availableDits, variant, modelFamilyXl).isNotEmpty();
+}
+
+void CareyUI::updateModelFamilyButtons()
+{
+    const auto familyAvailable = [this](bool xl)
+    {
+        if (availableDits.isEmpty())
+            return true;
+        for (const auto* variant : { "base", "sft", "turbo" })
+            if (carey_native::resolveDit(availableDits, variant, xl).isNotEmpty())
+                return true;
+        return false;
+    };
+    modelFamily2bButton.setEnabled(familyAvailable(false));
+    modelFamilyXlButton.setEnabled(familyAvailable(true));
+    modelFamily2bButton.setButtonStyle(!modelFamilyXl ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+    modelFamilyXlButton.setButtonStyle(modelFamilyXl ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+    const juce::String tip = "model size for every carey mode: 2B is lighter, XL (4B) sounds richer and needs about 16 GB of VRAM. "
+                             "loras only work on the size they were trained on. download models in gary4local.";
+    modelFamily2bButton.setTooltip(familyAvailable(false) ? tip : "no 2B carey models on this backend. " + tip);
+    modelFamilyXlButton.setTooltip(familyAvailable(true) ? tip : "no XL carey models on this backend. " + tip);
 }
 
 void CareyUI::setCompleteMaximumDurationSeconds(int seconds)
@@ -1186,41 +1235,25 @@ void CareyUI::setCompleteMaximumDurationSeconds(int seconds)
 
 void CareyUI::updateCompleteModelSelectorCopy()
 {
-    if (completeRemoteModelSelectionEnabled)
-    {
-        completeModelLabel.setTooltip("remote complete model: xl-turbo is fixed at 8 steps / cfg 1.0; xl-base keeps editable steps and cfg.");
+    const juce::String missing = " this backend has no such model at the chosen size; download it in gary4local.";
+    completeModelLabel.setTooltip("turbo is fixed at 8 steps / cfg 1.0. base and sft keep editable steps and cfg. the 2B / XL buttons above pick the size.");
 
-        completeTurboModelToggle.setButtonText("xl-turbo");
-        completeTurboModelToggle.setTooltip("fast remote complete model, fixed at 8 steps and cfg 1.0.");
+    completeTurboModelToggle.setButtonText("turbo");
+    completeTurboModelToggle.setTooltip("fast model, fixed at 8 steps and cfg 1.0." + juce::String(isVariantAvailable("turbo") ? "" : missing));
+    completeTurboModelToggle.setEnabled(isVariantAvailable("turbo"));
 
-        completeBaseModelToggle.setButtonText("xl-base");
-        completeBaseModelToggle.setTooltip("remote complete base model with editable steps and cfg.");
+    completeBaseModelToggle.setButtonText("base");
+    completeBaseModelToggle.setTooltip("base model with editable steps and cfg." + juce::String(isVariantAvailable("base") ? "" : missing));
+    completeBaseModelToggle.setEnabled(isVariantAvailable("base"));
 
-        completeSftModelToggle.setButtonText("sft");
-        completeSftModelToggle.setTooltip({});
-    }
-    else
-    {
-        const juce::String localHint = "if you want the xl variants instead, toggle carey xl models in gary4local. recommended: 16 GB VRAM.";
-
-        completeModelLabel.setTooltip("localhost complete model: turbo is fixed at 8 steps / cfg 1.0. base and sft keep editable steps and cfg. " + localHint);
-
-        completeTurboModelToggle.setButtonText("turbo");
-        completeTurboModelToggle.setTooltip("fast localhost complete model, fixed at 8 steps and cfg 1.0. " + localHint);
-
-        completeBaseModelToggle.setButtonText("base");
-        completeBaseModelToggle.setTooltip("localhost complete base model with editable steps and cfg. " + localHint);
-
-        completeSftModelToggle.setButtonText("sft");
-        completeSftModelToggle.setTooltip("localhost complete sft model with editable steps and cfg. " + localHint);
-    }
+    completeSftModelToggle.setButtonText("sft");
+    completeSftModelToggle.setTooltip("sft model with editable steps and cfg." + juce::String(isVariantAvailable("sft") ? "" : missing));
+    completeSftModelToggle.setEnabled(isVariantAvailable("sft"));
 }
 
 juce::String CareyUI::getCoverModel() const
 {
-    return coverBaseModelToggle.getToggleState()
-        ? (coverRemoteModelSelectionEnabled ? "xl-base" : "base")
-        : (coverRemoteModelSelectionEnabled ? "xl-turbo" : "turbo");
+    return coverBaseModelToggle.getToggleState() ? "base" : "turbo";
 }
 
 void CareyUI::setCoverModel(const juce::String& model)
@@ -1241,21 +1274,10 @@ void CareyUI::setCoverModelSelectionEnabled(bool enabled)
 
     coverModelSelectionEnabled = enabled;
     if (!coverModelSelectionEnabled)
-        setCoverModel(coverRemoteModelSelectionEnabled ? "xl-turbo" : "turbo");
+        setCoverModel("turbo");
     else
         updateCoverModelControls(true);
 
-    updateContentLayout();
-}
-
-void CareyUI::setCoverRemoteModelSelectionEnabled(bool enabled)
-{
-    const juce::String currentModel = getCoverModel();
-    if (coverRemoteModelSelectionEnabled == enabled)
-        return;
-
-    coverRemoteModelSelectionEnabled = enabled;
-    setCoverModel(currentModel);
     updateContentLayout();
 }
 
@@ -1277,28 +1299,16 @@ void CareyUI::setCoverCfg(double value)
 
 void CareyUI::updateCoverModelSelectorCopy()
 {
-    if (coverRemoteModelSelectionEnabled)
-    {
-        coverModelLabel.setTooltip("remote cover model: xl-turbo is fixed at 8 steps / cfg 1.0; xl-base unlocks editable steps and cfg.");
+    const juce::String missing = " this backend has no such model at the chosen size; download it in gary4local.";
+    coverModelLabel.setTooltip("turbo is fixed at 8 steps / cfg 1.0. base unlocks editable steps and cfg. the 2B / XL buttons above pick the size.");
 
-        coverTurboModelToggle.setButtonText("xl-turbo");
-        coverTurboModelToggle.setTooltip("fast remote cover model, fixed at 8 steps and cfg 1.0.");
+    coverTurboModelToggle.setButtonText("turbo");
+    coverTurboModelToggle.setTooltip("fast model, fixed at 8 steps and cfg 1.0." + juce::String(isVariantAvailable("turbo") ? "" : missing));
+    coverTurboModelToggle.setEnabled(isVariantAvailable("turbo"));
 
-        coverBaseModelToggle.setButtonText("xl-base");
-        coverBaseModelToggle.setTooltip("remote cover base model with editable steps and cfg.");
-    }
-    else
-    {
-        const juce::String localHint = "if you want the xl variants instead, toggle carey xl models in gary4local. recommended: 16 GB VRAM.";
-
-        coverModelLabel.setTooltip("localhost cover model: turbo is fixed at 8 steps / cfg 1.0. base keeps editable steps and cfg. " + localHint);
-
-        coverTurboModelToggle.setButtonText("turbo");
-        coverTurboModelToggle.setTooltip("fast localhost cover model, fixed at 8 steps and cfg 1.0. " + localHint);
-
-        coverBaseModelToggle.setButtonText("base");
-        coverBaseModelToggle.setTooltip("localhost cover base model with editable steps and cfg. " + localHint);
-    }
+    coverBaseModelToggle.setButtonText("base");
+    coverBaseModelToggle.setTooltip("base model with editable steps and cfg." + juce::String(isVariantAvailable("base") ? "" : missing));
+    coverBaseModelToggle.setEnabled(isVariantAvailable("base"));
 }
 
 CareyUI::~CareyUI()
@@ -1375,9 +1385,13 @@ void CareyUI::resized()
     timeSigComboBox.setVisible(showGlobalMusicFields);
 
     area.removeFromTop(4);
+    auto keyRow = area.removeFromTop(22);
+    modelFamilyXlButton.setBounds(keyRow.removeFromRight(34));
+    keyRow.removeFromRight(2);
+    modelFamily2bButton.setBounds(keyRow.removeFromRight(34));
+    keyRow.removeFromRight(6);
     if (showGlobalMusicFields)
     {
-        auto keyRow = area.removeFromTop(22);
         keyScaleLabel.setBounds(keyRow.removeFromLeft(26));
         keyRow.removeFromLeft(4);
         keyRootComboBox.setBounds(keyRow.removeFromLeft(72));
@@ -1390,13 +1404,8 @@ void CareyUI::resized()
         timeSigLabel.setBounds(keyRow.removeFromLeft(30));
         keyRow.removeFromLeft(4);
         timeSigComboBox.setBounds(keyRow.removeFromLeft(68));
-
-        area.removeFromTop(4);
     }
-    else
-    {
-        area.removeFromTop(2);
-    }
+    area.removeFromTop(4);
 
     if (contentViewport != nullptr)
         contentViewport->setBounds(area);
@@ -1592,18 +1601,15 @@ void CareyUI::updateContentLayout()
         {
             auto modelRow = fullRow(28);
             completeModelLabel.setBounds(modelRow.removeFromLeft(110));
-            const int toggleCount = completeRemoteModelSelectionEnabled ? 2 : 3;
+            const int toggleCount = 3;
             const int toggleGap = 8;
             const int totalGap = toggleGap * (toggleCount - 1);
             const int toggleWidth = (modelRow.getWidth() - totalGap) / toggleCount;
             completeTurboModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
             modelRow.removeFromLeft(toggleGap);
             completeBaseModelToggle.setBounds(modelRow.removeFromLeft(toggleWidth));
-            if (!completeRemoteModelSelectionEnabled)
-            {
-                modelRow.removeFromLeft(toggleGap);
-                completeSftModelToggle.setBounds(modelRow);
-            }
+            modelRow.removeFromLeft(toggleGap);
+            completeSftModelToggle.setBounds(modelRow);
             y += 36;
 
             completeUseLoraToggle.setBounds(fullRow(22));
@@ -1858,7 +1864,7 @@ void CareyUI::setCompleteControlsVisible(bool shouldBeVisible)
     completeModelLabel.setVisible(showAdvanced);
     completeTurboModelToggle.setVisible(showAdvanced);
     completeBaseModelToggle.setVisible(showAdvanced);
-    completeSftModelToggle.setVisible(showAdvanced && !completeRemoteModelSelectionEnabled);
+    completeSftModelToggle.setVisible(showAdvanced);
     completeBpmControl.setVisible(shouldBeVisible && isStandalone);
     completeStepsLabel.setVisible(showAdvanced);
     completeStepsSlider.setVisible(showAdvanced);
@@ -2189,13 +2195,13 @@ void CareyUI::initializeTrackOptions()
     addTrackOption(trackOptionValues, trackComboBox, "drums", "drums");
     addTrackOption(trackOptionValues, trackComboBox, "bass", "bass");
     addTrackOption(trackOptionValues, trackComboBox, "guitar", "guitar");
-    addTrackOption(trackOptionValues, trackComboBox, "piano", "piano");
     addTrackOption(trackOptionValues, trackComboBox, "strings", "strings");
     addTrackOption(trackOptionValues, trackComboBox, "synth", "synth");
     addTrackOption(trackOptionValues, trackComboBox, "keyboard", "keyboard");
     addTrackOption(trackOptionValues, trackComboBox, "percussion", "percussion");
     addTrackOption(trackOptionValues, trackComboBox, "brass", "brass");
     addTrackOption(trackOptionValues, trackComboBox, "woodwinds", "woodwinds");
+    addTrackOption(trackOptionValues, trackComboBox, "fx", "fx");
 }
 
 void CareyUI::initializeExtractTrackOptions()
@@ -2207,7 +2213,6 @@ void CareyUI::initializeExtractTrackOptions()
     addTrackOption(extractTrackOptionValues, extractTrackComboBox, "backing vocals" + warningSuffix, "backing_vocals");
     addTrackOption(extractTrackOptionValues, extractTrackComboBox, "bass" + warningSuffix, "bass");
     addTrackOption(extractTrackOptionValues, extractTrackComboBox, "guitar" + warningSuffix, "guitar");
-    addTrackOption(extractTrackOptionValues, extractTrackComboBox, "piano" + warningSuffix, "piano");
     addTrackOption(extractTrackOptionValues, extractTrackComboBox, "synth" + warningSuffix, "synth");
     addTrackOption(extractTrackOptionValues, extractTrackComboBox, "keyboard" + warningSuffix, "keyboard");
     addTrackOption(extractTrackOptionValues, extractTrackComboBox, "strings" + warningSuffix, "strings");
@@ -2406,8 +2411,6 @@ juce::StringArray CareyUI::getLegoPromptBankForTrack(const juce::String& trackNa
         return { "synthwave bass line", "funk slap bass", "dub reggae bass", "motown bass groove" };
     if (track == "guitar")
         return { "funk rhythm guitar", "surf rock guitar riff", "shoegaze guitar wash", "folk acoustic guitar" };
-    if (track == "piano")
-        return { "jazzy piano chords", "gospel piano vamp", "neo-soul rhodes chords", "classical piano arpeggios" };
     if (track == "strings")
         return { "cinematic string swell", "disco string stabs", "baroque violin line", "romantic cello melody" };
     if (track == "synth")
@@ -2420,6 +2423,8 @@ juce::StringArray CareyUI::getLegoPromptBankForTrack(const juce::String& trackNa
         return { "jazzy trumpet solo", "funky horn stabs", "soul brass section", "muted trumpet melody" };
     if (track == "woodwinds")
         return { "bossa flute melody", "swing clarinet line", "jazzy saxophone solo", "folk woodwind harmony" };
+    if (track == "fx")
+        return { "cinematic riser and impact fx", "tape stop and vinyl crackle fx", "ambient texture swells", "glitchy stutter fx" };
 
     return {
         "supporting stem with clear articulation, musical phrasing, controlled dynamics, and cohesive mix balance"

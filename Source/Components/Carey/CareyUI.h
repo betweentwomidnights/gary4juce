@@ -12,6 +12,7 @@
 #include "../Base/BpmControl.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
+#include "../../PluginEditorCareyHelpers.h"
 
 #include <functional>
 #include <vector>
@@ -69,6 +70,10 @@ public:
     SubTab getCurrentSubTab() const { return currentSubTab; }
     void applyRandomCompleteCaption();
     void applyRandomCoverCaption();
+    juce::String randomLegoCaptionForTrack(const juce::String& trackName)
+    {
+        return pickRandomCaption(getLegoPromptBankForTrack(trackName), "supporting stem with musical clarity");
+    }
 
     juce::String getCaptionText() const
     {
@@ -179,7 +184,10 @@ public:
 
     void setTrackName(const juce::String& trackName)
     {
-        const int trackIndex = findTrackIndex(trackOptionValues, trackName.trim().toLowerCase());
+        juce::String track = trackName.trim().toLowerCase();
+        if (track == "piano")  // not an ace-step track name; sessions before v5.1 could save it
+            track = "keyboard";
+        const int trackIndex = findTrackIndex(trackOptionValues, track);
         trackComboBox.setSelectedId(trackIndex >= 0 ? trackIndex + 1 : 1, juce::dontSendNotification);
     }
 
@@ -311,16 +319,11 @@ public:
 
     void setCompleteModel(const juce::String& model);
 
-    void setCompleteRemoteModelSelectionEnabled(bool enabled)
-    {
-        const juce::String currentModel = getCompleteModel();
-        if (completeRemoteModelSelectionEnabled == enabled)
-            return;
-
-        completeRemoteModelSelectionEnabled = enabled;
-        setCompleteModel(currentModel);
-        updateContentLayout();
-    }
+    // The DiTs the backend lists in GET /props. They decide which model
+    // family (2B or XL) and which variants (base, sft, turbo) can be chosen.
+    void setAvailableDits(const juce::StringArray& dits);
+    bool getModelFamilyXl() const { return modelFamilyXl; }
+    void setModelFamilyXl(bool xl);
 
     void setExtractRemoteGenerationEnabled(bool enabled)
     {
@@ -401,7 +404,6 @@ public:
     void setAvailableCoverLoras(const juce::StringArray& loraNames);
     void setCoverModel(const juce::String& model);
     void setCoverModelSelectionEnabled(bool enabled);
-    void setCoverRemoteModelSelectionEnabled(bool enabled);
     void setCoverSelectedLora(const juce::String& loraName)
     {
         const int loraIndex = findTrackIndex(coverLoraOptionValues, loraName.trim());
@@ -594,6 +596,7 @@ public:
 
     std::function<void(const juce::String&)> onKeyScaleChanged;
     std::function<void(const juce::String&)> onTimeSigChanged;
+    std::function<void(bool)> onModelFamilyChanged;
 
 private:
     void addToContent(juce::Component& component);
@@ -607,6 +610,8 @@ private:
     void setCoverControlsVisible(bool shouldBeVisible);
     void updateCoverModelControls(bool notify);
     void updateCoverModelSelectorCopy();
+    void updateModelFamilyButtons();
+    bool isVariantAvailable(const juce::String& variant) const;
     void setExtractControlsVisible(bool shouldBeVisible);
     void onKeyScaleSelectionChanged();
     void initializeTrackOptions();
@@ -698,6 +703,11 @@ private:
     CustomButton completeGenerateButton;
     juce::Label completeInfoLabel;
 
+    CustomButton modelFamily2bButton;
+    CustomButton modelFamilyXlButton;
+    bool modelFamilyXl = false;
+    juce::StringArray availableDits;
+
     juce::Label keyScaleLabel;
     juce::Label timeSigLabel;
     CustomComboBox timeSigComboBox;
@@ -759,9 +769,7 @@ private:
     bool completeAdvancedOpen = false;
     bool coverAdvancedOpen = false;
     bool extractAdvancedOpen = false;
-    bool completeRemoteModelSelectionEnabled = false;
     bool coverModelSelectionEnabled = true;
-    bool coverRemoteModelSelectionEnabled = true;
     bool extractRemoteGenerationEnabled = true;
     juce::Component::SafePointer<juce::TextEditor> activeCaptionPopoutEditor;
     CaptionPopoutTarget activeCaptionPopoutTarget = CaptionPopoutTarget::None;
