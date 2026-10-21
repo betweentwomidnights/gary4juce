@@ -2777,7 +2777,8 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     g.setColour(juce::Colour(0x40, 0x40, 0x40));
     g.drawRect(area, 1);
 
-    if (recordedSamples <= 0)
+    // A take that has just started has no samples yet, but its lane and label belong on screen.
+    if (recordedSamples <= 0 && !isRecording)
     {
         // Show "waiting" state with different message based on plugin mode
         g.setFont(juce::FontOptions(14.0f));
@@ -2818,12 +2819,11 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
     const double totalDuration = getInputWaveformDisplayDuration();
 
-    // Pixel calculations with safety checks
-    const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
-
-    // Early exit if nothing to draw
-    if (recordedPixels <= 0)
-        return;
+    // Pixel calculations with safety checks. A recording shows from its first sample: with a long
+    // saved buffer the axis spans minutes, and a pixel can be most of a second.
+    const int recordedPixels = recordedSamples > 0
+        ? juce::jlimit(1, waveWidth, (int)((recordedDuration / totalDuration) * waveWidth))
+        : 0;
 
     // Safe samples per pixel calculation - avoid division by zero
     const int samplesPerPixel = (recordedPixels > 0) ? juce::jmax(1, recordedSamples / recordedPixels) : 1;
@@ -2929,13 +2929,13 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     {
         const juce::String label = savedBufferPreview.peaks.empty() ? "unsaved - save buffer to use it"
                                                                     : "unsaved - models use the saved buffer below";
-        const juce::FontOptions labelFont(11.0f);
-        const int labelWidth = juce::jmin(area.getWidth() - 8,
-            juce::roundToInt(juce::GlyphArrangement::getStringWidth(juce::Font(labelFont), label)) + 10);
+        // Measured in the font it is drawn with (the look and feel's), clear of the folder icon.
+        g.setFont(juce::FontOptions(11.0f));
+        const int textWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), label)));
+        const int labelWidth = juce::jmin(area.getWidth() - 44, textWidth + 12);
         const auto labelArea = juce::Rectangle<int>(area.getX() + 3, area.getY() + 3, labelWidth, 14);
         g.setColour(juce::Colours::black.withAlpha(0.7f));
         g.fillRect(labelArea);
-        g.setFont(labelFont);
         g.setColour(juce::Colour(0xffef9f27));
         g.drawText(label, labelArea.reduced(5, 0), juce::Justification::centredLeft, true);
     }
