@@ -764,6 +764,10 @@ private:
     void saveRecordingBuffer();
     void clearRecordingBuffer();
     void drawWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
+    void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area, double totalDuration);
+    void refreshSavedBufferPreview();
+    bool loadSavedBufferForInputPlayback();
+    bool inputPlaybackIsCurrent() const;
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
     juce::String cleanCareyQueueMessage(const juce::String& raw);
     void sendToGary();
@@ -827,6 +831,21 @@ private:
     double currentInputPlaybackPosition = 0.0;
     double inputPlaybackDuration = 0.0;
     int inputPlaybackSnapshotSamples = 0;
+    juce::Time inputPlaybackFileTime;   // the myBuffer.wav the input player loaded
+
+    // The saved buffer (myBuffer.wav), drawn along the bottom of the recording waveform while
+    // the take above it is unsaved: one peak per column, read in the background whenever the
+    // file changes.
+    struct SavedBufferPreview
+    {
+        juce::String path;
+        juce::Time modified;
+        juce::int64 size = 0;
+        double seconds = 0.0;
+        std::vector<float> peaks;
+    };
+    SavedBufferPreview savedBufferPreview;
+    std::atomic<bool> savedBufferPreviewLoading { false };
 
     // Playback cursor tracking
     double currentPlaybackPosition = 0.0;  // Current position in seconds
