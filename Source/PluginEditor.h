@@ -609,6 +609,7 @@ private:
     void stemsHandleClicked(bool fromRecordingBuffer);   // the popup, or its settings until set up
     void checkStemPlaybackStatus();
     void showStemsDialog(bool fromRecordingBuffer);
+    bool hasSavedRecordingBuffer() const;
     void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
     void toggleStemPlayback(const juce::File& stem);
     void stopStemPlayback(const juce::File& stem);
