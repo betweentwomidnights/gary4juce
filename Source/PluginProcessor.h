@@ -73,6 +73,9 @@ public:
     // State management methods
     void setSavedSamples(int samples) { savedSamples = samples; }
     int getSavedSamples() const { return savedSamples.load(); }
+    // Whether the recording buffer holds a take that myBuffer.wav does not: set when a take
+    // starts or audio is loaded, cleared when the buffer is saved.
+    bool isRecordingUnsaved() const { return recordingUnsaved.load(std::memory_order_acquire); }
     
     void setTransformRecording(bool useRecording) { transformRecording = useRecording; }
     bool getTransformRecording() const { return transformRecording.load(); }
@@ -186,6 +189,7 @@ private:
     std::atomic<bool> atomicRecording{ false };
     std::atomic<bool> recordingStartPending{ false };
     std::atomic<bool> recordingStopPending{ false };
+    std::atomic<bool> recordingUnsaved{ false };
 
     // Recording buffer state
     juce::AudioBuffer<float> recordingBuffer;
