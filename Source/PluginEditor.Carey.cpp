@@ -315,6 +315,21 @@ juce::String Gary4juceAudioProcessorEditor::getSelectedCareyCompleteLora() const
     return {};
 }
 
+juce::String Gary4juceAudioProcessorEditor::getSelectedCareyArrangeLora() const
+{
+    if (!currentCareyArrangeUseLora)
+        return {};
+
+    const juce::String requestedLora = currentCareyArrangeLora.trim();
+    for (const auto& availableLora : availableCareyLoras)
+    {
+        if (requestedLora.isNotEmpty() && availableLora.equalsIgnoreCase(requestedLora))
+            return availableLora;
+    }
+
+    return {};
+}
+
 juce::String Gary4juceAudioProcessorEditor::getSelectedCareyCoverLora() const
 {
     if (!currentCoverUseLora)
@@ -352,6 +367,10 @@ void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
     careyUI->setCoverSelectedLora(currentCoverLora);
     careyUI->setCoverLoraScale(currentCoverLoraScale);
     careyUI->setCoverUseLora(currentCoverUseLora);
+    careyUI->setAvailableArrangeLoras(availableCareyLoras);
+    careyUI->setArrangeSelectedLora(currentCareyArrangeLora);
+    careyUI->setArrangeLoraScale(currentCareyArrangeLoraScale);
+    careyUI->setArrangeUseLora(currentCareyArrangeUseLora);
 }
 
 // Offer the LoRAs trained on the chosen model size, plus any whose size the
@@ -395,12 +414,14 @@ void Gary4juceAudioProcessorEditor::applyCareyModelFamily()
     keepChoice(currentCareyLegoLora);
     keepChoice(currentCareyCompleteLora);
     keepChoice(currentCoverLora);
+    keepChoice(currentCareyArrangeLora);
 
     if (availableCareyLoras.isEmpty())
     {
         currentCareyLegoUseLora = false;
         currentCareyCompleteUseLora = false;
         currentCoverUseLora = false;
+        currentCareyArrangeUseLora = false;
     }
 
     syncCareyLoraUi();
@@ -498,6 +519,22 @@ void Gary4juceAudioProcessorEditor::requestCareyCoverCaption()
         return;
     }
     careyUI->applyRandomCoverCaption();
+}
+
+void Gary4juceAudioProcessorEditor::requestCareyArrangeCaption()
+{
+    if (!careyUI)
+        return;
+
+    const juce::String lora = getSelectedCareyArrangeLora();
+    const juce::String caption = lora.isNotEmpty() ? randomCareyLoraCaption(lora) : juce::String();
+    if (caption.isNotEmpty())
+    {
+        careyUI->setArrangeCaptionText(caption);
+        currentCareyArrangeCaption = caption;
+        return;
+    }
+    careyUI->applyRandomArrangeCaption();
 }
 
 // Submit one Carey job and follow it to the end: progress on the waveform and
@@ -825,6 +862,53 @@ void Gary4juceAudioProcessorEditor::sendToCareyGenerate()
     {
         if (!careySelectModels(props, variant, xl, lora, loraScale, *json, error))
             return false;
+        request.json = juce::var(json.get());
+        return true;
+    } });
+}
+
+// Complete: ace-step's complete task, which arranges the chosen tracks around
+// the recording in the style of a caption for the whole song.
+void Gary4juceAudioProcessorEditor::sendToCareyArrange()
+{
+    juce::StringArray tracks;
+    for (const auto& track : currentCareyArrangeTracks)
+        if (CareyUI::trackNames().contains(track))
+            tracks.add(track);
+    if (tracks.isEmpty())
+    {
+        showStatusMessage("tick at least one track for carey to add", 3500);
+        return;
+    }
+
+    const int bpm = juce::jmax(1, juce::roundToInt(getCareyBpmForRequest()));
+    const juce::int64 seed = careyUI != nullptr && careyUI->getSeed() >= 0 ? careyUI->getSeed() : carey_native::newSeed();
+    const auto json = careyRequest("complete", currentCareyArrangeCaption.trim(), currentCareyLyrics, bpm,
+                                   currentCareyKeyScale, currentCareyTimeSig, currentCareyLanguage,
+                                   juce::jlimit(32, 100, currentCareyArrangeSteps),
+                                   juce::jlimit(3.0, 10.0, currentCareyArrangeCfg), seed);
+    // ace-step joins several tracks with " | " in the complete instruction.
+    json->setProperty("track", tracks.joinIntoString(" | "));
+    json->setProperty("audio_cover_strength", juce::jlimit(0.0, 1.0, currentCareyArrangeStrength));
+
+    const juce::String lora = getSelectedCareyArrangeLora();
+    const double loraScale = juce::jlimit(0.0, 1.0, currentCareyArrangeLoraScale);
+    const bool xl = currentCareyXl;
+    const bool loopAssist = currentCareyArrangeLoopAssistEnabled;
+    const bool trimToInput = currentCareyArrangeTrimToInputEnabled;
+    const juce::File bufferFile = getGaryBufferFile();
+
+    // Complete needs a base model, as lego does.
+    startCareyJob({ "complete", true, [=](const carey_native::Props& props, carey_native::Request& request,
+                                          double& trimToSeconds, juce::String& error)
+    {
+        if (!careySelectModels(props, "base", xl, lora, loraScale, *json, error))
+            return false;
+        double inputSeconds = 0.0, conditioningSeconds = 0.0;
+        if (!careyConditioningAudio(bufferFile, bpm, loopAssist, request.sourceAudio, inputSeconds, conditioningSeconds, error))
+            return false;
+        json->setProperty("duration", conditioningSeconds);
+        trimToSeconds = trimToInput ? inputSeconds : 0.0;
         request.json = juce::var(json.get());
         return true;
     } });

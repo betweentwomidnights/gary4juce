@@ -236,6 +236,8 @@ CareyUI::CareyUI()
     generateSubTabButton.setTooltip("a new piece from the caption and lyrics alone, no recording needed");
     prepareSubTabButton(completeSubTabButton, "continue", SubTab::Continue);
     completeSubTabButton.setTooltip("keeps your recording and extends it to the target length");
+    prepareSubTabButton(arrangeSubTabButton, "complete", SubTab::Complete);
+    arrangeSubTabButton.setTooltip("arranges new tracks around your recording, like a band joining in. base model only");
     prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
     coverSubTabButton.setTooltip("works best with xl models, and is the most fun when using a lora");
     prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
@@ -1041,6 +1043,218 @@ CareyUI::CareyUI()
     };
     addToContent(coverGenerateButton);
 
+    // The complete tab: ace-step's complete task arranges the ticked tracks
+    // around the recording, styled by a caption for the whole song.
+    arrangeTracksLabel.setText("tracks to add", juce::dontSendNotification);
+    arrangeTracksLabel.setFont(juce::FontOptions(12.0f));
+    arrangeTracksLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    arrangeTracksLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(arrangeTracksLabel);
+
+    for (const auto& track : trackNames())
+    {
+        auto* toggle = arrangeTrackToggles.add(new juce::ToggleButton(track.replace("_", " ")));
+        toggle->setToggleState(track == "drums" || track == "bass", juce::dontSendNotification);
+        toggle->setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
+        toggle->setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+        toggle->onClick = [this]()
+        {
+            if (onArrangeTracksChanged)
+                onArrangeTracksChanged(getArrangeTracks());
+        };
+        addToContent(*toggle);
+    }
+
+    arrangeCaptionLabel.setText("caption", juce::dontSendNotification);
+    arrangeCaptionLabel.setFont(juce::FontOptions(12.0f));
+    arrangeCaptionLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    arrangeCaptionLabel.setJustificationType(juce::Justification::centredLeft);
+    addToContent(arrangeCaptionLabel);
+
+    arrangeCaptionPopoutButton.setButtonText("");
+    arrangeCaptionPopoutButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    arrangeCaptionPopoutButton.setTooltip("open full caption editor");
+    arrangeCaptionPopoutButton.onClick = [this]()
+    {
+        openCaptionPopout(CaptionPopoutTarget::Arrange,
+                          arrangeCaptionEditor,
+                          "describe the whole song you want around your recording...",
+                          [this]()
+                          {
+                              if (onArrangeCaptionDiceRequested)
+                                  onArrangeCaptionDiceRequested();
+                          });
+    };
+    arrangeCaptionPopoutButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawPopoutIcon(g, bounds.toFloat().reduced(2.0f), arrangeCaptionPopoutButton.isMouseOver(), arrangeCaptionPopoutButton.isDown());
+    };
+    addToContent(arrangeCaptionPopoutButton);
+
+    arrangeCaptionEditor.setTextToShowWhenEmpty("describe the whole song you want around your recording...", juce::Colour(0xff666666));
+    arrangeCaptionEditor.setMultiLine(false);
+    arrangeCaptionEditor.setReturnKeyStartsNewLine(false);
+    arrangeCaptionEditor.setScrollbarsShown(false);
+    arrangeCaptionEditor.onTextChange = [this]()
+    {
+        syncActiveCaptionPopout(CaptionPopoutTarget::Arrange, arrangeCaptionEditor.getText());
+        if (onArrangeCaptionChanged)
+            onArrangeCaptionChanged(arrangeCaptionEditor.getText());
+    };
+    addToContent(arrangeCaptionEditor);
+
+    arrangeCaptionDiceButton.setButtonText("");
+    arrangeCaptionDiceButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    arrangeCaptionDiceButton.setTooltip("a caption the chosen lora was trained with, or a built-in one");
+    arrangeCaptionDiceButton.onClick = [this]()
+    {
+        if (onArrangeCaptionDiceRequested)
+            onArrangeCaptionDiceRequested();
+    };
+    arrangeCaptionDiceButton.onPaint = [this](juce::Graphics& g, juce::Rectangle<int> bounds)
+    {
+        drawDiceIcon(g, bounds.toFloat().reduced(2.0f), arrangeCaptionDiceButton.isMouseOver(), arrangeCaptionDiceButton.isDown());
+    };
+    addToContent(arrangeCaptionDiceButton);
+
+    arrangeLyricsButton.setButtonText("lyrics");
+    arrangeLyricsButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    arrangeLyricsButton.setTooltip("open multiline lyrics editor (optional)");
+    arrangeLyricsButton.onClick = [this]() { openLyricsEditor(); };
+    addToContent(arrangeLyricsButton);
+
+    arrangeUseLoraToggle.setButtonText("use lora");
+    arrangeUseLoraToggle.setToggleState(false, juce::dontSendNotification);
+    arrangeUseLoraToggle.setEnabled(false);
+    arrangeUseLoraToggle.onClick = [this]()
+    {
+        const bool enabled = arrangeUseLoraToggle.getToggleState() && !arrangeLoraOptionValues.isEmpty();
+        arrangeUseLoraToggle.setToggleState(enabled, juce::dontSendNotification);
+        if (onArrangeUseLoraChanged)
+            onArrangeUseLoraChanged(enabled);
+        updateContentLayout();
+    };
+    addToContent(arrangeUseLoraToggle);
+
+    const auto prepareLabel = [this](juce::Label& label, const juce::String& text)
+    {
+        label.setText(text, juce::dontSendNotification);
+        label.setFont(juce::FontOptions(12.0f));
+        label.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+        label.setJustificationType(juce::Justification::centredLeft);
+        addToContent(label);
+    };
+
+    prepareLabel(arrangeLoraLabel, "lora");
+    arrangeLoraComboBox.setTextWhenNothingSelected("select lora...");
+    arrangeLoraComboBox.setTooltip("choose which backend LoRA adapter to use for complete mode");
+    arrangeLoraComboBox.setEnabled(false);
+    arrangeLoraComboBox.onChange = [this]()
+    {
+        if (onArrangeLoraChanged)
+            onArrangeLoraChanged(getArrangeSelectedLora());
+    };
+    addToContent(arrangeLoraComboBox);
+
+    prepareLabel(arrangeLoraScaleLabel, "lora strength");
+    arrangeLoraScaleSlider.setRange(0.0, 1.0, 0.01);
+    arrangeLoraScaleSlider.setValue(1.0);
+    arrangeLoraScaleSlider.setNumDecimalPlacesToDisplay(2);
+    arrangeLoraScaleSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    arrangeLoraScaleSlider.setTooltip("LoRA strength: 0 = base model, 1 = full adapter");
+    arrangeLoraScaleSlider.setEnabled(false);
+    arrangeLoraScaleSlider.onValueChange = [this]()
+    {
+        if (onArrangeLoraScaleChanged)
+            onArrangeLoraScaleChanged(getArrangeLoraScale());
+    };
+    addToContent(arrangeLoraScaleSlider);
+
+    arrangeAdvancedToggle.setButtonText(juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+    arrangeAdvancedToggle.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    arrangeAdvancedToggle.setTooltip("show/hide advanced generation settings");
+    arrangeAdvancedToggle.onClick = [this]()
+    {
+        setArrangeAdvancedOpen(!arrangeAdvancedOpen);
+        if (onLayoutHeightChanged)
+            onLayoutHeightChanged();
+    };
+    addToContent(arrangeAdvancedToggle);
+
+    prepareLabel(arrangeStrengthLabel, "audio strength");
+    arrangeStrengthSlider.setRange(0.0, 1.0, 0.01);
+    arrangeStrengthSlider.setValue(1.0);
+    arrangeStrengthSlider.setNumDecimalPlacesToDisplay(2);
+    arrangeStrengthSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    arrangeStrengthSlider.setTooltip("fraction of steps that hear your recording. 1.0 keeps the new tracks locked to it; lower lets them drift");
+    arrangeStrengthSlider.onValueChange = [this]()
+    {
+        if (onArrangeStrengthChanged)
+            onArrangeStrengthChanged(getArrangeStrength());
+    };
+    addToContent(arrangeStrengthSlider);
+
+    prepareLabel(arrangeStepsLabel, "steps");
+    arrangeStepsSlider.setRange(32, 100, 1);
+    arrangeStepsSlider.setValue(50);
+    arrangeStepsSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    arrangeStepsSlider.setTooltip("diffusion steps. more = refined but slower. recommended: 50");
+    arrangeStepsSlider.onValueChange = [this]()
+    {
+        if (onArrangeStepsChanged)
+            onArrangeStepsChanged(getArrangeSteps());
+    };
+    addToContent(arrangeStepsSlider);
+
+    prepareLabel(arrangeCfgLabel, "cfg scale");
+    arrangeCfgSlider.setRange(3.0, 10.0, 0.1);
+    arrangeCfgSlider.setValue(7.0);
+    arrangeCfgSlider.setNumDecimalPlacesToDisplay(1);
+    arrangeCfgSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 70, 20);
+    arrangeCfgSlider.setTooltip("cfg scale - how strongly the model follows the caption. 3=loose, 7=balanced, 10=strict");
+    arrangeCfgSlider.onValueChange = [this]()
+    {
+        if (onArrangeCfgChanged)
+            onArrangeCfgChanged(getArrangeCfg());
+    };
+    addToContent(arrangeCfgSlider);
+
+    prepareLabel(arrangeLoopAssistLabel, "loop assist");
+    arrangeLoopAssistToggle.setToggleState(true, juce::dontSendNotification);
+    arrangeLoopAssistToggle.setTooltip("extends short input audio to 32 bars for better output quality. leave on unless your input is already long enough");
+    arrangeLoopAssistToggle.onClick = [this]()
+    {
+        if (onArrangeLoopAssistChanged)
+            onArrangeLoopAssistChanged(arrangeLoopAssistToggle.getToggleState());
+    };
+    addToContent(arrangeLoopAssistToggle);
+
+    prepareLabel(arrangeTrimToInputLabel, "trim to input");
+    arrangeTrimToInputToggle.setToggleState(true, juce::dontSendNotification);
+    arrangeTrimToInputToggle.setTooltip("trim output to your input length. disable for full 32-bar output");
+    arrangeTrimToInputToggle.onClick = [this]()
+    {
+        if (onArrangeTrimToInputChanged)
+            onArrangeTrimToInputChanged(arrangeTrimToInputToggle.getToggleState());
+    };
+    addToContent(arrangeTrimToInputToggle);
+
+    arrangeGenerateButton.setButtonText("complete with carey");
+    arrangeGenerateButton.setButtonStyle(CustomButton::ButtonStyle::Terry);
+    arrangeGenerateButton.setEnabled(false);
+    arrangeGenerateButton.onClick = [this]()
+    {
+        if (onArrangeGenerate)
+            onArrangeGenerate();
+    };
+    addToContent(arrangeGenerateButton);
+
+    arrangeInfoLabel.setText("complete arranges the ticked tracks around your recording, in the style of the caption. it uses the base model.", juce::dontSendNotification);
+    arrangeInfoLabel.setFont(juce::FontOptions(11.0f));
+    arrangeInfoLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
+    arrangeInfoLabel.setJustificationType(juce::Justification::centred);
+    addToContent(arrangeInfoLabel);
+
     coverInfoLabel.setText("cover mode remixes your audio into a new arrangement guided by the caption. adjust noise/audio strength to control faithfulness vs. creativity.", juce::dontSendNotification);
     coverInfoLabel.setFont(juce::FontOptions(11.0f));
     coverInfoLabel.setColour(juce::Label::textColourId, juce::Colour(0xffaaaaaa));
@@ -1368,9 +1582,10 @@ void CareyUI::resized()
 
     area.removeFromTop(6);
     auto subTabRow = area.removeFromTop(30);
-    const int tabWidth = subTabRow.getWidth() / (kExtractTabVisible ? 5 : 4);
+    const int tabWidth = subTabRow.getWidth() / (kExtractTabVisible ? 6 : 5);
     generateSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     legoSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
+    arrangeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     completeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
     if constexpr (kExtractTabVisible)
     {
@@ -1446,6 +1661,8 @@ void CareyUI::updateSubTabButtonStyles()
 {
     generateSubTabButton.setButtonStyle(currentSubTab == SubTab::Generate
         ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+    arrangeSubTabButton.setButtonStyle(currentSubTab == SubTab::Complete
+        ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     legoSubTabButton.setButtonStyle(currentSubTab == SubTab::Lego
         ? CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
     completeSubTabButton.setButtonStyle(currentSubTab == SubTab::Continue
@@ -1472,16 +1689,19 @@ void CareyUI::updateContentLayout()
     const bool showingComplete = (currentSubTab == SubTab::Continue || currentSubTab == SubTab::Generate);
     const bool showingGenerate = (currentSubTab == SubTab::Generate);
     const bool showingCover = (currentSubTab == SubTab::Cover);
+    const bool showingArrange = (currentSubTab == SubTab::Complete);
     const bool showingExtract = (currentSubTab == SubTab::Extract);
     setLegoControlsVisible(showingLego);
+    setArrangeControlsVisible(showingArrange);
     setCompleteControlsVisible(showingComplete);
     setCoverControlsVisible(showingCover);
     setExtractControlsVisible(showingExtract);
 
-    const bool showingSeededMode = showingLego || showingComplete || showingCover;
+    const bool showingSeededMode = showingLego || showingComplete || showingCover || showingArrange;
     const bool showSeedControls = (showingLego && legoAdvancedOpen)
         || (showingComplete && completeAdvancedOpen)
-        || (showingCover && coverAdvancedOpen);
+        || (showingCover && coverAdvancedOpen)
+        || (showingArrange && arrangeAdvancedOpen);
     useSeedToggle.setVisible(showSeedControls);
     seedEditor.setVisible(showSeedControls);
     lastSeedLabel.setVisible(showingSeededMode);
@@ -1782,6 +2002,98 @@ void CareyUI::updateContentLayout()
         coverInfoLabel.setBounds(fullRow(40));
         y += 48;
     }
+    else if (showingArrange)
+    {
+        arrangeTracksLabel.setBounds(fullRow(18));
+        y += 20;
+
+        constexpr int columns = 3;
+        for (int i = 0; i < arrangeTrackToggles.size(); i += columns)
+        {
+            auto row = fullRow(22);
+            const int width = row.getWidth() / columns;
+            for (int column = 0; column < columns && i + column < arrangeTrackToggles.size(); ++column)
+                arrangeTrackToggles[i + column]->setBounds(row.removeFromLeft(width));
+            y += 24;
+        }
+        y += 6;
+
+        arrangeCaptionLabel.setBounds(fullRow(18));
+        y += 20;
+
+        auto captionRow = fullRow(28);
+        auto lyricsBounds = captionRow.removeFromRight(64);
+        captionRow.removeFromRight(4);
+        auto diceBounds = captionRow.removeFromRight(22);
+        captionRow.removeFromRight(4);
+        auto popoutBounds = captionRow.removeFromLeft(22);
+        captionRow.removeFromLeft(4);
+        arrangeCaptionEditor.setBounds(captionRow);
+        arrangeCaptionPopoutButton.setBounds(popoutBounds.withHeight(22).withY(popoutBounds.getY() + 3));
+        arrangeCaptionDiceButton.setBounds(diceBounds.withHeight(22).withY(diceBounds.getY() + 3));
+        arrangeLyricsButton.setBounds(lyricsBounds.withHeight(24).withY(lyricsBounds.getY() + 2));
+        y += 36;
+
+        arrangeAdvancedToggle.setBounds(fullRow(26));
+        y += 32;
+
+        if (arrangeAdvancedOpen)
+        {
+            arrangeUseLoraToggle.setBounds(fullRow(22));
+            y += 30;
+
+            if (arrangeUseLoraToggle.getToggleState() && !arrangeLoraOptionValues.isEmpty())
+            {
+                auto loraRow = fullRow(28);
+                arrangeLoraLabel.setBounds(loraRow.removeFromLeft(110));
+                arrangeLoraComboBox.setBounds(loraRow);
+                y += 36;
+
+                auto loraScaleRow = fullRow(28);
+                arrangeLoraScaleLabel.setBounds(loraScaleRow.removeFromLeft(110));
+                arrangeLoraScaleSlider.setBounds(loraScaleRow);
+                y += 36;
+            }
+
+            auto strengthRow = fullRow(28);
+            arrangeStrengthLabel.setBounds(strengthRow.removeFromLeft(110));
+            arrangeStrengthSlider.setBounds(strengthRow);
+            y += 36;
+
+            auto stepsRow = fullRow(28);
+            arrangeStepsLabel.setBounds(stepsRow.removeFromLeft(110));
+            arrangeStepsSlider.setBounds(stepsRow);
+            y += 36;
+
+            auto cfgRow = fullRow(28);
+            arrangeCfgLabel.setBounds(cfgRow.removeFromLeft(110));
+            arrangeCfgSlider.setBounds(cfgRow);
+            y += 36;
+
+            auto assistRow = fullRow(22);
+            auto leftAssist = assistRow.removeFromLeft(assistRow.getWidth() / 2);
+            arrangeLoopAssistLabel.setBounds(leftAssist.removeFromLeft(80));
+            arrangeLoopAssistToggle.setBounds(leftAssist.removeFromLeft(22));
+            arrangeTrimToInputLabel.setBounds(assistRow.removeFromLeft(90));
+            arrangeTrimToInputToggle.setBounds(assistRow.removeFromLeft(22));
+            y += 30;
+
+            auto seedRow = fullRow(22);
+            useSeedToggle.setBounds(seedRow.removeFromLeft(92));
+            seedRow.removeFromLeft(8);
+            seedEditor.setBounds(seedRow.removeFromLeft(120));
+            y += 26;
+        }
+
+        lastSeedLabel.setBounds(fullRow(16));
+        y += 22;
+
+        arrangeGenerateButton.setBounds(fullRow(34).reduced(50, 0));
+        y += 44;
+
+        arrangeInfoLabel.setBounds(fullRow(32));
+        y += 40;
+    }
     else
     {
         const bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
@@ -1944,147 +2256,132 @@ void CareyUI::updateCompleteModelControls(bool notify)
 
 void CareyUI::setAvailableLegoLoras(const juce::StringArray& loraNames)
 {
-    const juce::String previousSelection = getLegoSelectedLora();
-    const bool wasUsingLora = legoUseLoraToggle.getToggleState();
-
-    legoLoraOptionValues.clear();
-    legoLoraComboBox.clear(juce::dontSendNotification);
-
-    juce::StringArray normalizedLoraNames;
-    for (const auto& rawName : loraNames)
-    {
-        const juce::String name = rawName.trim();
-        if (name.isNotEmpty() && !normalizedLoraNames.contains(name))
-            normalizedLoraNames.add(name);
-    }
-
-    normalizedLoraNames.sortNatural();
-
-    for (int i = 0; i < normalizedLoraNames.size(); ++i)
-    {
-        legoLoraOptionValues.add(normalizedLoraNames[i]);
-        legoLoraComboBox.addItem(normalizedLoraNames[i], i + 1);
-    }
-
-    const bool hasLoras = !legoLoraOptionValues.isEmpty();
-    legoUseLoraToggle.setEnabled(hasLoras);
-    legoUseLoraToggle.setTooltip(hasLoras
-        ? "enable a backend LoRA adapter for lego generation"
-        : "no LoRA adapters are available on the current Carey backend");
-    legoLoraComboBox.setEnabled(hasLoras);
-    legoLoraScaleSlider.setEnabled(hasLoras);
-    legoLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
-
-    if (hasLoras)
-    {
-        const int restoredIndex = findTrackIndex(legoLoraOptionValues, previousSelection.trim());
-        legoLoraComboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
-    }
-    else
-    {
-        legoUseLoraToggle.setToggleState(false, juce::dontSendNotification);
-        legoLoraComboBox.setSelectedId(0, juce::dontSendNotification);
-    }
-
-    legoUseLoraToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
-
-    updateContentLayout();
+    fillLoraChoices(loraNames, legoLoraOptionValues, legoLoraComboBox, legoUseLoraToggle, legoLoraScaleSlider,
+                    "enable a backend LoRA adapter for lego generation");
 }
 
 void CareyUI::setAvailableCompleteLoras(const juce::StringArray& loraNames)
 {
-    const juce::String previousSelection = getCompleteSelectedLora();
-    const bool wasUsingLora = completeUseLoraToggle.getToggleState();
-
-    completeLoraOptionValues.clear();
-    completeLoraComboBox.clear(juce::dontSendNotification);
-
-    juce::StringArray normalizedLoraNames;
-    for (const auto& rawName : loraNames)
-    {
-        const juce::String name = rawName.trim();
-        if (name.isNotEmpty() && !normalizedLoraNames.contains(name))
-            normalizedLoraNames.add(name);
-    }
-
-    normalizedLoraNames.sortNatural();
-
-    for (int i = 0; i < normalizedLoraNames.size(); ++i)
-    {
-        completeLoraOptionValues.add(normalizedLoraNames[i]);
-        completeLoraComboBox.addItem(normalizedLoraNames[i], i + 1);
-    }
-
-    const bool hasLoras = !completeLoraOptionValues.isEmpty();
-    completeUseLoraToggle.setEnabled(hasLoras);
-    completeUseLoraToggle.setTooltip(hasLoras
-        ? "enable a backend LoRA adapter and use its caption pool for the dice button"
-        : "no LoRA adapters are available on the current Carey backend");
-    completeLoraComboBox.setEnabled(hasLoras);
-    completeLoraScaleSlider.setEnabled(hasLoras);
-    completeLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
-
-    if (hasLoras)
-    {
-        const int restoredIndex = findTrackIndex(completeLoraOptionValues, previousSelection.trim());
-        completeLoraComboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
-    }
-    else
-    {
-        completeUseLoraToggle.setToggleState(false, juce::dontSendNotification);
-        completeLoraComboBox.setSelectedId(0, juce::dontSendNotification);
-    }
-
-    completeUseLoraToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
-
-    updateContentLayout();
+    fillLoraChoices(loraNames, completeLoraOptionValues, completeLoraComboBox, completeUseLoraToggle, completeLoraScaleSlider,
+                    "enable a backend LoRA adapter and use its caption pool for the dice button");
 }
 
 void CareyUI::setAvailableCoverLoras(const juce::StringArray& loraNames)
 {
-    const juce::String previousSelection = getCoverSelectedLora();
-    const bool wasUsingLora = coverUseLoraToggle.getToggleState();
+    fillLoraChoices(loraNames, coverLoraOptionValues, coverLoraComboBox, coverUseLoraToggle, coverLoraScaleSlider,
+                    "enable a backend LoRA adapter and use its caption pool for the dice button");
+}
 
-    coverLoraOptionValues.clear();
-    coverLoraComboBox.clear(juce::dontSendNotification);
+void CareyUI::setArrangeControlsVisible(bool shouldBeVisible)
+{
+    arrangeTracksLabel.setVisible(shouldBeVisible);
+    for (auto* toggle : arrangeTrackToggles)
+        toggle->setVisible(shouldBeVisible);
+    arrangeCaptionLabel.setVisible(shouldBeVisible);
+    arrangeCaptionPopoutButton.setVisible(shouldBeVisible);
+    arrangeCaptionEditor.setVisible(shouldBeVisible);
+    arrangeCaptionDiceButton.setVisible(shouldBeVisible);
+    arrangeLyricsButton.setVisible(shouldBeVisible);
+    arrangeAdvancedToggle.setVisible(shouldBeVisible);
+    arrangeGenerateButton.setVisible(shouldBeVisible);
+    arrangeInfoLabel.setVisible(shouldBeVisible);
 
-    juce::StringArray normalizedLoraNames;
+    const bool showAdvanced = shouldBeVisible && arrangeAdvancedOpen;
+    arrangeUseLoraToggle.setVisible(showAdvanced);
+    const bool showLoraSelector = showAdvanced && arrangeUseLoraToggle.getToggleState() && !arrangeLoraOptionValues.isEmpty();
+    arrangeLoraLabel.setVisible(showLoraSelector);
+    arrangeLoraComboBox.setVisible(showLoraSelector);
+    arrangeLoraScaleLabel.setVisible(showLoraSelector);
+    arrangeLoraScaleSlider.setVisible(showLoraSelector);
+    arrangeStrengthLabel.setVisible(showAdvanced);
+    arrangeStrengthSlider.setVisible(showAdvanced);
+    arrangeStepsLabel.setVisible(showAdvanced);
+    arrangeStepsSlider.setVisible(showAdvanced);
+    arrangeCfgLabel.setVisible(showAdvanced);
+    arrangeCfgSlider.setVisible(showAdvanced);
+    arrangeLoopAssistLabel.setVisible(showAdvanced);
+    arrangeLoopAssistToggle.setVisible(showAdvanced);
+    arrangeTrimToInputLabel.setVisible(showAdvanced);
+    arrangeTrimToInputToggle.setVisible(showAdvanced);
+}
+
+juce::StringArray CareyUI::getArrangeTracks() const
+{
+    juce::StringArray tracks;
+    for (int i = 0; i < arrangeTrackToggles.size(); ++i)
+        if (arrangeTrackToggles[i]->getToggleState())
+            tracks.add(trackNames()[i]);
+    return tracks;
+}
+
+void CareyUI::setArrangeTracks(const juce::StringArray& tracks)
+{
+    for (int i = 0; i < arrangeTrackToggles.size(); ++i)
+        arrangeTrackToggles[i]->setToggleState(tracks.contains(trackNames()[i]), juce::dontSendNotification);
+}
+
+void CareyUI::applyRandomArrangeCaption()
+{
+    const juce::String caption = pickRandomCaption(getCompletePromptBank(),
+                                                   "A warm indie folk arrangement with fingerpicked acoustic guitar, soft upright bass and brushed drums.");
+    arrangeCaptionEditor.setText(caption, juce::sendNotification);
+}
+
+void CareyUI::setAvailableArrangeLoras(const juce::StringArray& loraNames)
+{
+    fillLoraChoices(loraNames, arrangeLoraOptionValues, arrangeLoraComboBox, arrangeUseLoraToggle, arrangeLoraScaleSlider,
+                    "enable a backend LoRA adapter and use its caption pool for the dice button");
+}
+
+// Offer `loraNames` in one mode's LoRA controls, keeping its choice when
+// it is still offered.
+void CareyUI::fillLoraChoices(const juce::StringArray& loraNames,
+                              juce::StringArray& optionValues,
+                              CustomComboBox& comboBox,
+                              juce::ToggleButton& useToggle,
+                              CustomSlider& scaleSlider,
+                              const juce::String& enabledTooltip)
+{
+    const int previousIndex = comboBox.getSelectedId() - 1;
+    const juce::String previousSelection = previousIndex >= 0 && previousIndex < optionValues.size()
+        ? optionValues[previousIndex] : juce::String();
+    const bool wasUsingLora = useToggle.getToggleState();
+
+    optionValues.clear();
+    comboBox.clear(juce::dontSendNotification);
+
+    juce::StringArray names;
     for (const auto& rawName : loraNames)
     {
         const juce::String name = rawName.trim();
-        if (name.isNotEmpty() && !normalizedLoraNames.contains(name))
-            normalizedLoraNames.add(name);
+        if (name.isNotEmpty() && !names.contains(name))
+            names.add(name);
     }
+    names.sortNatural();
 
-    normalizedLoraNames.sortNatural();
-
-    for (int i = 0; i < normalizedLoraNames.size(); ++i)
+    for (int i = 0; i < names.size(); ++i)
     {
-        coverLoraOptionValues.add(normalizedLoraNames[i]);
-        coverLoraComboBox.addItem(normalizedLoraNames[i], i + 1);
+        optionValues.add(names[i]);
+        comboBox.addItem(names[i], i + 1);
     }
 
-    const bool hasLoras = !coverLoraOptionValues.isEmpty();
-    coverUseLoraToggle.setEnabled(hasLoras);
-    coverUseLoraToggle.setTooltip(hasLoras
-        ? "enable a backend LoRA adapter and use its caption pool for the dice button"
-        : "no LoRA adapters are available on the current Carey backend");
-    coverLoraComboBox.setEnabled(hasLoras);
-    coverLoraScaleSlider.setEnabled(hasLoras);
-    coverLoraComboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
+    const bool hasLoras = !optionValues.isEmpty();
+    useToggle.setEnabled(hasLoras);
+    useToggle.setTooltip(hasLoras ? enabledTooltip : "no LoRA adapters for this model size on the current Carey backend");
+    comboBox.setEnabled(hasLoras);
+    scaleSlider.setEnabled(hasLoras);
+    comboBox.setTextWhenNothingSelected(hasLoras ? "select lora..." : "no loras available");
 
     if (hasLoras)
     {
-        const int restoredIndex = findTrackIndex(coverLoraOptionValues, previousSelection.trim());
-        coverLoraComboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
+        const int restoredIndex = findTrackIndex(optionValues, previousSelection.trim());
+        comboBox.setSelectedId(restoredIndex >= 0 ? restoredIndex + 1 : 1, juce::dontSendNotification);
     }
     else
     {
-        coverUseLoraToggle.setToggleState(false, juce::dontSendNotification);
-        coverLoraComboBox.setSelectedId(0, juce::dontSendNotification);
+        comboBox.setSelectedId(0, juce::dontSendNotification);
     }
-
-    coverUseLoraToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
+    useToggle.setToggleState(hasLoras && wasUsingLora, juce::dontSendNotification);
 
     updateContentLayout();
 }
@@ -2341,6 +2638,8 @@ void CareyUI::openCaptionPopout(CaptionPopoutTarget target,
                 updateEditor(safeThis->completeCaptionEditor);
             else if (target == CaptionPopoutTarget::Cover)
                 updateEditor(safeThis->coverCaptionEditor);
+            else if (target == CaptionPopoutTarget::Arrange)
+                updateEditor(safeThis->arrangeCaptionEditor);
         },
         [safeThis, diceCallback = std::move(diceCallback)]()
         {

@@ -410,6 +410,18 @@ private:
     std::vector<carey_native::Adapter> careyAdapters;  // every LoRA GET /props listed
     juce::StringArray careyDits;                // every DiT GET /props listed
     bool currentCareyXl = false;                // model size for every mode: 2B or XL
+    // The complete tab (ace-step's complete task), arrange* in code.
+    juce::StringArray currentCareyArrangeTracks { "drums", "bass" };
+    juce::String currentCareyArrangeCaption;
+    juce::String currentCareyArrangeLora;
+    bool currentCareyArrangeUseLora = false;
+    double currentCareyArrangeLoraScale = 1.0;
+    int currentCareyArrangeSteps = 50;
+    double currentCareyArrangeCfg = 7.0;
+    double currentCareyArrangeStrength = 1.0;
+    bool currentCareyArrangeLoopAssistEnabled = true;
+    bool currentCareyArrangeTrimToInputEnabled = true;
+    bool currentCareyArrangeAdvancedOpen = false;
     juce::String careyLoraFetchBackendUrl;
     juce::int64 careyLoraLastFetchMs = 0;
     std::atomic<bool> careyLoraFetchInFlight { false };
@@ -454,6 +466,9 @@ private:
     void sendToCareyExtract();
     void sendToCareyComplete();
     void sendToCareyGenerate();
+    void sendToCareyArrange();
+    void requestCareyArrangeCaption();
+    juce::String getSelectedCareyArrangeLora() const;
     void sendToCareyCover();
     void setCareyLastSeed(const juce::String& seed);
     void updateCareyEnablementSnapshot();

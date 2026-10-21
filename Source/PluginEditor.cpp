@@ -135,6 +135,18 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
         ? careyUI->getCoverAdvancedOpen() : currentCareyCoverAdvancedOpen);
     state->setProperty("careyExtractAdvanced", careyUI != nullptr
         ? careyUI->getExtractAdvancedOpen() : currentCareyExtractAdvancedOpen);
+    state->setProperty("careyArrangeAdvanced", careyUI != nullptr
+        ? careyUI->getArrangeAdvancedOpen() : currentCareyArrangeAdvancedOpen);
+    state->setProperty("careyArrangeTracks", currentCareyArrangeTracks.joinIntoString(","));
+    state->setProperty("careyArrangeCaption", currentCareyArrangeCaption);
+    state->setProperty("careyArrangeLora", currentCareyArrangeLora);
+    state->setProperty("careyArrangeUseLora", currentCareyArrangeUseLora);
+    state->setProperty("careyArrangeLoraScale", currentCareyArrangeLoraScale);
+    state->setProperty("careyArrangeSteps", currentCareyArrangeSteps);
+    state->setProperty("careyArrangeCfg", currentCareyArrangeCfg);
+    state->setProperty("careyArrangeStrength", currentCareyArrangeStrength);
+    state->setProperty("careyArrangeLoopAssist", currentCareyArrangeLoopAssistEnabled);
+    state->setProperty("careyArrangeTrimToInput", currentCareyArrangeTrimToInputEnabled);
     state->setProperty("careyLastSeed",
         careyUI != nullptr ? careyUI->getLastSeed() : currentCareyLastSeed);
     state->setProperty("careyUseSeed",
@@ -348,13 +360,25 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentTerrySeedText = readString("terrySeedText", currentTerrySeedText);
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
-        juce::jlimit(0, 4, readInt("careySubTab", 0)));
+        juce::jlimit(0, 5, readInt("careySubTab", 0)));
     if (currentCareySubTab == CareyUI::SubTab::Extract && ! CareyUI::kExtractTabVisible)
         currentCareySubTab = CareyUI::SubTab::Lego;
     currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
     currentCareyCompleteAdvancedOpen = readBool(
         "careyCompleteAdvanced", currentCareyCompleteAdvancedOpen);
     currentCareyCoverAdvancedOpen = readBool("careyCoverAdvanced", currentCareyCoverAdvancedOpen);
+    currentCareyArrangeAdvancedOpen = readBool("careyArrangeAdvanced", currentCareyArrangeAdvancedOpen);
+    if (has("careyArrangeTracks"))
+        currentCareyArrangeTracks = juce::StringArray::fromTokens(readString("careyArrangeTracks", {}), ",", {});
+    currentCareyArrangeCaption = readString("careyArrangeCaption", currentCareyArrangeCaption);
+    currentCareyArrangeLora = readString("careyArrangeLora", currentCareyArrangeLora);
+    currentCareyArrangeUseLora = readBool("careyArrangeUseLora", currentCareyArrangeUseLora);
+    currentCareyArrangeLoraScale = readDouble("careyArrangeLoraScale", currentCareyArrangeLoraScale);
+    currentCareyArrangeSteps = readInt("careyArrangeSteps", currentCareyArrangeSteps);
+    currentCareyArrangeCfg = readDouble("careyArrangeCfg", currentCareyArrangeCfg);
+    currentCareyArrangeStrength = readDouble("careyArrangeStrength", currentCareyArrangeStrength);
+    currentCareyArrangeLoopAssistEnabled = readBool("careyArrangeLoopAssist", currentCareyArrangeLoopAssistEnabled);
+    currentCareyArrangeTrimToInputEnabled = readBool("careyArrangeTrimToInput", currentCareyArrangeTrimToInputEnabled);
     currentCareyExtractAdvancedOpen = readBool(
         "careyExtractAdvanced", currentCareyExtractAdvancedOpen);
     currentCareyLastSeed = readString("careyLastSeed", currentCareyLastSeed);
@@ -618,6 +642,14 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
         careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
         careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+        careyUI->setArrangeAdvancedOpen(currentCareyArrangeAdvancedOpen);
+        careyUI->setArrangeTracks(currentCareyArrangeTracks);
+        careyUI->setArrangeCaptionText(currentCareyArrangeCaption);
+        careyUI->setArrangeSteps(currentCareyArrangeSteps);
+        careyUI->setArrangeCfg(currentCareyArrangeCfg);
+        careyUI->setArrangeStrength(currentCareyArrangeStrength);
+        careyUI->setArrangeLoopAssistEnabled(currentCareyArrangeLoopAssistEnabled);
+        careyUI->setArrangeTrimToInputEnabled(currentCareyArrangeTrimToInputEnabled);
         careyUI->setLastSeed(currentCareyLastSeed);
         careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
         careyUI->setLyricsText(currentCareyLyrics);
@@ -1353,6 +1385,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         if (tab == CareyUI::SubTab::Lego
             || tab == CareyUI::SubTab::Continue
             || tab == CareyUI::SubTab::Generate
+            || tab == CareyUI::SubTab::Complete
             || tab == CareyUI::SubTab::Cover)
             refreshCareyAvailableLoras(true);
         resized();
@@ -1436,6 +1469,27 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     };
     careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
     careyUI->onGenerateGenerate = [this]() { sendToCareyGenerate(); };
+
+    careyUI->onArrangeTracksChanged = [this](const juce::StringArray& tracks) { currentCareyArrangeTracks = tracks; };
+    careyUI->onArrangeCaptionChanged = [this](const juce::String& text) { currentCareyArrangeCaption = text; };
+    careyUI->onArrangeCaptionDiceRequested = [this]() { requestCareyArrangeCaption(); };
+    careyUI->onArrangeUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyArrangeUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyArrangeUseLora && currentCareyArrangeLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyArrangeLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onArrangeLoraChanged = [this](const juce::String& loraName) { currentCareyArrangeLora = loraName.trim(); };
+    careyUI->onArrangeLoraScaleChanged = [this](double value) { currentCareyArrangeLoraScale = juce::jlimit(0.0, 1.0, value); };
+    careyUI->onArrangeStepsChanged = [this](int steps) { currentCareyArrangeSteps = juce::jlimit(32, 100, steps); };
+    careyUI->onArrangeCfgChanged = [this](double value) { currentCareyArrangeCfg = juce::jlimit(3.0, 10.0, value); };
+    careyUI->onArrangeStrengthChanged = [this](double value) { currentCareyArrangeStrength = juce::jlimit(0.0, 1.0, value); };
+    careyUI->onArrangeLoopAssistChanged = [this](bool enabled) { currentCareyArrangeLoopAssistEnabled = enabled; };
+    careyUI->onArrangeTrimToInputChanged = [this](bool enabled) { currentCareyArrangeTrimToInputEnabled = enabled; };
+    careyUI->onArrangeGenerate = [this]() { sendToCareyArrange(); };
     // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
 
@@ -1524,6 +1578,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
     careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
     careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+    careyUI->setArrangeAdvancedOpen(currentCareyArrangeAdvancedOpen);
+    careyUI->setArrangeTracks(currentCareyArrangeTracks);
+    careyUI->setArrangeCaptionText(currentCareyArrangeCaption);
+    careyUI->setArrangeSteps(currentCareyArrangeSteps);
+    careyUI->setArrangeCfg(currentCareyArrangeCfg);
+    careyUI->setArrangeStrength(currentCareyArrangeStrength);
+    careyUI->setArrangeLoopAssistEnabled(currentCareyArrangeLoopAssistEnabled);
+    careyUI->setArrangeTrimToInputEnabled(currentCareyArrangeTrimToInputEnabled);
     careyUI->setLastSeed(currentCareyLastSeed);
     careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
     syncCareyLoraUi();
@@ -8826,6 +8888,7 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
                 case CareyUI::SubTab::Continue:
                 case CareyUI::SubTab::Generate: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
                 case CareyUI::SubTab::Cover:    advancedOpen = careyUI->getCoverAdvancedOpen(); break;
+                case CareyUI::SubTab::Complete: advancedOpen = careyUI->getArrangeAdvancedOpen(); break;
                 case CareyUI::SubTab::Extract:  advancedOpen = careyUI->getExtractAdvancedOpen(); break;
                 }
             }
