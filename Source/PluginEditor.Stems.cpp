@@ -98,7 +98,7 @@ void Gary4juceAudioProcessorEditor::stemsHandleClicked(bool fromRecordingBuffer)
 void Gary4juceAudioProcessorEditor::updateStemsButtonState()
 {
     const bool haveOutput = hasOutputAudio && outputAudioFile.existsAsFile();
-    const bool haveInput = recordedSamples > 0 && !isRecording;
+    const bool haveInput = hasSavedRecordingBuffer();
     const bool available = (haveOutput || haveInput) && getStemsService().isRuntimeAvailableForPlatform();
     const auto setupStep = available ? stemsSetupStep() : juce::String();
     const bool needsSetup = setupStep.isNotEmpty();
@@ -121,7 +121,14 @@ void Gary4juceAudioProcessorEditor::updateStemsButtonState()
         }
     };
     apply(stemsButton, haveOutput, "separate this output into stems");
-    apply(stemsInputButton, haveInput, "separate the recording buffer into stems");
+    apply(stemsInputButton, haveInput, "separate the saved recording buffer into stems");
+}
+
+// The recording buffer's stems separate the saved buffer (myBuffer.wav), which is what every model
+// reads: a take is not used anywhere until it is saved.
+bool Gary4juceAudioProcessorEditor::hasSavedRecordingBuffer() const
+{
+    return !isRecording && savedSamples > 0 && getGaryBufferFile().existsAsFile();
 }
 
 void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
@@ -131,10 +138,10 @@ void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
         showStatusMessage("wait for the current generation to finish", 2500);
         return;
     }
-    if (fromRecordingBuffer ? (recordedSamples <= 0 || isRecording)
+    if (fromRecordingBuffer ? !hasSavedRecordingBuffer()
                             : (!hasOutputAudio || !outputAudioFile.existsAsFile()))
     {
-        showStatusMessage(fromRecordingBuffer ? "nothing in the recording buffer to separate"
+        showStatusMessage(fromRecordingBuffer ? "save the recording buffer first, then separate it"
                                               : "no output audio to separate", 2500);
         return;
     }
@@ -160,11 +167,11 @@ void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
 
     // The popup separates a copy, so whatever happens to the buffer or the output afterwards (a
     // stem dropped back onto the buffer, say) leaves its stems alone.
-    std::function<bool(const juce::File&)> writeSource;
-    if (fromRecordingBuffer)
-        writeSource = [this](const juce::File& destination) { return audioProcessor.saveRecordingToFile(destination); };
-    else
-        writeSource = [this](const juce::File& destination) { return outputAudioFile.copyFileTo(destination); };
+    const juce::File sourceFile = fromRecordingBuffer ? getGaryBufferFile() : outputAudioFile;
+    std::function<bool(const juce::File&)> writeSource = [sourceFile](const juce::File& destination)
+    {
+        return sourceFile.copyFileTo(destination);
+    };
 
     getStemsService();
     auto* dialog = new StemsDialog(stemsService, getUpdatePreferences(), std::move(host), writeSource,
