@@ -2625,6 +2625,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     {
         stemsButtonTimerTicks = 0;
         updateStemsButtonState();
+        refreshSavedBufferPreview();
     }
 
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
@@ -2771,7 +2772,8 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     recordingProgress = audioProcessor.getRecordingProgress();
     recordedSamples = audioProcessor.getRecordedSamples();
 
-    const bool canAuditionInput = recordedSamples > 0 && !isRecording;
+    // The buffer's playback plays what is saved: what every model will read.
+    const bool canAuditionInput = hasSavedRecordingBuffer();
     playInputButton.setEnabled(canAuditionInput);
     stopInputButton.setEnabled(canAuditionInput);
 
@@ -2846,7 +2848,8 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     g.setColour(juce::Colour(0x40, 0x40, 0x40));
     g.drawRect(area, 1);
 
-    if (recordedSamples <= 0)
+    // A take that has just started has no samples yet, but its lane and label belong on screen.
+    if (recordedSamples <= 0 && !isRecording)
     {
         // Show "waiting" state with different message based on plugin mode
         g.setFont(juce::FontOptions(14.0f));
@@ -2885,149 +2888,71 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
 
     // Time calculations — zoom to fit: show 30s window until content exceeds it, then full buffer
     const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
-    const double savedDuration = juce::jmax(0.0, (double)savedSamples / currentSampleRate);
     const double totalDuration = getInputWaveformDisplayDuration();
 
-    // Pixel calculations with safety checks
-    const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
-    const int savedPixels = juce::jmax(0, juce::jmin(recordedPixels, (int)((savedDuration / totalDuration) * waveWidth)));
-
-    // Early exit if nothing to draw
-    if (recordedPixels <= 0)
-        return;
+    // Pixel calculations with safety checks. A recording shows from its first sample: with a long
+    // saved buffer the axis spans minutes, and a pixel can be most of a second.
+    const int recordedPixels = recordedSamples > 0
+        ? juce::jlimit(1, waveWidth, (int)((recordedDuration / totalDuration) * waveWidth))
+        : 0;
 
     // Safe samples per pixel calculation - avoid division by zero
     const int samplesPerPixel = (recordedPixels > 0) ? juce::jmax(1, recordedSamples / recordedPixels) : 1;
 
-    // Draw saved portion (solid red)
-    if (savedPixels > 0)
+    // The take: solid once it is what myBuffer.wav holds, faded while it is unsaved, which
+    // includes while it records. The saved buffer is drawn under an unsaved take.
+    const bool takeUnsaved = isRecording || audioProcessor.isRecordingUnsaved();
+    const auto takeColour = juce::Colours::red.withAlpha(takeUnsaved ? 0.45f : 1.0f);
+    const auto edgeColour = juce::Colours::red.withAlpha(takeUnsaved ? 0.25f : 0.6f);
+    const int numSamples = recordingBuffer.getNumSamples();
+    const int numChannels = recordingBuffer.getNumChannels();
+
+    for (int x = 0; x < recordedPixels; ++x)
     {
-        g.setColour(juce::Colours::red);
+        const int startSample = x * samplesPerPixel;
+        const int endSample = juce::jmin(startSample + samplesPerPixel, recordedSamples, numSamples);
+        if (endSample <= startSample)
+            continue;
 
-        for (int x = 0; x < savedPixels; ++x)
+        // Min and max of the channel average over this pixel's samples
+        float minVal = 0.0f, maxVal = 0.0f;
+        for (int sample = startSample; sample < endSample; ++sample)
         {
-            const int startSample = x * samplesPerPixel;
-            const int endSample = juce::jmin(startSample + samplesPerPixel, savedSamples);
+            float sampleValue = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                sampleValue += recordingBuffer.getSample(ch, sample);
+            sampleValue /= (float) numChannels;
 
-            if (endSample > startSample && startSample < recordingBuffer.getNumSamples())
-            {
-                // Find min/max in this pixel's worth of samples
-                float minVal = 0.0f, maxVal = 0.0f;
+            minVal = juce::jmin(minVal, sampleValue);
+            maxVal = juce::jmax(maxVal, sampleValue);
+        }
 
-                for (int sample = startSample; sample < endSample && sample < recordingBuffer.getNumSamples(); ++sample)
-                {
-                    // Average across channels safely
-                    float sampleValue = 0.0f;
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        sampleValue += recordingBuffer.getSample(ch, sample);
-                    }
-                    sampleValue /= recordingBuffer.getNumChannels();
+        const int minY = juce::jlimit(area.getY(), area.getBottom(), centerY - (int) (minVal * waveHeight * 0.4f));
+        const int maxY = juce::jlimit(area.getY(), area.getBottom(), centerY - (int) (maxVal * waveHeight * 0.4f));
+        const int drawX = area.getX() + 1 + x;
 
-                    minVal = juce::jmin(minVal, sampleValue);
-                    maxVal = juce::jmax(maxVal, sampleValue);
-                }
-
-                // Scale to display area with clamping
-                const int minY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(minVal * waveHeight * 0.4f));
-                const int maxY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(maxVal * waveHeight * 0.4f));
-
-                const int drawX = area.getX() + 1 + x;
-
-                // Draw thicker, smoother lines
-                if (maxY != minY)
-                {
-                    // Main line
-                    g.drawVerticalLine(drawX, (float)maxY, (float)minY);
-                    // Add thickness by drawing adjacent pixels with slight transparency
-                    if (x > 0) // Left side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.6f));
-                        g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red); // Reset for next iteration
-                    }
-                    if (x < savedPixels - 1) // Right side  
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.6f));
-                        g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red); // Reset for next iteration
-                    }
-                }
-                else
-                {
-                    // For silent parts, draw a thicker center line
-                    g.fillRect(drawX - 1, centerY - 1, 3, 2);
-                }
-            }
+        g.setColour(takeColour);
+        if (maxY != minY)
+        {
+            g.drawVerticalLine(drawX, (float) maxY, (float) minY);
+            // Thicken the line with fainter neighbours
+            g.setColour(edgeColour);
+            if (x > 0)
+                g.drawVerticalLine(drawX - 1, (float) maxY, (float) minY);
+            if (x < recordedPixels - 1)
+                g.drawVerticalLine(drawX + 1, (float) maxY, (float) minY);
+        }
+        else
+        {
+            // Silence: a thicker centre line
+            g.fillRect(drawX - 1, centerY - 1, 3, 2);
         }
     }
 
-    // Draw unsaved portion (semi-transparent red)
-    if (recordedPixels > savedPixels)
-    {
-        g.setColour(juce::Colours::red.withAlpha(0.5f));
-
-        for (int x = savedPixels; x < recordedPixels; ++x)
-        {
-            const int startSample = x * samplesPerPixel;
-            const int endSample = juce::jmin(startSample + samplesPerPixel, recordedSamples);
-
-            if (endSample > startSample && startSample < recordingBuffer.getNumSamples())
-            {
-                // Find min/max in this pixel's worth of samples
-                float minVal = 0.0f, maxVal = 0.0f;
-
-                for (int sample = startSample; sample < endSample && sample < recordingBuffer.getNumSamples(); ++sample)
-                {
-                    // Average across channels safely
-                    float sampleValue = 0.0f;
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        sampleValue += recordingBuffer.getSample(ch, sample);
-                    }
-                    sampleValue /= recordingBuffer.getNumChannels();
-
-                    minVal = juce::jmin(minVal, sampleValue);
-                    maxVal = juce::jmax(maxVal, sampleValue);
-                }
-
-                // Scale to display area with clamping
-                const int minY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(minVal * waveHeight * 0.4f));
-                const int maxY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(maxVal * waveHeight * 0.4f));
-
-                const int drawX = area.getX() + 1 + x;
-
-                // Draw thicker, smoother lines for unsaved portion
-                if (maxY != minY)
-                {
-                    // Main line
-                    g.drawVerticalLine(drawX, (float)maxY, (float)minY);
-                    // Add thickness by drawing adjacent pixels with slight transparency
-                    if (x > savedPixels) // Left side (don't overlap with saved portion)
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.3f)); // Even more transparent for thickness
-                        g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red.withAlpha(0.5f)); // Reset for next iteration
-                    }
-                    if (x < recordedPixels - 1) // Right side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.3f));
-                        g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red.withAlpha(0.5f)); // Reset for next iteration
-                    }
-                }
-                else
-                {
-                    // For silent parts, draw a thicker center line with transparency
-                    g.fillRect(drawX - 1, centerY - 1, 3, 2);
-                }
-            }
-        }
-    }
+    // While the take is unsaved, the saved buffer runs along the bottom: what every model and the
+    // buffer's own playback use.
+    const bool showSavedLane = takeUnsaved && !savedBufferPreview.peaks.empty();
+    const auto savedLane = showSavedLane ? getSavedBufferLaneBounds(area) : juce::Rectangle<int>();
 
     // Add recording indicator if currently recording
     if (isRecording && recordedPixels > 0)
@@ -3047,6 +2972,9 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         }
     }
 
+    if (showSavedLane)
+        drawSavedBufferLane(g, area, savedLane, totalDuration);
+
     // The input player uses the same white cursor treatment as the output
     // player, mapped to the input waveform's current time scale.
     if ((isPlayingInput || isPausedInput) && inputPlaybackDuration > 0.0)
@@ -3054,25 +2982,138 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         const double progressPercent = juce::jlimit(0.0, 1.0,
             currentInputPlaybackPosition / totalDuration);
         const int cursorX = area.getX() + 1 + (int)(progressPercent * waveWidth);
+        // Playback is of the saved buffer, so its cursor runs on the saved lane when it shows.
+        const float cursorTop = showSavedLane ? (float) savedLane.getY() + 1 : (float) area.getY() + 1;
+        const float cursorBottom = showSavedLane ? (float) savedLane.getBottom() : (float) area.getBottom() - 1;
 
         g.setColour(juce::Colours::white.withAlpha(isPlayingInput ? 0.9f : 0.7f));
-        g.drawVerticalLine(cursorX, (float)area.getY() + 1, (float)area.getBottom() - 1);
+        g.drawVerticalLine(cursorX, cursorTop, cursorBottom);
         g.setColour(juce::Colours::white.withAlpha(0.3f));
         if (cursorX > area.getX() + 1)
-            g.drawVerticalLine(cursorX - 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+            g.drawVerticalLine(cursorX - 1, cursorTop, cursorBottom);
         if (cursorX < area.getRight() - 1)
-            g.drawVerticalLine(cursorX + 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+            g.drawVerticalLine(cursorX + 1, cursorTop, cursorBottom);
     }
 
-    // The same range editor is available in plugin and standalone builds.
-    if (recordedSamples > 0 && !isRecording)
+    // An unsaved take says so at the top left.
+    if (takeUnsaved)
     {
-        // Hint at the bottom left; the stems handle has the bottom right.
+        const juce::String label = savedBufferPreview.peaks.empty() ? "unsaved - save buffer to use it"
+                                                                    : "unsaved - models use the saved buffer below";
+        // Measured in the font it is drawn with (the look and feel's), clear of the folder icon.
+        g.setFont(juce::FontOptions(11.0f));
+        const int textWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), label)));
+        const int labelWidth = juce::jmin(area.getWidth() - 44, textWidth + 12);
+        const auto labelArea = juce::Rectangle<int>(area.getX() + 3, area.getY() + 3, labelWidth, 14);
+        g.setColour(juce::Colours::black.withAlpha(0.7f));
+        g.fillRect(labelArea);
+        g.setColour(juce::Colour(0xffef9f27));
+        g.drawText(label, labelArea.reduced(5, 0), juce::Justification::centredLeft, true);
+    }
+    // The same range editor is available in plugin and standalone builds. The saved lane takes
+    // the bottom left while it shows; the stems handle has the bottom right.
+    if (recordedSamples > 0 && !isRecording && !showSavedLane)
+    {
         g.setFont(juce::FontOptions(13.0f));
         g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
         auto hintArea = juce::Rectangle<int>(area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
         g.drawText("double-click to select range", hintArea, juce::Justification::centredLeft);
     }
+}
+
+// A compact lane along the bottom of the recording waveform, which stops short of the stems handle.
+juce::Rectangle<int> Gary4juceAudioProcessorEditor::getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const
+{
+    constexpr int laneHeight = 14;
+    const int right = area.getRight() - 1 - (stemsInputButton.isVisible() ? 58 : 2);
+    return { area.getX() + 1, area.getBottom() - 1 - laneHeight, juce::jmax(0, right - (area.getX() + 1)), laneHeight };
+}
+
+// The saved buffer in its lane, scaled to the waveform's own time axis so its length compares with
+// the take's at a glance.
+void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                        const juce::Rectangle<int>& lane, double totalDuration)
+{
+    const auto& peaks = savedBufferPreview.peaks;
+    if (peaks.empty() || totalDuration <= 0.0 || lane.isEmpty())
+        return;
+
+    g.setColour(juce::Colours::black.withAlpha(0.8f));
+    g.fillRect(lane);
+    g.setColour(juce::Colour(0x40, 0x40, 0x40));
+    g.drawHorizontalLine(lane.getY(), (float) lane.getX(), (float) lane.getRight());
+
+    const int waveWidth = juce::jmax(1, area.getWidth() - 2);
+    const double savedSpan = savedBufferPreview.seconds / totalDuration * waveWidth;
+    const int pixels = juce::jmin(lane.getWidth(), juce::roundToInt(savedSpan));
+    const float centre = (float) lane.getCentreY() + 0.5f;
+    const float halfHeight = (lane.getHeight() - 4) * 0.5f;
+    g.setColour(juce::Colours::red.withAlpha(0.85f));
+    for (int x = 0; x < pixels; ++x)
+    {
+        const auto column = (size_t) juce::jmin((double) peaks.size() - 1.0,
+                                                x * (double) peaks.size() / juce::jmax(1.0, savedSpan));
+        const float half = juce::jmax(0.5f, juce::jmin(1.0f, peaks[column]) * halfHeight);
+        g.drawVerticalLine(lane.getX() + x, centre - half, centre + half);
+    }
+}
+
+// Keep the saved lane's waveform in step with myBuffer.wav, reading it again in the background
+// whenever the file changes.
+void Gary4juceAudioProcessorEditor::refreshSavedBufferPreview()
+{
+    const auto file = getGaryBufferFile();
+    const bool exists = file.existsAsFile();
+    const auto modified = exists ? file.getLastModificationTime() : juce::Time();
+    const auto size = exists ? file.getSize() : (juce::int64) 0;
+    if (file.getFullPathName() == savedBufferPreview.path && modified == savedBufferPreview.modified
+        && size == savedBufferPreview.size)
+        return;
+
+    if (!exists)
+    {
+        savedBufferPreview = { file.getFullPathName(), modified, size, 0.0, {} };
+        repaint(waveformArea);
+        return;
+    }
+    if (savedBufferPreviewLoading.exchange(true))
+        return;
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis, file, modified, size]()
+    {
+        SavedBufferPreview preview { file.getFullPathName(), modified, size, 0.0, {} };
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
+        {
+            const juce::int64 length = reader->lengthInSamples;
+            if (reader->sampleRate > 0.0 && length > 0)
+            {
+                constexpr int kColumns = 1024;
+                preview.seconds = (double) length / reader->sampleRate;
+                preview.peaks.resize(kColumns, 0.0f);
+                const juce::int64 perColumn = juce::jmax<juce::int64>(1, length / kColumns);
+                const int channels = (int) juce::jmin(reader->numChannels, 2u);
+                for (int column = 0; column < kColumns && column * perColumn < length; ++column)
+                {
+                    juce::Range<float> levels[2];
+                    reader->readMaxLevels(column * perColumn, perColumn, levels, channels);
+                    for (int ch = 0; ch < channels; ++ch)
+                        preview.peaks[(size_t) column] = juce::jmax(preview.peaks[(size_t) column],
+                            std::abs(levels[ch].getStart()), std::abs(levels[ch].getEnd()));
+                }
+            }
+        }
+        juce::MessageManager::callAsync([safeThis, preview = std::move(preview)]() mutable
+        {
+            if (safeThis == nullptr)
+                return;
+            safeThis->savedBufferPreview = std::move(preview);
+            safeThis->savedBufferPreviewLoading.store(false);
+            safeThis->repaint(safeThis->waveformArea);
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
@@ -6863,17 +6904,39 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     }
 }
 
+// The recording buffer's player plays the saved buffer (myBuffer.wav), what every model reads; a
+// take you just recorded is one you just heard.
+bool Gary4juceAudioProcessorEditor::loadSavedBufferForInputPlayback()
+{
+    const auto file = getGaryBufferFile();
+    audioProcessor.loadOutputAudioForPlayback(file);
+    inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
+    if (inputPlaybackDuration <= 0.0)
+        return false;
+    activePlaybackSource = PlaybackSource::Input;
+    inputPlaybackSnapshotSamples = juce::jmax(1, savedSamples);
+    inputPlaybackFileTime = file.getLastModificationTime();
+    isPlayingInput = false;
+    isPausedInput = false;
+    return true;
+}
+
+bool Gary4juceAudioProcessorEditor::inputPlaybackIsCurrent() const
+{
+    return activePlaybackSource == PlaybackSource::Input && inputPlaybackSnapshotSamples > 0
+        && inputPlaybackFileTime == getGaryBufferFile().getLastModificationTime();
+}
+
 void Gary4juceAudioProcessorEditor::playInputAudio()
 {
-    if (recordedSamples <= 0 || isRecording)
+    if (!hasSavedRecordingBuffer())
     {
         showStatusMessage(isRecording ? "stop recording before playing the buffer"
-                                      : "no recording buffer to play");
+                                      : "save the buffer to play it");
         return;
     }
 
-    const bool needsFreshSnapshot = activePlaybackSource != PlaybackSource::Input
-        || inputPlaybackSnapshotSamples != recordedSamples;
+    const bool needsFreshSnapshot = !inputPlaybackIsCurrent();
 
     if (needsFreshSnapshot)
     {
@@ -6885,18 +6948,12 @@ void Gary4juceAudioProcessorEditor::playInputAudio()
         pausedPosition = 0.0;
         updatePlayButtonIcon();
 
-        if (!audioProcessor.loadRecordingAudioForPlayback())
+        if (!loadSavedBufferForInputPlayback())
         {
-            showStatusMessage("could not load recording buffer for playback");
+            showStatusMessage("could not load the saved buffer for playback");
             activePlaybackSource = PlaybackSource::None;
             return;
         }
-
-        activePlaybackSource = PlaybackSource::Input;
-        inputPlaybackSnapshotSamples = recordedSamples;
-        inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
-        isPlayingInput = false;
-        isPausedInput = false;
         currentInputPlaybackPosition = 0.0;
     }
 
@@ -6925,7 +6982,7 @@ void Gary4juceAudioProcessorEditor::playInputAudio()
         isPausedInput = false;
         currentInputPlaybackPosition = 0.0;
         updateInputPlayButtonIcon();
-        showStatusMessage("playing recording buffer...", 2000);
+        showStatusMessage("playing saved buffer...", 2000);
     }
 }
 
@@ -7002,12 +7059,10 @@ bool Gary4juceAudioProcessorEditor::validateAudioDurationForModel(const juce::Fi
 
 void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
 {
-    if (recordedSamples <= 0 || isRecording)
+    if (!hasSavedRecordingBuffer())
         return;
 
-    const bool needsFreshSnapshot = activePlaybackSource != PlaybackSource::Input
-        || inputPlaybackSnapshotSamples != recordedSamples;
-    if (needsFreshSnapshot)
+    if (!inputPlaybackIsCurrent())
     {
         audioProcessor.stopOutputPlayback();
         isPlayingOutput = false;
@@ -7016,14 +7071,8 @@ void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
         pausedPosition = 0.0;
         updatePlayButtonIcon();
 
-        if (!audioProcessor.loadRecordingAudioForPlayback())
+        if (!loadSavedBufferForInputPlayback())
             return;
-
-        activePlaybackSource = PlaybackSource::Input;
-        inputPlaybackSnapshotSamples = recordedSamples;
-        inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
-        isPlayingInput = false;
-        isPausedInput = false;
     }
 
     const bool keepPlaying = isPlayingInput && audioProcessor.getIsPlayingOutput();
@@ -8570,14 +8619,16 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         double savedSeconds = (double)savedSamples / currentSampleRate;
 
         juce::String infoText;
-        if (savedSamples < recordedSamples)
+        if (isRecording || audioProcessor.isRecordingUnsaved())
         {
-            infoText = juce::String::formatted("%.1fs recorded (%.1fs saved) - %d samples",
-                recordedSeconds, savedSeconds, recordedSamples);
+            const double savedBufferSeconds = savedBufferPreview.peaks.empty() ? savedSeconds : savedBufferPreview.seconds;
+            infoText = savedBufferSeconds > 0.0
+                ? juce::String::formatted("%.1fs - unsaved (saved buffer %.1fs)", recordedSeconds, savedBufferSeconds)
+                : juce::String::formatted("%.1fs - unsaved", recordedSeconds);
         }
         else
         {
-            infoText = juce::String::formatted("%.1fs - %d samples - Saved",
+            infoText = juce::String::formatted("%.1fs - %d samples - saved",
                 recordedSeconds, recordedSamples);
         }
 

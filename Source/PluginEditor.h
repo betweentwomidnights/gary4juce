@@ -640,6 +640,7 @@ private:
     void stemsHandleClicked(bool fromRecordingBuffer);   // the popup, or its settings until set up
     void checkStemPlaybackStatus();
     void showStemsDialog(bool fromRecordingBuffer);
+    bool hasSavedRecordingBuffer() const;
     void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
     void toggleStemPlayback(const juce::File& stem);
     void stopStemPlayback(const juce::File& stem);
@@ -794,6 +795,12 @@ private:
     void saveRecordingBuffer();
     void clearRecordingBuffer();
     void drawWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
+    juce::Rectangle<int> getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const;
+    void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                             const juce::Rectangle<int>& lane, double totalDuration);
+    void refreshSavedBufferPreview();
+    bool loadSavedBufferForInputPlayback();
+    bool inputPlaybackIsCurrent() const;
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
     void sendToGary();
     void sendToJerry();  // New method for Jerry
@@ -856,6 +863,21 @@ private:
     double currentInputPlaybackPosition = 0.0;
     double inputPlaybackDuration = 0.0;
     int inputPlaybackSnapshotSamples = 0;
+    juce::Time inputPlaybackFileTime;   // the myBuffer.wav the input player loaded
+
+    // The saved buffer (myBuffer.wav), drawn along the bottom of the recording waveform while
+    // the take above it is unsaved: one peak per column, read in the background whenever the
+    // file changes.
+    struct SavedBufferPreview
+    {
+        juce::String path;
+        juce::Time modified;
+        juce::int64 size = 0;
+        double seconds = 0.0;
+        std::vector<float> peaks;
+    };
+    SavedBufferPreview savedBufferPreview;
+    std::atomic<bool> savedBufferPreviewLoading { false };
 
     // Playback cursor tracking
     double currentPlaybackPosition = 0.0;  // Current position in seconds
