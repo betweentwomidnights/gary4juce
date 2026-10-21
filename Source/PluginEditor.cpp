@@ -2878,6 +2878,11 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         }
     }
 
+    // While the take is unsaved, the saved buffer runs along the bottom: what every model and the
+    // buffer's own playback use.
+    const bool showSavedLane = takeUnsaved && !savedBufferPreview.peaks.empty();
+    const auto savedLane = showSavedLane ? getSavedBufferLaneBounds(area) : juce::Rectangle<int>();
+
     // Add recording indicator if currently recording
     if (isRecording && recordedPixels > 0)
     {
@@ -2896,6 +2901,9 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         }
     }
 
+    if (showSavedLane)
+        drawSavedBufferLane(g, area, savedLane, totalDuration);
+
     // The input player uses the same white cursor treatment as the output
     // player, mapped to the input waveform's current time scale.
     if ((isPlayingInput || isPausedInput) && inputPlaybackDuration > 0.0)
@@ -2903,23 +2911,24 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         const double progressPercent = juce::jlimit(0.0, 1.0,
             currentInputPlaybackPosition / totalDuration);
         const int cursorX = area.getX() + 1 + (int)(progressPercent * waveWidth);
+        // Playback is of the saved buffer, so its cursor runs on the saved lane when it shows.
+        const float cursorTop = showSavedLane ? (float) savedLane.getY() + 1 : (float) area.getY() + 1;
+        const float cursorBottom = showSavedLane ? (float) savedLane.getBottom() : (float) area.getBottom() - 1;
 
         g.setColour(juce::Colours::white.withAlpha(isPlayingInput ? 0.9f : 0.7f));
-        g.drawVerticalLine(cursorX, (float)area.getY() + 1, (float)area.getBottom() - 1);
+        g.drawVerticalLine(cursorX, cursorTop, cursorBottom);
         g.setColour(juce::Colours::white.withAlpha(0.3f));
         if (cursorX > area.getX() + 1)
-            g.drawVerticalLine(cursorX - 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+            g.drawVerticalLine(cursorX - 1, cursorTop, cursorBottom);
         if (cursorX < area.getRight() - 1)
-            g.drawVerticalLine(cursorX + 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+            g.drawVerticalLine(cursorX + 1, cursorTop, cursorBottom);
     }
 
-    // An unsaved take says so at the top left, and the saved buffer, which is what every model
-    // and the buffer's own playback use, runs along the bottom on the same time scale.
-    const bool showSavedLane = takeUnsaved && !savedBufferPreview.peaks.empty();
+    // An unsaved take says so at the top left.
     if (takeUnsaved)
     {
-        const juce::String label = savedBufferPreview.peaks.empty() ? "unsaved take - save buffer to use it"
-                                                                    : "unsaved take - models use the saved buffer below";
+        const juce::String label = savedBufferPreview.peaks.empty() ? "unsaved - save buffer to use it"
+                                                                    : "unsaved - models use the saved buffer below";
         const juce::FontOptions labelFont(11.0f);
         const int labelWidth = juce::jmin(area.getWidth() - 8,
             juce::roundToInt(juce::GlyphArrangement::getStringWidth(juce::Font(labelFont), label)) + 10);
@@ -2930,9 +2939,6 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         g.setColour(juce::Colour(0xffef9f27));
         g.drawText(label, labelArea.reduced(5, 0), juce::Justification::centredLeft, true);
     }
-    if (showSavedLane)
-        drawSavedBufferLane(g, area, totalDuration);
-
     // The same range editor is available in plugin and standalone builds. The saved lane takes
     // the bottom left while it shows; the stems handle has the bottom right.
     if (recordedSamples > 0 && !isRecording && !showSavedLane)
@@ -2944,20 +2950,21 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     }
 }
 
-// The saved buffer as a compact lane along the bottom of the recording waveform, scaled to the
-// waveform's own time axis so its length compares with the take's at a glance.
-void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
-                                                        double totalDuration)
+// A compact lane along the bottom of the recording waveform, which stops short of the stems handle.
+juce::Rectangle<int> Gary4juceAudioProcessorEditor::getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const
 {
-    const auto& peaks = savedBufferPreview.peaks;
-    if (peaks.empty() || totalDuration <= 0.0)
-        return;
-
     constexpr int laneHeight = 14;
     const int right = area.getRight() - 1 - (stemsInputButton.isVisible() ? 58 : 2);
-    const auto lane = juce::Rectangle<int>(area.getX() + 1, area.getBottom() - 1 - laneHeight,
-                                           juce::jmax(0, right - (area.getX() + 1)), laneHeight);
-    if (lane.isEmpty())
+    return { area.getX() + 1, area.getBottom() - 1 - laneHeight, juce::jmax(0, right - (area.getX() + 1)), laneHeight };
+}
+
+// The saved buffer in its lane, scaled to the waveform's own time axis so its length compares with
+// the take's at a glance.
+void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                        const juce::Rectangle<int>& lane, double totalDuration)
+{
+    const auto& peaks = savedBufferPreview.peaks;
+    if (peaks.empty() || totalDuration <= 0.0 || lane.isEmpty())
         return;
 
     g.setColour(juce::Colours::black.withAlpha(0.8f));
@@ -2969,7 +2976,7 @@ void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const
     const double savedSpan = savedBufferPreview.seconds / totalDuration * waveWidth;
     const int pixels = juce::jmin(lane.getWidth(), juce::roundToInt(savedSpan));
     const float centre = (float) lane.getCentreY() + 0.5f;
-    const float halfHeight = (laneHeight - 4) * 0.5f;
+    const float halfHeight = (lane.getHeight() - 4) * 0.5f;
     g.setColour(juce::Colours::red.withAlpha(0.85f));
     for (int x = 0; x < pixels; ++x)
     {
@@ -2978,18 +2985,6 @@ void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const
         const float half = juce::jmax(0.5f, juce::jmin(1.0f, peaks[column]) * halfHeight);
         g.drawVerticalLine(lane.getX() + x, centre - half, centre + half);
     }
-
-    const int totalSeconds = juce::roundToInt(savedBufferPreview.seconds);
-    const juce::String label = "saved " + juce::String(totalSeconds / 60) + ":"
-                             + juce::String(totalSeconds % 60).paddedLeft('0', 2);
-    const juce::FontOptions labelFont(10.0f);
-    const int labelWidth = juce::roundToInt(juce::GlyphArrangement::getStringWidth(juce::Font(labelFont), label)) + 8;
-    const auto labelArea = lane.withWidth(juce::jmin(lane.getWidth(), labelWidth));
-    g.setColour(juce::Colours::black.withAlpha(0.75f));
-    g.fillRect(labelArea);
-    g.setFont(labelFont);
-    g.setColour(juce::Colours::lightgrey);
-    g.drawText(label, labelArea.reduced(4, 0), juce::Justification::centredLeft, false);
 }
 
 // Keep the saved lane's waveform in step with myBuffer.wav, reading it again in the background
@@ -8553,14 +8548,16 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         double savedSeconds = (double)savedSamples / currentSampleRate;
 
         juce::String infoText;
-        if (savedSamples < recordedSamples)
+        if (isRecording || audioProcessor.isRecordingUnsaved())
         {
-            infoText = juce::String::formatted("%.1fs recorded (%.1fs saved) - %d samples",
-                recordedSeconds, savedSeconds, recordedSamples);
+            const double savedBufferSeconds = savedBufferPreview.peaks.empty() ? savedSeconds : savedBufferPreview.seconds;
+            infoText = savedBufferSeconds > 0.0
+                ? juce::String::formatted("%.1fs - unsaved (saved buffer %.1fs)", recordedSeconds, savedBufferSeconds)
+                : juce::String::formatted("%.1fs - unsaved", recordedSeconds);
         }
         else
         {
-            infoText = juce::String::formatted("%.1fs - %d samples - Saved",
+            infoText = juce::String::formatted("%.1fs - %d samples - saved",
                 recordedSeconds, recordedSamples);
         }
 

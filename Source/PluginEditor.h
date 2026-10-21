@@ -764,7 +764,9 @@ private:
     void saveRecordingBuffer();
     void clearRecordingBuffer();
     void drawWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
-    void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area, double totalDuration);
+    juce::Rectangle<int> getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const;
+    void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                             const juce::Rectangle<int>& lane, double totalDuration);
     void refreshSavedBufferPreview();
     bool loadSavedBufferForInputPlayback();
     bool inputPlaybackIsCurrent() const;
