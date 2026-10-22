@@ -1866,6 +1866,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(backendToggleButton);
 
     initializeGaryDataDirectory();
+    restoreSavedBufferIntoRecording();
 
     // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
@@ -7532,6 +7533,62 @@ void Gary4juceAudioProcessorEditor::filesDropped(const juce::StringArray& files,
     loadAudioFileIntoBuffer(juce::File(files[0]));
 }
 
+// The whole of `reader`'s audio, resampled to the host's rate when it differs.
+bool Gary4juceAudioProcessorEditor::readAudioAtHostRate(juce::AudioFormatReader& reader,
+                                                        juce::AudioBuffer<float>& buffer) const
+{
+    const int channels = (int) reader.numChannels;
+    const int length = (int) reader.lengthInSamples;
+    buffer.setSize(channels, length);
+    if (!reader.read(&buffer, 0, length, 0, true, true))
+        return false;
+
+    const double fileSampleRate = reader.sampleRate;
+    const double hostSampleRate = audioProcessor.getCurrentSampleRate();
+    if (std::abs(fileSampleRate - hostSampleRate) <= 1.0)
+        return true;
+
+    DBG("Resampling from " + juce::String(fileSampleRate) + "Hz to " + juce::String(hostSampleRate) + "Hz");
+    const int resampledLength = (int) ((double) length * hostSampleRate / fileSampleRate);
+    juce::AudioBuffer<float> resampled(channels, resampledLength);
+    for (int channel = 0; channel < channels; ++channel)
+    {
+        juce::LagrangeInterpolator interpolator;
+        interpolator.reset();
+        interpolator.process(fileSampleRate / hostSampleRate, buffer.getReadPointer(channel),
+                             resampled.getWritePointer(channel), resampledLength, length, 0);
+    }
+    buffer = std::move(resampled);
+    return true;
+}
+
+// A plugin that opens with nothing recorded shows the saved buffer, which is what its tools read:
+// myBuffer.wav loaded into the recording buffer, saved as it is.
+void Gary4juceAudioProcessorEditor::restoreSavedBufferIntoRecording()
+{
+    if (audioProcessor.isRecording() || audioProcessor.getRecordedSamples() > 0)
+        return;
+
+    const auto file = getGaryBufferFile();
+    if (!file.existsAsFile())
+        return;
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0 || reader->numChannels > 2
+        || (double) reader->lengthInSamples / reader->sampleRate > Gary4juceAudioProcessor::kMaximumImportedAudioSeconds)
+        return;
+
+    juce::AudioBuffer<float> buffer;
+    if (!readAudioAtHostRate(*reader, buffer) || !audioProcessor.loadAudioIntoRecordingBuffer(buffer))
+        return;
+
+    audioProcessor.markRecordingSaved(buffer.getNumSamples());
+    savedSamples = audioProcessor.getSavedSamples();
+    DBG("Opened with the saved buffer: " + juce::String(buffer.getNumSamples()) + " samples");
+}
+
 void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog)
 try
 {
@@ -7585,52 +7642,11 @@ try
         // File is short enough - load directly
         DBG("File ≤" + juce::String(directLoadLimit, 0) + "s - loading directly into buffer");
 
-        // Read entire file into temp buffer
-        juce::AudioBuffer<float> tempBuffer((int)reader->numChannels, (int)reader->lengthInSamples);
-        if (!reader->read(&tempBuffer, 0, (int)reader->lengthInSamples, 0, true, true))
+        juce::AudioBuffer<float> tempBuffer;
+        if (!readAudioAtHostRate(*reader, tempBuffer))
         {
             showStatusMessage("couldn't decode audio file", 5000);
             return;
-        }
-
-        // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
-        double fileSampleRate = reader->sampleRate;
-        double hostSampleRate = audioProcessor.getCurrentSampleRate();
-
-        if (std::abs(fileSampleRate - hostSampleRate) > 1.0)  // Different sample rates
-        {
-            DBG("Resampling from " + juce::String(fileSampleRate) +
-                "Hz to " + juce::String(hostSampleRate) + "Hz");
-
-            // Calculate resampled size
-            double sizeRatio = hostSampleRate / fileSampleRate;
-            int resampledNumSamples = (int)((double)tempBuffer.getNumSamples() * sizeRatio);
-            double speedRatio = fileSampleRate / hostSampleRate;
-
-            // Create resampled buffer
-            juce::AudioBuffer<float> resampledBuffer((int)reader->numChannels, resampledNumSamples);
-
-            // Resample each channel
-            for (int channel = 0; channel < (int)reader->numChannels; ++channel)
-            {
-                juce::LagrangeInterpolator interpolator;
-                interpolator.reset();
-
-                const float* readPtr = tempBuffer.getReadPointer(channel);
-                float* writePtr = resampledBuffer.getWritePointer(channel);
-
-                interpolator.process(
-                    speedRatio,
-                    readPtr,
-                    writePtr,
-                    resampledNumSamples,
-                    tempBuffer.getNumSamples(),
-                    0
-                );
-            }
-
-            // Use resampled buffer
-            tempBuffer = std::move(resampledBuffer);
         }
 
         // Load into processor's recording buffer

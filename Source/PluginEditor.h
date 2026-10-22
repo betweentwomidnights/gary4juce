@@ -799,6 +799,8 @@ private:
     void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
                              const juce::Rectangle<int>& lane, double totalDuration);
     void refreshSavedBufferPreview();
+    bool readAudioAtHostRate(juce::AudioFormatReader& reader, juce::AudioBuffer<float>& buffer) const;
+    void restoreSavedBufferIntoRecording();
     bool loadSavedBufferForInputPlayback();
     bool inputPlaybackIsCurrent() const;
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
