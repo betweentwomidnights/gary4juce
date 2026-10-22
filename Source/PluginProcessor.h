@@ -73,9 +73,13 @@ public:
     // State management methods
     void setSavedSamples(int samples) { savedSamples = samples; }
     int getSavedSamples() const { return savedSamples.load(); }
-    // Whether the recording buffer holds a take that myBuffer.wav does not: set when a take
-    // starts or audio is loaded, cleared when the buffer is saved.
-    bool isRecordingUnsaved() const { return recordingUnsaved.load(std::memory_order_acquire); }
+    // Whether the recording buffer holds audio that myBuffer.wav does not: a take or loaded audio
+    // not saved since, or a recording that kept going after a save.
+    bool isRecordingUnsaved() const
+    {
+        return recordingUnsaved.load(std::memory_order_acquire)
+            || atomicRecordedSamples.load(std::memory_order_acquire) != savedSamples.load();
+    }
     // The recording buffer now holds what myBuffer.wav does, without writing it: the editor
     // loaded the file itself.
     void markRecordingSaved(int samples) { savedSamples = samples; recordingUnsaved = false; }
