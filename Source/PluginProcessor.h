@@ -76,6 +76,9 @@ public:
     // Whether the recording buffer holds a take that myBuffer.wav does not: set when a take
     // starts or audio is loaded, cleared when the buffer is saved.
     bool isRecordingUnsaved() const { return recordingUnsaved.load(std::memory_order_acquire); }
+    // The recording buffer now holds what myBuffer.wav does, without writing it: the editor
+    // loaded the file itself.
+    void markRecordingSaved(int samples) { savedSamples = samples; recordingUnsaved = false; }
     
     void setTransformRecording(bool useRecording) { transformRecording = useRecording; }
     bool getTransformRecording() const { return transformRecording.load(); }
