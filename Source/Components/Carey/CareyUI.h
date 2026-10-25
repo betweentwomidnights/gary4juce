@@ -809,6 +809,7 @@ private:
     CustomButton completeGenerateButton;
     juce::Label completeInfoLabel;
 
+    juce::Label modelFamilyLabel;
     CustomButton modelFamily2bButton;
     CustomButton modelFamilyXlButton;
     bool modelFamilyXl = false;

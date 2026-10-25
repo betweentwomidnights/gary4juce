@@ -244,22 +244,6 @@ CareyUI::CareyUI()
     extractSubTabButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
     extractSubTabButton.setVisible(kExtractTabVisible);
 
-    auto prepareFamilyButton = [this](CustomButton& button, const juce::String& text, bool xl)
-    {
-        button.setButtonText(text);
-        button.onClick = [this, xl]()
-        {
-            if (modelFamilyXl == xl)
-                return;
-            setModelFamilyXl(xl);
-            if (onModelFamilyChanged)
-                onModelFamilyChanged(modelFamilyXl);
-        };
-        addAndMakeVisible(button);
-    };
-    prepareFamilyButton(modelFamily2bButton, "2B", false);
-    prepareFamilyButton(modelFamilyXlButton, "XL", true);
-    updateModelFamilyButtons();
 
     keyScaleLabel.setText("key", juce::dontSendNotification);
     keyScaleLabel.setFont(juce::FontOptions(11.0f));
@@ -311,6 +295,29 @@ CareyUI::CareyUI()
     customLookAndFeel.setScrollbarAccentColour(Theme::Colors::Terry);
     contentViewport->getVerticalScrollBar().setLookAndFeel(&customLookAndFeel);
     addAndMakeVisible(contentViewport.get());
+
+    auto prepareFamilyButton = [this](CustomButton& button, const juce::String& text, bool xl)
+    {
+        button.setButtonText(text);
+        button.onClick = [this, xl]()
+        {
+            if (modelFamilyXl == xl)
+                return;
+            setModelFamilyXl(xl);
+            if (onModelFamilyChanged)
+                onModelFamilyChanged(modelFamilyXl);
+        };
+        addToContent(button);
+    };
+    modelFamilyLabel.setText("model size", juce::dontSendNotification);
+    modelFamilyLabel.setFont(juce::FontOptions(12.0f));
+    modelFamilyLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
+    modelFamilyLabel.setJustificationType(juce::Justification::centredLeft);
+    modelFamilyLabel.setTooltip("2B is lighter; XL (4B) sounds richer and needs about 16 GB of VRAM. one choice for every carey mode");
+    addToContent(modelFamilyLabel);
+    prepareFamilyButton(modelFamily2bButton, "2B", false);
+    prepareFamilyButton(modelFamilyXlButton, "XL", true);
+    updateModelFamilyButtons();
 
     useSeedToggle.setButtonText("use seed");
     useSeedToggle.setToggleState(false, juce::dontSendNotification);
@@ -1606,10 +1613,6 @@ void CareyUI::resized()
 
     area.removeFromTop(4);
     auto keyRow = area.removeFromTop(22);
-    modelFamilyXlButton.setBounds(keyRow.removeFromRight(34));
-    keyRow.removeFromRight(2);
-    modelFamily2bButton.setBounds(keyRow.removeFromRight(34));
-    keyRow.removeFromRight(6);
     if (showGlobalMusicFields)
     {
         keyScaleLabel.setBounds(keyRow.removeFromLeft(26));
@@ -1704,6 +1707,9 @@ void CareyUI::updateContentLayout()
         || (showingArrange && arrangeAdvancedOpen);
     useSeedToggle.setVisible(showSeedControls);
     seedEditor.setVisible(showSeedControls);
+    modelFamilyLabel.setVisible(showSeedControls);
+    modelFamily2bButton.setVisible(showSeedControls);
+    modelFamilyXlButton.setVisible(showSeedControls);
     lastSeedLabel.setVisible(showingSeededMode);
 
     constexpr int sidePadding = 8;
@@ -1712,6 +1718,18 @@ void CareyUI::updateContentLayout()
     juce::ignoreUnused(contentArea);
 
     const auto fullRow = [&](int height) { return juce::Rectangle<int>(sidePadding, y, contentWidth - (sidePadding * 2), height); };
+
+    // The model size row, first in every tab's advanced settings: one choice for all of carey.
+    const auto layoutModelSizeRow = [&]()
+    {
+        auto row = fullRow(28);
+        modelFamilyLabel.setBounds(row.removeFromLeft(110));
+        constexpr int buttonWidth = 56;
+        modelFamily2bButton.setBounds(row.removeFromLeft(buttonWidth).reduced(0, 2));
+        row.removeFromLeft(6);
+        modelFamilyXlButton.setBounds(row.removeFromLeft(buttonWidth).reduced(0, 2));
+        y += 36;
+    };
 
     if (showingLego)
     {
@@ -1744,6 +1762,8 @@ void CareyUI::updateContentLayout()
 
         if (legoAdvancedOpen)
         {
+            layoutModelSizeRow();
+
             legoUseLoraToggle.setBounds(fullRow(22));
             y += 30;
 
@@ -1829,6 +1849,8 @@ void CareyUI::updateContentLayout()
 
         if (completeAdvancedOpen)
         {
+            layoutModelSizeRow();
+
             auto modelRow = fullRow(28);
             completeModelLabel.setBounds(modelRow.removeFromLeft(110));
             const int toggleCount = 3;
@@ -1925,6 +1947,8 @@ void CareyUI::updateContentLayout()
 
         if (coverAdvancedOpen)
         {
+            layoutModelSizeRow();
+
             if (coverModelSelectionEnabled)
             {
                 auto modelRow = fullRow(28);
@@ -2039,6 +2063,8 @@ void CareyUI::updateContentLayout()
 
         if (arrangeAdvancedOpen)
         {
+            layoutModelSizeRow();
+
             arrangeUseLoraToggle.setBounds(fullRow(22));
             y += 30;
 
