@@ -401,7 +401,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentCareyCompleteLora = readString("careyCompleteLora", currentCareyCompleteLora);
     currentCareyCompleteModel = readString("careyCompleteModel", currentCareyCompleteModel);
     // Before v5.1 the size followed the backend: XL on the remote one, 2B locally.
-    currentCareyXl = readBool("careyXl", currentCareyCompleteModel.startsWith("xl-") || !audioProcessor.getIsUsingLocalhost());
+    currentCareyXl = readBool("careyXl", false);
     currentCareyCompleteBpm = readInt("careyCompleteBpm", currentCareyCompleteBpm);
     double legacyStandaloneBpm = currentJerryManualBpm;
     if (initialTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
@@ -1554,7 +1554,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
     careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
     careyUI->setExtractRemoteGenerationEnabled(true);
-    careyUI->setModelFamilyXl(currentCareyXl);
+    careyUI->setModelFamilySelectable(audioProcessor.getIsUsingLocalhost());
+    careyUI->setModelFamilyXl(careyUsesXl());
     careyUI->onModelFamilyChanged = [this](bool xl)
     {
         currentCareyXl = xl;

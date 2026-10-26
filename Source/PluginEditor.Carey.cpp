@@ -245,6 +245,12 @@ double Gary4juceAudioProcessorEditor::getCareyBpmForRequest() const
     return bpm;
 }
 
+// The remote backend serves XL models only, so the size is a local choice.
+bool Gary4juceAudioProcessorEditor::careyUsesXl() const
+{
+    return currentCareyXl || !audioProcessor.getIsUsingLocalhost();
+}
+
 bool Gary4juceAudioProcessorEditor::isCareyTabAvailable() const
 {
     return true;
@@ -263,6 +269,7 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
         careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
         careyUI->setExtractRemoteGenerationEnabled(true);
     }
+    applyCareyModelFamily();
 
     if (currentTab == ModelTab::Carey)
         refreshCareyAvailableLoras(false);
@@ -354,7 +361,8 @@ void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
         return;
 
     careyUI->setAvailableDits(careyDits);
-    careyUI->setModelFamilyXl(currentCareyXl);
+    careyUI->setModelFamilySelectable(audioProcessor.getIsUsingLocalhost());
+    careyUI->setModelFamilyXl(careyUsesXl());
     careyUI->setAvailableLegoLoras(availableCareyLoras);
     careyUI->setLegoSelectedLora(currentCareyLegoLora);
     careyUI->setLegoLoraScale(currentCareyLegoLoraScale);
@@ -377,8 +385,9 @@ void Gary4juceAudioProcessorEditor::syncCareyLoraUi()
 // backend does not say, and keep each mode's choice when it is still offered.
 void Gary4juceAudioProcessorEditor::applyCareyModelFamily()
 {
-    // The chosen size may be one the backend does not have; switch to the one it has.
-    if (!careyDits.isEmpty())
+    // The chosen size may be one the backend does not have; switch to the one it has. Remotely
+    // there is only XL, and the local choice is kept for when the backend is local again.
+    if (!careyDits.isEmpty() && audioProcessor.getIsUsingLocalhost())
     {
         const auto hasFamily = [this](bool xl)
         {
@@ -391,7 +400,7 @@ void Gary4juceAudioProcessorEditor::applyCareyModelFamily()
             currentCareyXl = !currentCareyXl;
     }
 
-    const juce::String family = currentCareyXl ? "xl" : "standard";
+    const juce::String family = careyUsesXl() ? "xl" : "standard";
     juce::StringArray loras;
     for (const auto& adapter : careyAdapters)
         if (adapter.family.isEmpty() || adapter.family == family)
@@ -722,7 +731,7 @@ void Gary4juceAudioProcessorEditor::sendToCarey()
 
     const juce::String lora = getSelectedCareyLegoLora();
     const double loraScale = juce::jlimit(0.0, 1.0, currentCareyLegoLoraScale);
-    const bool xl = currentCareyXl;
+    const bool xl = careyUsesXl();
     const bool loopAssist = currentCareyLoopAssistEnabled;
     const bool trimToInput = currentCareyTrimToInputEnabled;
     const juce::File bufferFile = getGaryBufferFile();
@@ -762,7 +771,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyExtract()
                                    juce::jlimit(32, 100, currentCareyExtractSteps),
                                    juce::jlimit(3.0, 10.0, currentCareyExtractCfg), seed);
     json->setProperty("track", trackName);
-    const bool xl = currentCareyXl;
+    const bool xl = careyUsesXl();
     const juce::File bufferFile = getGaryBufferFile();
 
     startCareyJob({ "extract", true, [=](const carey_native::Props& props, carey_native::Request& request,
@@ -803,7 +812,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyComplete()
 
     const juce::String lora = getSelectedCareyCompleteLora();
     const double loraScale = juce::jlimit(0.0, 1.0, currentCareyCompleteLoraScale);
-    const bool xl = currentCareyXl;
+    const bool xl = careyUsesXl();
     const bool useSourceAsReference = currentCompleteUseSrcAsRef;
     const juce::File bufferFile = getGaryBufferFile();
 
@@ -855,7 +864,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyGenerate()
 
     const juce::String lora = getSelectedCareyCompleteLora();
     const double loraScale = juce::jlimit(0.0, 1.0, currentCareyCompleteLoraScale);
-    const bool xl = currentCareyXl;
+    const bool xl = careyUsesXl();
 
     startCareyJob({ "generate", false, [=](const carey_native::Props& props, carey_native::Request& request,
                                            double&, juce::String& error)
@@ -893,7 +902,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyArrange()
 
     const juce::String lora = getSelectedCareyArrangeLora();
     const double loraScale = juce::jlimit(0.0, 1.0, currentCareyArrangeLoraScale);
-    const bool xl = currentCareyXl;
+    const bool xl = careyUsesXl();
     const bool loopAssist = currentCareyArrangeLoopAssistEnabled;
     const bool trimToInput = currentCareyArrangeTrimToInputEnabled;
     const juce::File bufferFile = getGaryBufferFile();
@@ -930,7 +939,7 @@ void Gary4juceAudioProcessorEditor::sendToCareyCover()
 
     const juce::String lora = getSelectedCareyCoverLora();
     const double loraScale = juce::jlimit(0.0, 1.0, currentCoverLoraScale);
-    const bool xl = currentCareyXl;
+    const bool xl = careyUsesXl();
     const bool loopAssist = currentCoverLoopAssistEnabled;
     const bool trimToInput = currentCoverTrimToInputEnabled;
     const bool useSourceAsReference = currentCoverUseSrcAsRef;

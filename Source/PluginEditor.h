@@ -409,7 +409,8 @@ private:
     juce::StringArray availableCareyLoras;      // the backend's LoRAs for the chosen model size
     std::vector<carey_native::Adapter> careyAdapters;  // every LoRA GET /props listed
     juce::StringArray careyDits;                // every DiT GET /props listed
-    bool currentCareyXl = false;                // model size for every mode: 2B or XL
+    bool currentCareyXl = false;                // the local model size for every mode: 2B or XL
+    bool careyUsesXl() const;                   // the size requests use: always XL remotely
     // The complete tab (ace-step's complete task), arrange* in code.
     juce::StringArray currentCareyArrangeTracks { "drums", "bass" };
     juce::String currentCareyArrangeCaption;

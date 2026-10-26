@@ -380,6 +380,14 @@ public:
     void setArrangeTrimToInputEnabled(bool enabled) { arrangeTrimToInputToggle.setToggleState(enabled, juce::dontSendNotification); }
     bool getModelFamilyXl() const { return modelFamilyXl; }
     void setModelFamilyXl(bool xl);
+    // Whether the model size can be chosen at all: the remote backend serves XL only.
+    void setModelFamilySelectable(bool selectable)
+    {
+        if (modelFamilySelectable == selectable)
+            return;
+        modelFamilySelectable = selectable;
+        updateContentLayout();
+    }
 
     void setExtractRemoteGenerationEnabled(bool enabled)
     {
@@ -813,6 +821,7 @@ private:
     CustomButton modelFamily2bButton;
     CustomButton modelFamilyXlButton;
     bool modelFamilyXl = false;
+    bool modelFamilySelectable = true;
     juce::StringArray availableDits;
 
     juce::Label keyScaleLabel;

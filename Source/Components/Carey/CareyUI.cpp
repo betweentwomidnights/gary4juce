@@ -1707,9 +1707,10 @@ void CareyUI::updateContentLayout()
         || (showingArrange && arrangeAdvancedOpen);
     useSeedToggle.setVisible(showSeedControls);
     seedEditor.setVisible(showSeedControls);
-    modelFamilyLabel.setVisible(showSeedControls);
-    modelFamily2bButton.setVisible(showSeedControls);
-    modelFamilyXlButton.setVisible(showSeedControls);
+    const bool showModelSize = showSeedControls && modelFamilySelectable;
+    modelFamilyLabel.setVisible(showModelSize);
+    modelFamily2bButton.setVisible(showModelSize);
+    modelFamilyXlButton.setVisible(showModelSize);
     lastSeedLabel.setVisible(showingSeededMode);
 
     constexpr int sidePadding = 8;
@@ -1722,6 +1723,8 @@ void CareyUI::updateContentLayout()
     // The model size row, first in every tab's advanced settings: one choice for all of carey.
     const auto layoutModelSizeRow = [&]()
     {
+        if (!modelFamilySelectable)
+            return;
         auto row = fullRow(28);
         modelFamilyLabel.setBounds(row.removeFromLeft(110));
         constexpr int buttonWidth = 56;
