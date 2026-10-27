@@ -743,6 +743,12 @@ private:
     juce::String pickRandomCaption(const juce::StringArray& prompts, const juce::String& fallback);
     juce::StringArray getLegoPromptBankForTrack(const juce::String& trackName) const;
     juce::StringArray getCompletePromptBank() const;
+    // Continue's caption box serves generate too; its placeholder follows the tab.
+    juce::String continuePanelPlaceholder() const
+    {
+        return currentSubTab == SubTab::Generate ? "describe the music to generate..."
+                                                 : "describe the continuation style...";
+    }
     void applyRandomLegoCaption();
     juce::StringArray getCoverPromptBank() const;
     void setLyricsTextInternal(const juce::String& text, bool notify);

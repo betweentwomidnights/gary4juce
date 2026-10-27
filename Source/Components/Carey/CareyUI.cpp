@@ -574,7 +574,7 @@ CareyUI::CareyUI()
     {
         openCaptionPopout(CaptionPopoutTarget::Complete,
                           completeCaptionEditor,
-                          "describe the continuation style...",
+                          continuePanelPlaceholder(),
                           [this]()
                           {
                               if (onCompleteCaptionDiceRequested)
@@ -587,7 +587,7 @@ CareyUI::CareyUI()
     };
     addToContent(completeCaptionPopoutButton);
 
-    completeCaptionEditor.setTextToShowWhenEmpty("describe the continuation style...", juce::Colour(0xff666666));
+    completeCaptionEditor.setTextToShowWhenEmpty(continuePanelPlaceholder(), juce::Colour(0xff666666));
     completeCaptionEditor.setMultiLine(false);
     completeCaptionEditor.setReturnKeyStartsNewLine(false);
     completeCaptionEditor.setScrollbarsShown(false);
@@ -1922,6 +1922,7 @@ void CareyUI::updateContentLayout()
             ? "generate makes a new piece from the caption and lyrics, no recording needed."
             : "continue extends your audio to the target length. use dice for ideas and lyrics when needed.",
             juce::dontSendNotification);
+        completeCaptionEditor.setTextToShowWhenEmpty(continuePanelPlaceholder(), juce::Colour(0xff666666));
         completeInfoLabel.setBounds(fullRow(32));
         y += 40;
     }
