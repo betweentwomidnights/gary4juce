@@ -231,13 +231,13 @@ CareyUI::CareyUI()
     };
 
     prepareSubTabButton(legoSubTabButton, juce::String::fromUTF8("lego \xe2\x9a\xa0"), SubTab::Lego);
-    legoSubTabButton.setTooltip("it seems lego mode doesn't work well with xl models, which sucks if you want the model to adhere to lyrics well. we default to ace-step-v15-base");
+    legoSubTabButton.setTooltip("hit or miss: expect to try a few times for a good result. seems best with one of your loras. xl models tend to struggle here, so base is the default");
     prepareSubTabButton(generateSubTabButton, "generate", SubTab::Generate);
     generateSubTabButton.setTooltip("a new piece from the caption and lyrics alone, no recording needed");
     prepareSubTabButton(completeSubTabButton, "continue", SubTab::Continue);
     completeSubTabButton.setTooltip("keeps your recording and extends it to the target length");
-    prepareSubTabButton(arrangeSubTabButton, "complete", SubTab::Complete);
-    arrangeSubTabButton.setTooltip("arranges new tracks around your recording, like a band joining in. base model only");
+    prepareSubTabButton(arrangeSubTabButton, juce::String::fromUTF8("complete \xe2\x9a\xa0"), SubTab::Complete);
+    arrangeSubTabButton.setTooltip("arranges new tracks around your recording, like a band joining in. hit or miss: expect to try a few times for a good result. seems best with one of your loras. base model only");
     prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
     coverSubTabButton.setTooltip("works best with xl models, and is the most fun when using a lora");
     prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
@@ -1056,6 +1056,8 @@ CareyUI::CareyUI()
     arrangeTracksLabel.setFont(juce::FontOptions(12.0f));
     arrangeTracksLabel.setColour(juce::Label::textColourId, juce::Colour(0xffcccccc));
     arrangeTracksLabel.setJustificationType(juce::Justification::centredLeft);
+    const juce::String arrangeTracksTip = "these are super optimistic. expect a lot of instrument bleed and happy accidents";
+    arrangeTracksLabel.setTooltip(arrangeTracksTip);
     addToContent(arrangeTracksLabel);
 
     for (const auto& track : trackNames())
@@ -1064,6 +1066,7 @@ CareyUI::CareyUI()
         toggle->setToggleState(track == "drums" || track == "bass", juce::dontSendNotification);
         toggle->setColour(juce::ToggleButton::textColourId, juce::Colour(0xffcccccc));
         toggle->setColour(juce::ToggleButton::tickColourId, Theme::Colors::Terry);
+        toggle->setTooltip(arrangeTracksTip);
         toggle->onClick = [this]()
         {
             if (onArrangeTracksChanged)
