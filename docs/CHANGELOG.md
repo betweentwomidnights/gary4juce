@@ -3,6 +3,29 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.2-rc.1 - Carey on ace-server
+
+Carey's tabs use ace-server's job API on both localhost and the remote
+backend. the new generate tab makes audio from a caption; continue extends
+the recording, cover reworks it, lego adds a stem, extract pulls a stem out,
+and complete arranges other tracks around the recording. lego and complete
+are still hit or miss, and their tabs say so. model size lives in each tab's
+advanced settings on localhost, where you can choose 2B or XL; the remote
+backend serves XL, so it doesn't show that choice. model and LoRA choices,
+progress, cancellation and adapter captions follow the new server contract.
+
+the saved recording buffer now has its own waveform lane while an unsaved
+recording is present. playback and stem separation use the saved buffer, and
+opening a file restores it there too. recording after a save marks the new
+audio as unsaved from the first sample, with its lane and label shown right
+away.
+
+pair this Windows preview with gary4local-rocm v0.6.0-rocm.1 for native Carey
+and its LoRA training. the remote backend keeps the legacy API alongside the
+new one for older plugins. local Carey needs the C++ migration in the paired
+gary4local build. the plugin reports version 5.0.2; the release tag identifies
+this preview.
+
 ## v5.0.1 - cleanup models and drum kits
 
 the stem separator moves to stems.cpp v0.1.5 and gets eight more models:
