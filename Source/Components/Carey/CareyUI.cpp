@@ -238,7 +238,7 @@ CareyUI::CareyUI()
     completeSubTabButton.setTooltip("keeps your recording and extends it to the target length");
     prepareSubTabButton(arrangeSubTabButton, juce::String::fromUTF8("complete \xe2\x9a\xa0"), SubTab::Complete);
     arrangeSubTabButton.setTooltip("arranges new tracks around your recording, like a band joining in. hit or miss: expect to try a few times for a good result. seems best with one of your loras. base model only");
-    prepareSubTabButton(coverSubTabButton, juce::String::fromUTF8("cover \xe2\x9a\xa0"), SubTab::Cover);
+    prepareSubTabButton(coverSubTabButton, "cover", SubTab::Cover);
     coverSubTabButton.setTooltip("works best with xl models, and is the most fun when using a lora");
     prepareSubTabButton(extractSubTabButton, juce::String::fromUTF8("extract \xe2\x9a\xa0"), SubTab::Extract);
     extractSubTabButton.setTooltip("we're still figuring out how to use this properly. if you have a stem separator it may work better");
@@ -1592,19 +1592,28 @@ void CareyUI::resized()
 
     area.removeFromTop(6);
     auto subTabRow = area.removeFromTop(30);
-    const int tabWidth = subTabRow.getWidth() / (kExtractTabVisible ? 6 : 5);
-    generateSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-    legoSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-    arrangeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-    completeSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
+    // Each tab gets its label's width plus an equal share of the rest, so a
+    // label with a warning sign is not cut short to keep the tabs equal.
+    juce::Array<CustomButton*> tabs { &generateSubTabButton, &legoSubTabButton, &arrangeSubTabButton,
+                                      &completeSubTabButton, &coverSubTabButton };
     if constexpr (kExtractTabVisible)
+        tabs.add(&extractSubTabButton);
+    const juce::Font tabFont(Theme::Fonts::Body);
+    juce::Array<int> labelWidths;
+    int labelsWidth = 0;
+    for (auto* tab : tabs)
     {
-        coverSubTabButton.setBounds(subTabRow.removeFromLeft(tabWidth).reduced(2, 2));
-        extractSubTabButton.setBounds(subTabRow.reduced(2, 2));
+        const int width = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(tabFont, tab->getButtonText()))) + 12;
+        labelWidths.add(width);
+        labelsWidth += width;
     }
-    else
+    const int rowWidth = subTabRow.getWidth();
+    const int spare = juce::jmax(0, rowWidth - labelsWidth) / tabs.size();
+    for (int i = 0; i < tabs.size(); ++i)
     {
-        coverSubTabButton.setBounds(subTabRow.reduced(2, 2));
+        // Too narrow for every label: shrink them all in proportion.
+        const int width = labelsWidth > rowWidth ? labelWidths[i] * rowWidth / labelsWidth : labelWidths[i] + spare;
+        tabs[i]->setBounds((i == tabs.size() - 1 ? subTabRow : subTabRow.removeFromLeft(width)).reduced(2, 2));
     }
 
     const bool showGlobalMusicFields = (currentSubTab != SubTab::Extract);
