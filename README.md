@@ -57,37 +57,29 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.1 - 10/18
+### upcoming v5.0.2
 
-**eight more stem separation models.** the stem separator moves to
-[stems.cpp v0.1.5](https://github.com/betweentwomidnights/stems.cpp/releases/tag/v0.1.5)
-and picks up UVR's DeNoise and DeNoise Lite, De-Echo Normal and Aggressive,
-and DeEcho-DeReverb, anvuew's room dereverb for vocals recorded in a room,
-Kim_Vocal_2 for small and quick vocal splits, and DrumSep. the cleanup models
-give you both halves, the clean audio and what was taken out, so you can drag
-either one into your DAW. download them from the settings menu, then
-`stem separator...`. the [model table](#stem-separator) has what each one does.
+**Carey moves to ace-server.** gary4local v0.6.0 runs Carey on
+[acestep.cpp](https://github.com/betweentwomidnights/acestep.cpp), and Carey's
+tabs speak its job API on localhost and the remote backend alike. there's a new
+generate tab that makes audio from a caption; continue, cover, lego and
+complete work on your recording as before, with your LoRAs, progress and
+cancel. on localhost, each tab's advanced settings choose 2B or XL; the remote
+backend serves XL. lego and complete are still hit or miss, and their tabs say
+so.
 
-**DrumSep splits drum kits** into kick, snare, toms, hi-hat, ride and crash.
-separate with htdemucs, then press `split kit` on the drums stem. for a drum
-loop, pick DrumSep from the menu and it splits the audio itself.
+**migrate Carey first.** local Carey needs the C++ runtime, so press
+`migrate runtime` on Carey in gary4local v0.6.0 before using it on localhost.
+the remote backend serves both the old and new API, so an older plugin keeps
+working there.
 
-**the `stems` handle is easier to find.** it shows on every waveform with
-audio now. until the stem separator is set up it's dimmed, and clicking it
-opens the settings. if you installed the runtime with v5.0.0, it'll ask you to
-update it (about 19 MB), since the new models need stems.cpp v0.1.5.
+**the saved recording keeps its own waveform lane** while an unsaved take is
+present. playback and stem separation use the saved buffer, opening a file
+restores it there, and new recording audio shows as unsaved from the first
+sample.
 
-thanks to kostas ([@tsigoulas](https://github.com/tsigoulas)) for asking for
-these models and checking them against UVR5.
-
-**jerry on localhost follows gary4local's C++ service.** the model dropdown
-lists the base model and the finetunes you've downloaded in gary4local's jerry
-models panel, the same way it lists the remote backend's, so the localhost `+`
-for adding a Hugging Face checkpoint is gone. jerry grunge's dice prompts load
-on localhost now too.
-
-recommended local companions: [gary4local v0.5.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.5.0)
-on Windows, released alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
+recommended local companions: [gary4local v0.6.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.6.0)
+on Windows, releasing alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 on macOS. the stem separator runs inside gary4juce and doesn't need either.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).

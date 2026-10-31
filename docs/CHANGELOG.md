@@ -3,6 +3,19 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.2 - Carey on ace-server
+
+v5.0.2-rc.1 as a stable release, paired with gary4local v0.6.0, where Carey
+moves to acestep.cpp. the plugin is the same build as the preview below:
+Carey's tabs use ace-server's job API on localhost and on the remote backend,
+the new generate tab makes audio from a caption, and the saved recording keeps
+its own waveform lane while an unsaved take is present.
+
+local Carey needs the C++ runtime: press `migrate runtime` on Carey in
+gary4local v0.6.0 before using it on localhost. this plugin doesn't speak
+Python Carey's API anymore. the remote backend serves both APIs, so an older
+plugin keeps working there.
+
 ## v5.0.2-rc.1 - Carey on ace-server
 
 Carey's tabs use ace-server's job API on both localhost and the remote
