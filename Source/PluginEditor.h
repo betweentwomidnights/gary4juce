@@ -406,12 +406,27 @@ private:
     bool currentCareyCompleteUseLora = false;
     double currentCareyCompleteLoraScale = 1.0;
     bool currentCompleteUseSrcAsRef = false;
-    juce::StringArray availableCareyLoras;
+    juce::StringArray availableCareyLoras;      // the backend's LoRAs for the chosen model size
+    std::vector<carey_native::Adapter> careyAdapters;  // every LoRA GET /props listed
+    juce::StringArray careyDits;                // every DiT GET /props listed
+    bool currentCareyXl = false;                // the local model size for every mode: 2B or XL
+    bool careyUsesXl() const;                   // the size requests use: always XL remotely
+    // The complete tab (ace-step's complete task), arrange* in code.
+    juce::StringArray currentCareyArrangeTracks { "drums", "bass" };
+    juce::String currentCareyArrangeCaption;
+    juce::String currentCareyArrangeLora;
+    bool currentCareyArrangeUseLora = false;
+    double currentCareyArrangeLoraScale = 1.0;
+    int currentCareyArrangeSteps = 50;
+    double currentCareyArrangeCfg = 7.0;
+    double currentCareyArrangeStrength = 1.0;
+    bool currentCareyArrangeLoopAssistEnabled = true;
+    bool currentCareyArrangeTrimToInputEnabled = true;
+    bool currentCareyArrangeAdvancedOpen = false;
     juce::String careyLoraFetchBackendUrl;
     juce::int64 careyLoraLastFetchMs = 0;
     std::atomic<bool> careyLoraFetchInFlight { false };
     std::atomic<int> careyLoraFetchNonce { 0 };
-    std::atomic<int> careyCaptionRequestNonce { 0 };
     juce::String currentCoverCaption = "";
     static constexpr bool kCareyCoverModelExperimentEnabled = true;
     juce::String currentCoverModel = "xl-turbo";
@@ -425,7 +440,6 @@ private:
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;
-    std::atomic<int> careyCoverCaptionRequestNonce { 0 };
     juce::String currentCareyExtractTrackName = "drums";
     int currentCareyExtractBpm = 120;
     int currentCareyExtractSteps = CareyUI::kDefaultExtractSteps;
@@ -435,9 +449,27 @@ private:
     juce::String currentCareyTimeSig = "";  // empty = auto-detect
     std::atomic<int> careyRequestNonce { 0 };
 
+    // One Carey generation. `prepare` runs on the worker thread with the
+    // backend's models and LoRAs: it fills in the request and the length to
+    // trim the result to (0 keeps all of it), or explains why it cannot.
+    struct CareyJob
+    {
+        juce::String label;  // the mode, for the status bar
+        bool needsSourceAudio = true;
+        std::function<bool(const carey_native::Props&, carey_native::Request&,
+                           double& trimToSeconds, juce::String& error)> prepare;
+    };
+    void startCareyJob(CareyJob job);
+    juce::String randomCareyLoraCaption(const juce::String& lora) const;
+    void applyCareyModelFamily();
+
     void sendToCarey();
     void sendToCareyExtract();
     void sendToCareyComplete();
+    void sendToCareyGenerate();
+    void sendToCareyArrange();
+    void requestCareyArrangeCaption();
+    juce::String getSelectedCareyArrangeLora() const;
     void sendToCareyCover();
     void setCareyLastSeed(const juce::String& seed);
     void updateCareyEnablementSnapshot();
@@ -773,7 +805,6 @@ private:
     bool loadSavedBufferForInputPlayback();
     bool inputPlaybackIsCurrent() const;
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
-    juce::String cleanCareyQueueMessage(const juce::String& raw);
     void sendToGary();
     void sendToJerry();  // New method for Jerry
     void maybeAutoCheckForUpdates();

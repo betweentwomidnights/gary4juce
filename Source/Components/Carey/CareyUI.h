@@ -12,6 +12,7 @@
 #include "../Base/BpmControl.h"
 #include "../../Utils/CustomLookAndFeel.h"
 #include "../../Utils/Theme.h"
+#include "../../PluginEditorCareyHelpers.h"
 
 #include <functional>
 #include <vector>
@@ -24,7 +25,8 @@ private:
         None = 0,
         Lego,
         Complete,
-        Cover
+        Cover,
+        Arrange
     };
 
 public:
@@ -41,13 +43,26 @@ public:
     static constexpr int kDefaultExtractSteps = 80;
     static constexpr double kDefaultExtractCfg = 10.0;
 
+    // Saved sessions store these numbers: append, never renumber.
     enum class SubTab
     {
         Lego = 0,
-        Complete,
-        Cover,
-        Extract
+        Continue = 1,  // saved as "complete" before v5.1, which extended the audio
+        Cover = 2,
+        Extract = 3,
+        Generate = 4,
+        Complete = 5   // ace-step's complete: new tracks arranged around the recording
     };
+
+    // The tracks ace-step's lego, complete and extract tasks know.
+    static const juce::StringArray& trackNames()
+    {
+        static const juce::StringArray names {
+            "vocals", "backing_vocals", "drums", "bass", "guitar", "keyboard",
+            "percussion", "strings", "synth", "fx", "brass", "woodwinds"
+        };
+        return names;
+    }
 
     // TODO: the extract sub-tab is hidden since v5.0.0. The embedded stem separator (stems.cpp)
     // does what it was attempting, much better. Everything else about extract is still here, so
@@ -69,6 +84,10 @@ public:
     SubTab getCurrentSubTab() const { return currentSubTab; }
     void applyRandomCompleteCaption();
     void applyRandomCoverCaption();
+    juce::String randomLegoCaptionForTrack(const juce::String& trackName)
+    {
+        return pickRandomCaption(getLegoPromptBankForTrack(trackName), "supporting stem with musical clarity");
+    }
 
     juce::String getCaptionText() const
     {
@@ -179,7 +198,10 @@ public:
 
     void setTrackName(const juce::String& trackName)
     {
-        const int trackIndex = findTrackIndex(trackOptionValues, trackName.trim().toLowerCase());
+        juce::String track = trackName.trim().toLowerCase();
+        if (track == "piano")  // not an ace-step track name; sessions before v5.1 could save it
+            track = "keyboard";
+        const int trackIndex = findTrackIndex(trackOptionValues, track);
         trackComboBox.setSelectedId(trackIndex >= 0 ? trackIndex + 1 : 1, juce::dontSendNotification);
     }
 
@@ -311,14 +333,59 @@ public:
 
     void setCompleteModel(const juce::String& model);
 
-    void setCompleteRemoteModelSelectionEnabled(bool enabled)
-    {
-        const juce::String currentModel = getCompleteModel();
-        if (completeRemoteModelSelectionEnabled == enabled)
-            return;
+    // The DiTs the backend lists in GET /props. They decide which model
+    // family (2B or XL) and which variants (base, sft, turbo) can be chosen.
+    void setAvailableDits(const juce::StringArray& dits);
 
-        completeRemoteModelSelectionEnabled = enabled;
-        setCompleteModel(currentModel);
+    // The complete tab. Its controls are named arrange* in code, since
+    // continue's were named complete* before v5.1.
+    juce::StringArray getArrangeTracks() const;
+    void setArrangeTracks(const juce::StringArray& tracks);
+    juce::String getArrangeCaptionText() const { return arrangeCaptionEditor.getText().trim(); }
+    void setArrangeCaptionText(const juce::String& text)
+    {
+        arrangeCaptionEditor.setText(text, juce::dontSendNotification);
+        syncActiveCaptionPopout(CaptionPopoutTarget::Arrange, text);
+    }
+    void applyRandomArrangeCaption();
+    bool getArrangeUseLora() const { return arrangeUseLoraToggle.getToggleState(); }
+    juce::String getArrangeSelectedLora() const
+    {
+        const int index = arrangeLoraComboBox.getSelectedId() - 1;
+        return index >= 0 && index < arrangeLoraOptionValues.size() ? arrangeLoraOptionValues[index] : juce::String();
+    }
+    double getArrangeLoraScale() const { return arrangeLoraScaleSlider.getValue(); }
+    void setArrangeUseLora(bool enabled)
+    {
+        arrangeUseLoraToggle.setToggleState(enabled && !arrangeLoraOptionValues.isEmpty(), juce::dontSendNotification);
+        updateContentLayout();
+    }
+    void setAvailableArrangeLoras(const juce::StringArray& loraNames);
+    void setArrangeSelectedLora(const juce::String& loraName)
+    {
+        const int index = findTrackIndex(arrangeLoraOptionValues, loraName.trim());
+        arrangeLoraComboBox.setSelectedId(index >= 0 ? index + 1 : 0, juce::dontSendNotification);
+        updateContentLayout();
+    }
+    void setArrangeLoraScale(double value) { arrangeLoraScaleSlider.setValue(juce::jlimit(0.0, 1.0, value), juce::dontSendNotification); }
+    int getArrangeSteps() const { return juce::roundToInt(arrangeStepsSlider.getValue()); }
+    void setArrangeSteps(int steps) { arrangeStepsSlider.setValue(juce::jlimit(32, 100, steps), juce::dontSendNotification); }
+    double getArrangeCfg() const { return arrangeCfgSlider.getValue(); }
+    void setArrangeCfg(double value) { arrangeCfgSlider.setValue(juce::jlimit(3.0, 10.0, value), juce::dontSendNotification); }
+    double getArrangeStrength() const { return arrangeStrengthSlider.getValue(); }
+    void setArrangeStrength(double value) { arrangeStrengthSlider.setValue(juce::jlimit(0.0, 1.0, value), juce::dontSendNotification); }
+    bool getArrangeLoopAssistEnabled() const { return arrangeLoopAssistToggle.getToggleState(); }
+    void setArrangeLoopAssistEnabled(bool enabled) { arrangeLoopAssistToggle.setToggleState(enabled, juce::dontSendNotification); }
+    bool getArrangeTrimToInputEnabled() const { return arrangeTrimToInputToggle.getToggleState(); }
+    void setArrangeTrimToInputEnabled(bool enabled) { arrangeTrimToInputToggle.setToggleState(enabled, juce::dontSendNotification); }
+    bool getModelFamilyXl() const { return modelFamilyXl; }
+    void setModelFamilyXl(bool xl);
+    // Whether the model size can be chosen at all: the remote backend serves XL only.
+    void setModelFamilySelectable(bool selectable)
+    {
+        if (modelFamilySelectable == selectable)
+            return;
+        modelFamilySelectable = selectable;
         updateContentLayout();
     }
 
@@ -401,7 +468,6 @@ public:
     void setAvailableCoverLoras(const juce::StringArray& loraNames);
     void setCoverModel(const juce::String& model);
     void setCoverModelSelectionEnabled(bool enabled);
-    void setCoverRemoteModelSelectionEnabled(bool enabled);
     void setCoverSelectedLora(const juce::String& loraName)
     {
         const int loraIndex = findTrackIndex(coverLoraOptionValues, loraName.trim());
@@ -470,6 +536,19 @@ public:
     }
     bool getExtractAdvancedOpen() const { return extractAdvancedOpen; }
 
+    void setArrangeAdvancedOpen(bool open)
+    {
+        if (arrangeAdvancedOpen != open)
+        {
+            arrangeAdvancedOpen = open;
+            arrangeAdvancedToggle.setButtonText(open
+                ? juce::String::fromUTF8("advanced \xe2\x96\xbc")
+                : juce::String::fromUTF8("advanced \xe2\x96\xb6"));
+            updateContentLayout();
+        }
+    }
+    bool getArrangeAdvancedOpen() const { return arrangeAdvancedOpen; }
+
     juce::String getKeyScale() const
     {
         if (keyRootComboBox.getSelectedId() <= 1)
@@ -523,14 +602,28 @@ public:
         else timeSigComboBox.setSelectedId(1, juce::dontSendNotification);
     }
 
-    void setGenerateButtonEnabled(bool enabled, bool isGenerating)
+    // `backendOnline` and `hasInputAudio` decide each mode's button; generate
+    // is the one mode that needs no recording.
+    void setGenerateButtonEnabled(bool backendOnline, bool hasInputAudio, bool isGenerating)
     {
+        lastBackendOnline = backendOnline;
+        lastHasInputAudio = hasInputAudio;
+        lastIsGenerating = isGenerating;
+        const bool enabled = backendOnline && hasInputAudio;
+
         legoGenerateButton.setEnabled(enabled && !isGenerating);
         legoGenerateButton.setButtonText(isGenerating ? "generating..." : "send to carey");
 
-        const bool completeAvailable = (bool) onCompleteGenerate;
-        completeGenerateButton.setEnabled(completeAvailable && enabled && !isGenerating);
-        completeGenerateButton.setButtonText(isGenerating ? "generating..." : "continue with carey");
+        // Continue's panel serves generate too.
+        const bool generating = currentSubTab == SubTab::Generate;
+        const bool panelAvailable = generating ? (bool) onGenerateGenerate : (bool) onCompleteGenerate;
+        completeGenerateButton.setEnabled(panelAvailable && backendOnline && (generating || hasInputAudio) && !isGenerating);
+        completeGenerateButton.setButtonText(isGenerating ? "generating..."
+                                                          : (generating ? "generate with carey" : "continue with carey"));
+
+        const bool arrangeAvailable = (bool) onArrangeGenerate;
+        arrangeGenerateButton.setEnabled(arrangeAvailable && enabled && !isGenerating);
+        arrangeGenerateButton.setButtonText(isGenerating ? "generating..." : "complete with carey");
 
         const bool coverAvailable = (bool) onCoverGenerate;
         coverGenerateButton.setEnabled(coverAvailable && enabled && !isGenerating);
@@ -575,6 +668,7 @@ public:
     std::function<void(double)> onCompleteCfgChanged;
     std::function<void(int)> onCompleteDurationChanged;
     std::function<void()> onCompleteGenerate;
+    std::function<void()> onGenerateGenerate;
     std::function<void(bool)> onCompleteUseSrcAsRefChanged;
 
     std::function<void(const juce::String&)> onCoverCaptionChanged;
@@ -594,6 +688,20 @@ public:
 
     std::function<void(const juce::String&)> onKeyScaleChanged;
     std::function<void(const juce::String&)> onTimeSigChanged;
+    std::function<void(bool)> onModelFamilyChanged;
+
+    std::function<void(const juce::StringArray&)> onArrangeTracksChanged;
+    std::function<void(const juce::String&)> onArrangeCaptionChanged;
+    std::function<void()> onArrangeCaptionDiceRequested;
+    std::function<void(bool)> onArrangeUseLoraChanged;
+    std::function<void(const juce::String&)> onArrangeLoraChanged;
+    std::function<void(double)> onArrangeLoraScaleChanged;
+    std::function<void(int)> onArrangeStepsChanged;
+    std::function<void(double)> onArrangeCfgChanged;
+    std::function<void(double)> onArrangeStrengthChanged;
+    std::function<void(bool)> onArrangeLoopAssistChanged;
+    std::function<void(bool)> onArrangeTrimToInputChanged;
+    std::function<void()> onArrangeGenerate;
 
 private:
     void addToContent(juce::Component& component);
@@ -605,8 +713,17 @@ private:
     void updateCompleteModelControls(bool notify);
     void updateCompleteModelSelectorCopy();
     void setCoverControlsVisible(bool shouldBeVisible);
+    void setArrangeControlsVisible(bool shouldBeVisible);
+    void fillLoraChoices(const juce::StringArray& loraNames,
+                         juce::StringArray& optionValues,
+                         CustomComboBox& comboBox,
+                         juce::ToggleButton& useToggle,
+                         CustomSlider& scaleSlider,
+                         const juce::String& enabledTooltip);
     void updateCoverModelControls(bool notify);
     void updateCoverModelSelectorCopy();
+    void updateModelFamilyButtons();
+    bool isVariantAvailable(const juce::String& variant) const;
     void setExtractControlsVisible(bool shouldBeVisible);
     void onKeyScaleSelectionChanged();
     void initializeTrackOptions();
@@ -626,6 +743,12 @@ private:
     juce::String pickRandomCaption(const juce::StringArray& prompts, const juce::String& fallback);
     juce::StringArray getLegoPromptBankForTrack(const juce::String& trackName) const;
     juce::StringArray getCompletePromptBank() const;
+    // Continue's caption box serves generate too; its placeholder follows the tab.
+    juce::String continuePanelPlaceholder() const
+    {
+        return currentSubTab == SubTab::Generate ? "describe the music to generate..."
+                                                 : "describe the continuation style...";
+    }
     void applyRandomLegoCaption();
     juce::StringArray getCoverPromptBank() const;
     void setLyricsTextInternal(const juce::String& text, bool notify);
@@ -637,8 +760,10 @@ private:
     juce::Random random;
 
     juce::Label careyLabel;
+    CustomButton generateSubTabButton;
     CustomButton legoSubTabButton;
-    CustomButton completeSubTabButton;
+    CustomButton completeSubTabButton;  // continue: it extended the audio as "complete" before v5.1
+    CustomButton arrangeSubTabButton;   // complete
     CustomButton coverSubTabButton;
     CustomButton extractSubTabButton;
     CustomLookAndFeel customLookAndFeel;
@@ -698,6 +823,13 @@ private:
     CustomButton completeGenerateButton;
     juce::Label completeInfoLabel;
 
+    juce::Label modelFamilyLabel;
+    CustomButton modelFamily2bButton;
+    CustomButton modelFamilyXlButton;
+    bool modelFamilyXl = false;
+    bool modelFamilySelectable = true;
+    juce::StringArray availableDits;
+
     juce::Label keyScaleLabel;
     juce::Label timeSigLabel;
     CustomComboBox timeSigComboBox;
@@ -734,6 +866,34 @@ private:
     CustomButton coverGenerateButton;
     juce::Label coverInfoLabel;
 
+    juce::Label arrangeTracksLabel;
+    juce::OwnedArray<juce::ToggleButton> arrangeTrackToggles;  // one per trackNames()
+    juce::Label arrangeCaptionLabel;
+    CustomButton arrangeCaptionPopoutButton;
+    CustomTextEditor arrangeCaptionEditor;
+    CustomButton arrangeCaptionDiceButton;
+    CustomButton arrangeLyricsButton;
+    juce::ToggleButton arrangeUseLoraToggle;
+    juce::Label arrangeLoraLabel;
+    CustomComboBox arrangeLoraComboBox;
+    juce::Label arrangeLoraScaleLabel;
+    CustomSlider arrangeLoraScaleSlider;
+    juce::StringArray arrangeLoraOptionValues;
+    juce::Label arrangeStrengthLabel;
+    CustomSlider arrangeStrengthSlider;
+    juce::Label arrangeStepsLabel;
+    CustomSlider arrangeStepsSlider;
+    juce::Label arrangeCfgLabel;
+    CustomSlider arrangeCfgSlider;
+    juce::Label arrangeLoopAssistLabel;
+    juce::ToggleButton arrangeLoopAssistToggle;
+    juce::Label arrangeTrimToInputLabel;
+    juce::ToggleButton arrangeTrimToInputToggle;
+    CustomButton arrangeAdvancedToggle;
+    bool arrangeAdvancedOpen = false;
+    CustomButton arrangeGenerateButton;
+    juce::Label arrangeInfoLabel;
+
     juce::ToggleButton useSeedToggle;
     CustomTextEditor seedEditor;
     juce::Label lastSeedLabel;
@@ -759,10 +919,11 @@ private:
     bool completeAdvancedOpen = false;
     bool coverAdvancedOpen = false;
     bool extractAdvancedOpen = false;
-    bool completeRemoteModelSelectionEnabled = false;
     bool coverModelSelectionEnabled = true;
-    bool coverRemoteModelSelectionEnabled = true;
     bool extractRemoteGenerationEnabled = true;
+    bool lastBackendOnline = false;
+    bool lastHasInputAudio = false;
+    bool lastIsGenerating = false;
     juce::Component::SafePointer<juce::TextEditor> activeCaptionPopoutEditor;
     CaptionPopoutTarget activeCaptionPopoutTarget = CaptionPopoutTarget::None;
     std::vector<juce::Component::SafePointer<juce::DialogWindow>> auxiliaryWindows;
