@@ -2399,7 +2399,12 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showJerry = (tab == ModelTab::Jerry);
 
     if (garyUI)
+    {
         garyUI->setVisibleForTab(showGary);
+
+        if (showGary)
+            fetchGaryAvailableModels();
+    }
 
     if (jerryUI)
     {
@@ -4933,8 +4938,16 @@ void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
 
 void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String& responseText)
 {
+    // Refetched on every health poll while the tab is open; rebuild only on a change.
+    if (responseText.isNotEmpty() && responseText == lastGaryModelsResponse)
+        return;
+
     if (responseText.isEmpty())
     {
+        // A refetch that missed keeps the list the server last gave.
+        if (lastGaryModelsResponse.isNotEmpty())
+            return;
+
         DBG("Empty Gary models response - using fallback");
         showStatusMessage("failed to load gary models", 3000);
 
@@ -4950,6 +4963,8 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
 
         return;
     }
+
+    lastGaryModelsResponse = responseText;
 
     try
     {
