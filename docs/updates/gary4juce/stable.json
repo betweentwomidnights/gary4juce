@@ -1,13 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "5.0.1",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.1",
-  "sha256": "df4f657f4f42596f5adfbd3e6221ba112faaa826c329b53600369630f0463760",
-  "published_at": "2026-10-18T08:01:23Z",
+  "latest_version": "5.0.2",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.2",
+  "sha256": "4463c8ccb64299fd3b0c16affd681c30f9a5a0120ce96d3e11ee8ae2c76e111b",
+  "published_at": "2026-11-01T00:00:23Z",
   "notes": [
-    "Eight more stem separation models from stems.cpp v0.1.5, including DrumSep for drum kits.",
-    "The stems handle shows on every waveform; it asks to update the stem runtime if needed.",
-    "Local jerry lists your gary4local finetunes and loads their dice prompts.",
-    "Pair with gary4local v0.5.0. Close your DAW before replacing plugin files."
+    "Carey runs on ace-server locally and remotely, with a new generate tab from a caption.",
+    "Local Carey needs gary4local v0.6.0 with Carey migrated to C++; the remote backend serves older plugins too.",
+    "The saved recording keeps its own waveform lane while an unsaved take is present.",
+    "Pair with gary4local v0.6.0. Close your DAW before replacing plugin files."
   ]
 }

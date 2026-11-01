@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.1 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.1)
+- [gary4juce v5.0.2 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.2)
 - [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.5.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.5.0)
+- windows: [gary4local v0.6.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.6.0)
 - macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -57,7 +57,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.2
+### v5.0.2 - 10/31
 
 **Carey moves to ace-server.** gary4local v0.6.0 runs Carey on
 [acestep.cpp](https://github.com/betweentwomidnights/acestep.cpp), and Carey's
@@ -79,7 +79,7 @@ restores it there, and new recording audio shows as unsaved from the first
 sample.
 
 recommended local companions: [gary4local v0.6.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.6.0)
-on Windows, releasing alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
+on Windows, released alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 on macOS. the stem separator runs inside gary4juce and doesn't need either.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
