@@ -279,6 +279,9 @@ private:
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
     juce::String preferredGaryModelPath;
+    // The last /api/models reply the dropdown was built from, so a refetch that
+    // finds nothing new leaves the menu alone.
+    juce::String lastGaryModelsResponse;
     int currentGaryTopK = 250;
     float currentGaryCfg = 3.0f;
     juce::String currentGaryDescription;
