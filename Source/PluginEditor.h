@@ -42,6 +42,7 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
 {
     friend struct FullTrackAudioTest;
     friend struct StemsModelsTest;
+    friend struct OutputMetadataTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;
@@ -61,7 +62,8 @@ public:
     void handlePollingResponse(const juce::String& responseText);
     // Returns false when the render never reached disk, so callers do not
     // attach metadata to audio the user is not actually hearing.
-    bool saveGeneratedAudio(const juce::String& base64Audio);
+    bool saveGeneratedAudio(const juce::String& base64Audio, const juce::var& response = {},
+                            const juce::var& restoredMetadata = {});
 
     void loadOutputAudioFile();
     void drawOutputWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
@@ -246,6 +248,21 @@ private:
     juce::String getDraggedAudioFileExtension() const;
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
+    bool saveDraggedAudioMetadata = false;
+    void setSaveDraggedAudioMetadata(bool enabled);
+    juce::var loadOutputGenerationMetadata() const;
+    bool persistOutputGenerationMetadata(const juce::var& metadata);
+    bool writeDraggedAudioMetadata(const juce::File& source, const juce::File& destination,
+                                   const juce::var& sourceMetadata) const;
+    void captureGenerationRequest(std::uint32_t token, const juce::String& service,
+                                  const juce::String& operation, const juce::var& request);
+    void acceptGenerationSnapshot(std::uint32_t token, const juce::var& snapshot);
+    void noteGenerationSeed(const juce::String& service, const juce::String& seed);
+    void commitGenerationMetadata(const juce::var& response, const juce::var& restoredMetadata);
+    juce::CriticalSection generationMetadataLock;
+    juce::var pendingGenerationMetadata;
+    juce::var currentOutputGenerationMetadata;
+    juce::var terrySourceGenerationMetadata;
     void showStorageSettings();
     void showStemsSettings();
     stems::StemsService& getStemsService();   // created on first use, in the active data folder

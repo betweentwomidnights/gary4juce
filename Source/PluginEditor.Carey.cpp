@@ -640,6 +640,15 @@ void Gary4juceAudioProcessorEditor::startCareyJob(CareyJob job)
             finishWithError(error.isNotEmpty() ? error : "carey could not prepare the request");
             return;
         }
+        const auto metadataRequest = request.json.clone();
+        if (request.sourceAudio.getSize() > 0)
+            metadataRequest.getDynamicObject()->setProperty("source_audio_sha256", juce::SHA256(request.sourceAudio).toHexString());
+        if (request.referenceAudio.getSize() > 0)
+            metadataRequest.getDynamicObject()->setProperty("reference_audio_sha256", juce::SHA256(request.referenceAudio).toHexString());
+        onMessageThread([metadataRequest, generationToken, label = job.label](Gary4juceAudioProcessorEditor& editor)
+        {
+            editor.captureGenerationRequest(generationToken, "carey", label, metadataRequest);
+        });
         const juce::String seed = request.json.getProperty("seed", {}).toString();
         DBG("[carey-" + job.label + "] request: " + juce::JSON::toString(request.json, true));
 

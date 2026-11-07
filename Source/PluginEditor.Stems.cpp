@@ -331,6 +331,7 @@ void Gary4juceAudioProcessorEditor::startStemDrag(const juce::File& stem, const 
         if (!createDraggedAudioFile(stem, dragFile) || !dragFile.existsAsFile() || dragFile.getSize() <= 0)
         {
             dragFile.deleteFile();
+            dragFile.withFileExtension(".json").deleteFile();
             showStatusMessage("drag failed - could not create "
                 + getDraggedAudioFileExtension().substring(1).toUpperCase() + " file", 3000);
             isDragInProgress.store(false);
@@ -359,6 +360,7 @@ void Gary4juceAudioProcessorEditor::startStemDrag(const juce::File& stem, const 
         showStatusMessage("drag failed - try again", 2000);
         juce::ScopedLock lock(fileLock);
         dragFile.deleteFile();
+        dragFile.withFileExtension(".json").deleteFile();
         isDragInProgress.store(false);
     }
 }
