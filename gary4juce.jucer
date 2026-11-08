@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.2"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.3"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE" companyCopyright="Copyright (C) 2025-2026 Kevin Griffing">
@@ -140,6 +140,7 @@
             file="Source/PluginEditorTextHelpers.h"/>
     </GROUP>
     <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
+      <FILE id="genMeta" name="GenerationMetadata.h" compile="0" resource="0" file="Source/Utils/GenerationMetadata.h"/>
       <FILE id="lx8qMz" name="BarTrim.h" compile="0" resource="0" file="Source/Utils/BarTrim.h"/>
       <FILE id="WYW43J" name="CustomLookAndFeel.cpp" compile="1" resource="0"
             file="Source/Utils/CustomLookAndFeel.cpp"/>

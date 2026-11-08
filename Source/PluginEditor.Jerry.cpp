@@ -8,6 +8,7 @@
 */
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Utils/GenerationMetadata.h"
 
 namespace
 {
@@ -759,8 +760,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
     const auto requestUrl = getServiceUrl(ServiceType::Jerry, endpoint);
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
+    const auto generationToken = beginGenerationAsyncWork();
 
-    juce::Thread::launch([asyncAlive, editor, fullPrompt, requestUrl, jerrySteps, jerryCfg, modelType,
+    juce::Thread::launch([asyncAlive, editor, generationToken, fullPrompt, requestUrl, jerrySteps, jerryCfg, modelType,
                           isFinetune, finetuneRepo, finetuneCheckpoint, samplerType,
                           requestGenerateAsLoop, requestLoopType]() {
         auto startTime = juce::Time::getCurrentTime();
@@ -782,6 +784,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
         if (requestGenerateAsLoop)
             jsonRequest->setProperty("loop_type", requestLoopType);
 
+        const auto metadataRequest = generation_metadata::snapshot("jerry", "generate", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Jerry JSON payload: " + jsonString);
@@ -808,7 +811,9 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             {
                 responseText = stream->readEntireStreamAsString();
 
-                auto totalTime = juce::Time::getCurrentTime() - startTime;
+                if (!editor->isGenerationAsyncWorkCurrent(generationToken)) return;
+            editor->acceptGenerationSnapshot(generationToken, metadataRequest);
+            auto totalTime = juce::Time::getCurrentTime() - startTime;
                 DBG("Jerry HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
                 DBG("Jerry response length: " + juce::String(responseText.length()) + " characters");
 
@@ -834,7 +839,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
             statusCode = 0;
         }
 
-        juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([asyncAlive, editor, generationToken, metadataRequest, responseText, statusCode, startTime]() {
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
@@ -859,7 +864,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                             if (editor->jerryUI)
                                 editor->jerryUI->setGenerateButtonText("generate with jerry");
 
-                            editor->saveGeneratedAudio(audioBase64);
+                            editor->saveGeneratedAudio(audioBase64, responseVar);
 
                             editor->audioProcessor.clearCurrentSessionId();
                             editor->audioProcessor.setUndoTransformAvailable(false);
@@ -1386,6 +1391,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
     showStatusMessage(requestLoop ? "submitting sa3 loop..." : "submitting sa3 request...", 2500);
 
     const auto generationToken = beginGenerationAsyncWork();
+    captureGenerationRequest(generationToken, "sa3", "generate", juce::var(jsonRequest.get()));
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
@@ -1482,6 +1488,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
             }
 
             const juce::String usedSeed = responseObj->getProperty("seed").toString();
+            editor->noteGenerationSeed("sa3", usedSeed);
             if (usedSeed.isNotEmpty() && editor->sa3UI)
                 editor->sa3UI->setLastSeed(usedSeed);
 
@@ -1619,6 +1626,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
     showStatusMessage("submitting sa3 transform...", 2500);
 
     const auto generationToken = beginGenerationAsyncWork();
+    captureGenerationRequest(generationToken, "sa3", "transform", juce::var(jsonRequest.get()));
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
@@ -1715,6 +1723,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
             }
 
             const juce::String usedSeed = responseObj->getProperty("seed").toString();
+            editor->noteGenerationSeed("sa3", usedSeed);
             if (usedSeed.isNotEmpty() && editor->sa3UI)
                 editor->sa3UI->setLastSeed(usedSeed);
 
@@ -1878,6 +1887,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     showStatusMessage("submitting sa3 continuation...", 2500);
 
     const auto generationToken = beginGenerationAsyncWork();
+    captureGenerationRequest(generationToken, "sa3", "continue", juce::var(jsonRequest.get()));
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
@@ -1974,6 +1984,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
             }
 
             const juce::String usedSeed = responseObj->getProperty("seed").toString();
+            editor->noteGenerationSeed("sa3", usedSeed);
             if (usedSeed.isNotEmpty() && editor->sa3UI)
                 editor->sa3UI->setLastSeed(usedSeed);
 

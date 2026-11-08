@@ -801,6 +801,7 @@ void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
     repaint();
 
     const auto generationToken = beginGenerationAsyncWork();
+    captureGenerationRequest(generationToken, "yuey", endpoint, juce::JSON::parse(json));
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 

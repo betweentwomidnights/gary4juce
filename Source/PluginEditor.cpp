@@ -8,6 +8,7 @@
 */
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Utils/GenerationMetadata.h"
 #include "PluginEditorJerryHelpers.h"
 #include "PluginEditorTerryHelpers.h"
 #include "PluginEditorTextHelpers.h"
@@ -2214,6 +2215,8 @@ juce::MessageManager::callAsync([safeThis]()
 
 Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::beginGenerationAsyncWork() noexcept
 {
+    juce::ScopedLock lock(generationMetadataLock);
+    pendingGenerationMetadata = juce::var();
     return generationAsyncToken.fetch_add(1, std::memory_order_acq_rel) + 1;
 }
 
@@ -3780,7 +3783,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     if (terryUI)
                         terryUI->setTransformButtonText("transform with terry");
                     showStatusMessage("transform complete!", 3000);
-                    saveGeneratedAudio(audioData);
+                    saveGeneratedAudio(audioData, responseVar);
                     DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
 
                     // Enable undo button now that transform is complete
@@ -3803,7 +3806,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                                       : "audio generation complete!", 3000);
                     audioProcessor.setUndoTransformAvailable(false);
                     audioProcessor.setRetryAvailable(true);
-                    const bool savedOutput = saveGeneratedAudio(audioData);
+                    const bool savedOutput = saveGeneratedAudio(audioData, responseVar);
                     if (isYueyOp && savedOutput)
                     {
                         reportYueyWarnings(responseObj);
@@ -3995,7 +3998,8 @@ bool decodeFlacToWav(const juce::MemoryBlock& flac, juce::MemoryBlock& wav)
 }
 }
 
-bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
+bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio,
+    const juce::var& response, const juce::var& restoredMetadata)
 {
     try
     {
@@ -4018,6 +4022,13 @@ bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
             return false;
         }
         const juce::MemoryBlock& audioData = isFlac ? wavFromFlac : received;
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> validated(formats.createReaderFor(
+            std::make_unique<juce::MemoryInputStream>(audioData, false)));
+        if (validated == nullptr || validated->lengthInSamples <= 0
+            || validated->numChannels == 0 || validated->sampleRate <= 0.0)
+            return false; // A corrupt response must not replace the previous output.
 
         if (!ensureGaryDataDirectoryAvailable())
             return false;
@@ -4045,6 +4056,7 @@ bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
             // Load the audio file into our buffer for waveform display
             loadOutputAudioFile();
+            commitGenerationMetadata(response, restoredMetadata);
 
             // Reset button text after successful generation
             if (garyUI)
@@ -4196,6 +4208,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         jsonRequest->setProperty("description", description);
         jsonRequest->setProperty("seed", requestSeed);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "generate", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         // Debug: Log the JSON structure (not content due to size)
@@ -4251,11 +4264,13 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode, startTime]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Gary callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelGaryOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -4290,7 +4305,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                         // The backend echoes the seed it actually ran, whether
                         // we asked for one or let it choose.
                         if (responseObj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", responseObj->getProperty("seed").toString());
                             safeThis->setGaryLastSeed(responseObj->getProperty("seed").toString());
+                        }
 
                         // START POLLING FOR RESULTS
                         safeThis->startPollingForResults(sessionId);
@@ -4467,6 +4485,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         jsonRequest->setProperty("description", description);
         jsonRequest->setProperty("seed", requestSeed);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "continue", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
@@ -4519,11 +4538,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Continue callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelContinueOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -4549,7 +4570,10 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                         // The backend echoes the seed it actually ran, whether
                         // we asked for one or let it choose.
                         if (obj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", obj->getProperty("seed").toString());
                             safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
+                        }
 
                         // Start polling for results (will replace current output audio when complete)
                         safeThis->startPollingForResults(sessionId);
@@ -4711,6 +4735,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         jsonRequest->setProperty("description", description);
         jsonRequest->setProperty("seed", requestSeed);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "retry", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Retry JSON payload: " + jsonString);
@@ -4748,11 +4773,13 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Retry callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelRetryOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -4776,7 +4803,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                         // The backend echoes the seed it actually ran, whether
                         // we asked for one or let it choose.
                         if (obj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", obj->getProperty("seed").toString());
                             safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
+                        }
 
                         // Start polling for results (will replace current output when complete)
                         safeThis->startPollingForResults(newSessionId);
@@ -6100,12 +6130,17 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
 
     // Build the URL with request_id included
     juce::URL url = makeGenerateURL(reqId);
+    const auto generationToken = beginGenerationAsyncWork();
+    auto metadataRequest = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    for (int i = 0; i < url.getParameterNames().size(); ++i)
+        metadataRequest->setProperty(url.getParameterNames()[i], url.getParameterValues()[i]);
+    captureGenerationRequest(generationToken, "darius", "generate", juce::var(metadataRequest.get()));
 
     // Fire the POST on a worker thread
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
-    juce::Thread::launch([asyncAlive, editor, url]()
+    juce::Thread::launch([asyncAlive, editor, generationToken, url]()
         {
             juce::String responseText;
             int statusCode = 0;
@@ -6129,12 +6164,13 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
                 DBG("generate exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, statusCode]()
                 {
                     const auto alive = asyncAlive.lock();
                     if (alive == nullptr || !alive->load(std::memory_order_acquire))
                         return;
 
+                    if (!editor->isGenerationAsyncWorkCurrent(generationToken)) return;
                     editor->handleDariusGenerateResponse(responseText, statusCode);
                 });
         });
@@ -6190,7 +6226,7 @@ void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::Str
     }
 
     // success
-    saveGeneratedAudio(audio64);
+    saveGeneratedAudio(audio64, parsed);
     generationProgress = 100;               // snap to full
     showStatusMessage("Generated!", 1500);
     finish();
@@ -6531,6 +6567,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         updatePlayButtonIcon();
 
         hasOutputAudio = true;
+        currentOutputGenerationMetadata = loadOutputGenerationMetadata();
         updateYueyScoreOverlayState();
         playOutputButton.setEnabled(true);
         stopOutputButton.setEnabled(true);
@@ -7188,6 +7225,8 @@ void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 
 void Gary4juceAudioProcessorEditor::clearOutputAudio()
 {
+    currentOutputGenerationMetadata = juce::var();
+    getGaryOutputFile().withFileExtension(".metadata.json").deleteFile();
     if (activePlaybackSource == PlaybackSource::Output)
     {
         stopOutputPlayback();
@@ -7428,6 +7467,7 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
         showStatusMessage("failed to load output audio", 3000);
         return;
     }
+    const auto selectedSourceMetadata = loadOutputGenerationMetadata();
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(dialog);
@@ -7444,7 +7484,7 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
-    dialog->onConfirm = [asyncAlive, editor, dialogWindow](
+    dialog->onConfirm = [asyncAlive, editor, dialogWindow, selectedSourceMetadata](
         const juce::AudioBuffer<float>& selectedBuffer,
         double sourceSampleRate,
         double selectionStartTime) mutable
@@ -7462,6 +7502,8 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
             return;
         }
 
+        editor->persistOutputGenerationMetadata(generation_metadata::cropped(selectedSourceMetadata,
+            selectionStartTime, selectedBuffer.getNumSamples() / juce::jmax(1.0, sourceSampleRate)));
         editor->loadOutputAudioFile();
         editor->markYueyScoreUnaligned();
         editor->audioProcessor.clearCurrentSessionId();
@@ -8001,7 +8043,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         // Create a unique filename with timestamp for the drag
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
         auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
-        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName).getNonexistentSibling(false);
 
         // SAFETY: More robust file copy with validation
         if (!outputAudioFile.existsAsFile())
@@ -8028,6 +8070,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         {
             DBG("Copy validation failed");
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
             isDragInProgress.store(false);
             return;
         }
@@ -8090,6 +8133,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         {
             juce::ScopedLock lock(fileLock);
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
         }
         catch (...)
         {
@@ -8133,7 +8177,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         // Create unique filename with timestamp
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
         auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
-        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName).getNonexistentSibling(false);
 
         if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
@@ -8147,6 +8191,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
             postDragFailure("drag failed - copy verification failed");
             return { false, juce::File{} };
         }
@@ -8196,6 +8241,7 @@ bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragF
         DBG("Failed to start drag operation");
         showStatusMessage("drag failed - try again", 2000);
         dragFile.deleteFile();
+        dragFile.withFileExtension(".json").deleteFile();
         return false;
     }
 
@@ -8317,6 +8363,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     // Create a COPY of the file path to avoid any reference issues
     juce::File sourceFile = outputAudioFile;
+    const auto sourceMetadata = loadOutputGenerationMetadata();
 
     DBG("Reading source file: " + sourceFile.getFullPathName());
     DBG("File exists: " + juce::String(sourceFile.exists() ? "yes" : "no"));
@@ -8447,6 +8494,8 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     DBG("Moved temp file to original location");
     DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
 
+    persistOutputGenerationMetadata(generation_metadata::cropped(sourceMetadata, 0.0,
+        samplesToKeep / reader->sampleRate));
     // Reload the cropped audio (this will update currentAudioSampleRate)
     loadOutputAudioFile();
 

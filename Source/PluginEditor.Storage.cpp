@@ -4,6 +4,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Stems/StemsRuntime.h"
+#include "Utils/GenerationMetadata.h"
 
 #include <array>
 #include <unordered_map>
@@ -15,6 +16,7 @@ namespace
     constexpr auto kStorageInitializedKey = "dataDirectoryInitialized";
     constexpr auto kDraggedAudioFormatKey = "draggedAudioFormat";
     constexpr auto kDraggedAudioFormatComboName = "draggedAudioFormat";
+    constexpr auto kDraggedAudioMetadataKey = "draggedAudioMetadata";
 
     juce::File storageTestDirectoryOverride()
     {
@@ -543,6 +545,7 @@ namespace
 void Gary4juceAudioProcessorEditor::initializeGaryDataDirectory()
 {
     auto& preferences = getUpdatePreferences();
+    saveDraggedAudioMetadata = preferences.getBoolValue(kDraggedAudioMetadataKey, false);
     draggedAudioFormat = preferences.getValue(kDraggedAudioFormatKey, "wav")
             .equalsIgnoreCase("flac")
         ? DraggedAudioFormat::Flac
@@ -700,8 +703,9 @@ void Gary4juceAudioProcessorEditor::recoverCurrentAudioFiles()
     }
 
     outputAudioFile = getGaryOutputFile();
-    if (outputAudioBuffer.getNumSamples() > 0)
-        writeCurrentOutputToFile(outputAudioFile);
+    const auto metadata = currentOutputGenerationMetadata.clone();
+    if (outputAudioBuffer.getNumSamples() > 0 && writeCurrentOutputToFile(outputAudioFile))
+        persistOutputGenerationMetadata(metadata);
 
     // A fallback activation moves the active folder without copying anything,
     // so rewrite the score beside the audio it describes rather than leaving it
@@ -761,9 +765,15 @@ bool Gary4juceAudioProcessorEditor::createDraggedAudioFile(
 {
     if (!source.existsAsFile())
         return false;
+    const auto sourceMetadata = source == getGaryOutputFile() ? loadOutputGenerationMetadata() : juce::var();
 
     if (draggedAudioFormat == DraggedAudioFormat::Wav)
-        return copyFileSafely(source, destination);
+    {
+        if (!copyFileSafely(source, destination)) return false;
+        if (writeDraggedAudioMetadata(source, destination, sourceMetadata)) return true;
+        destination.deleteFile();
+        return false;
+    }
 
    #if JUCE_USE_FLAC
     juce::AudioFormatManager formatManager;
@@ -808,7 +818,10 @@ bool Gary4juceAudioProcessorEditor::createDraggedAudioFile(
 
     const bool installed = copyFileSafely(temporaryFile, destination);
     temporaryFile.deleteFile();
-    return installed;
+    if (!installed) return false;
+    if (writeDraggedAudioMetadata(source, destination, sourceMetadata)) return true;
+    destination.deleteFile();
+    return false;
    #else
     juce::ignoreUnused(destination);
     return false;
@@ -904,6 +917,12 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
     alert->addTextBlock(
         "FLAC works with Ableton Live, Bitwig, and REAPER. "
         "Use WAV for Logic Pro, GarageBand, and Fender Studio.");
+    alert->addComboBox(kDraggedAudioMetadataKey,
+        { "off - audio only", "on - save matching JSON generation details" }, "generation details");
+    alert->getComboBoxComponent(kDraggedAudioMetadataKey)->setSelectedId(
+        saveDraggedAudioMetadata ? 2 : 1, juce::dontSendNotification);
+    alert->addTextBlock("JSON keeps the model, reported seed, prompt and generation settings. "
+                       "Timestamped audio filenames stay the same; crops retain the source render's details.");
     alert->addButton("change / migrate", 1);
     if (usingGaryDataFallback && configuredGaryDataDirectory != juce::File{})
         alert->addButton("retry configured", 2);
@@ -919,6 +938,7 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
         [asyncAlive, editor, alert](int result)
         {
             auto selectedFormatId = 1;
+            const bool saveMetadata = alert->getComboBoxComponent(kDraggedAudioMetadataKey)->getSelectedId() == 2;
             if (const auto* formatBox = alert->getComboBoxComponent(
                     kDraggedAudioFormatComboName))
                 selectedFormatId = formatBox->getSelectedId();
@@ -930,6 +950,7 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
             editor->setDraggedAudioFormat(selectedFormatId == 2
                 ? DraggedAudioFormat::Flac
                 : DraggedAudioFormat::Wav);
+            editor->setSaveDraggedAudioMetadata(saveMetadata);
 
             if (result == 1)
                 editor->chooseGaryDataDirectory();
@@ -1083,4 +1104,113 @@ void Gary4juceAudioProcessorEditor::migrateGaryDataDirectory(const juce::File& d
     storageMigrationTask = std::make_unique<StorageMigrationTask>(
         source, destination, this, std::move(completion));
     storageMigrationTask->launchThread();
+}
+
+void Gary4juceAudioProcessorEditor::setSaveDraggedAudioMetadata(bool enabled)
+{
+    saveDraggedAudioMetadata = enabled;
+    auto& preferences = getUpdatePreferences();
+    preferences.setValue(kDraggedAudioMetadataKey, enabled);
+    preferences.saveIfNeeded();
+}
+
+void Gary4juceAudioProcessorEditor::captureGenerationRequest(std::uint32_t token,
+    const juce::String& service, const juce::String& operation, const juce::var& request)
+{
+    auto snapshot = generation_metadata::snapshot(service, operation, request);
+    acceptGenerationSnapshot(token, snapshot);
+}
+
+void Gary4juceAudioProcessorEditor::acceptGenerationSnapshot(std::uint32_t token, const juce::var& snapshot)
+{
+    juce::ScopedLock lock(generationMetadataLock);
+    if (isGenerationAsyncWorkCurrent(token)) pendingGenerationMetadata = snapshot.clone();
+}
+
+void Gary4juceAudioProcessorEditor::noteGenerationSeed(const juce::String& service, const juce::String& seed)
+{
+    juce::ScopedLock lock(generationMetadataLock);
+    if (pendingGenerationMetadata.getProperty("service", {}).toString() == service)
+        generation_metadata::setSeed(pendingGenerationMetadata, seed);
+}
+
+juce::var Gary4juceAudioProcessorEditor::loadOutputGenerationMetadata() const
+{
+    const auto audio = getGaryOutputFile();
+    const auto record = audio.withFileExtension(".metadata.json");
+    if (!audio.existsAsFile() || !record.existsAsFile()) return {};
+    const auto metadata = juce::JSON::parse(record.loadFileAsString());
+    if (metadata.getProperty("audio_sha256", {}).toString() != juce::SHA256(audio).toHexString()) return {};
+    return metadata;
+}
+
+bool Gary4juceAudioProcessorEditor::persistOutputGenerationMetadata(const juce::var& metadata)
+{
+    currentOutputGenerationMetadata = metadata.clone();
+    const auto audio = getGaryOutputFile();
+    const auto record = audio.withFileExtension(".metadata.json");
+    auto copy = metadata.clone();
+    if (auto* object = copy.getDynamicObject())
+    {
+        object->setProperty("audio_sha256", juce::SHA256(audio).toHexString());
+        const auto text = juce::JSON::toString(copy);
+        if (writeDataToFileSafely(record, text.toRawUTF8(), text.getNumBytesAsUTF8())) return true;
+    }
+    record.deleteFile(); // Never leave an older render's details attached.
+    return false;
+}
+
+void Gary4juceAudioProcessorEditor::commitGenerationMetadata(const juce::var& response, const juce::var& restoredMetadata)
+{
+    juce::var metadata;
+    {
+        juce::ScopedLock lock(generationMetadataLock);
+        metadata = restoredMetadata.isObject() ? restoredMetadata.clone() : pendingGenerationMetadata.clone();
+        pendingGenerationMetadata = juce::var();
+    }
+    if (auto* object = metadata.getDynamicObject())
+    {
+        const auto service = object->getProperty("service").toString();
+        const auto key = service == "gary" ? "generation_seed" : "seed";
+        if (!restoredMetadata.isObject())
+        {
+            object->setProperty("generated_at", juce::Time::getCurrentTime().toISO8601(true));
+            if (response.hasProperty(key)) generation_metadata::setSeed(metadata, response[key]);
+            if (service != "gary")
+                for (const auto container : { "meta", "metadata" })
+                    if (const auto* details = response.getProperty(container, {}).getDynamicObject())
+                        if (details->hasProperty("seed")) generation_metadata::setSeed(metadata, details->getProperty("seed"));
+            if (response.getProperty("prompt", {}).toString().isNotEmpty())
+                object->setProperty("resolved_prompt", response["prompt"]);
+        }
+        if (service == "terry" && !restoredMetadata.isObject())
+            object->setProperty("source_render", terrySourceGenerationMetadata.clone());
+    }
+    persistOutputGenerationMetadata(metadata);
+}
+
+bool Gary4juceAudioProcessorEditor::writeDraggedAudioMetadata(const juce::File& source, const juce::File& destination,
+    const juce::var& sourceMetadata) const
+{
+    if (!saveDraggedAudioMetadata) return true;
+    // Stems and other sources must never borrow the current output's settings.
+    auto metadata = sourceMetadata.clone();
+    const auto sourceHash = metadata.getProperty("audio_sha256", {}).toString();
+    if (sourceHash != juce::SHA256(source).toHexString()
+        || (draggedAudioFormat == DraggedAudioFormat::Wav && sourceHash != juce::SHA256(destination).toHexString()))
+        metadata = juce::var(); // The source changed during preparation: never mislabel the copy.
+    if (!metadata.isObject())
+    {
+        auto unknown = juce::DynamicObject::Ptr(new juce::DynamicObject());
+        unknown->setProperty("schema_version", 1);
+        unknown->setProperty("generation_details_available", false);
+        metadata = juce::var(unknown.get());
+    }
+    auto* object = metadata.getDynamicObject();
+    object->removeProperty("audio_sha256");
+    object->setProperty("audio_file", destination.getFileName());
+    object->setProperty("exported_at", juce::Time::getCurrentTime().toISO8601(true));
+    object->setProperty("export_audio_sha256", juce::SHA256(destination).toHexString());
+    const auto text = juce::JSON::toString(metadata);
+    return writeDataToFileSafely(destination.withFileExtension(".json"), text.toRawUTF8(), text.getNumBytesAsUTF8());
 }
