@@ -18,7 +18,7 @@ namespace sa3lanes
     struct State
     {
         std::vector<gary::SA3Lane> lanes;
-        gary::SA3LaneBlend blend = gary::SA3LaneBlend::OneSong;
+        float blend = 0.f;   // one song (0) to distinct (1); see gary::LaneBlendSteps
         gary::SA3LaneSnap snap = gary::SA3LaneSnap::Off;
         bool open = false;
     };
@@ -43,8 +43,9 @@ namespace sa3lanes
     // A lane replaces its LoRA's fixed strength, which would otherwise run in every pass too. A curve
     // that stays at 0 is left out, since it adds nothing but would still encode its prompt.
     // decoratePrompt adds the tempo and key, as the request's own prompt has them. Envelope times
-    // start at startSeconds, which a continuation sets to the source's length. Returns the number
-    // of lanes sent.
+    // start at startSeconds, which a continuation sets to the source's length. The blend is turned
+    // into sigmas from the request's own steps, shift and, for a transform, strength, so those must
+    // be set first. Returns the number of lanes sent.
     int addToRequest(juce::DynamicObject& request,
                      const State& state,
                      const std::vector<SA3UI::LoraSelection>& active,

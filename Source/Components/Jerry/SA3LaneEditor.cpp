@@ -60,6 +60,15 @@ void SA3LaneEditor::setTimeline(double newSeconds, double newBpm, double newBeat
     repaint();
 }
 
+void SA3LaneEditor::setSteps(int newSteps)
+{
+    newSteps = std::max(1, newSteps);
+    if (newSteps == samplerSteps)
+        return;
+    samplerSteps = newSteps;
+    repaint();
+}
+
 void SA3LaneEditor::setPlayhead(double playheadSeconds)
 {
     const float position = seconds > 0.0 && playheadSeconds >= 0.0 && playheadSeconds <= seconds
@@ -100,9 +109,8 @@ void SA3LaneEditor::layout()
     const auto inner = bounds.reduced(6.f);
     const Rect bar(inner.getX(), inner.getY(), inner.getWidth(), 22.f);
     titleRect = { bar.getX(), bar.getY(), 74.f, bar.getHeight() };
-    blendOneRect = { titleRect.getRight() + 4.f, bar.getY(), 66.f, bar.getHeight() };
-    blendDistinctRect = { blendOneRect.getRight(), bar.getY(), 60.f, bar.getHeight() };
-    snapRect = { blendDistinctRect.getRight() + 6.f, bar.getY(), 70.f, bar.getHeight() };
+    blendRect = { titleRect.getRight() + 4.f, bar.getY(), 168.f, bar.getHeight() };
+    snapRect = { blendRect.getRight() + 6.f, bar.getY(), 70.f, bar.getHeight() };
     rangeRect = Rect::leftTopRightBottom(snapRect.getRight() + 8.f, bar.getY(), bar.getRight(), bar.getBottom());
 
     const float headWidth = wide ? 196.f : 0.f;
@@ -247,14 +255,10 @@ void SA3LaneEditor::mouseDown(const juce::MouseEvent& e)
     commitPromptEntry();
     layout();
     const auto at = e.position;
-    if (blendOneRect.contains(at) || blendDistinctRect.contains(at))
+    if (blendRect.contains(at))
     {
-        const auto blend = blendOneRect.contains(at) ? gary::SA3LaneBlend::OneSong : gary::SA3LaneBlend::Distinct;
-        if (blend != state.blend)
-        {
-            state.blend = blend;
-            changed();
-        }
+        drag = Drag::Blend;
+        setBlendAt(at.x);
         return;
     }
     if (snapRect.contains(at))
@@ -331,6 +335,11 @@ void SA3LaneEditor::mouseDrag(const juce::MouseEvent& e)
         scrollTo(e.position.y);
         return;
     }
+    if (drag == Drag::Blend)
+    {
+        setBlendAt(e.position.x);
+        return;
+    }
     if (drag == Drag::None || dragLane < 0 || dragLane >= (int)state.lanes.size())
         return;
     layout();
@@ -368,12 +377,13 @@ void SA3LaneEditor::mouseDrag(const juce::MouseEvent& e)
     repaint();
 }
 
-void SA3LaneEditor::mouseUp(const juce::MouseEvent&)
+void SA3LaneEditor::mouseUp(const juce::MouseEvent& e)
 {
     if (drag == Drag::None)
         return;
     const bool edited = drag != Drag::Scroll;
     drag = Drag::None;
+    blendHover = blendRect.contains(e.position);
     stroke.clear();
     if (edited)
         changed();
@@ -386,8 +396,12 @@ void SA3LaneEditor::mouseMove(const juce::MouseEvent& e)
     int lane = -1;
     int point = -1;
     bool overCanvas = false;
-    bool overControl = blendOneRect.contains(at) || blendDistinctRect.contains(at) || snapRect.contains(at)
-        || scrollTrack.contains(at);
+    bool overControl = blendRect.contains(at) || snapRect.contains(at) || scrollTrack.contains(at);
+    if (blendRect.contains(at) != blendHover)
+    {
+        blendHover = !blendHover;
+        repaint();
+    }
     for (size_t i = 0; i < rows.size(); ++i)
     {
         const Row& row = rows[i];
@@ -419,6 +433,7 @@ void SA3LaneEditor::mouseExit(const juce::MouseEvent&)
     setMouseCursor(juce::MouseCursor::NormalCursor);
     hoverLane = -1;
     hoverPoint = -1;
+    blendHover = false;
     repaint();
 }
 
@@ -529,6 +544,25 @@ size_t SA3LaneEditor::scrollFirstAt(float y) const
     return (size_t)(juce::jlimit(0.f, 1.f, fraction) * (float)(total - visible) + 0.5f);
 }
 
+SA3LaneEditor::Rect SA3LaneEditor::blendTrack() const
+{
+    // "one song" on the left and "distinct" on the right, with the track between them.
+    return Rect::leftTopRightBottom(blendRect.getX() + 52.f, blendRect.getY(), blendRect.getRight() - 48.f, blendRect.getBottom());
+}
+
+// Stops on whole steps: each one to the right shares one fewer step.
+void SA3LaneEditor::setBlendAt(float x)
+{
+    const auto track = blendTrack();
+    const float stops = (float)gary::LaneBlendStops(samplerSteps);
+    const float fraction = juce::jlimit(0.f, 1.f, (x - track.getX()) / std::max(1.f, track.getWidth()));
+    const float blend = std::round(fraction * stops) / stops;
+    if (blend == state.blend)
+        return;
+    state.blend = blend;
+    repaint();
+}
+
 void SA3LaneEditor::scrollTo(float y)
 {
     firstLane = scrollFirstAt(y);
@@ -634,16 +668,21 @@ void SA3LaneEditor::paint(juce::Graphics& g)
 void SA3LaneEditor::drawTopBar(juce::Graphics& g)
 {
     drawText(g, "automation", titleRect, 13.f, juce::Colours::white, juce::Justification::centredLeft);
-    const auto segment = [&](const Rect& rect, const char* label, bool active)
-    {
-        g.setColour(active ? kRed : kButtonFill);
-        g.fillRect(rect);
-        g.setColour(active ? kRed : kFrame);
-        g.drawRect(rect);
-        drawText(g, label, rect, 11.f, active ? juce::Colours::black : kTextDim, juce::Justification::centred);
-    };
-    segment(blendOneRect, "one song", state.blend == gary::SA3LaneBlend::OneSong);
-    segment(blendDistinctRect, "distinct", state.blend == gary::SA3LaneBlend::Distinct);
+    const auto track = blendTrack();
+    const auto ends = Rect::leftTopRightBottom(blendRect.getX(), blendRect.getY(), track.getX() - 4.f, blendRect.getBottom());
+    drawText(g, "one song", ends, 11.f, state.blend <= 0.f ? juce::Colours::white : kTextDim, juce::Justification::centredRight);
+    drawText(g, "distinct", Rect::leftTopRightBottom(track.getRight() + 4.f, blendRect.getY(), blendRect.getRight(), blendRect.getBottom()),
+             11.f, state.blend >= 1.f ? juce::Colours::white : kTextDim, juce::Justification::centredLeft);
+    const int stops = gary::LaneBlendStops(samplerSteps);
+    const float y = track.getCentreY();
+    g.setColour(kFrame);
+    g.drawLine(track.getX(), y, track.getRight(), y, 2.f);
+    for (int i = 0; i <= stops; ++i)
+        g.drawVerticalLine(juce::roundToInt(track.getX() + track.getWidth() * (float)i / (float)stops), y - 3.f, y + 4.f);
+    const float knob = track.getX() + track.getWidth() * juce::jlimit(0.f, 1.f, state.blend);
+    g.setColour(kRed);
+    g.drawLine(track.getX(), y, knob, y, 2.f);
+    g.fillEllipse(knob - 5.f, y - 5.f, 10.f, 10.f);
 
     const char* labels[] = { "snap off", "snap 1/4", "snap 1/2", "snap 1 bar" };
     const bool on = state.snap != gary::SA3LaneSnap::Off;
@@ -653,7 +692,14 @@ void SA3LaneEditor::drawTopBar(juce::Graphics& g)
     g.drawRect(snapRect);
     drawText(g, labels[(int)state.snap], snapRect, 10.f, on ? juce::Colours::white : kTextDim, juce::Justification::centred);
 
-    const auto range = seconds > 0.0 ? juce::String(seconds, 2) + " s" : juce::String("set a range");
+    // While the blend is in hand, the corner says what it does instead of the range.
+    auto range = seconds > 0.0 ? juce::String(seconds, 2) + " s" : juce::String("set a range");
+    if (blendHover || drag == Drag::Blend)
+    {
+        const auto plan = gary::LaneBlendSteps(state.blend, samplerSteps);
+        range = plan.shared > 0 ? juce::String(plan.shared) + " of " + juce::String(samplerSteps) + " steps shared"
+                                : juce::String("no steps shared");
+    }
     drawText(g, range, rangeRect, 11.f, kTextDim, juce::Justification::centredRight);
 }
 

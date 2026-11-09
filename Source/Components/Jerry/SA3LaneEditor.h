@@ -33,6 +33,8 @@ public:
     static juce::Colour laneColour(int index);
 
     void setTimeline(double seconds, double bpm, double beatsPerBar);
+    // The blend slider stops on whole steps, so it needs to know how many there are.
+    void setSteps(int steps);
     // Where playback is, in seconds from the start of the curves. Anything outside them hides it.
     void setPlayhead(double seconds);
     // Min/max pairs across the range, drawn behind every curve in the strip above the lanes.
@@ -56,7 +58,7 @@ private:
     static constexpr float kPad = 14.f;   // leaves the strength labels clear of a point at the very start
     static constexpr float kCurvePad = 5.f;
 
-    enum class Drag { None, Point, Stroke, Scroll };
+    enum class Drag { None, Point, Stroke, Scroll, Blend };
 
     struct Row
     {
@@ -80,6 +82,8 @@ private:
     void removePoint(gary::SA3Lane& lane, int index);
     void resetCurve(gary::SA3Lane& lane);
     void scrollTo(float y);
+    Rect blendTrack() const;
+    void setBlendAt(float x);
     size_t scrollFirstAt(float y) const;
     void openSnapMenu();
     void openPromptEntry(size_t laneIndex, const Row& row);
@@ -106,10 +110,12 @@ private:
     double seconds = 0.0;
     double bpm = 0.0;
     double beatsPerBar = 4.0;
+    int samplerSteps = 8;
+    bool blendHover = false;
     std::vector<float> backdrop;
     float playhead = -1.f;
 
-    Rect titleRect, blendOneRect, blendDistinctRect, snapRect, rangeRect, takeHead, takeCanvas, scrollTrack;
+    Rect titleRect, blendRect, snapRect, rangeRect, takeHead, takeCanvas, scrollTrack;
     std::vector<Row> rows;
     size_t firstLane = 0;
 

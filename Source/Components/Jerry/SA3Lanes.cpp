@@ -132,7 +132,13 @@ int addToRequest(juce::DynamicObject& request,
     if (lanes.isEmpty())
         return 0;
 
-    const auto blend = gary::LaneBlendSettings(state.blend);
+    // Only a transform has a top-level strength: where its noise starts. Everything else starts at 1.
+    const auto sigmaMax = request.hasProperty("strength")
+        ? juce::jlimit(0.01f, 1.f, (float)(double)request.getProperty("strength")) : 1.f;
+    const auto sigmas = gary::SA3StepSigmas((int)request.getProperty("steps"), sigmaMax,
+                                            request.getProperty("shift").toString().toLowerCase().toStdString(),
+                                            startSeconds + seconds);
+    const auto blend = gary::LaneBlendSettings(state.blend, sigmas);
     request.setProperty("lora_lanes", lanes);
     request.setProperty("lane_isolation", (double)blend.isolation);
     request.setProperty("lane_isolation_until", (double)blend.isolationUntil);
@@ -156,7 +162,7 @@ juce::var toVar(const State& state)
     }
     juce::DynamicObject::Ptr object = new juce::DynamicObject();
     object->setProperty("open", state.open);
-    object->setProperty("blend", state.blend == gary::SA3LaneBlend::Distinct ? "distinct" : "one_song");
+    object->setProperty("blend", (double)state.blend);
     object->setProperty("snap", static_cast<int>(state.snap));
     object->setProperty("lanes", lanes);
     return juce::var(object.get());
@@ -169,8 +175,7 @@ State fromVar(const juce::var& value)
     if (object == nullptr)
         return state;
     state.open = (bool)object->getProperty("open");
-    state.blend = object->getProperty("blend").toString() == "distinct"
-        ? gary::SA3LaneBlend::Distinct : gary::SA3LaneBlend::OneSong;
+    state.blend = juce::jlimit(0.f, 1.f, (float)(double)object->getProperty("blend"));
     state.snap = gary::LaneSnapFromIndex((int)object->getProperty("snap"));
     if (auto* lanes = object->getProperty("lanes").getArray())
     {

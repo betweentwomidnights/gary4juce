@@ -2123,6 +2123,7 @@ void Gary4juceAudioProcessorEditor::updateSA3LaneTimeline()
         bpm = 120.0;
     // SA3's loops are 4/4, and its prompts carry no other meter.
     sa3LaneEditor->setTimeline(sa3LaneRangeSeconds(), bpm, 4.0);
+    sa3LaneEditor->setSteps(sa3UI->getSteps());
     // Mirrors the output waveform's cursor. The curves start where the last SA3 render's did,
     // which in a continuation is after the source it plays first.
     const bool playing = isPlayingOutput && activePlaybackSource == PlaybackSource::Output;
