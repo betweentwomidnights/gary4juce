@@ -818,6 +818,7 @@ void Gary4juceAudioProcessorEditor::updateSA3LanePanel()
     else
     {
         sa3LanesForcedCompact = false;
+        updateSA3LoraAutomation();
     }
     applyEditorSize();
 }
@@ -1266,7 +1267,11 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         };
         laneHost.rollPrompt = [this](size_t laneIndex) { rollSA3LanePrompt(laneIndex); };
         laneHost.notify = [this](const juce::String& message) { showStatusMessage(message, 2500); };
-        laneHost.changed = [this]() { persistEditorState(); };
+        laneHost.changed = [this]()
+        {
+            updateSA3LoraAutomation();
+            persistEditorState();
+        };
         sa3LaneEditor = std::make_unique<SA3LaneEditor>(sa3Lanes, std::move(laneHost));
         addChildComponent(*sa3LaneEditor);
     }

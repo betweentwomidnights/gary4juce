@@ -740,6 +740,9 @@ private:
     bool sa3LanePanelShown() const;
     void updateSA3LanePanel();
     void syncSA3Lanes();
+    // Tells the LoRA rows which strengths the lanes draw, and moves a slider to a flat lane dragged
+    // to a new strength, since a flat line is just a strength.
+    void updateSA3LoraAutomation();
     void updateSA3LaneTimeline();
     double sa3LaneRangeSeconds() const;
     void updateSA3LaneBackdrop();

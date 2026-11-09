@@ -1042,6 +1042,8 @@ void Gary4juceAudioProcessorEditor::syncSA3LoraUi()
         return;
 
     sa3UI->setAvailableLoras(availableSA3Loras);
+    // The rows are new, and lanes restored before the catalog arrived had no LoRAs to match.
+    syncSA3Lanes();
 }
 
 void Gary4juceAudioProcessorEditor::refreshSA3AvailableLoras(bool force)
@@ -2043,10 +2045,46 @@ bool Gary4juceAudioProcessorEditor::sa3LanePanelShown() const
 void Gary4juceAudioProcessorEditor::syncSA3Lanes()
 {
     // Only while automation is open: a LoRA turned on with it closed gets a flat lane when it opens.
-    if (!sa3Lanes.open || sa3UI == nullptr || sa3LaneEditor == nullptr)
+    if (sa3Lanes.open && sa3UI != nullptr && sa3LaneEditor != nullptr)
+    {
+        sa3lanes::sync(sa3Lanes.lanes, sa3UI->getActiveLoras());
+        sa3LaneEditor->repaint();
+    }
+    updateSA3LoraAutomation();
+}
+
+void Gary4juceAudioProcessorEditor::updateSA3LoraAutomation()
+{
+    if (sa3UI == nullptr)
         return;
-    sa3lanes::sync(sa3Lanes.lanes, sa3UI->getActiveLoras());
-    sa3LaneEditor->repaint();
+    std::vector<SA3UI::LoraAutomation> automated;
+    if (sa3Lanes.open)
+    {
+        const auto active = sa3UI->getActiveLoras();
+        for (size_t i = 0; i < sa3Lanes.lanes.size(); ++i)
+        {
+            auto& lane = sa3Lanes.lanes[i];
+            if (!sa3lanes::isActive(lane, active))
+                continue;
+            if (!sa3lanes::isDrawn(lane))
+            {
+                float amount = 0.f;
+                sa3lanes::flatAmount(lane, amount);
+                const auto landed = sa3UI->setLoraStrength(juce::String(lane.path), amount);
+                if (landed > 0.0)
+                    for (auto& point : lane.points)
+                        point.amount = (float)landed;
+                continue;
+            }
+            SA3UI::LoraAutomation entry;
+            entry.name = juce::String(lane.path);
+            entry.colour = SA3LaneEditor::laneColour((int)i);
+            for (const auto& point : lane.points)
+                entry.curve.push_back({ point.position, point.amount / gary::kSA3MaxLaneAmount });
+            automated.push_back(std::move(entry));
+        }
+    }
+    sa3UI->setLoraAutomation(std::move(automated));
 }
 
 // What the next render covers, as its request will say: a continuation's added seconds, a

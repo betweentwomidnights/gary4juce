@@ -25,11 +25,19 @@ namespace sa3lanes
 
     // Gives every active LoRA a lane, in list order. A new lane starts flat at its slider's value, so
     // it changes nothing until you draw. A lane whose LoRA was switched off or removed is kept after
-    // the others, so turning it back on returns its curve.
+    // the others, so turning it back on returns its curve. A flat lane above 0 is the slider in
+    // another form, so it moves with it.
     void sync(std::vector<gary::SA3Lane>& lanes, const std::vector<SA3UI::LoraSelection>& active);
 
     bool isActive(const gary::SA3Lane& lane, const std::vector<SA3UI::LoraSelection>& active);
     double strengthOf(const gary::SA3Lane& lane, const std::vector<SA3UI::LoraSelection>& active);
+
+    // The lane's one amount, when it is still the two-point line across the whole take a new lane
+    // starts as. Otherwise false.
+    bool flatAmount(const gary::SA3Lane& lane, float& amount);
+    // Whether the lane says something its slider can't: any drawn shape, or a flat line at 0, which
+    // keeps the LoRA silent while its slider stays up. Its row then shows the curve, not a number.
+    bool isDrawn(const gary::SA3Lane& lane);
 
     // Adds lora_lanes and the blend to a request whose "loras" already holds the fixed-strength LoRAs.
     // A lane replaces its LoRA's fixed strength, which would otherwise run in every pass too. A curve

@@ -31,6 +31,13 @@ void sync(std::vector<gary::SA3Lane>& lanes, const std::vector<SA3UI::LoraSelect
         {
             taken[static_cast<size_t>(existing - lanes.begin())] = true;
             synced.push_back(*existing);
+            float amount = 0.f;
+            if (flatAmount(synced.back(), amount) && amount > 0.f)
+            {
+                const auto strength = static_cast<float>(juce::jlimit(0.0, (double)gary::kSA3MaxLaneAmount, lora.strength));
+                for (auto& point : synced.back().points)
+                    point.amount = strength;
+            }
             continue;
         }
         if (synced.size() >= gary::kSA3MaxLanes)
@@ -57,6 +64,22 @@ double strengthOf(const gary::SA3Lane& lane, const std::vector<SA3UI::LoraSelect
 {
     const auto* lora = find(lane, active);
     return lora != nullptr ? lora->strength : 0.0;
+}
+
+bool flatAmount(const gary::SA3Lane& lane, float& amount)
+{
+    const auto& points = lane.points;
+    if (points.size() != 2 || points[0].position > 0.f || points[1].position < 1.f
+        || points[0].amount != points[1].amount)
+        return false;
+    amount = points[0].amount;
+    return true;
+}
+
+bool isDrawn(const gary::SA3Lane& lane)
+{
+    float amount = 0.f;
+    return !flatAmount(lane, amount) || amount <= 0.f;
 }
 
 int addToRequest(juce::DynamicObject& request,
