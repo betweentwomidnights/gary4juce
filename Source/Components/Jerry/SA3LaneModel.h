@@ -66,7 +66,7 @@ inline double LaneSnapSeconds(SA3LaneSnap snap, double bpm, double beatsPerBar)
 }
 
 // The blend: how many of the first steps play every lane at its curve's average, so the take
-// settles on one arrangement before the curves apply. Stop 0 (one song) shares half the steps; each
+// settles on one arrangement before the curves apply. Stop 0 (smooth) shares half the steps; each
 // stop to the right shares fewer, so the curves take hold sooner and the LoRAs reach further into
 // the arrangement, down to none shared at the last (responsive). Every stop keeps the sections
 // gently apart (isolation 1) through the last step. The stops were picked by ear at 8 steps: 4, 3,

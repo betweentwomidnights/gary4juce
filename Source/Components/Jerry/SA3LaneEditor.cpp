@@ -549,7 +549,7 @@ size_t SA3LaneEditor::scrollFirstAt(float y) const
 
 SA3LaneEditor::Rect SA3LaneEditor::blendTrack() const
 {
-    // "one song" on the left and "responsive" on the right, with the track between them.
+    // "smooth" on the left and "responsive" on the right, with the track between them.
     return Rect::leftTopRightBottom(blendRect.getX() + 52.f, blendRect.getY(), blendRect.getRight() - 62.f, blendRect.getBottom());
 }
 
@@ -673,7 +673,7 @@ void SA3LaneEditor::drawTopBar(juce::Graphics& g)
     const auto track = blendTrack();
     const auto ends = Rect::leftTopRightBottom(blendRect.getX(), blendRect.getY(), track.getX() - 4.f, blendRect.getBottom());
     const int lastStop = gary::kSA3LaneBlendStops - 1;
-    drawText(g, "one song", ends, 11.f, state.blend <= 0 ? juce::Colours::white : kTextDim, juce::Justification::centredRight);
+    drawText(g, "smooth", ends, 11.f, state.blend <= 0 ? juce::Colours::white : kTextDim, juce::Justification::centredRight);
     drawText(g, "responsive", Rect::leftTopRightBottom(track.getRight() + 4.f, blendRect.getY(), blendRect.getRight(), blendRect.getBottom()),
              11.f, state.blend >= lastStop ? juce::Colours::white : kTextDim, juce::Justification::centredLeft);
     // Drawn as CustomSlider draws gary's other sliders: a chunky square track and thumb.

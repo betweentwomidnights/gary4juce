@@ -18,7 +18,7 @@ namespace sa3lanes
     struct State
     {
         std::vector<gary::SA3Lane> lanes;
-        int blend = 0;   // stop 0 (one song) to kSA3LaneBlendStops - 1 (responsive); see gary::LaneBlendShared
+        int blend = 0;   // stop 0 (smooth) to kSA3LaneBlendStops - 1 (responsive); see gary::LaneBlendShared
         gary::SA3LaneSnap snap = gary::SA3LaneSnap::Off;
         bool open = false;
     };
