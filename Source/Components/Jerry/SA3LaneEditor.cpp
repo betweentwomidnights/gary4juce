@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 #include "SA3LaneEditor.h"
+#include "../../Utils/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,6 +19,8 @@ namespace
     const juce::Colour kButtonFill(16, 16, 16);
     const juce::Colour kCanvas(12, 12, 12);
     constexpr float kCorner = 4.f;
+    constexpr int kBlendTrackHeight = 12;   // CustomSlider's track and thumb
+    constexpr int kBlendThumbSize = 16;
 
     float scrollThumbHeight(const juce::Rectangle<float>& track, size_t visible, size_t total)
     {
@@ -555,7 +558,8 @@ void SA3LaneEditor::setBlendAt(float x)
 {
     const auto track = blendTrack();
     const float stops = (float)gary::LaneBlendStops(samplerSteps);
-    const float fraction = juce::jlimit(0.f, 1.f, (x - track.getX()) / std::max(1.f, track.getWidth()));
+    const float travel = track.getWidth() - (float)kBlendThumbSize;   // the thumb stays inside the track
+    const float fraction = juce::jlimit(0.f, 1.f, (x - track.getX() - 0.5f * (float)kBlendThumbSize) / std::max(1.f, travel));
     const float blend = std::round(fraction * stops) / stops;
     if (blend == state.blend)
         return;
@@ -673,16 +677,25 @@ void SA3LaneEditor::drawTopBar(juce::Graphics& g)
     drawText(g, "one song", ends, 11.f, state.blend <= 0.f ? juce::Colours::white : kTextDim, juce::Justification::centredRight);
     drawText(g, "distinct", Rect::leftTopRightBottom(track.getRight() + 4.f, blendRect.getY(), blendRect.getRight(), blendRect.getBottom()),
              11.f, state.blend >= 1.f ? juce::Colours::white : kTextDim, juce::Justification::centredLeft);
-    const int stops = gary::LaneBlendStops(samplerSteps);
-    const float y = track.getCentreY();
-    g.setColour(kFrame);
-    g.drawLine(track.getX(), y, track.getRight(), y, 2.f);
-    for (int i = 0; i <= stops; ++i)
-        g.drawVerticalLine(juce::roundToInt(track.getX() + track.getWidth() * (float)i / (float)stops), y - 3.f, y + 4.f);
-    const float knob = track.getX() + track.getWidth() * juce::jlimit(0.f, 1.f, state.blend);
-    g.setColour(kRed);
-    g.drawLine(track.getX(), y, knob, y, 2.f);
-    g.fillEllipse(knob - 5.f, y - 5.f, 10.f, 10.f);
+    // Drawn as CustomSlider draws gary's other sliders: a chunky square track and thumb.
+    const auto rail = track.toNearestInt().withSizeKeepingCentre(juce::roundToInt(track.getWidth()), kBlendTrackHeight);
+    const int thumbX = rail.getX() + juce::roundToInt(juce::jlimit(0.f, 1.f, state.blend) * (float)(rail.getWidth() - kBlendThumbSize));
+    const juce::Rectangle<int> thumb(thumbX, rail.getCentreY() - kBlendThumbSize / 2, kBlendThumbSize, kBlendThumbSize);
+    g.setColour(Theme::Colors::Background.brighter(0.1f));
+    g.fillRect(rail);
+    g.setColour(Theme::Colors::TextPrimary);
+    g.drawRect(rail, 1);
+    const auto filled = rail.withWidth(thumbX + kBlendThumbSize / 2 - rail.getX());
+    g.setColour(Theme::Colors::PrimaryRed);
+    g.fillRect(filled);
+    g.setColour(Theme::Colors::PrimaryRed.brighter(0.3f));
+    g.drawRect(filled.reduced(1), 1);
+    g.setColour(Theme::Colors::TextPrimary);
+    g.fillRect(thumb);
+    g.setColour(Theme::Colors::PrimaryRed);
+    g.drawRect(thumb, 2);
+    g.setColour(Theme::Colors::TextPrimary.withAlpha(0.8f));
+    g.drawRect(thumb.reduced(2), 1);
 
     const char* labels[] = { "snap off", "snap 1/4", "snap 1/2", "snap 1 bar" };
     const bool on = state.snap != gary::SA3LaneSnap::Off;
