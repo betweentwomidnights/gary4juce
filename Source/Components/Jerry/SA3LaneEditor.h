@@ -33,7 +33,7 @@ public:
     static juce::Colour laneColour(int index);
 
     void setTimeline(double seconds, double bpm, double beatsPerBar);
-    // The blend slider stops on whole steps, so it needs to know how many there are.
+    // The blend slider says how many steps it shares, so it needs to know how many there are.
     void setSteps(int steps);
     // Where playback is, in seconds from the start of the curves. Anything outside them hides it.
     void setPlayhead(double seconds);

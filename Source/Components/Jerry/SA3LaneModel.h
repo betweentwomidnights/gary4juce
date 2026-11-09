@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Ported from sa3-iplug2-demo's Shared/SA3LaneModel.h, so both plugins draw and send automation
-// lanes the same way. The blend differs: here it's a slider between the demo's two presets.
+// lanes the same way. The blend differs: here it's a slider over how long the take shares one
+// arrangement, where the demo toggles between two presets.
 
 #pragma once
 
@@ -64,32 +65,21 @@ inline double LaneSnapSeconds(SA3LaneSnap snap, double bpm, double beatsPerBar)
   return 0.0;
 }
 
-// The blend runs from one song (0) to distinct (1). One song spends the first half of the steps
-// with every lane at its curve's average, so the take settles on one arrangement before the curves
-// apply, and then keeps the sections gently apart. Distinct shares no steps and pulls the sections
-// hard apart over the first half, letting the joins smooth after. In between, fewer steps are
-// shared, so the curves take hold sooner, and the half that pulls the sections apart starts
-// earlier and pulls harder.
-struct SA3LaneBlendSteps
-{
-  int steps = 0;
-  int shared = 0;    // steps [0, shared) play every lane at its average
-  int apartTo = 0;   // steps [shared, apartTo) pull the sections apart
-  float isolation = 0.f;
-};
+// The blend: how many of the first steps play every lane at its curve's average, so the take
+// settles on one arrangement before the curves apply. Stop 0 (one song) shares half the steps; each
+// stop to the right shares fewer, so the curves take hold sooner and the LoRAs reach further into
+// the arrangement, down to none shared at the last (responsive). Every stop keeps the sections
+// gently apart (isolation 1) through the last step. The stops were picked by ear at 8 steps: 4, 3,
+// 2 and 0 shared; 1 sounded like 2. A fraction of the steps lands at the same noise level at any
+// count, since the schedule is a function of step / steps.
+inline constexpr int kSA3LaneBlendStops = 4;
+inline constexpr float kSA3LaneIsolation = 1.f;
 
-inline int LaneBlendStops(int steps)
+inline int LaneBlendShared(int stop, int steps)
 {
-  return (std::max(1, steps) + 1) / 2;
-}
-
-inline SA3LaneBlendSteps LaneBlendSteps(float blend, int steps)
-{
+  constexpr float shared[kSA3LaneBlendStops] = {0.5f, 0.375f, 0.25f, 0.f};
   steps = std::max(1, steps);
-  const int half = LaneBlendStops(steps);
-  const float b = std::clamp(blend, 0.f, 1.f);
-  const int shared = static_cast<int>(std::lround(static_cast<float>(half) * (1.f - b)));
-  return {steps, shared, std::min(steps, shared + half), 1.f + 3.f * b};
+  return static_cast<int>(std::lround(static_cast<float>(steps) * shared[std::clamp(stop, 0, kSA3LaneBlendStops - 1)]));
 }
 
 // sa3.cpp's sampler schedule (make_sa3_schedule with the shift's default parameters): the sigma
@@ -142,17 +132,16 @@ struct SA3LaneBlendSettings
   float averageUntil = 0.f;     // 0 averages no steps
 };
 
-inline SA3LaneBlendSettings LaneBlendSettings(float blend, const std::vector<float>& sigmas)
+inline SA3LaneBlendSettings LaneBlendSettings(int stop, const std::vector<float>& sigmas)
 {
   const int steps = static_cast<int>(sigmas.size());
-  const SA3LaneBlendSteps plan = LaneBlendSteps(blend, steps);
+  const int shared = LaneBlendShared(stop, steps);
   SA3LaneBlendSettings settings;
-  settings.isolation = plan.isolation;
-  if (plan.shared >= steps)
+  settings.isolation = kSA3LaneIsolation;
+  if (shared >= steps)
     settings.averageUntil = 0.5f * *std::min_element(sigmas.begin(), sigmas.end());
-  else if (plan.shared > 0)
-    settings.averageUntil = SA3SigmaBefore(sigmas, plan.shared);
-  settings.isolationUntil = plan.apartTo >= steps ? 0.f : SA3SigmaBefore(sigmas, plan.apartTo);
+  else if (shared > 0)
+    settings.averageUntil = SA3SigmaBefore(sigmas, shared);
   return settings;
 }
 

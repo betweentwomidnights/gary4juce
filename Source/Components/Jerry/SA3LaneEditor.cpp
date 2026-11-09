@@ -112,7 +112,7 @@ void SA3LaneEditor::layout()
     const auto inner = bounds.reduced(6.f);
     const Rect bar(inner.getX(), inner.getY(), inner.getWidth(), 22.f);
     titleRect = { bar.getX(), bar.getY(), 74.f, bar.getHeight() };
-    blendRect = { titleRect.getRight() + 4.f, bar.getY(), 168.f, bar.getHeight() };
+    blendRect = { titleRect.getRight() + 4.f, bar.getY(), 182.f, bar.getHeight() };
     snapRect = { blendRect.getRight() + 6.f, bar.getY(), 70.f, bar.getHeight() };
     rangeRect = Rect::leftTopRightBottom(snapRect.getRight() + 8.f, bar.getY(), bar.getRight(), bar.getBottom());
 
@@ -549,18 +549,16 @@ size_t SA3LaneEditor::scrollFirstAt(float y) const
 
 SA3LaneEditor::Rect SA3LaneEditor::blendTrack() const
 {
-    // "one song" on the left and "distinct" on the right, with the track between them.
-    return Rect::leftTopRightBottom(blendRect.getX() + 52.f, blendRect.getY(), blendRect.getRight() - 48.f, blendRect.getBottom());
+    // "one song" on the left and "responsive" on the right, with the track between them.
+    return Rect::leftTopRightBottom(blendRect.getX() + 52.f, blendRect.getY(), blendRect.getRight() - 62.f, blendRect.getBottom());
 }
 
-// Stops on whole steps: each one to the right shares one fewer step.
 void SA3LaneEditor::setBlendAt(float x)
 {
     const auto track = blendTrack();
-    const float stops = (float)gary::LaneBlendStops(samplerSteps);
     const float travel = track.getWidth() - (float)kBlendThumbSize;   // the thumb stays inside the track
     const float fraction = juce::jlimit(0.f, 1.f, (x - track.getX() - 0.5f * (float)kBlendThumbSize) / std::max(1.f, travel));
-    const float blend = std::round(fraction * stops) / stops;
+    const int blend = juce::roundToInt(fraction * (float)(gary::kSA3LaneBlendStops - 1));
     if (blend == state.blend)
         return;
     state.blend = blend;
@@ -674,12 +672,14 @@ void SA3LaneEditor::drawTopBar(juce::Graphics& g)
     drawText(g, "automation", titleRect, 13.f, juce::Colours::white, juce::Justification::centredLeft);
     const auto track = blendTrack();
     const auto ends = Rect::leftTopRightBottom(blendRect.getX(), blendRect.getY(), track.getX() - 4.f, blendRect.getBottom());
-    drawText(g, "one song", ends, 11.f, state.blend <= 0.f ? juce::Colours::white : kTextDim, juce::Justification::centredRight);
-    drawText(g, "distinct", Rect::leftTopRightBottom(track.getRight() + 4.f, blendRect.getY(), blendRect.getRight(), blendRect.getBottom()),
-             11.f, state.blend >= 1.f ? juce::Colours::white : kTextDim, juce::Justification::centredLeft);
+    const int lastStop = gary::kSA3LaneBlendStops - 1;
+    drawText(g, "one song", ends, 11.f, state.blend <= 0 ? juce::Colours::white : kTextDim, juce::Justification::centredRight);
+    drawText(g, "responsive", Rect::leftTopRightBottom(track.getRight() + 4.f, blendRect.getY(), blendRect.getRight(), blendRect.getBottom()),
+             11.f, state.blend >= lastStop ? juce::Colours::white : kTextDim, juce::Justification::centredLeft);
     // Drawn as CustomSlider draws gary's other sliders: a chunky square track and thumb.
     const auto rail = track.toNearestInt().withSizeKeepingCentre(juce::roundToInt(track.getWidth()), kBlendTrackHeight);
-    const int thumbX = rail.getX() + juce::roundToInt(juce::jlimit(0.f, 1.f, state.blend) * (float)(rail.getWidth() - kBlendThumbSize));
+    const float position = (float)juce::jlimit(0, lastStop, state.blend) / (float)lastStop;
+    const int thumbX = rail.getX() + juce::roundToInt(position * (float)(rail.getWidth() - kBlendThumbSize));
     const juce::Rectangle<int> thumb(thumbX, rail.getCentreY() - kBlendThumbSize / 2, kBlendThumbSize, kBlendThumbSize);
     g.setColour(Theme::Colors::Background.brighter(0.1f));
     g.fillRect(rail);
@@ -709,9 +709,9 @@ void SA3LaneEditor::drawTopBar(juce::Graphics& g)
     auto range = seconds > 0.0 ? juce::String(seconds, 2) + " s" : juce::String("set a range");
     if (blendHover || drag == Drag::Blend)
     {
-        const auto plan = gary::LaneBlendSteps(state.blend, samplerSteps);
-        range = plan.shared > 0 ? juce::String(plan.shared) + " of " + juce::String(samplerSteps) + " steps shared"
-                                : juce::String("no steps shared");
+        const int shared = gary::LaneBlendShared(state.blend, samplerSteps);
+        range = shared > 0 ? juce::String(shared) + " of " + juce::String(samplerSteps) + " steps shared"
+                           : juce::String("no steps shared");
     }
     drawText(g, range, rangeRect, 11.f, kTextDim, juce::Justification::centredRight);
 }

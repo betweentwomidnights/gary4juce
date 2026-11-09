@@ -162,7 +162,7 @@ juce::var toVar(const State& state)
     }
     juce::DynamicObject::Ptr object = new juce::DynamicObject();
     object->setProperty("open", state.open);
-    object->setProperty("blend", (double)state.blend);
+    object->setProperty("blend", state.blend);
     object->setProperty("snap", static_cast<int>(state.snap));
     object->setProperty("lanes", lanes);
     return juce::var(object.get());
@@ -175,7 +175,7 @@ State fromVar(const juce::var& value)
     if (object == nullptr)
         return state;
     state.open = (bool)object->getProperty("open");
-    state.blend = juce::jlimit(0.f, 1.f, (float)(double)object->getProperty("blend"));
+    state.blend = juce::jlimit(0, gary::kSA3LaneBlendStops - 1, (int)object->getProperty("blend"));
     state.snap = gary::LaneSnapFromIndex((int)object->getProperty("snap"));
     if (auto* lanes = object->getProperty("lanes").getArray())
     {
