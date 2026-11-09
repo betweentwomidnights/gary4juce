@@ -137,6 +137,8 @@ void SA3LaneEditor::layout()
     const float right = visible < lanes.size() ? inner.getRight() - 9.f : inner.getRight();
     if (visible < lanes.size())
         scrollTrack = Rect::leftTopRightBottom(inner.getRight() - 5.f, stackTop, inner.getRight(), stackTop + stackHeight);
+    // The take spans what the lanes do, so its waveform and cursor sit over the same times.
+    takeCanvas.setRight(right);
     // Two lines of controls take 44 of a row, which is too much of a short one.
     const bool oneLine = !wide && rowHeight - 44.f < 70.f;
     for (size_t i = 0; i < visible; ++i)
