@@ -1,13 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "5.0.2",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.2",
-  "sha256": "4463c8ccb64299fd3b0c16affd681c30f9a5a0120ce96d3e11ee8ae2c76e111b",
-  "published_at": "2026-11-01T00:00:23Z",
+  "latest_version": "5.0.3",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.3",
+  "sha256": "86b62d570f34153163b7646d1d299eda831b8dd219c13e1aa6bd8633551e2d8b",
+  "published_at": "2026-11-07T10:47:27Z",
   "notes": [
-    "Carey runs on ace-server locally and remotely, with a new generate tab from a caption.",
-    "Local Carey needs gary4local v0.6.0 with Carey migrated to C++; the remote backend serves older plugins too.",
-    "The saved recording keeps its own waveform lane while an unsaved take is present.",
-    "Pair with gary4local v0.6.0. Close your DAW before replacing plugin files."
+    "Gary's model dropdown stays current as local models are downloaded or removed.",
+    "Turn on generation details in audio storage to save a JSON file with the model, seed, prompt and settings beside dragged audio.",
+    "Pair with gary4local v0.7.0. Close your DAW before replacing plugin files."
   ]
 }

@@ -3,7 +3,7 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
-## v5.0.3 - Windows preview
+## v5.0.3 - generation details
 
 gary's model dropdown stays current as local models are downloaded or removed.
 
@@ -14,9 +14,9 @@ disk, not whichever controls are showing when you drag. crops retain the source
 render's details and record the retained range; Terry's undo restores the source
 provenance when it's known. WAV and FLAC exports both carry the sidecar.
 
-this pre-release pairs with gary4local-rocm v0.7.0-rocm.1 for Kostas's AMD and
-JSON-export testing. stems.cpp stays pinned to v0.1.5 for this preview; its
-v0.1.6 runtime update is held for the next release.
+first handed to Kostas as a Windows preview alongside gary4local-rocm
+v0.7.0-rocm.1, then promoted unchanged alongside gary4local v0.7.0. stems.cpp
+stays pinned to v0.1.5; its v0.1.6 runtime update is held for the next release.
 
 ## v5.0.2 - Carey on ace-server
 

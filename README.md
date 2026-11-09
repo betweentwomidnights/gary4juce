@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.2 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.2)
+- [gary4juce v5.0.3 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.3)
 - [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.6.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.6.0)
+- windows: [gary4local v0.7.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.0)
 - macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -57,28 +57,20 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.2 - 10/31
+### v5.0.3 - 11/08
 
-**Carey moves to ace-server.** gary4local v0.6.0 runs Carey on
-[acestep.cpp](https://github.com/betweentwomidnights/acestep.cpp), and Carey's
-tabs speak its job API on localhost and the remote backend alike. there's a new
-generate tab that makes audio from a caption; continue, cover, lego and
-complete work on your recording as before, with your LoRAs, progress and
-cancel. on localhost, each tab's advanced settings choose 2B or XL; the remote
-backend serves XL. lego and complete are still hit or miss, and their tabs say
-so.
+**gary's model dropdown stays current** as local models are downloaded or
+removed, including after gary4local v0.7.0 moves gary to audiocraft.cpp.
 
-**migrate Carey first.** local Carey needs the C++ runtime, so press
-`migrate runtime` on Carey in gary4local v0.6.0 before using it on localhost.
-the remote backend serves both the old and new API, so an older plugin keeps
-working there.
+**save the details behind a good render.** in **audio storage**, turn on
+**generation details**. dragged audio keeps its timestamped filename and gets
+a matching JSON file with the model, seed, prompt and request settings. those
+details come from the render that reached disk, not whichever controls are
+showing when you drag. crops keep the source render's details and record the
+retained range, and Terry's undo restores its source details when they're
+known. the setting is off by default; see [export details](docs/EXPORT_METADATA.md).
 
-**the saved recording keeps its own waveform lane** while an unsaved take is
-present. playback and stem separation use the saved buffer, opening a file
-restores it there, and new recording audio shows as unsaved from the first
-sample.
-
-recommended local companions: [gary4local v0.6.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.6.0)
+recommended local companions: [gary4local v0.7.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.0)
 on Windows, released alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 on macOS. the stem separator runs inside gary4juce and doesn't need either.
 
