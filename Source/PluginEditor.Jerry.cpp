@@ -2210,14 +2210,15 @@ void Gary4juceAudioProcessorEditor::rollSA3LanePrompt(size_t laneIndex)
 // Asks the SA3 backend at healthUrl whether it runs lanes. Localhost goes through gary4local's
 // adapter, whose 0.7.0 release passed sa3.cpp's flag through but dropped the lanes themselves,
 // so it must also say it forwards them.
-void Gary4juceAudioProcessorEditor::checkSA3LaneSupport(const juce::String& healthUrl)
+void Gary4juceAudioProcessorEditor::checkSA3LaneSupport(const juce::String& healthUrl, bool recheck)
 {
-    if (healthUrl == sa3LanesCheckedUrl || sa3LaneCheckInFlight.exchange(true))
+    if ((!recheck && healthUrl == sa3LanesCheckedUrl) || sa3LaneCheckInFlight.exchange(true))
         return;
     const bool viaGary4local = audioProcessor.getIsUsingLocalhost();
+    const int generation = sa3LaneCheckGeneration;
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
-    juce::Thread::launch([asyncAlive, editor, healthUrl, viaGary4local]()
+    juce::Thread::launch([asyncAlive, editor, healthUrl, viaGary4local, generation]()
     {
         juce::String responseText;
         int statusCode = 0;
@@ -2232,11 +2233,13 @@ void Gary4juceAudioProcessorEditor::checkSA3LaneSupport(const juce::String& heal
         }
         catch (...) {}
 
-        juce::MessageManager::callAsync([asyncAlive, editor, healthUrl, viaGary4local, responseText, statusCode]()
+        juce::MessageManager::callAsync([asyncAlive, editor, healthUrl, viaGary4local, generation, responseText, statusCode]()
         {
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
                 return;
+            if (generation != editor->sa3LaneCheckGeneration)
+                return;   // may have reached the server that was there before
             editor->sa3LaneCheckInFlight.store(false);
             if (statusCode < 200 || statusCode >= 300)
                 return;   // asked again when the panel next opens or a render needs the answer
@@ -2253,6 +2256,14 @@ void Gary4juceAudioProcessorEditor::checkSA3LaneSupport(const juce::String& heal
             editor->sa3LanesCheckedUrl = healthUrl;
         });
     });
+}
+
+void Gary4juceAudioProcessorEditor::forgetSA3LaneSupport()
+{
+    ++sa3LaneCheckGeneration;
+    sa3LanesSupported = false;
+    sa3LanesCheckedUrl.clear();
+    sa3LaneCheckInFlight.store(false);
 }
 
 bool Gary4juceAudioProcessorEditor::addSA3LanesToRequest(
@@ -2277,6 +2288,8 @@ bool Gary4juceAudioProcessorEditor::addSA3LanesToRequest(
     }
     if (!sa3LanesSupported)
     {
+        // Ask again behind the message, so a server swapped in between polls is seen next time.
+        checkSA3LaneSupport(healthUrl, true);
         showStatusMessage(audioProcessor.getIsUsingLocalhost()
             ? "automation lanes need a newer gary4local - update it, or close automation to render"
             : "this sa3 backend can't run automation lanes - close automation to render", 4500);
