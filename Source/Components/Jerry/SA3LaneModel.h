@@ -229,6 +229,13 @@ inline std::vector<SA3LanePoint> SimplifyLanePoints(const std::vector<SA3LanePoi
   return simplified;
 }
 
+// Each point is sent at least this long after the one before it. sa3.cpp sorts the pairs by time
+// and then amount, so two points at one time, a vertical jump, come out lowest first: a drop
+// becomes a rise toward 0 followed by a ramp down from the peak to the next point, which plays the
+// LoRA for bars after it was drawn to stop. Far shorter than a latent frame (93 ms), so it doesn't
+// move the jump.
+inline constexpr float kSA3EnvelopeTieSeconds = 0.001f;
+
 // The (seconds, amount) pairs libsa3 reads. offsetSeconds places position 0 on the output timeline,
 // which Continue needs because its time 0 is the start of the source.
 inline std::vector<float> LaneEnvelopeSeconds(const std::vector<SA3LanePoint>& points,
@@ -239,7 +246,10 @@ inline std::vector<float> LaneEnvelopeSeconds(const std::vector<SA3LanePoint>& p
   envelope.reserve(simplified.size() * 2);
   for (const SA3LanePoint& point : simplified)
   {
-    envelope.push_back(static_cast<float>(offsetSeconds + point.position * durationSeconds));
+    float seconds = static_cast<float>(offsetSeconds + point.position * durationSeconds);
+    if (!envelope.empty())
+      seconds = std::max(seconds, envelope[envelope.size() - 2] + kSA3EnvelopeTieSeconds);
+    envelope.push_back(seconds);
     envelope.push_back(std::clamp(point.amount, 0.f, kSA3MaxLaneAmount));
   }
   return envelope;
