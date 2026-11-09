@@ -112,6 +112,9 @@ public:
     bool getUseLoraEnabled() const { return useLoraRequested; }
     void setLoraState(bool enabled, const std::vector<LoraSelection>& selections);
     void setAvailableLoras(const juce::StringArray& loraNames);
+    // The automation lanes panel beside the editor; the button shows while LoRAs are on.
+    bool getAutomationOpen() const { return automationOpen; }
+    void setAutomationOpen(bool open);
     juce::String getShift() const;
     void setShift(const juce::String& shift);
 
@@ -150,6 +153,7 @@ public:
     std::function<void()> onContinue;
     std::function<void()> onContinueDiceRequested;
     std::function<void()> onLoraSelectionChanged;
+    std::function<void(bool)> onAutomationToggled;
 
 private:
     enum class PromptPopoutTarget
@@ -268,6 +272,8 @@ private:
     juce::ToggleButton continueModeLatentPrefixButton;
     juce::ToggleButton useLoraToggle;
     juce::Label loraStatusLabel;
+    CustomButton automationButton;
+    bool automationOpen = false;
     bool useLoraRequested = false;
     std::vector<LoraSelection> savedLoraSelections;
     struct LoraRow

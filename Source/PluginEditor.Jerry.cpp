@@ -189,7 +189,7 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
         foundationHelpButton.setVisible(sub == JerrySubTab::Foundation);
     }
 
-    resized();
+    updateSA3LanePanel();   // lays out too: the lanes panel shows only on SA3
     repaint();
     persistEditorState();
 }
@@ -1368,6 +1368,19 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
             ? SA3UI::kKeepsGoingTailPadSeconds : SA3UI::kEndsHereTailPadSeconds);
     }
 
+    const auto decorateLanePrompt = [bpm, keyScale = currentSA3KeyScale.trim()](const juce::String& lanePrompt)
+    {
+        auto text = lanePrompt + ", " + juce::String(juce::roundToInt(bpm)) + " bpm";
+        return keyScale.isNotEmpty() ? text + ", " + keyScale : text;
+    };
+    // A loop's length comes from the tempo in its prompt, which is rounded there.
+    const double laneSeconds = requestLoop
+        ? 240.0 / juce::jmax(1, juce::roundToInt(bpm)) * currentSA3Bars
+        : (double)currentSA3DurationSeconds;
+    if (!addSA3LanesToRequest(*jsonRequest, 0.0, laneSeconds, decorateLanePrompt))
+        return;
+    sa3LaneTimelineStart = 0.0;
+
     const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
     DBG("[sa3] submit " + endpoint + ": " + jsonString);
@@ -1599,6 +1612,18 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
         loraEntries.add(juce::var(loraObj.get()));
     }
     jsonRequest->setProperty("loras", loraEntries);
+
+    const auto decorateLanePrompt = [bpm, keyScale = currentSA3KeyScale.trim()](const juce::String& lanePrompt)
+    {
+        auto text = lanePrompt + ", " + juce::String(juce::roundToInt(bpm)) + " bpm";
+        return keyScale.isNotEmpty() ? text + ", " + keyScale : text;
+    };
+    const double laneSeconds = transformRecording
+        ? (double)savedSamples / juce::jmax(1.0, audioProcessor.getCurrentSampleRate())
+        : totalAudioDuration;
+    if (!addSA3LanesToRequest(*jsonRequest, 0.0, laneSeconds, decorateLanePrompt))
+        return;
+    sa3LaneTimelineStart = 0.0;
 
     const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
     const juce::String requestUrl = getServiceUrl(ServiceType::SA3, "/transform");
@@ -1858,6 +1883,17 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
     }
     jsonRequest->setProperty("loras", loraEntries);
 
+    const auto decorateLanePrompt = [bpm, keyScale = currentSA3KeyScale.trim()](const juce::String& lanePrompt)
+    {
+        auto text = lanePrompt + ", " + juce::String(juce::roundToInt(bpm)) + " bpm";
+        return keyScale.isNotEmpty() ? text + ", " + keyScale : text;
+    };
+    // Lanes cover what's added. Their times count from the start of the source, which the
+    // backend keeps whole, so they begin where it ends.
+    if (!addSA3LanesToRequest(*jsonRequest, sourceSeconds, continuationSecondsForRequest, decorateLanePrompt))
+        return;
+    sa3LaneTimelineStart = sourceSeconds;
+
     const juce::String jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
     const juce::String requestUrl = getServiceUrl(ServiceType::SA3, "/continue");
 
@@ -1993,4 +2029,225 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
             editor->startPollingForResults(sessionId);
         });
     });
+}
+
+//==============================================================================
+// SA3 LoRA automation lanes
+
+bool Gary4juceAudioProcessorEditor::sa3LanePanelShown() const
+{
+    return sa3Lanes.open && sa3LaneEditor != nullptr
+        && currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3;
+}
+
+void Gary4juceAudioProcessorEditor::syncSA3Lanes()
+{
+    // Only while automation is open: a LoRA turned on with it closed gets a flat lane when it opens.
+    if (!sa3Lanes.open || sa3UI == nullptr || sa3LaneEditor == nullptr)
+        return;
+    sa3lanes::sync(sa3Lanes.lanes, sa3UI->getActiveLoras());
+    sa3LaneEditor->repaint();
+}
+
+// What the next render covers, as its request will say: a continuation's added seconds, a
+// transform's source, or a generation's duration or loop.
+double Gary4juceAudioProcessorEditor::sa3LaneRangeSeconds() const
+{
+    if (sa3UI == nullptr)
+        return 0.0;
+    switch (sa3UI->getCurrentSubTab())
+    {
+        case SA3UI::SubTab::Continue:
+            return (double)sa3UI->getContinueAddSeconds();
+        case SA3UI::SubTab::Transform:
+            return sa3UI->getTransformAudioSourceRecording()
+                ? (double)savedSamples / juce::jmax(1.0, audioProcessor.getCurrentSampleRate())
+                : (hasOutputAudio ? totalAudioDuration : 0.0);
+        case SA3UI::SubTab::Generate:
+            break;
+    }
+    if (sa3UI->getLoopEnabled())
+    {
+        double bpm = juce::JUCEApplicationBase::isStandaloneApp() ? sa3UI->getBpm() : audioProcessor.getCurrentBPM();
+        if (bpm <= 0.0)
+            bpm = 120.0;
+        return 240.0 / juce::jmax(1, juce::roundToInt(bpm)) * sa3UI->getBars();
+    }
+    return (double)sa3UI->getDurationSeconds();
+}
+
+void Gary4juceAudioProcessorEditor::updateSA3LaneTimeline()
+{
+    if (sa3LaneEditor == nullptr || sa3UI == nullptr)
+        return;
+    double bpm = juce::JUCEApplicationBase::isStandaloneApp() ? sa3UI->getBpm() : audioProcessor.getCurrentBPM();
+    if (bpm <= 0.0)
+        bpm = 120.0;
+    // SA3's loops are 4/4, and its prompts carry no other meter.
+    sa3LaneEditor->setTimeline(sa3LaneRangeSeconds(), bpm, 4.0);
+    // Mirrors the output waveform's cursor. The curves start where the last SA3 render's did,
+    // which in a continuation is after the source it plays first.
+    const bool playing = isPlayingOutput && activePlaybackSource == PlaybackSource::Output;
+    sa3LaneEditor->setPlayhead(playing ? currentPlaybackPosition - sa3LaneTimelineStart : -1.0);
+}
+
+void Gary4juceAudioProcessorEditor::updateSA3LaneBackdrop()
+{
+    if (sa3LaneEditor == nullptr)
+        return;
+    sa3LaneEditor->setBackdrop(hasOutputAudio
+        ? sa3lanes::peaks(outputAudioBuffer, currentAudioSampleRate, sa3LaneTimelineStart)
+        : std::vector<float>());
+}
+
+void Gary4juceAudioProcessorEditor::rollSA3LanePrompt(size_t laneIndex)
+{
+    if (laneIndex >= sa3Lanes.lanes.size())
+        return;
+    if (!isServiceReachable(ServiceType::SA3))
+    {
+        showStatusMessage("sa3 not reachable - check connection first", 3000);
+        return;
+    }
+
+    const juce::String loraName(sa3Lanes.lanes[laneIndex].path);
+    const juce::String promptsBaseUrl = getServiceUrl(ServiceType::SA3, "/prompts");
+    const juce::URL promptsUrl = juce::URL(promptsBaseUrl).withParameter("lora", loraName);
+    showStatusMessage("rolling a prompt for " + loraName + "...", 1500);
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    juce::Thread::launch([asyncAlive, editor, promptsBaseUrl, promptsUrl, loraName]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withHttpRequestCmd("GET")
+                .withConnectionTimeoutMs(15000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+            if (auto stream = promptsUrl.createInputStream(options))
+                responseText = stream->readEntireStreamAsString();
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, promptsBaseUrl, loraName, responseText, statusCode]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+            if (editor->getServiceUrl(ServiceType::SA3, "/prompts") != promptsBaseUrl)
+                return;
+
+            juce::StringArray missingLoras;
+            juce::String errorMessage;
+            const auto prompt = statusCode >= 200 && statusCode < 300
+                ? pickSA3DicePrompt(responseText, missingLoras, errorMessage) : juce::String();
+            if (prompt.isEmpty() || missingLoras.contains(loraName))
+            {
+                editor->showStatusMessage(missingLoras.contains(loraName)
+                    ? "no prompt pool for " + loraName
+                    : (errorMessage.isNotEmpty() ? errorMessage : juce::String("failed to roll a prompt")), 3000);
+                return;
+            }
+            // Found by name: lanes can be removed or reordered while this was out.
+            for (auto& lane : editor->sa3Lanes.lanes)
+            {
+                if (juce::String(lane.path) == loraName)
+                {
+                    lane.prompt = prompt.toStdString();
+                    if (editor->sa3LaneEditor != nullptr)
+                        editor->sa3LaneEditor->repaint();
+                    editor->persistEditorState();
+                    break;
+                }
+            }
+        });
+    });
+}
+
+// Asks the SA3 backend at healthUrl whether it runs lanes. Localhost goes through gary4local's
+// adapter, whose 0.7.0 release passed sa3.cpp's flag through but dropped the lanes themselves,
+// so it must also say it forwards them.
+void Gary4juceAudioProcessorEditor::checkSA3LaneSupport(const juce::String& healthUrl)
+{
+    if (healthUrl == sa3LanesCheckedUrl || sa3LaneCheckInFlight.exchange(true))
+        return;
+    const bool viaGary4local = audioProcessor.getIsUsingLocalhost();
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    juce::Thread::launch([asyncAlive, editor, healthUrl, viaGary4local]()
+    {
+        juce::String responseText;
+        int statusCode = 0;
+        try
+        {
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(8000)
+                .withStatusCode(&statusCode)
+                .withExtraHeaders("Accept: application/json");
+            if (auto stream = juce::URL(healthUrl).createInputStream(options))
+                responseText = stream->readEntireStreamAsString();
+        }
+        catch (...) {}
+
+        juce::MessageManager::callAsync([asyncAlive, editor, healthUrl, viaGary4local, responseText, statusCode]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+            editor->sa3LaneCheckInFlight.store(false);
+            if (statusCode < 200 || statusCode >= 300)
+                return;   // asked again when the panel next opens or a render needs the answer
+            const auto health = juce::JSON::parse(responseText);
+            bool supported = false;
+            if (auto* object = health.getDynamicObject())
+            {
+                auto* capabilities = object->getProperty("capabilities").getDynamicObject();
+                supported = capabilities != nullptr && (bool)capabilities->getProperty("lora_lanes");
+                if (viaGary4local)
+                    supported = supported && (bool)object->getProperty("lora_lanes_forwarded");
+            }
+            editor->sa3LanesSupported = supported;
+            editor->sa3LanesCheckedUrl = healthUrl;
+        });
+    });
+}
+
+bool Gary4juceAudioProcessorEditor::addSA3LanesToRequest(
+    juce::DynamicObject& request, double startSeconds, double seconds,
+    const std::function<juce::String(const juce::String&)>& decoratePrompt)
+{
+    if (!sa3Lanes.open || sa3UI == nullptr)
+        return true;
+    syncSA3Lanes();
+    const auto active = sa3UI->getActiveLoras();
+    const bool anyLane = std::any_of(sa3Lanes.lanes.begin(), sa3Lanes.lanes.end(),
+        [&active](const gary::SA3Lane& lane) { return sa3lanes::isActive(lane, active); });
+    if (!anyLane)
+        return true;
+
+    const auto healthUrl = getServiceUrl(ServiceType::SA3, "/health");
+    if (healthUrl != sa3LanesCheckedUrl)
+    {
+        checkSA3LaneSupport(healthUrl);
+        showStatusMessage("checking whether sa3 can run automation lanes - try again in a moment", 3000);
+        return false;
+    }
+    if (!sa3LanesSupported)
+    {
+        showStatusMessage(audioProcessor.getIsUsingLocalhost()
+            ? "automation lanes need a newer gary4local - update it, or close automation to render"
+            : "this sa3 backend can't run automation lanes - close automation to render", 4500);
+        return false;
+    }
+    if (seconds <= 0.0)
+    {
+        showStatusMessage("automation needs a range to draw over", 3000);
+        return false;
+    }
+    sa3lanes::addToRequest(request, sa3Lanes, active, decoratePrompt, startSeconds, seconds);
+    return true;
 }

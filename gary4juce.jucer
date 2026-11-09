@@ -76,6 +76,11 @@
               file="Source/Components/Jerry/InstrumentPrompts.h"/>
         <FILE id="SA3UI1" name="SA3UI.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3UI.cpp"/>
         <FILE id="SA3UI0" name="SA3UI.h" compile="0" resource="0" file="Source/Components/Jerry/SA3UI.h"/>
+        <FILE id="SA3LnM" name="SA3LaneModel.h" compile="0" resource="0" file="Source/Components/Jerry/SA3LaneModel.h"/>
+        <FILE id="SA3Ln1" name="SA3Lanes.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3Lanes.cpp"/>
+        <FILE id="SA3Ln0" name="SA3Lanes.h" compile="0" resource="0" file="Source/Components/Jerry/SA3Lanes.h"/>
+        <FILE id="SA3LE1" name="SA3LaneEditor.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3LaneEditor.cpp"/>
+        <FILE id="SA3LE0" name="SA3LaneEditor.h" compile="0" resource="0" file="Source/Components/Jerry/SA3LaneEditor.h"/>
         <FILE id="YwJazQ" name="JerryUI.cpp" compile="1" resource="0" file="Source/Components/Jerry/JerryUI.cpp"/>
         <FILE id="SHFQj0" name="JerryUI.h" compile="0" resource="0" file="Source/Components/Jerry/JerryUI.h"/>
         <FILE id="PrHlpr" name="PromptHelpers.h" compile="0" resource="0" file="Source/Components/Jerry/PromptHelpers.h"/>

@@ -703,6 +703,17 @@ SA3UI::SA3UI()
     loraStatusLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(loraStatusLabel);
 
+    automationButton.setButtonText("automation");
+    automationButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    automationButton.setTooltip("draw each LoRA's strength over time, in a panel beside the plugin");
+    automationButton.onClick = [this]()
+    {
+        setAutomationOpen(!automationOpen);
+        if (onAutomationToggled)
+            onAutomationToggled(automationOpen);
+    };
+    addToContent(automationButton);
+
     shiftLabel.setText("shift", juce::dontSendNotification);
     shiftLabel.setFont(juce::FontOptions(12.0f));
     shiftLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -1004,6 +1015,13 @@ void SA3UI::setMaximumDurationSeconds(int seconds)
 void SA3UI::setDurationSeconds(int seconds)
 {
     durationSlider.setValue(juce::jlimit(1, maximumDurationSeconds, seconds), juce::dontSendNotification);
+}
+
+void SA3UI::setAutomationOpen(bool open)
+{
+    automationOpen = open;
+    automationButton.setButtonStyle(open ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Standard);
+    automationButton.repaint();
 }
 
 void SA3UI::setLoopEnabled(bool enabled)
@@ -1474,6 +1492,7 @@ void SA3UI::updateContentLayout()
     continueModeLatentPrefixButton.setVisible(showAdvancedControls && showContinue);
     useLoraToggle.setVisible(showAdvancedControls);
     loraStatusLabel.setVisible(showAdvancedControls);
+    automationButton.setVisible(showAdvancedControls && useLoraToggle.getToggleState() && !loraRows.empty());
     shiftLabel.setVisible(showAdvancedControls);
     shiftComboBox.setVisible(showAdvancedControls);
     bars4Button.setVisible(showGenerate && loopEnabled);
@@ -1537,8 +1556,12 @@ void SA3UI::updateContentLayout()
         useLoraToggle.setBounds(fullRow(22));
         y += 24;
 
-        loraStatusLabel.setBounds(fullRow(16));
-        y += 18;
+        {
+            auto statusRow = fullRow(22);
+            automationButton.setBounds(statusRow.removeFromRight(juce::jmin(92, statusRow.getWidth() / 2)));
+            loraStatusLabel.setBounds(statusRow);
+            y += 24;
+        }
 
         const bool showLoraRows = useLoraToggle.getToggleState() && !loraRows.empty();
         for (auto& row : loraRows)
