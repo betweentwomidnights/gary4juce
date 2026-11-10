@@ -57,9 +57,11 @@ namespace
         }
     }
 
-    juce::String pickSA3DicePrompt(const juce::String& responseText,
-                                   juce::StringArray& missingLoras,
-                                   juce::String& errorMessage)
+    // Every dice prompt in a /prompts response. The backend merges a LoRA's buckets over the
+    // defaults', so this is the LoRA's prompts plus any default buckets the LoRA doesn't have.
+    juce::StringArray collectSA3DicePool(const juce::String& responseText,
+                                         juce::StringArray& missingLoras,
+                                         juce::String& errorMessage)
     {
         juce::var responseVar;
         try
@@ -125,13 +127,18 @@ namespace
         }
 
         if (promptPool.isEmpty())
-        {
             errorMessage = "sa3 dice returned no prompts";
-            return {};
-        }
+        return promptPool;
+    }
 
-        auto& random = juce::Random::getSystemRandom();
-        return promptPool[random.nextInt(promptPool.size())];
+    juce::String pickSA3DicePrompt(const juce::String& responseText,
+                                   juce::StringArray& missingLoras,
+                                   juce::String& errorMessage)
+    {
+        const auto promptPool = collectSA3DicePool(responseText, missingLoras, errorMessage);
+        if (promptPool.isEmpty())
+            return {};
+        return promptPool[juce::Random::getSystemRandom().nextInt(promptPool.size())];
     }
 }
 
@@ -2151,28 +2158,37 @@ void Gary4juceAudioProcessorEditor::rollSA3LanePrompt(size_t laneIndex)
 
     const juce::String loraName(sa3Lanes.lanes[laneIndex].path);
     const juce::String promptsBaseUrl = getServiceUrl(ServiceType::SA3, "/prompts");
-    const juce::URL promptsUrl = juce::URL(promptsBaseUrl).withParameter("lora", loraName);
     showStatusMessage("rolling a prompt for " + loraName + "...", 1500);
 
+    // A lane rolls from its own LoRA's prompts. The backend answers with those merged into the
+    // defaults, so the defaults are fetched too and taken back out. With no prompts of its own,
+    // the lane rolls from the defaults, as the main dice would.
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
-    juce::Thread::launch([asyncAlive, editor, promptsBaseUrl, promptsUrl, loraName]()
+    juce::Thread::launch([asyncAlive, editor, promptsBaseUrl, loraName]()
     {
-        juce::String responseText;
-        int statusCode = 0;
-        try
+        const auto fetch = [](const juce::URL& url, int& statusCode)
         {
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withHttpRequestCmd("GET")
-                .withConnectionTimeoutMs(15000)
-                .withStatusCode(&statusCode)
-                .withExtraHeaders("Accept: application/json");
-            if (auto stream = promptsUrl.createInputStream(options))
-                responseText = stream->readEntireStreamAsString();
-        }
-        catch (...) {}
+            juce::String responseText;
+            try
+            {
+                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                    .withHttpRequestCmd("GET")
+                    .withConnectionTimeoutMs(15000)
+                    .withStatusCode(&statusCode)
+                    .withExtraHeaders("Accept: application/json");
+                if (auto stream = url.createInputStream(options))
+                    responseText = stream->readEntireStreamAsString();
+            }
+            catch (...) {}
+            return responseText;
+        };
+        int loraStatus = 0, defaultsStatus = 0;
+        const auto loraText = fetch(juce::URL(promptsBaseUrl).withParameter("lora", loraName), loraStatus);
+        const auto defaultsText = fetch(juce::URL(promptsBaseUrl), defaultsStatus);
 
-        juce::MessageManager::callAsync([asyncAlive, editor, promptsBaseUrl, loraName, responseText, statusCode]()
+        juce::MessageManager::callAsync([asyncAlive, editor, promptsBaseUrl, loraName,
+                                         loraText, loraStatus, defaultsText, defaultsStatus]()
         {
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
@@ -2180,17 +2196,26 @@ void Gary4juceAudioProcessorEditor::rollSA3LanePrompt(size_t laneIndex)
             if (editor->getServiceUrl(ServiceType::SA3, "/prompts") != promptsBaseUrl)
                 return;
 
-            juce::StringArray missingLoras;
-            juce::String errorMessage;
-            const auto prompt = statusCode >= 200 && statusCode < 300
-                ? pickSA3DicePrompt(responseText, missingLoras, errorMessage) : juce::String();
-            if (prompt.isEmpty() || missingLoras.contains(loraName))
+            juce::StringArray missingLoras, ignored;
+            juce::String errorMessage, ignoredError;
+            const auto merged = loraStatus >= 200 && loraStatus < 300
+                ? collectSA3DicePool(loraText, missingLoras, errorMessage) : juce::StringArray();
+            const auto defaults = defaultsStatus >= 200 && defaultsStatus < 300
+                ? collectSA3DicePool(defaultsText, ignored, ignoredError) : juce::StringArray();
+            juce::StringArray own;
+            if (!missingLoras.contains(loraName))
+                for (const auto& prompt : merged)
+                    if (!defaults.contains(prompt, true))
+                        own.add(prompt);
+            const auto& pool = own.isEmpty() ? merged : own;
+            if (pool.isEmpty())
             {
-                editor->showStatusMessage(missingLoras.contains(loraName)
-                    ? "no prompt pool for " + loraName
-                    : (errorMessage.isNotEmpty() ? errorMessage : juce::String("failed to roll a prompt")), 3000);
+                editor->showStatusMessage(errorMessage.isNotEmpty() ? errorMessage : juce::String("failed to roll a prompt"), 3000);
                 return;
             }
+            const auto prompt = pool[juce::Random::getSystemRandom().nextInt(pool.size())];
+            if (own.isEmpty())
+                editor->showStatusMessage("no prompts for " + loraName + " - rolled a default one", 3000);
             // Found by name: lanes can be removed or reordered while this was out.
             for (auto& lane : editor->sa3Lanes.lanes)
             {
