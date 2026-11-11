@@ -16,6 +16,20 @@
 #include <functional>
 #include <vector>
 
+// Stands in for a LoRA's strength slider while an automation lane draws that strength: the curve in
+// the lane's colour, with "auto" where the number was.
+class SA3LoraAutomationBadge final : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    // x runs 0..1 across the take, y 0..1 across the lane's range.
+    void setCurve(std::vector<juce::Point<float>> points, juce::Colour colour);
+    void paint(juce::Graphics& g) override;
+
+private:
+    std::vector<juce::Point<float>> curve;
+    juce::Colour colour;
+};
+
 class SA3UI : public juce::Component
 {
 public:
@@ -35,6 +49,13 @@ public:
     {
         juce::String name;
         double strength = 0.0;
+    };
+
+    struct LoraAutomation
+    {
+        juce::String name;
+        juce::Colour colour;
+        std::vector<juce::Point<float>> curve;   // as SA3LoraAutomationBadge::setCurve takes it
     };
 
     SA3UI();
@@ -112,6 +133,15 @@ public:
     bool getUseLoraEnabled() const { return useLoraRequested; }
     void setLoraState(bool enabled, const std::vector<LoraSelection>& selections);
     void setAvailableLoras(const juce::StringArray& loraNames);
+    // The automation lanes panel beside the editor; the button shows while LoRAs are on.
+    bool getAutomationOpen() const { return automationOpen; }
+    void setAutomationOpen(bool open);
+    // The LoRAs whose lanes draw their strength. Their rows show the curve instead of a slider,
+    // whose number no longer says what will play.
+    void setLoraAutomation(std::vector<LoraAutomation> automated);
+    // Moves a LoRA's slider without announcing it, for a flat lane dragged to a new strength.
+    // Returns where the slider landed, or -1 if there's no such LoRA.
+    double setLoraStrength(const juce::String& name, double strength);
     juce::String getShift() const;
     void setShift(const juce::String& shift);
 
@@ -150,6 +180,7 @@ public:
     std::function<void()> onContinue;
     std::function<void()> onContinueDiceRequested;
     std::function<void()> onLoraSelectionChanged;
+    std::function<void(bool)> onAutomationToggled;
 
 private:
     enum class PromptPopoutTarget
@@ -268,6 +299,8 @@ private:
     juce::ToggleButton continueModeLatentPrefixButton;
     juce::ToggleButton useLoraToggle;
     juce::Label loraStatusLabel;
+    CustomButton automationButton;
+    bool automationOpen = false;
     bool useLoraRequested = false;
     std::vector<LoraSelection> savedLoraSelections;
     struct LoraRow
@@ -275,8 +308,12 @@ private:
         juce::String name;
         std::unique_ptr<juce::Label> label;
         std::unique_ptr<CustomSlider> slider;
+        std::unique_ptr<SA3LoraAutomationBadge> badge;
+        bool automated = false;
     };
     std::vector<LoraRow> loraRows;
+    std::vector<LoraAutomation> loraAutomation;
+    void applyLoraAutomation();
     juce::Label shiftLabel;
     CustomComboBox shiftComboBox;
 

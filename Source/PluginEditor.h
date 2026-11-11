@@ -15,6 +15,7 @@
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
 #include "Components/Jerry/SA3UI.h"
+#include "Components/Jerry/SA3LaneEditor.h"
 #include "Components/Carey/CareyUI.h"
 #include "Components/Yuey/YueyUI.h"
 #include "Yuey/YueyMidiImport.h"
@@ -104,6 +105,9 @@ private:
     void layoutOutputSection(juce::Rectangle<int> sectionBounds);
     void showGarySettingsMenu();
     void setEditorLayoutMode(EditorLayoutMode mode);
+    void applyEditorSize();
+    bool usingWideLayout() const;
+    bool sa3LanePanelFits(int width) const;
 
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
@@ -722,6 +726,38 @@ private:
     void updateSA3EnablementSnapshot();
     void refreshSA3AvailableLoras(bool force = false);
     void syncSA3LoraUi();
+
+    // SA3 LoRA automation lanes, in a panel attached to the editor's right edge.
+    sa3lanes::State sa3Lanes;
+    std::unique_ptr<SA3LaneEditor> sa3LaneEditor;
+    double sa3LaneTimelineStart = 0.0;    // where the last SA3 render's curves began in its output
+    bool sa3LanesForcedCompact = false;   // the panel didn't fit beside the wide layout
+    // capabilities.lora_lanes from the SA3 backend's /health; localhost also needs gary4local's
+    // lora_lanes_forwarded, since 0.7.0's adapter passed the flag through but dropped the lanes.
+    // The answer belongs to whatever served sa3LanesCheckedUrl when it was asked; a different
+    // server can take that address, so it is forgotten whenever local SA3 goes on or offline.
+    bool sa3LanesSupported = false;
+    juce::String sa3LanesCheckedUrl;
+    std::atomic<bool> sa3LaneCheckInFlight { false };
+    int sa3LaneCheckGeneration = 0;   // a check started before the answer was forgotten is ignored
+    bool sa3LanePanelShown() const;
+    void updateSA3LanePanel();
+    void syncSA3Lanes();
+    // Tells the LoRA rows which strengths the lanes draw, and moves a slider to a flat lane dragged
+    // to a new strength, since a flat line is just a strength.
+    void updateSA3LoraAutomation();
+    void updateSA3LaneTimeline();
+    double sa3LaneRangeSeconds() const;
+    void updateSA3LaneBackdrop();
+    void rollSA3LanePrompt(size_t laneIndex);
+    // Asks unless healthUrl already has an answer; recheck asks anyway, keeping the old answer
+    // until the new one arrives.
+    void checkSA3LaneSupport(const juce::String& healthUrl, bool recheck = false);
+    void forgetSA3LaneSupport();
+    // Adds the lanes to an SA3 request when automation is on. False means don't send: the backend
+    // can't run lanes, and a status message says so.
+    bool addSA3LanesToRequest(juce::DynamicObject& request, double startSeconds, double seconds,
+                              const std::function<juce::String(const juce::String&)>& decoratePrompt);
 
     // Current Jerry settings
     juce::String currentJerryPrompt = "";

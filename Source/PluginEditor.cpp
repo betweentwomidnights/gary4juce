@@ -32,6 +32,7 @@ namespace
     constexpr int kWideInputSectionHeight = 440;
     constexpr int kWideLeftColumnWidth = 470;
     constexpr int kWideColumnGap = 10;
+    constexpr int kSA3LanePanelWidth = 480;
     constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
 }
 
@@ -113,6 +114,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
         sa3Loras.add(juce::var(lora.release()));
     }
     state->setProperty("sa3Loras", sa3Loras);
+    state->setProperty("sa3Lanes", sa3lanes::toVar(sa3Lanes));
 
     state->setProperty("terryVariation", currentTerryVariation);
     state->setProperty("terryCustomPrompt", currentTerryCustomPrompt);
@@ -350,6 +352,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
             }
         }
     }
+    if (has("sa3Lanes"))
+        sa3Lanes = sa3lanes::fromVar(get("sa3Lanes"));
 
     currentTerryVariation = readInt("terryVariation", currentTerryVariation);
     currentTerryCustomPrompt = readString("terryCustomPrompt", currentTerryCustomPrompt);
@@ -512,10 +516,7 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
     currentCareyLanguage = audioProcessor.getCareyLanguage();
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost();
 
-    setSize(editorLayoutMode == EditorLayoutMode::Wide
-        ? kWideEditorWidth : kCompactEditorWidth,
-        editorLayoutMode == EditorLayoutMode::Wide
-            ? kWideEditorHeight : kCompactEditorHeight);
+    applyEditorSize();
 
     if (garyUI != nullptr)
     {
@@ -582,7 +583,11 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         sa3UI->setLastSeed(currentSA3LastSeed);
         sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
         sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+        sa3UI->setAutomationOpen(sa3Lanes.open);
         sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+        if (sa3LaneEditor != nullptr)
+            sa3LaneEditor->lanesReplaced();
+        updateSA3LanePanel();
     }
 
     if (terryUI != nullptr)
@@ -739,9 +744,9 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     juce::PopupMenu menu;
     menu.addSectionHeader("layout");
     menu.addItem(compactLayout, "compact", true,
-        editorLayoutMode == EditorLayoutMode::Compact);
+        !usingWideLayout());
     menu.addItem(wideLayout, "wide", true,
-        editorLayoutMode == EditorLayoutMode::Wide);
+        usingWideLayout());
     menu.addSeparator();
     menu.addItem(audioStorage,
         usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
@@ -768,16 +773,74 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
         });
 }
 
+bool Gary4juceAudioProcessorEditor::usingWideLayout() const
+{
+    return editorLayoutMode == EditorLayoutMode::Wide && !sa3LanesForcedCompact;
+}
+
+bool Gary4juceAudioProcessorEditor::sa3LanePanelFits(int width) const
+{
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* display = isShowing() ? displays.getDisplayForRect(getScreenBounds()) : displays.getPrimaryDisplay();
+    return display == nullptr || width <= display->userArea.getWidth();
+}
+
+void Gary4juceAudioProcessorEditor::applyEditorSize()
+{
+    const bool wide = usingWideLayout();
+    const int width = (wide ? kWideEditorWidth : kCompactEditorWidth)
+        + (sa3LanePanelShown() ? kSA3LanePanelWidth : 0);
+    const int height = wide ? kWideEditorHeight : kCompactEditorHeight;
+    if (getWidth() == width && getHeight() == height)
+        resized();   // the panel may still have to show or hide
+    else
+        setSize(width, height);
+}
+
+// Shows or hides the automation lanes panel for the current tab, resizing the editor around it.
+// The wide layout gives way to the compact one while the panel is open, if both don't fit on the
+// screen, and comes back when the panel hides.
+void Gary4juceAudioProcessorEditor::updateSA3LanePanel()
+{
+    if (sa3LanePanelShown())
+    {
+        syncSA3Lanes();
+        if (editorLayoutMode == EditorLayoutMode::Wide && !sa3LanesForcedCompact
+            && !sa3LanePanelFits(kWideEditorWidth + kSA3LanePanelWidth))
+        {
+            sa3LanesForcedCompact = true;
+            showStatusMessage("compact layout while automation is open: no room beside the wide one", 3000);
+        }
+        checkSA3LaneSupport(getServiceUrl(ServiceType::SA3, "/health"));
+        updateSA3LaneTimeline();
+        updateSA3LaneBackdrop();
+    }
+    else
+    {
+        sa3LanesForcedCompact = false;
+        updateSA3LoraAutomation();
+    }
+    applyEditorSize();
+}
+
 void Gary4juceAudioProcessorEditor::setEditorLayoutMode(EditorLayoutMode mode)
 {
-    if (editorLayoutMode == mode)
+    if (editorLayoutMode == mode && !sa3LanesForcedCompact)
         return;
 
     editorLayoutMode = mode;
-    setSize(mode == EditorLayoutMode::Wide
-        ? kWideEditorWidth : kCompactEditorWidth,
-        mode == EditorLayoutMode::Wide
-            ? kWideEditorHeight : kCompactEditorHeight);
+    // An explicit choice replaces the compact layout the lanes panel asked for. If the panel
+    // doesn't fit beside the wide layout, it closes rather than running off the screen.
+    sa3LanesForcedCompact = false;
+    if (sa3LanePanelShown() && mode == EditorLayoutMode::Wide
+        && !sa3LanePanelFits(kWideEditorWidth + kSA3LanePanelWidth))
+    {
+        sa3Lanes.open = false;
+        if (sa3UI != nullptr)
+            sa3UI->setAutomationOpen(false);
+        showStatusMessage("automation closed: no room beside the wide layout on this screen", 3000);
+    }
+    applyEditorSize();
     persistEditorState();
     showStatusMessage(mode == EditorLayoutMode::Wide
         ? "wide layout" : "compact layout", 1500);
@@ -829,10 +892,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     lastAppliedHostStateRevision = audioProcessor.getHostStateRevision();
     audioProcessor.setTransformRecording(transformRecording);
 
-    setSize(editorLayoutMode == EditorLayoutMode::Wide
-        ? kWideEditorWidth : kCompactEditorWidth,
-        editorLayoutMode == EditorLayoutMode::Wide
-            ? kWideEditorHeight : kCompactEditorHeight);
+    applyEditorSize();
 
     audioProcessor.addChangeListener(this);
 
@@ -1186,7 +1246,35 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         sa3PromptRequestNonce.fetch_add(1);
         updateSA3EnablementSnapshot();
+        syncSA3Lanes();
     };
+    sa3UI->onAutomationToggled = [this](bool open)
+    {
+        sa3Lanes.open = open;
+        updateSA3LanePanel();
+        persistEditorState();
+    };
+
+    {
+        SA3LaneEditor::Host laneHost;
+        laneHost.isMissing = [this](const gary::SA3Lane& lane)
+        {
+            return sa3UI == nullptr || !sa3lanes::isActive(lane, sa3UI->getActiveLoras());
+        };
+        laneHost.resetStrength = [this](const gary::SA3Lane& lane)
+        {
+            return sa3UI == nullptr ? 0.f : (float)sa3lanes::strengthOf(lane, sa3UI->getActiveLoras());
+        };
+        laneHost.rollPrompt = [this](size_t laneIndex) { rollSA3LanePrompt(laneIndex); };
+        laneHost.notify = [this](const juce::String& message) { showStatusMessage(message, 2500); };
+        laneHost.changed = [this]()
+        {
+            updateSA3LoraAutomation();
+            persistEditorState();
+        };
+        sa3LaneEditor = std::make_unique<SA3LaneEditor>(sa3Lanes, std::move(laneHost));
+        addChildComponent(*sa3LaneEditor);
+    }
 
     sa3UI->setBpm(isStandaloneApp ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
     sa3UI->setPromptText(currentSA3Prompt);
@@ -1214,6 +1302,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setLastSeed(currentSA3LastSeed);
     sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
     sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+    sa3UI->setAutomationOpen(sa3Lanes.open);
     sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
     sa3UI->setGenerateButtonEnabled(false, false);
     sa3UI->setDiceButtonsEnabled(false);
@@ -1608,7 +1697,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(*yueyUI);
     yueyUI->onLayoutHeightChanged = [this]()
     {
-        if (currentTab == ModelTab::Yuey && editorLayoutMode == EditorLayoutMode::Wide)
+        if (currentTab == ModelTab::Yuey && usingWideLayout())
         {
             resized();
             repaint();
@@ -2122,7 +2211,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // 2. Restore output audio state by checking file existence
     if (outputAudioFile.exists())
     {
-        loadOutputAudioFile();  // This sets hasOutputAudio = true
+        loadOutputAudioFile();  // This sets hasOutputAudio = true, and redraws the lanes' backdrop
         loadYueyScoreFromDisk();
         DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName());
     }
@@ -2516,8 +2605,9 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 
     DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showYuey ? "Yuey" : (showTerry ? "Terry" : "Darius"))))));
 
-    // Force a complete relayout to position help icons correctly
-    resized();
+    // Force a complete relayout to position help icons correctly. The automation lanes panel
+    // shows only on the SA3 tab, so this can also resize the editor.
+    updateSA3LanePanel();
     repaint();
     persistEditorState();
 }
@@ -2685,6 +2775,10 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     {
         checkPlaybackStatus();
     }
+
+    // The lanes' range follows the SA3 controls, and their cursor follows output playback.
+    if (sa3LanePanelShown())
+        updateSA3LaneTimeline();
 
     // Smooth progress animation for generation (every 50ms for smooth animation)
     if (isGenerating && smoothProgressAnimation)
@@ -6532,6 +6626,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
         updateSA3EnablementSnapshot();
+        updateSA3LaneBackdrop();
         return;
     }
 
@@ -6573,6 +6668,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         stopOutputButton.setEnabled(true);
         clearOutputButton.setEnabled(true);
         cropButton.setEnabled(true);
+        updateSA3LaneBackdrop();
 
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
@@ -8802,7 +8898,16 @@ void Gary4juceAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
 
-    if (editorLayoutMode == EditorLayoutMode::Wide)
+    // Automation lanes take a column on the right; the layouts keep their size beside it.
+    const bool lanesShown = sa3LanePanelShown();
+    if (sa3LaneEditor != nullptr)
+    {
+        sa3LaneEditor->setVisible(lanesShown);
+        if (lanesShown)
+            sa3LaneEditor->setBounds(bounds.removeFromRight(kSA3LanePanelWidth).reduced(6, 10));
+    }
+
+    if (usingWideLayout())
     {
         auto leftColumn = bounds.removeFromLeft(kWideLeftColumnWidth);
         bounds.removeFromLeft(kWideColumnGap);
@@ -8995,7 +9100,7 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
     // ========== TAB AREA ==========
     auto tabSectionBounds = sectionBounds.reduced(20, 10);
 
-    if (editorLayoutMode == EditorLayoutMode::Wide)
+    if (usingWideLayout())
     {
         int preferredHeight = tabSectionBounds.getHeight();
 

@@ -411,6 +411,14 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
         updateCareyEnablementSnapshot();
     }
 
+    // Whatever answers on SA3's port now may not be what said whether it runs automation lanes.
+    if (service == ServiceType::SA3 && statusChanged)
+    {
+        forgetSA3LaneSupport();
+        if (online && sa3LanePanelShown())
+            checkSA3LaneSupport(getServiceUrl(ServiceType::SA3, "/health"));
+    }
+
     if (service == ServiceType::SA3
         && currentTab == ModelTab::Jerry
         && jerrySubTab == JerrySubTab::SA3)
