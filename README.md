@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.3 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.3)
+- [gary4juce v5.0.4 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4)
 - [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.7.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.0)
+- windows: [gary4local v0.7.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.1)
 - macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -57,7 +57,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.4 - 11/11
+### v5.0.4 - 11/11
 
 **draw SA3's LoRA automation beside the editor.** each active LoRA gets its
 own lane: draw its strength across the output, snap points to beats or bars,
