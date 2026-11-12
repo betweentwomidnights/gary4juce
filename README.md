@@ -11,12 +11,12 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v5.0.4 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4)
-- [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
+- [gary4juce v5.0.4-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4-mac)
 
 **recommended local companions:**
 
 - windows: [gary4local v0.7.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.1)
-- macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
+- macOS: [gary4local mac v0.4.1](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.1)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -67,8 +67,10 @@ runs from smooth to responsive.
 
 the lanes work for generate, transform and continue, follow output playback,
 and save with the editor state. local automation needs gary4local v0.7.1 and
-sa3.cpp v0.2.3: update the app, then press `update all runtimes`. a backend
-without lane support is refused rather than ignoring the curves.
+sa3.cpp v0.2.3 on Windows: update the app, then press `update all runtimes`. on
+macOS it needs [gary4local mac v0.4.1](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.1),
+which also serves Carey's new API. a backend without lane support is refused
+rather than ignoring the curves.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
