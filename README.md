@@ -10,13 +10,13 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.0 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0)
-- [gary4juce v4.0.9-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v4.0.9-mac)
+- [gary4juce v5.0.4 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4)
+- [gary4juce v5.0.0-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0)
-- macOS: [gary4local mac v0.2.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.2.0)
+- windows: [gary4local v0.7.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.1)
+- macOS: [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -51,57 +51,24 @@ gary's output or your recording buffer into stems on your own machine.
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> yuey runs on the remote backend for everyone, and locally on Windows through gary4local v0.4.0. localhost mac support is in the works.
+> yuey runs on the remote backend for everyone, and locally through gary4local v0.4.0 on Windows and macOS.
 
 ---
 
 ## latest update
 
-### v5.0.0 - 10/7
+### v5.0.4 - 11/11
 
-**yue2 is now inside the DAW.** the new yuey tab runs
-[YuE2](https://github.com/multimodal-art-projection/YuE) through
-[yuey.cpp](https://github.com/betweentwomidnights/yuey.cpp), our native C++
-build of it. it's on the remote backend for everyone, and on a local backend
-for PC users through gary4local v0.4.0 for now. i'm working on localhost mac
-support as i type this.
+**draw SA3's LoRA automation beside the editor.** each active LoRA gets its
+own lane: draw its strength across the output, snap points to beats or bars,
+and give it a prompt. the dice beside a lane draw from that LoRA's own prompts.
+a curve replaces the fixed strength slider, and the four-stop blend slider
+runs from smooth to responsive.
 
-yuey isn't used quite the way official YuE is. it's bent toward working inside
-a session: a chord scaffold in your tempo and key, transcribe-and-remix, and a
-score window with quick edits. [docs/YUEY.md](docs/YUEY.md) explains the
-choices.
-
-remix and continue also accept MIDI and saved Ableton MIDI clips, with separate
-melody and chords slots. save a timeline clip to your User Library first, then
-drag the `.alc` from Live's browser. standalone shows the tempo wheel on every
-yuey sub-tab; in a DAW, it displays the project BPM.
-
-also new: sa3's generate and continue have an "ending" choice. "ends here"
-lands the ending where the audio stops. "keeps going" cuts off still in full
-swing, for chaining continuations.
-
-**stems are built in now.** there's a `stems` handle on the output waveform
-and on the recording buffer. it splits the audio into stems on your own
-computer with [stems.cpp](https://github.com/betweentwomidnights/stems.cpp),
-our native C++ build of HTDemucs and the RoFormer separators. nothing gets
-uploaded, it works with the remote backend too, and it doesn't need
-gary4local. install the runtime and a model from the settings menu, press
-`stems`, and drag the ones you like into your DAW. [how it works](#stem-separator)
-is down in the usage section.
-
-also new: carey's extract tab is hidden, since the stem separator does that job
-better. the yuey prompt is shared across create, remix and continue now, and
-the score window has the prompt box and dice. the audio selection window zooms,
-so you can place the edges precisely.
-
-you can import up to ten minutes of audio for stem separation. double-click
-the recording buffer to select a shorter section for generation: the window
-starts at the active model's input limit and won't stretch past it. local SA3
-and Carey allow 380 seconds; their remote limits remain 240 seconds.
-
-recommended local companion: [gary4local v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.4.0),
-released alongside this one. after updating gary4local, press `update runtime`
-on yuey's row for v0.2.2's short MIDI score fix.
+the lanes work for generate, transform and continue, follow output playback,
+and save with the editor state. local automation needs gary4local v0.7.1 and
+sa3.cpp v0.2.3: update the app, then press `update all runtimes`. a backend
+without lane support is refused rather than ignoring the curves.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
@@ -109,7 +76,8 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
 ## roadmap
 
-- [ ] bring local yuey to macOS through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
+- [x] bring local yuey to macOS (gary4local mac v0.4.0)
+- [ ] unify gary4local into one cross-platform app through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
 - [x] introduce optional lightweight native stem separator
 - [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow (if it actually works like it should...)
 
@@ -357,10 +325,12 @@ Learn more: https://github.com/magenta/magenta-realtime
 ### stem separator
 
 this one isn't a tab. it's a `stems` handle at the bottom right of the output
-waveform, and of the recording buffer once it has audio. it shows up after
-you've installed the runtime and at least one model: settings menu, then
-`stem separator...`. the runtime is small (about 19 MB on windows, 6 MB on
-mac). the models download from Hugging Face.
+waveform, and of the recording buffer once it has audio. it stays dimmed until
+you've installed the runtime and at least one model. click it then and it opens
+the stem separator settings, which also live in the settings menu under
+`stem separator...`. the
+runtime is small (about 19 MB on windows, 6 MB on mac). the models download
+from Hugging Face.
 
 - pick a model, press separate. every stem gets its own waveform you can play,
   pause and seek.
@@ -368,6 +338,11 @@ mac). the models download from Hugging Face.
   rest are deleted when you close the popup.
 - drop a stem on the recording buffer to replace what's in it. that's how you
   pull the drums out of something you dragged in from the DAW.
+- with `mdx23c_drumsep` downloaded, a drums stem gets a `split kit` button that
+  splits it into kick, snare, toms, hi-hat, ride and crash, right there in the
+  popup. pick DrumSep from the menu to split the audio itself instead, which is
+  what you want for a drum loop. a `from` menu beside it switches between the
+  two.
 - it's disabled while a generation is running.
 
 you can now drop or pick up to ten minutes of audio into the recording buffer,
@@ -381,25 +356,43 @@ input limit; oversized requests are stopped before upload. importing a full
 track does not raise a generator's duration limit.
 
 the buffer grows for long imports when needed; live recording keeps its existing
-five-minute limit. separation still computes all the model's stems. the current
-Demucs and RoFormer models do not gain inference speed from choosing fewer outputs.
+five-minute limit. separation still computes all the model's stems. none of
+the models gets faster from choosing fewer outputs.
 
 it runs on the GPU by default (Vulkan on windows, so NVIDIA, AMD and Intel all
 work, and Metal on apple silicon), with a toggle for the CPU. on the CPU,
-htdemucs is the one to use. the RoFormers are much slower there. intel macs are
-CPU only.
+htdemucs and the UVR cleanup models are the ones to use. the RoFormers are much
+slower there, and DrumSep runs at about a tenth of realtime. intel macs are CPU
+only.
 
 | model | stems | download |
 |---|---|---|
+| **stems** | | |
 | `htdemucs` | drums, bass, other, vocals | 100 MB |
 | `htdemucs_6s` | drums, bass, other, vocals, guitar, piano | 71 MB |
 | `htdemucs_ft` | same four as htdemucs, best quality, about 4x slower | 401 MB |
+| **vocals and instrumental** | | |
 | `mel_band_roformer_kim` | vocals, instrumental | 436 MB |
 | `bs_roformer_viperx_317` | vocals, instrumental | 610 MB |
+| `mdx_net_kim_vocal_2` | vocals, instrumental; small and quick | 64 MB |
+| **noise, echo and reverb** | | |
+| `uvr_denoise` | noise, denoised | 121 MB |
+| `uvr_denoise_lite` | noise, denoised; smaller and quicker | 17 MB |
+| `uvr_deecho_normal` | no_echo, echo | 121 MB |
+| `uvr_deecho_aggressive` | echo, no_echo; removes more | 121 MB |
+| `uvr_deecho_dereverb` | no_reverb, reverb; echo and reverb together | 213 MB |
+| `bs_roformer_dereverb_room` | noreverb, reverb; for vocals recorded in a room | 112 MB |
+| **drum kit** | | |
+| `mdx23c_drumsep` | kick, snare, toms, hh, ride, crash; feed it drums | 417 MB |
 
-`htdemucs` is the default. `bs_roformer_viperx_317` has no license upstream, so
-check the [license section](#license) before you use it for anything beyond
-your own sessions.
+the cleanup models each give you both halves, the clean audio and what was
+taken out of it, so you can keep either. the two de-echo models list them in
+opposite orders because that's how UVR trained them.
+
+`htdemucs` is the default. `bs_roformer_viperx_317`, `mdx_net_kim_vocal_2`,
+`mdx23c_drumsep` and the five `uvr_` models have no license upstream, and
+`bs_roformer_dereverb_room` is GPL-3.0, so check the [license section](#license)
+before you use them for anything beyond your own sessions.
 
 learn more: https://github.com/betweentwomidnights/stems.cpp
 

@@ -15,6 +15,7 @@
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
 #include "Components/Jerry/SA3UI.h"
+#include "Components/Jerry/SA3LaneEditor.h"
 #include "Components/Carey/CareyUI.h"
 #include "Components/Yuey/YueyUI.h"
 #include "Yuey/YueyMidiImport.h"
@@ -41,6 +42,8 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::FileDragAndDropTarget
 {
     friend struct FullTrackAudioTest;
+    friend struct StemsModelsTest;
+    friend struct OutputMetadataTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;
@@ -60,7 +63,8 @@ public:
     void handlePollingResponse(const juce::String& responseText);
     // Returns false when the render never reached disk, so callers do not
     // attach metadata to audio the user is not actually hearing.
-    bool saveGeneratedAudio(const juce::String& base64Audio);
+    bool saveGeneratedAudio(const juce::String& base64Audio, const juce::var& response = {},
+                            const juce::var& restoredMetadata = {});
 
     void loadOutputAudioFile();
     void drawOutputWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
@@ -101,6 +105,9 @@ private:
     void layoutOutputSection(juce::Rectangle<int> sectionBounds);
     void showGarySettingsMenu();
     void setEditorLayoutMode(EditorLayoutMode mode);
+    void applyEditorSize();
+    bool usingWideLayout() const;
+    bool sa3LanePanelFits(int width) const;
 
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
@@ -244,6 +251,21 @@ private:
     juce::String getDraggedAudioFileExtension() const;
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
+    bool saveDraggedAudioMetadata = false;
+    void setSaveDraggedAudioMetadata(bool enabled);
+    juce::var loadOutputGenerationMetadata() const;
+    bool persistOutputGenerationMetadata(const juce::var& metadata);
+    bool writeDraggedAudioMetadata(const juce::File& source, const juce::File& destination,
+                                   const juce::var& sourceMetadata) const;
+    void captureGenerationRequest(std::uint32_t token, const juce::String& service,
+                                  const juce::String& operation, const juce::var& request);
+    void acceptGenerationSnapshot(std::uint32_t token, const juce::var& snapshot);
+    void noteGenerationSeed(const juce::String& service, const juce::String& seed);
+    void commitGenerationMetadata(const juce::var& response, const juce::var& restoredMetadata);
+    juce::CriticalSection generationMetadataLock;
+    juce::var pendingGenerationMetadata;
+    juce::var currentOutputGenerationMetadata;
+    juce::var terrySourceGenerationMetadata;
     void showStorageSettings();
     void showStemsSettings();
     stems::StemsService& getStemsService();   // created on first use, in the active data folder
@@ -279,6 +301,9 @@ private:
     int currentModelIndex = 0;
     juce::String currentGaryQuantizationMode = "q4_decoder_linears";
     juce::String preferredGaryModelPath;
+    // The last /api/models reply the dropdown was built from, so a refetch that
+    // finds nothing new leaves the menu alone.
+    juce::String lastGaryModelsResponse;
     int currentGaryTopK = 250;
     float currentGaryCfg = 3.0f;
     juce::String currentGaryDescription;
@@ -406,12 +431,27 @@ private:
     bool currentCareyCompleteUseLora = false;
     double currentCareyCompleteLoraScale = 1.0;
     bool currentCompleteUseSrcAsRef = false;
-    juce::StringArray availableCareyLoras;
+    juce::StringArray availableCareyLoras;      // the backend's LoRAs for the chosen model size
+    std::vector<carey_native::Adapter> careyAdapters;  // every LoRA GET /props listed
+    juce::StringArray careyDits;                // every DiT GET /props listed
+    bool currentCareyXl = false;                // the local model size for every mode: 2B or XL
+    bool careyUsesXl() const;                   // the size requests use: always XL remotely
+    // The complete tab (ace-step's complete task), arrange* in code.
+    juce::StringArray currentCareyArrangeTracks { "drums", "bass" };
+    juce::String currentCareyArrangeCaption;
+    juce::String currentCareyArrangeLora;
+    bool currentCareyArrangeUseLora = false;
+    double currentCareyArrangeLoraScale = 1.0;
+    int currentCareyArrangeSteps = 50;
+    double currentCareyArrangeCfg = 7.0;
+    double currentCareyArrangeStrength = 1.0;
+    bool currentCareyArrangeLoopAssistEnabled = true;
+    bool currentCareyArrangeTrimToInputEnabled = true;
+    bool currentCareyArrangeAdvancedOpen = false;
     juce::String careyLoraFetchBackendUrl;
     juce::int64 careyLoraLastFetchMs = 0;
     std::atomic<bool> careyLoraFetchInFlight { false };
     std::atomic<int> careyLoraFetchNonce { 0 };
-    std::atomic<int> careyCaptionRequestNonce { 0 };
     juce::String currentCoverCaption = "";
     static constexpr bool kCareyCoverModelExperimentEnabled = true;
     juce::String currentCoverModel = "xl-turbo";
@@ -425,7 +465,6 @@ private:
     bool currentCoverUseSrcAsRef = false;
     bool currentCoverLoopAssistEnabled = true;
     bool currentCoverTrimToInputEnabled = true;
-    std::atomic<int> careyCoverCaptionRequestNonce { 0 };
     juce::String currentCareyExtractTrackName = "drums";
     int currentCareyExtractBpm = 120;
     int currentCareyExtractSteps = CareyUI::kDefaultExtractSteps;
@@ -435,9 +474,27 @@ private:
     juce::String currentCareyTimeSig = "";  // empty = auto-detect
     std::atomic<int> careyRequestNonce { 0 };
 
+    // One Carey generation. `prepare` runs on the worker thread with the
+    // backend's models and LoRAs: it fills in the request and the length to
+    // trim the result to (0 keeps all of it), or explains why it cannot.
+    struct CareyJob
+    {
+        juce::String label;  // the mode, for the status bar
+        bool needsSourceAudio = true;
+        std::function<bool(const carey_native::Props&, carey_native::Request&,
+                           double& trimToSeconds, juce::String& error)> prepare;
+    };
+    void startCareyJob(CareyJob job);
+    juce::String randomCareyLoraCaption(const juce::String& lora) const;
+    void applyCareyModelFamily();
+
     void sendToCarey();
     void sendToCareyExtract();
     void sendToCareyComplete();
+    void sendToCareyGenerate();
+    void sendToCareyArrange();
+    void requestCareyArrangeCaption();
+    juce::String getSelectedCareyArrangeLora() const;
     void sendToCareyCover();
     void setCareyLastSeed(const juce::String& seed);
     void updateCareyEnablementSnapshot();
@@ -604,8 +661,12 @@ private:
     double currentStemPosition() const;
     double stemPosition(const juce::File& stem) const;
     void updateStemsButtonState();
+    // What the stem separator needs before it can run ("install the stem separator", ...), or empty.
+    juce::String stemsSetupStep();
+    void stemsHandleClicked(bool fromRecordingBuffer);   // the popup, or its settings until set up
     void checkStemPlaybackStatus();
     void showStemsDialog(bool fromRecordingBuffer);
+    bool hasSavedRecordingBuffer() const;
     void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
     void toggleStemPlayback(const juce::File& stem);
     void stopStemPlayback(const juce::File& stem);
@@ -667,6 +728,38 @@ private:
     void refreshSA3AvailableLoras(bool force = false);
     void syncSA3LoraUi();
 
+    // SA3 LoRA automation lanes, in a panel attached to the editor's right edge.
+    sa3lanes::State sa3Lanes;
+    std::unique_ptr<SA3LaneEditor> sa3LaneEditor;
+    double sa3LaneTimelineStart = 0.0;    // where the last SA3 render's curves began in its output
+    bool sa3LanesForcedCompact = false;   // the panel didn't fit beside the wide layout
+    // capabilities.lora_lanes from the SA3 backend's /health; localhost also needs gary4local's
+    // lora_lanes_forwarded, since 0.7.0's adapter passed the flag through but dropped the lanes.
+    // The answer belongs to whatever served sa3LanesCheckedUrl when it was asked; a different
+    // server can take that address, so it is forgotten whenever local SA3 goes on or offline.
+    bool sa3LanesSupported = false;
+    juce::String sa3LanesCheckedUrl;
+    std::atomic<bool> sa3LaneCheckInFlight { false };
+    int sa3LaneCheckGeneration = 0;   // a check started before the answer was forgotten is ignored
+    bool sa3LanePanelShown() const;
+    void updateSA3LanePanel();
+    void syncSA3Lanes();
+    // Tells the LoRA rows which strengths the lanes draw, and moves a slider to a flat lane dragged
+    // to a new strength, since a flat line is just a strength.
+    void updateSA3LoraAutomation();
+    void updateSA3LaneTimeline();
+    double sa3LaneRangeSeconds() const;
+    void updateSA3LaneBackdrop();
+    void rollSA3LanePrompt(size_t laneIndex);
+    // Asks unless healthUrl already has an answer; recheck asks anyway, keeping the old answer
+    // until the new one arrives.
+    void checkSA3LaneSupport(const juce::String& healthUrl, bool recheck = false);
+    void forgetSA3LaneSupport();
+    // Adds the lanes to an SA3 request when automation is on. False means don't send: the backend
+    // can't run lanes, and a status message says so.
+    bool addSA3LanesToRequest(juce::DynamicObject& request, double startSeconds, double seconds,
+                              const std::function<juce::String(const juce::String&)>& decoratePrompt);
+
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
     float currentJerryCfg = 1.0f;
@@ -716,7 +809,7 @@ private:
         const juce::String& jsonText,
         int statusCode = 200);
 
-    void maybeFetchRemoteJerryPrompts(); // gatekeeper for remote mode, avoids hammering
+    void maybeFetchJerryPrompts(); // gatekeeper for either backend, avoids hammering
 
     // Optional local cache to avoid re-fetching
     juce::HashMap<juce::String, juce::String> promptsCache; // key: repo + "|" + checkpoint
@@ -774,8 +867,15 @@ private:
     void saveRecordingBuffer();
     void clearRecordingBuffer();
     void drawWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
+    juce::Rectangle<int> getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const;
+    void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                             const juce::Rectangle<int>& lane, double totalDuration);
+    void refreshSavedBufferPreview();
+    bool readAudioAtHostRate(juce::AudioFormatReader& reader, juce::AudioBuffer<float>& buffer) const;
+    void restoreSavedBufferIntoRecording();
+    bool loadSavedBufferForInputPlayback();
+    bool inputPlaybackIsCurrent() const;
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
-    juce::String cleanCareyQueueMessage(const juce::String& raw);
     void sendToGary();
     void sendToJerry();  // New method for Jerry
     void maybeAutoCheckForUpdates();
@@ -837,6 +937,21 @@ private:
     double currentInputPlaybackPosition = 0.0;
     double inputPlaybackDuration = 0.0;
     int inputPlaybackSnapshotSamples = 0;
+    juce::Time inputPlaybackFileTime;   // the myBuffer.wav the input player loaded
+
+    // The saved buffer (myBuffer.wav), drawn along the bottom of the recording waveform while
+    // the take above it is unsaved: one peak per column, read in the background whenever the
+    // file changes.
+    struct SavedBufferPreview
+    {
+        juce::String path;
+        juce::Time modified;
+        juce::int64 size = 0;
+        double seconds = 0.0;
+        std::vector<float> peaks;
+    };
+    SavedBufferPreview savedBufferPreview;
+    std::atomic<bool> savedBufferPreviewLoading { false };
 
     // Playback cursor tracking
     double currentPlaybackPosition = 0.0;  // Current position in seconds

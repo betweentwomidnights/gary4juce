@@ -178,6 +178,8 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
             + " bytes, init_noise_level: " + juce::String(foundationUI->getTransformation()));
     }
 
+    const auto generationToken = beginGenerationAsyncWork();
+    captureGenerationRequest(generationToken, "foundation", isAudio2Audio ? "audio2audio" : "generate", juce::var(jsonRequest.get()));
     auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
     DBG("[foundation] JSON payload (" + juce::String(isAudio2Audio ? "audio2audio" : "generate")
@@ -188,7 +190,7 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
-    juce::Thread::launch([asyncAlive, editor, jsonString, requestUrl]()
+    juce::Thread::launch([asyncAlive, editor, generationToken, jsonString, requestUrl]()
     {
         juce::URL url(requestUrl);
         juce::URL postUrl = url.withPOSTData(jsonString);
@@ -211,7 +213,7 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
         }
         catch (...) {}
 
-        juce::MessageManager::callAsync([asyncAlive, editor, responseText, ok]()
+        juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, ok]()
         {
             const auto alive = asyncAlive.lock();
             if (alive == nullptr || !alive->load(std::memory_order_acquire))
@@ -228,7 +230,7 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
                 editor->repaint();
             };
 
-            if (!editor->isGenerating) return;
+            if (!editor->isGenerating || !editor->isGenerationAsyncWorkCurrent(generationToken)) return;
 
             if (!ok || responseText.isEmpty())
             {
@@ -266,6 +268,7 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
                 editor->foundationUI->setInfoText("generating at " + juce::String(foundationBpm) + " BPM...");
 
             editor->showStatusMessage("foundation-1 generating...", 2000);
+            editor->noteGenerationSeed("foundation", responseObj->getProperty("seed").toString());
             editor->startPollingForResults(sessionId);
         });
     });

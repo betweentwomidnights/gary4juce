@@ -46,19 +46,27 @@ namespace stems
         std::vector<PackageFile> packages; // unzipped in order into one folder
     };
 
+    // What a model is for. The settings list and the popup's model menu are sectioned by it.
+    enum class ModelGroup { Stems, Vocals, Cleanup, Drums };
+
     struct ModelInfo
     {
         juce::String id;           // stems.cpp's model name, e.g. "htdemucs"
-        juce::String stemsSummary; // "drums, bass, other, vocals"
+        ModelGroup group;
+        juce::String stemsSummary; // "drums, bass, other, vocals", in the order the model writes them
         juce::String note;         // shown beside the name; may be empty
         juce::String url;
         PackageFile file;
+        // A stem of other models' this one takes apart further ("drums" for DrumSep); empty when
+        // it is meant for a whole mix. The popup offers it on that stem.
+        juce::String splits = {};
     };
 
     const RuntimeRelease& pinnedRuntime();
     const std::vector<ModelInfo>& modelCatalog();
     const ModelInfo* findModel(const juce::String& id);
     juce::String defaultModelId();
+    juce::String groupName(ModelGroup group);
     // The stems a model writes, in its order ("drums", "bass", ...), before it has run.
     juce::StringArray stemNamesFor(const juce::String& modelId);
 
@@ -96,6 +104,9 @@ namespace stems
 
         bool isRuntimeAvailableForPlatform() const;
         bool isRuntimeInstalled() const;
+        // The tag of an installed runtime this build no longer pins ("v0.1.2"), or empty. Installing
+        // the pinned one replaces it.
+        juce::String installedOlderRuntimeTag() const;
         bool isModelInstalled(const juce::String& modelId) const;
         bool hasPendingRemoval() const;
 

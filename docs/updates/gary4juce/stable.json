@@ -1,13 +1,12 @@
 {
   "channel": "stable",
-  "latest_version": "5.0.0",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.0",
-  "sha256": "554f8127edac4528b56da023e4f8db721689ff2e0abff920aa4d23097f9a5985",
-  "published_at": "2026-10-07T10:00:40Z",
+  "latest_version": "5.0.4",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4",
+  "sha256": "a591d36435f158e4ad9b6fb7da6c253bd112779441d7af101b51f5c6c732d8bb",
+  "published_at": "2026-11-12T06:55:06Z",
   "notes": [
-    "YuE2 in project tempo: create, remix, continue, editable scores and MIDI/Live Clip import.",
-    "Built-in local stems; audio imports up to ten minutes. Carey's extract tab is hidden.",
-    "Selections follow model limits. Local SA3/Carey: 380s; remote: 240s. SA3 can end a piece or keep it going.",
-    "Pair with gary4local v0.4.0 and update Yuey's runtime. Close your DAW before replacing plugin files."
+    "Draw SA3 LoRA strength curves with beat/bar snapping and a prompt for each lane.",
+    "Blend from smooth to responsive; lanes work for generate, transform and continue.",
+    "Local lanes need gary4local v0.7.1 and sa3.cpp v0.2.3. Update all runtimes. Close your DAW before replacing plugin files."
   ]
 }

@@ -3,6 +3,53 @@
 
 #include "SA3UI.h"
 
+void SA3LoraAutomationBadge::setCurve(std::vector<juce::Point<float>> points, juce::Colour newColour)
+{
+    if (points == curve && newColour == colour)
+        return;
+    curve = std::move(points);
+    colour = newColour;
+    repaint();
+}
+
+// Laid out like the slider it replaces: a track, then the box where its number was.
+void SA3LoraAutomationBadge::paint(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds();
+    auto box = bounds.removeFromRight(56).withSizeKeepingCentre(56, 20);
+    bounds.removeFromRight(5);
+    const auto track = bounds.withSizeKeepingCentre(bounds.getWidth(), 16).toFloat();
+
+    g.setColour(Theme::Colors::Background.brighter(0.1f));
+    g.fillRect(track);
+    g.setColour(colour.withAlpha(0.7f));
+    g.drawRect(track, 1.f);
+
+    if (!curve.empty())
+    {
+        const auto area = track.reduced(3.f, 2.f);
+        const auto at = [&area](juce::Point<float> point)
+        {
+            return juce::Point<float>(area.getX() + juce::jlimit(0.f, 1.f, point.x) * area.getWidth(),
+                                      area.getBottom() - juce::jlimit(0.f, 1.f, point.y) * area.getHeight());
+        };
+        // Held flat past either end, as the lane plays it.
+        juce::Path path;
+        path.startNewSubPath(area.getX(), at(curve.front()).y);
+        for (const auto& point : curve)
+            path.lineTo(at(point));
+        path.lineTo(area.getRight(), at(curve.back()).y);
+        g.setColour(colour);
+        g.strokePath(path, juce::PathStrokeType(1.5f));
+    }
+
+    g.setColour(colour.withAlpha(0.7f));
+    g.drawRect(box, 1);
+    g.setColour(colour);
+    g.setFont(juce::FontOptions(12.0f));
+    g.drawText("auto", box, juce::Justification::centred);
+}
+
 namespace
 {
     constexpr int kOuterMargin = 10;
@@ -703,6 +750,17 @@ SA3UI::SA3UI()
     loraStatusLabel.setJustificationType(juce::Justification::centredLeft);
     addToContent(loraStatusLabel);
 
+    automationButton.setButtonText("automation");
+    automationButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    automationButton.setTooltip("draw each LoRA's strength over time, in a panel beside the plugin");
+    automationButton.onClick = [this]()
+    {
+        setAutomationOpen(!automationOpen);
+        if (onAutomationToggled)
+            onAutomationToggled(automationOpen);
+    };
+    addToContent(automationButton);
+
     shiftLabel.setText("shift", juce::dontSendNotification);
     shiftLabel.setFont(juce::FontOptions(12.0f));
     shiftLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -1006,6 +1064,13 @@ void SA3UI::setDurationSeconds(int seconds)
     durationSlider.setValue(juce::jlimit(1, maximumDurationSeconds, seconds), juce::dontSendNotification);
 }
 
+void SA3UI::setAutomationOpen(bool open)
+{
+    automationOpen = open;
+    automationButton.setButtonStyle(open ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Standard);
+    automationButton.repaint();
+}
+
 void SA3UI::setLoopEnabled(bool enabled)
 {
     loopEnabled = enabled;
@@ -1183,8 +1248,14 @@ void SA3UI::setAvailableLoras(const juce::StringArray& loraNames)
         };
         addToContent(*row.slider);
 
+        row.badge = std::make_unique<SA3LoraAutomationBadge>();
+        row.badge->setTooltip("drawn in the automation lanes - reset its lane to use the slider again");
+        addToContent(*row.badge);
+        row.badge->setVisible(false);
+
         loraRows.push_back(std::move(row));
     }
+    applyLoraAutomation();
 
     if (loraRows.empty())
     {
@@ -1361,8 +1432,49 @@ void SA3UI::updateLoraControls()
         if (row.label)
             row.label->setVisible(showRows);
         if (row.slider)
-            row.slider->setVisible(showRows);
+            row.slider->setVisible(showRows && !row.automated);
+        if (row.badge)
+            row.badge->setVisible(showRows && row.automated);
     }
+}
+
+void SA3UI::setLoraAutomation(std::vector<LoraAutomation> automated)
+{
+    loraAutomation = std::move(automated);
+    applyLoraAutomation();
+}
+
+void SA3UI::applyLoraAutomation()
+{
+    bool changed = false;
+    for (auto& row : loraRows)
+    {
+        const auto it = std::find_if(loraAutomation.begin(), loraAutomation.end(),
+                                     [&row](const LoraAutomation& entry) { return entry.name == row.name; });
+        const bool automated = it != loraAutomation.end();
+        changed = changed || automated != row.automated;
+        row.automated = automated;
+        if (automated && row.badge)
+            row.badge->setCurve(it->curve, it->colour);
+    }
+    if (changed)
+        updateLoraControls();
+}
+
+double SA3UI::setLoraStrength(const juce::String& name, double strength)
+{
+    for (auto& row : loraRows)
+    {
+        if (row.name != name || !row.slider)
+            continue;
+        if (row.slider->getValue() != strength)
+        {
+            row.slider->setValue(juce::jlimit(0.0, 2.0, strength), juce::dontSendNotification);
+            updateSavedLoraSelection(name, row.slider->getValue());
+        }
+        return row.slider->getValue();
+    }
+    return -1.0;
 }
 
 void SA3UI::clearLoraRows()
@@ -1375,6 +1487,8 @@ void SA3UI::clearLoraRows()
                 contentComponent->removeChildComponent(row.label.get());
             if (row.slider)
                 contentComponent->removeChildComponent(row.slider.get());
+            if (row.badge)
+                contentComponent->removeChildComponent(row.badge.get());
         }
     }
 
@@ -1474,6 +1588,7 @@ void SA3UI::updateContentLayout()
     continueModeLatentPrefixButton.setVisible(showAdvancedControls && showContinue);
     useLoraToggle.setVisible(showAdvancedControls);
     loraStatusLabel.setVisible(showAdvancedControls);
+    automationButton.setVisible(showAdvancedControls && useLoraToggle.getToggleState() && !loraRows.empty());
     shiftLabel.setVisible(showAdvancedControls);
     shiftComboBox.setVisible(showAdvancedControls);
     bars4Button.setVisible(showGenerate && loopEnabled);
@@ -1486,6 +1601,8 @@ void SA3UI::updateContentLayout()
             row.label->setVisible(false);
         if (row.slider)
             row.slider->setVisible(false);
+        if (row.badge)
+            row.badge->setVisible(false);
     }
 
     auto layoutAdvanced = [&]()
@@ -1537,8 +1654,12 @@ void SA3UI::updateContentLayout()
         useLoraToggle.setBounds(fullRow(22));
         y += 24;
 
-        loraStatusLabel.setBounds(fullRow(16));
-        y += 18;
+        {
+            auto statusRow = fullRow(22);
+            automationButton.setBounds(statusRow.removeFromRight(juce::jmin(92, statusRow.getWidth() / 2)));
+            loraStatusLabel.setBounds(statusRow);
+            y += 24;
+        }
 
         const bool showLoraRows = useLoraToggle.getToggleState() && !loraRows.empty();
         for (auto& row : loraRows)
@@ -1552,10 +1673,14 @@ void SA3UI::updateContentLayout()
                     row.label->setBounds(loraRow.removeFromLeft(118));
                     if (row.slider)
                         row.slider->setBounds(loraRow);
+                    if (row.badge)
+                        row.badge->setBounds(loraRow);
                 }
             }
             if (row.slider)
-                row.slider->setVisible(showLoraRows);
+                row.slider->setVisible(showLoraRows && !row.automated);
+            if (row.badge)
+                row.badge->setVisible(showLoraRows && row.automated);
 
             if (showLoraRows)
                 y += 28;

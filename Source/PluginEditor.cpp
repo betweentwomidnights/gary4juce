@@ -8,6 +8,7 @@
 */
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Utils/GenerationMetadata.h"
 #include "PluginEditorJerryHelpers.h"
 #include "PluginEditorTerryHelpers.h"
 #include "PluginEditorTextHelpers.h"
@@ -32,6 +33,7 @@ namespace
     constexpr int kWideInputSectionHeight = 440;
     constexpr int kWideLeftColumnWidth = 470;
     constexpr int kWideColumnGap = 10;
+    constexpr int kSA3LanePanelWidth = 480;
     constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
 }
 
@@ -125,6 +127,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
         sa3Loras.add(juce::var(lora.release()));
     }
     state->setProperty("sa3Loras", sa3Loras);
+    state->setProperty("sa3Lanes", sa3lanes::toVar(sa3Lanes));
 
     state->setProperty("terryVariation", currentTerryVariation);
     state->setProperty("terryCustomPrompt", currentTerryCustomPrompt);
@@ -148,6 +151,18 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
         ? careyUI->getCoverAdvancedOpen() : currentCareyCoverAdvancedOpen);
     state->setProperty("careyExtractAdvanced", careyUI != nullptr
         ? careyUI->getExtractAdvancedOpen() : currentCareyExtractAdvancedOpen);
+    state->setProperty("careyArrangeAdvanced", careyUI != nullptr
+        ? careyUI->getArrangeAdvancedOpen() : currentCareyArrangeAdvancedOpen);
+    state->setProperty("careyArrangeTracks", currentCareyArrangeTracks.joinIntoString(","));
+    state->setProperty("careyArrangeCaption", currentCareyArrangeCaption);
+    state->setProperty("careyArrangeLora", currentCareyArrangeLora);
+    state->setProperty("careyArrangeUseLora", currentCareyArrangeUseLora);
+    state->setProperty("careyArrangeLoraScale", currentCareyArrangeLoraScale);
+    state->setProperty("careyArrangeSteps", currentCareyArrangeSteps);
+    state->setProperty("careyArrangeCfg", currentCareyArrangeCfg);
+    state->setProperty("careyArrangeStrength", currentCareyArrangeStrength);
+    state->setProperty("careyArrangeLoopAssist", currentCareyArrangeLoopAssistEnabled);
+    state->setProperty("careyArrangeTrimToInput", currentCareyArrangeTrimToInputEnabled);
     state->setProperty("careyLastSeed",
         careyUI != nullptr ? careyUI->getLastSeed() : currentCareyLastSeed);
     state->setProperty("careyUseSeed",
@@ -170,6 +185,7 @@ juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
     state->setProperty("careyCompleteCaption", currentCareyCompleteCaption);
     state->setProperty("careyCompleteLora", currentCareyCompleteLora);
     state->setProperty("careyCompleteModel", currentCareyCompleteModel);
+    state->setProperty("careyXl", currentCareyXl);
     state->setProperty("careyCompleteBpm", currentStandaloneBpm);
     state->setProperty("careyCompleteSteps", currentCareyCompleteSteps);
     state->setProperty("careyCompleteCfg", currentCompleteCfg);
@@ -355,6 +371,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
             }
         }
     }
+    if (has("sa3Lanes"))
+        sa3Lanes = sa3lanes::fromVar(get("sa3Lanes"));
 
     currentTerryVariation = readInt("terryVariation", currentTerryVariation);
     currentTerryCustomPrompt = readString("terryCustomPrompt", currentTerryCustomPrompt);
@@ -366,13 +384,25 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentTerrySeedText = readString("terrySeedText", currentTerrySeedText);
 
     currentCareySubTab = static_cast<CareyUI::SubTab>(
-        juce::jlimit(0, 3, readInt("careySubTab", 0)));
+        juce::jlimit(0, 5, readInt("careySubTab", 0)));
     if (currentCareySubTab == CareyUI::SubTab::Extract && ! CareyUI::kExtractTabVisible)
         currentCareySubTab = CareyUI::SubTab::Lego;
     currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
     currentCareyCompleteAdvancedOpen = readBool(
         "careyCompleteAdvanced", currentCareyCompleteAdvancedOpen);
     currentCareyCoverAdvancedOpen = readBool("careyCoverAdvanced", currentCareyCoverAdvancedOpen);
+    currentCareyArrangeAdvancedOpen = readBool("careyArrangeAdvanced", currentCareyArrangeAdvancedOpen);
+    if (has("careyArrangeTracks"))
+        currentCareyArrangeTracks = juce::StringArray::fromTokens(readString("careyArrangeTracks", {}), ",", {});
+    currentCareyArrangeCaption = readString("careyArrangeCaption", currentCareyArrangeCaption);
+    currentCareyArrangeLora = readString("careyArrangeLora", currentCareyArrangeLora);
+    currentCareyArrangeUseLora = readBool("careyArrangeUseLora", currentCareyArrangeUseLora);
+    currentCareyArrangeLoraScale = readDouble("careyArrangeLoraScale", currentCareyArrangeLoraScale);
+    currentCareyArrangeSteps = readInt("careyArrangeSteps", currentCareyArrangeSteps);
+    currentCareyArrangeCfg = readDouble("careyArrangeCfg", currentCareyArrangeCfg);
+    currentCareyArrangeStrength = readDouble("careyArrangeStrength", currentCareyArrangeStrength);
+    currentCareyArrangeLoopAssistEnabled = readBool("careyArrangeLoopAssist", currentCareyArrangeLoopAssistEnabled);
+    currentCareyArrangeTrimToInputEnabled = readBool("careyArrangeTrimToInput", currentCareyArrangeTrimToInputEnabled);
     currentCareyExtractAdvancedOpen = readBool(
         "careyExtractAdvanced", currentCareyExtractAdvancedOpen);
     currentCareyLastSeed = readString("careyLastSeed", currentCareyLastSeed);
@@ -394,6 +424,8 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
     currentCareyCompleteCaption = readString("careyCompleteCaption", currentCareyCompleteCaption);
     currentCareyCompleteLora = readString("careyCompleteLora", currentCareyCompleteLora);
     currentCareyCompleteModel = readString("careyCompleteModel", currentCareyCompleteModel);
+    // Before v5.1 the size followed the backend: XL on the remote one, 2B locally.
+    currentCareyXl = readBool("careyXl", false);
     currentCareyCompleteBpm = readInt("careyCompleteBpm", currentCareyCompleteBpm);
     double legacyStandaloneBpm = currentJerryManualBpm;
     if (initialTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
@@ -407,7 +439,7 @@ void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& j
             if (foundationState->hasProperty("standaloneBpm"))
                 legacyStandaloneBpm = static_cast<double>(foundationState->getProperty("standaloneBpm"));
     }
-    else if (initialTab == ModelTab::Carey && currentCareySubTab == CareyUI::SubTab::Complete)
+    else if (initialTab == ModelTab::Carey && currentCareySubTab == CareyUI::SubTab::Continue)
         legacyStandaloneBpm = currentCareyCompleteBpm;
 
     currentStandaloneBpm = juce::jlimit(40.0, 240.0,
@@ -503,10 +535,7 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
     currentCareyLanguage = audioProcessor.getCareyLanguage();
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost();
 
-    setSize(editorLayoutMode == EditorLayoutMode::Wide
-        ? kWideEditorWidth : kCompactEditorWidth,
-        editorLayoutMode == EditorLayoutMode::Wide
-            ? kWideEditorHeight : kCompactEditorHeight);
+    applyEditorSize();
 
     if (garyUI != nullptr)
     {
@@ -577,7 +606,11 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         sa3UI->setLastSeed(currentSA3LastSeed);
         sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
         sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+        sa3UI->setAutomationOpen(sa3Lanes.open);
         sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+        if (sa3LaneEditor != nullptr)
+            sa3LaneEditor->lanesReplaced();
+        updateSA3LanePanel();
     }
 
     if (terryUI != nullptr)
@@ -638,6 +671,14 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
         careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
         careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+        careyUI->setArrangeAdvancedOpen(currentCareyArrangeAdvancedOpen);
+        careyUI->setArrangeTracks(currentCareyArrangeTracks);
+        careyUI->setArrangeCaptionText(currentCareyArrangeCaption);
+        careyUI->setArrangeSteps(currentCareyArrangeSteps);
+        careyUI->setArrangeCfg(currentCareyArrangeCfg);
+        careyUI->setArrangeStrength(currentCareyArrangeStrength);
+        careyUI->setArrangeLoopAssistEnabled(currentCareyArrangeLoopAssistEnabled);
+        careyUI->setArrangeTrimToInputEnabled(currentCareyArrangeTrimToInputEnabled);
         careyUI->setLastSeed(currentCareyLastSeed);
         careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
         careyUI->setLyricsText(currentCareyLyrics);
@@ -726,9 +767,9 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     juce::PopupMenu menu;
     menu.addSectionHeader("layout");
     menu.addItem(compactLayout, "compact", true,
-        editorLayoutMode == EditorLayoutMode::Compact);
+        !usingWideLayout());
     menu.addItem(wideLayout, "wide", true,
-        editorLayoutMode == EditorLayoutMode::Wide);
+        usingWideLayout());
     menu.addSeparator();
     menu.addItem(audioStorage,
         usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
@@ -755,16 +796,74 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
         });
 }
 
+bool Gary4juceAudioProcessorEditor::usingWideLayout() const
+{
+    return editorLayoutMode == EditorLayoutMode::Wide && !sa3LanesForcedCompact;
+}
+
+bool Gary4juceAudioProcessorEditor::sa3LanePanelFits(int width) const
+{
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* display = isShowing() ? displays.getDisplayForRect(getScreenBounds()) : displays.getPrimaryDisplay();
+    return display == nullptr || width <= display->userArea.getWidth();
+}
+
+void Gary4juceAudioProcessorEditor::applyEditorSize()
+{
+    const bool wide = usingWideLayout();
+    const int width = (wide ? kWideEditorWidth : kCompactEditorWidth)
+        + (sa3LanePanelShown() ? kSA3LanePanelWidth : 0);
+    const int height = wide ? kWideEditorHeight : kCompactEditorHeight;
+    if (getWidth() == width && getHeight() == height)
+        resized();   // the panel may still have to show or hide
+    else
+        setSize(width, height);
+}
+
+// Shows or hides the automation lanes panel for the current tab, resizing the editor around it.
+// The wide layout gives way to the compact one while the panel is open, if both don't fit on the
+// screen, and comes back when the panel hides.
+void Gary4juceAudioProcessorEditor::updateSA3LanePanel()
+{
+    if (sa3LanePanelShown())
+    {
+        syncSA3Lanes();
+        if (editorLayoutMode == EditorLayoutMode::Wide && !sa3LanesForcedCompact
+            && !sa3LanePanelFits(kWideEditorWidth + kSA3LanePanelWidth))
+        {
+            sa3LanesForcedCompact = true;
+            showStatusMessage("compact layout while automation is open: no room beside the wide one", 3000);
+        }
+        checkSA3LaneSupport(getServiceUrl(ServiceType::SA3, "/health"));
+        updateSA3LaneTimeline();
+        updateSA3LaneBackdrop();
+    }
+    else
+    {
+        sa3LanesForcedCompact = false;
+        updateSA3LoraAutomation();
+    }
+    applyEditorSize();
+}
+
 void Gary4juceAudioProcessorEditor::setEditorLayoutMode(EditorLayoutMode mode)
 {
-    if (editorLayoutMode == mode)
+    if (editorLayoutMode == mode && !sa3LanesForcedCompact)
         return;
 
     editorLayoutMode = mode;
-    setSize(mode == EditorLayoutMode::Wide
-        ? kWideEditorWidth : kCompactEditorWidth,
-        mode == EditorLayoutMode::Wide
-            ? kWideEditorHeight : kCompactEditorHeight);
+    // An explicit choice replaces the compact layout the lanes panel asked for. If the panel
+    // doesn't fit beside the wide layout, it closes rather than running off the screen.
+    sa3LanesForcedCompact = false;
+    if (sa3LanePanelShown() && mode == EditorLayoutMode::Wide
+        && !sa3LanePanelFits(kWideEditorWidth + kSA3LanePanelWidth))
+    {
+        sa3Lanes.open = false;
+        if (sa3UI != nullptr)
+            sa3UI->setAutomationOpen(false);
+        showStatusMessage("automation closed: no room beside the wide layout on this screen", 3000);
+    }
+    applyEditorSize();
     persistEditorState();
     showStatusMessage(mode == EditorLayoutMode::Wide
         ? "wide layout" : "compact layout", 1500);
@@ -816,10 +915,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     lastAppliedHostStateRevision = audioProcessor.getHostStateRevision();
     audioProcessor.setTransformRecording(transformRecording);
 
-    setSize(editorLayoutMode == EditorLayoutMode::Wide
-        ? kWideEditorWidth : kCompactEditorWidth,
-        editorLayoutMode == EditorLayoutMode::Wide
-            ? kWideEditorHeight : kCompactEditorHeight);
+    applyEditorSize();
 
 #if JUCE_MAC
     applyStandaloneDockIconIfAvailable();
@@ -843,9 +939,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             const bool wasJerry = (currentTab == ModelTab::Jerry);
             switchToTab(ModelTab::Jerry);
 
-            // If we were already on Jerry, still allow remote SAOS prompt refresh.
-            if (wasJerry && !audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+            // If we were already on Jerry, still allow a SAOS prompt refresh.
+            if (wasJerry)
+                maybeFetchJerryPrompts();
         };
     addAndMakeVisible(jerryTabButton);
 
@@ -1036,34 +1132,21 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 DBG("  Checkpoint: " + currentJerryFinetuneCheckpoint);
                 DBG("  Sampler: " + currentJerrySamplerType);
             }
-            if (!audioProcessor.getIsUsingLocalhost())
+            // Avoid hammering the backend, but fetch the bank whenever the
+            // selection changes, on localhost as on the remote backend.
+            if (isFinetune
+                && currentJerryFinetuneRepo.isNotEmpty()
+                && currentJerryFinetuneCheckpoint.isNotEmpty())
             {
-                // Remote mode: avoid hammering, but ensure we fetch when selection changes.
-                if (isFinetune
-                    && currentJerryFinetuneRepo.isNotEmpty()
-                    && currentJerryFinetuneCheckpoint.isNotEmpty())
-                {
-                    DBG("[prompts] onModelChanged -> remote -> fetching by repo+ckpt: "
-                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
-                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
-                }
-                else
-                {
-                    // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
-                    DBG("[prompts] onModelChanged -> remote -> using prefer=finetune (TTL guarded)");
-                    maybeFetchRemoteJerryPrompts(); // will no-op if TTL/in-flight/cache says so
-                }
+                DBG("[prompts] onModelChanged -> fetching by repo+ckpt: "
+                    + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
+                fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
             }
             else
             {
-                if (isFinetune
-                    && currentJerryFinetuneRepo.isNotEmpty()
-                    && currentJerryFinetuneCheckpoint.isNotEmpty())
-                {
-                    DBG("[prompts] onModelChanged -> localhost -> fetching by repo+ckpt: "
-                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
-                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
-                }
+                // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
+                DBG("[prompts] onModelChanged -> using prefer=finetune (TTL guarded)");
+                maybeFetchJerryPrompts(); // will no-op if TTL/in-flight/cache says so
             }
         };
 
@@ -1205,7 +1288,35 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         sa3PromptRequestNonce.fetch_add(1);
         updateSA3EnablementSnapshot();
+        syncSA3Lanes();
     };
+    sa3UI->onAutomationToggled = [this](bool open)
+    {
+        sa3Lanes.open = open;
+        updateSA3LanePanel();
+        persistEditorState();
+    };
+
+    {
+        SA3LaneEditor::Host laneHost;
+        laneHost.isMissing = [this](const gary::SA3Lane& lane)
+        {
+            return sa3UI == nullptr || !sa3lanes::isActive(lane, sa3UI->getActiveLoras());
+        };
+        laneHost.resetStrength = [this](const gary::SA3Lane& lane)
+        {
+            return sa3UI == nullptr ? 0.f : (float)sa3lanes::strengthOf(lane, sa3UI->getActiveLoras());
+        };
+        laneHost.rollPrompt = [this](size_t laneIndex) { rollSA3LanePrompt(laneIndex); };
+        laneHost.notify = [this](const juce::String& message) { showStatusMessage(message, 2500); };
+        laneHost.changed = [this]()
+        {
+            updateSA3LoraAutomation();
+            persistEditorState();
+        };
+        sa3LaneEditor = std::make_unique<SA3LaneEditor>(sa3Lanes, std::move(laneHost));
+        addChildComponent(*sa3LaneEditor);
+    }
 
     sa3UI->setBpm(isStandaloneApp ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
     sa3UI->setPromptText(currentSA3Prompt);
@@ -1233,6 +1344,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     sa3UI->setLastSeed(currentSA3LastSeed);
     sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
     sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+    sa3UI->setAutomationOpen(sa3Lanes.open);
     sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
     sa3UI->setGenerateButtonEnabled(false, false);
     sa3UI->setDiceButtonsEnabled(false);
@@ -1403,6 +1515,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     {
         currentCareySubTab = tab;
         if (tab == CareyUI::SubTab::Lego
+            || tab == CareyUI::SubTab::Continue
+            || tab == CareyUI::SubTab::Generate
             || tab == CareyUI::SubTab::Complete
             || tab == CareyUI::SubTab::Cover)
             refreshCareyAvailableLoras(true);
@@ -1486,6 +1600,28 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         currentCareyCompleteDurationSeconds = juce::jlimit(30, maximumSeconds, seconds);
     };
     careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
+    careyUI->onGenerateGenerate = [this]() { sendToCareyGenerate(); };
+
+    careyUI->onArrangeTracksChanged = [this](const juce::StringArray& tracks) { currentCareyArrangeTracks = tracks; };
+    careyUI->onArrangeCaptionChanged = [this](const juce::String& text) { currentCareyArrangeCaption = text; };
+    careyUI->onArrangeCaptionDiceRequested = [this]() { requestCareyArrangeCaption(); };
+    careyUI->onArrangeUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyArrangeUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyArrangeUseLora && currentCareyArrangeLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyArrangeLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onArrangeLoraChanged = [this](const juce::String& loraName) { currentCareyArrangeLora = loraName.trim(); };
+    careyUI->onArrangeLoraScaleChanged = [this](double value) { currentCareyArrangeLoraScale = juce::jlimit(0.0, 1.0, value); };
+    careyUI->onArrangeStepsChanged = [this](int steps) { currentCareyArrangeSteps = juce::jlimit(32, 100, steps); };
+    careyUI->onArrangeCfgChanged = [this](double value) { currentCareyArrangeCfg = juce::jlimit(3.0, 10.0, value); };
+    careyUI->onArrangeStrengthChanged = [this](double value) { currentCareyArrangeStrength = juce::jlimit(0.0, 1.0, value); };
+    careyUI->onArrangeLoopAssistChanged = [this](bool enabled) { currentCareyArrangeLoopAssistEnabled = enabled; };
+    careyUI->onArrangeTrimToInputChanged = [this](bool enabled) { currentCareyArrangeTrimToInputEnabled = enabled; };
+    careyUI->onArrangeGenerate = [this]() { sendToCareyArrange(); };
     // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
     careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
 
@@ -1548,10 +1684,15 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
     careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
     careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
-    careyUI->setCompleteRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
     careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
-    careyUI->setCoverRemoteModelSelectionEnabled(!audioProcessor.getIsUsingLocalhost());
-    careyUI->setExtractRemoteGenerationEnabled(!audioProcessor.getIsUsingLocalhost());
+    careyUI->setExtractRemoteGenerationEnabled(true);
+    careyUI->setModelFamilySelectable(audioProcessor.getIsUsingLocalhost());
+    careyUI->setModelFamilyXl(careyUsesXl());
+    careyUI->onModelFamilyChanged = [this](bool xl)
+    {
+        currentCareyXl = xl;
+        applyCareyModelFamily();
+    };
     careyUI->setCoverModel(currentCoverModel);
     careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
     careyUI->setCoverAudioStrength(currentCoverAudioStrength);
@@ -1570,10 +1711,18 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
     careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
     careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+    careyUI->setArrangeAdvancedOpen(currentCareyArrangeAdvancedOpen);
+    careyUI->setArrangeTracks(currentCareyArrangeTracks);
+    careyUI->setArrangeCaptionText(currentCareyArrangeCaption);
+    careyUI->setArrangeSteps(currentCareyArrangeSteps);
+    careyUI->setArrangeCfg(currentCareyArrangeCfg);
+    careyUI->setArrangeStrength(currentCareyArrangeStrength);
+    careyUI->setArrangeLoopAssistEnabled(currentCareyArrangeLoopAssistEnabled);
+    careyUI->setArrangeTrimToInputEnabled(currentCareyArrangeTrimToInputEnabled);
     careyUI->setLastSeed(currentCareyLastSeed);
     careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
     syncCareyLoraUi();
-    careyUI->setGenerateButtonEnabled(false, false);
+    careyUI->setGenerateButtonEnabled(false, false, false);
 
     // Restore persisted lyrics + language from processor (shared across all tabs)
     currentCareyLyrics = audioProcessor.getCareyLyrics();
@@ -1590,7 +1739,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(*yueyUI);
     yueyUI->onLayoutHeightChanged = [this]()
     {
-        if (currentTab == ModelTab::Yuey && editorLayoutMode == EditorLayoutMode::Wide)
+        if (currentTab == ModelTab::Yuey && usingWideLayout())
         {
             resized();
             repaint();
@@ -1850,6 +1999,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(backendToggleButton);
 
     initializeGaryDataDirectory();
+    restoreSavedBufferIntoRecording();
 
     // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
     bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
@@ -1936,14 +2086,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(yueyScoreButton);
 
     stemsButton.setTooltip("separate this output into stems");
-    stemsButton.onClick = [this]() { showStemsDialog(false); };
+    stemsButton.onClick = [this]() { stemsHandleClicked(false); };
     stemsInputButton.setTooltip("separate the recording buffer into stems");
-    stemsInputButton.onClick = [this]() { showStemsDialog(true); };
+    stemsInputButton.onClick = [this]() { stemsHandleClicked(true); };
     for (auto* handle : { &stemsButton, &stemsInputButton })
     {
         handle->setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
         handle->setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
-        addChildComponent(*handle);   // shown by updateStemsButtonState once stems can run
+        addChildComponent(*handle);   // shown by updateStemsButtonState once its waveform has audio
     }
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
@@ -2103,7 +2253,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // 2. Restore output audio state by checking file existence
     if (outputAudioFile.exists())
     {
-        loadOutputAudioFile();  // This sets hasOutputAudio = true
+        loadOutputAudioFile();  // This sets hasOutputAudio = true, and redraws the lanes' backdrop
         loadYueyScoreFromDisk();
         DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName());
     }
@@ -2196,6 +2346,8 @@ juce::MessageManager::callAsync([safeThis]()
 
 Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::beginGenerationAsyncWork() noexcept
 {
+    juce::ScopedLock lock(generationMetadataLock);
+    pendingGenerationMetadata = juce::var();
     return generationAsyncToken.fetch_add(1, std::memory_order_acq_rel) + 1;
 }
 
@@ -2382,7 +2534,12 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showJerry = (tab == ModelTab::Jerry);
 
     if (garyUI)
+    {
         garyUI->setVisibleForTab(showGary);
+
+        if (showGary)
+            fetchGaryAvailableModels();
+    }
 
     if (jerryUI)
     {
@@ -2391,9 +2548,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
         if (showJerry && jerrySubTab == JerrySubTab::SAOS)
         {
             fetchJerryAvailableModels();
-
-            if (!audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+            maybeFetchJerryPrompts();
         }
     }
 
@@ -2493,8 +2648,9 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 
     DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showYuey ? "Yuey" : (showTerry ? "Terry" : "Darius"))))));
 
-    // Force a complete relayout to position help icons correctly
-    resized();
+    // Force a complete relayout to position help icons correctly. The automation lanes panel
+    // shows only on the SA3 tab, so this can also resize the editor.
+    updateSA3LanePanel();
     repaint();
     persistEditorState();
 }
@@ -2612,6 +2768,7 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     {
         stemsButtonTimerTicks = 0;
         updateStemsButtonState();
+        refreshSavedBufferPreview();
     }
 
     // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
@@ -2661,6 +2818,10 @@ void Gary4juceAudioProcessorEditor::timerCallback()
     {
         checkPlaybackStatus();
     }
+
+    // The lanes' range follows the SA3 controls, and their cursor follows output playback.
+    if (sa3LanePanelShown())
+        updateSA3LaneTimeline();
 
     // Smooth progress animation for generation (every 50ms for smooth animation)
     if (isGenerating && smoothProgressAnimation)
@@ -2758,7 +2919,8 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     recordingProgress = audioProcessor.getRecordingProgress();
     recordedSamples = audioProcessor.getRecordedSamples();
 
-    const bool canAuditionInput = recordedSamples > 0 && !isRecording;
+    // The buffer's playback plays what is saved: what every model will read.
+    const bool canAuditionInput = hasSavedRecordingBuffer();
     playInputButton.setEnabled(canAuditionInput);
     stopInputButton.setEnabled(canAuditionInput);
 
@@ -2833,7 +2995,8 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     g.setColour(juce::Colour(0x40, 0x40, 0x40));
     g.drawRect(area, 1);
 
-    if (recordedSamples <= 0)
+    // A take that has just started has no samples yet, but its lane and label belong on screen.
+    if (recordedSamples <= 0 && !isRecording)
     {
         // Show "waiting" state with different message based on plugin mode
         g.setFont(juce::FontOptions(14.0f));
@@ -2872,149 +3035,71 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
 
     // Time calculations — zoom to fit: show 30s window until content exceeds it, then full buffer
     const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
-    const double savedDuration = juce::jmax(0.0, (double)savedSamples / currentSampleRate);
     const double totalDuration = getInputWaveformDisplayDuration();
 
-    // Pixel calculations with safety checks
-    const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
-    const int savedPixels = juce::jmax(0, juce::jmin(recordedPixels, (int)((savedDuration / totalDuration) * waveWidth)));
-
-    // Early exit if nothing to draw
-    if (recordedPixels <= 0)
-        return;
+    // Pixel calculations with safety checks. A recording shows from its first sample: with a long
+    // saved buffer the axis spans minutes, and a pixel can be most of a second.
+    const int recordedPixels = recordedSamples > 0
+        ? juce::jlimit(1, waveWidth, (int)((recordedDuration / totalDuration) * waveWidth))
+        : 0;
 
     // Safe samples per pixel calculation - avoid division by zero
     const int samplesPerPixel = (recordedPixels > 0) ? juce::jmax(1, recordedSamples / recordedPixels) : 1;
 
-    // Draw saved portion (solid red)
-    if (savedPixels > 0)
+    // The take: solid once it is what myBuffer.wav holds, faded while it is unsaved, which
+    // includes while it records. The saved buffer is drawn under an unsaved take.
+    const bool takeUnsaved = isRecording || audioProcessor.isRecordingUnsaved();
+    const auto takeColour = juce::Colours::red.withAlpha(takeUnsaved ? 0.45f : 1.0f);
+    const auto edgeColour = juce::Colours::red.withAlpha(takeUnsaved ? 0.25f : 0.6f);
+    const int numSamples = recordingBuffer.getNumSamples();
+    const int numChannels = recordingBuffer.getNumChannels();
+
+    for (int x = 0; x < recordedPixels; ++x)
     {
-        g.setColour(juce::Colours::red);
+        const int startSample = x * samplesPerPixel;
+        const int endSample = juce::jmin(startSample + samplesPerPixel, recordedSamples, numSamples);
+        if (endSample <= startSample)
+            continue;
 
-        for (int x = 0; x < savedPixels; ++x)
+        // Min and max of the channel average over this pixel's samples
+        float minVal = 0.0f, maxVal = 0.0f;
+        for (int sample = startSample; sample < endSample; ++sample)
         {
-            const int startSample = x * samplesPerPixel;
-            const int endSample = juce::jmin(startSample + samplesPerPixel, savedSamples);
+            float sampleValue = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                sampleValue += recordingBuffer.getSample(ch, sample);
+            sampleValue /= (float) numChannels;
 
-            if (endSample > startSample && startSample < recordingBuffer.getNumSamples())
-            {
-                // Find min/max in this pixel's worth of samples
-                float minVal = 0.0f, maxVal = 0.0f;
+            minVal = juce::jmin(minVal, sampleValue);
+            maxVal = juce::jmax(maxVal, sampleValue);
+        }
 
-                for (int sample = startSample; sample < endSample && sample < recordingBuffer.getNumSamples(); ++sample)
-                {
-                    // Average across channels safely
-                    float sampleValue = 0.0f;
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        sampleValue += recordingBuffer.getSample(ch, sample);
-                    }
-                    sampleValue /= recordingBuffer.getNumChannels();
+        const int minY = juce::jlimit(area.getY(), area.getBottom(), centerY - (int) (minVal * waveHeight * 0.4f));
+        const int maxY = juce::jlimit(area.getY(), area.getBottom(), centerY - (int) (maxVal * waveHeight * 0.4f));
+        const int drawX = area.getX() + 1 + x;
 
-                    minVal = juce::jmin(minVal, sampleValue);
-                    maxVal = juce::jmax(maxVal, sampleValue);
-                }
-
-                // Scale to display area with clamping
-                const int minY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(minVal * waveHeight * 0.4f));
-                const int maxY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(maxVal * waveHeight * 0.4f));
-
-                const int drawX = area.getX() + 1 + x;
-
-                // Draw thicker, smoother lines
-                if (maxY != minY)
-                {
-                    // Main line
-                    g.drawVerticalLine(drawX, (float)maxY, (float)minY);
-                    // Add thickness by drawing adjacent pixels with slight transparency
-                    if (x > 0) // Left side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.6f));
-                        g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red); // Reset for next iteration
-                    }
-                    if (x < savedPixels - 1) // Right side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.6f));
-                        g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red); // Reset for next iteration
-                    }
-                }
-                else
-                {
-                    // For silent parts, draw a thicker center line
-                    g.fillRect(drawX - 1, centerY - 1, 3, 2);
-                }
-            }
+        g.setColour(takeColour);
+        if (maxY != minY)
+        {
+            g.drawVerticalLine(drawX, (float) maxY, (float) minY);
+            // Thicken the line with fainter neighbours
+            g.setColour(edgeColour);
+            if (x > 0)
+                g.drawVerticalLine(drawX - 1, (float) maxY, (float) minY);
+            if (x < recordedPixels - 1)
+                g.drawVerticalLine(drawX + 1, (float) maxY, (float) minY);
+        }
+        else
+        {
+            // Silence: a thicker centre line
+            g.fillRect(drawX - 1, centerY - 1, 3, 2);
         }
     }
 
-    // Draw unsaved portion (semi-transparent red)
-    if (recordedPixels > savedPixels)
-    {
-        g.setColour(juce::Colours::red.withAlpha(0.5f));
-
-        for (int x = savedPixels; x < recordedPixels; ++x)
-        {
-            const int startSample = x * samplesPerPixel;
-            const int endSample = juce::jmin(startSample + samplesPerPixel, recordedSamples);
-
-            if (endSample > startSample && startSample < recordingBuffer.getNumSamples())
-            {
-                // Find min/max in this pixel's worth of samples
-                float minVal = 0.0f, maxVal = 0.0f;
-
-                for (int sample = startSample; sample < endSample && sample < recordingBuffer.getNumSamples(); ++sample)
-                {
-                    // Average across channels safely
-                    float sampleValue = 0.0f;
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        sampleValue += recordingBuffer.getSample(ch, sample);
-                    }
-                    sampleValue /= recordingBuffer.getNumChannels();
-
-                    minVal = juce::jmin(minVal, sampleValue);
-                    maxVal = juce::jmax(maxVal, sampleValue);
-                }
-
-                // Scale to display area with clamping
-                const int minY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(minVal * waveHeight * 0.4f));
-                const int maxY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(maxVal * waveHeight * 0.4f));
-
-                const int drawX = area.getX() + 1 + x;
-
-                // Draw thicker, smoother lines for unsaved portion
-                if (maxY != minY)
-                {
-                    // Main line
-                    g.drawVerticalLine(drawX, (float)maxY, (float)minY);
-                    // Add thickness by drawing adjacent pixels with slight transparency
-                    if (x > savedPixels) // Left side (don't overlap with saved portion)
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.3f)); // Even more transparent for thickness
-                        g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red.withAlpha(0.5f)); // Reset for next iteration
-                    }
-                    if (x < recordedPixels - 1) // Right side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.3f));
-                        g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red.withAlpha(0.5f)); // Reset for next iteration
-                    }
-                }
-                else
-                {
-                    // For silent parts, draw a thicker center line with transparency
-                    g.fillRect(drawX - 1, centerY - 1, 3, 2);
-                }
-            }
-        }
-    }
+    // While the take is unsaved, the saved buffer runs along the bottom: what every model and the
+    // buffer's own playback use.
+    const bool showSavedLane = takeUnsaved && !savedBufferPreview.peaks.empty();
+    const auto savedLane = showSavedLane ? getSavedBufferLaneBounds(area) : juce::Rectangle<int>();
 
     // Add recording indicator if currently recording
     if (isRecording && recordedPixels > 0)
@@ -3034,6 +3119,9 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         }
     }
 
+    if (showSavedLane)
+        drawSavedBufferLane(g, area, savedLane, totalDuration);
+
     // The input player uses the same white cursor treatment as the output
     // player, mapped to the input waveform's current time scale.
     if ((isPlayingInput || isPausedInput) && inputPlaybackDuration > 0.0)
@@ -3041,25 +3129,138 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
         const double progressPercent = juce::jlimit(0.0, 1.0,
             currentInputPlaybackPosition / totalDuration);
         const int cursorX = area.getX() + 1 + (int)(progressPercent * waveWidth);
+        // Playback is of the saved buffer, so its cursor runs on the saved lane when it shows.
+        const float cursorTop = showSavedLane ? (float) savedLane.getY() + 1 : (float) area.getY() + 1;
+        const float cursorBottom = showSavedLane ? (float) savedLane.getBottom() : (float) area.getBottom() - 1;
 
         g.setColour(juce::Colours::white.withAlpha(isPlayingInput ? 0.9f : 0.7f));
-        g.drawVerticalLine(cursorX, (float)area.getY() + 1, (float)area.getBottom() - 1);
+        g.drawVerticalLine(cursorX, cursorTop, cursorBottom);
         g.setColour(juce::Colours::white.withAlpha(0.3f));
         if (cursorX > area.getX() + 1)
-            g.drawVerticalLine(cursorX - 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+            g.drawVerticalLine(cursorX - 1, cursorTop, cursorBottom);
         if (cursorX < area.getRight() - 1)
-            g.drawVerticalLine(cursorX + 1, (float)area.getY() + 1, (float)area.getBottom() - 1);
+            g.drawVerticalLine(cursorX + 1, cursorTop, cursorBottom);
     }
 
-    // The same range editor is available in plugin and standalone builds.
-    if (recordedSamples > 0 && !isRecording)
+    // An unsaved take says so at the top left.
+    if (takeUnsaved)
     {
-        // Hint at the bottom left; the stems handle has the bottom right.
+        const juce::String label = savedBufferPreview.peaks.empty() ? "unsaved - save buffer to use it"
+                                                                    : "unsaved - models use the saved buffer below";
+        // Measured in the font it is drawn with (the look and feel's), clear of the folder icon.
+        g.setFont(juce::FontOptions(11.0f));
+        const int textWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), label)));
+        const int labelWidth = juce::jmin(area.getWidth() - 44, textWidth + 12);
+        const auto labelArea = juce::Rectangle<int>(area.getX() + 3, area.getY() + 3, labelWidth, 14);
+        g.setColour(juce::Colours::black.withAlpha(0.7f));
+        g.fillRect(labelArea);
+        g.setColour(juce::Colour(0xffef9f27));
+        g.drawText(label, labelArea.reduced(5, 0), juce::Justification::centredLeft, true);
+    }
+    // The same range editor is available in plugin and standalone builds. The saved lane takes
+    // the bottom left while it shows; the stems handle has the bottom right.
+    if (recordedSamples > 0 && !isRecording && !showSavedLane)
+    {
         g.setFont(juce::FontOptions(13.0f));
         g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
         auto hintArea = juce::Rectangle<int>(area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
         g.drawText("double-click to select range", hintArea, juce::Justification::centredLeft);
     }
+}
+
+// A compact lane along the bottom of the recording waveform, which stops short of the stems handle.
+juce::Rectangle<int> Gary4juceAudioProcessorEditor::getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const
+{
+    constexpr int laneHeight = 14;
+    const int right = area.getRight() - 1 - (stemsInputButton.isVisible() ? 58 : 2);
+    return { area.getX() + 1, area.getBottom() - 1 - laneHeight, juce::jmax(0, right - (area.getX() + 1)), laneHeight };
+}
+
+// The saved buffer in its lane, scaled to the waveform's own time axis so its length compares with
+// the take's at a glance.
+void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                        const juce::Rectangle<int>& lane, double totalDuration)
+{
+    const auto& peaks = savedBufferPreview.peaks;
+    if (peaks.empty() || totalDuration <= 0.0 || lane.isEmpty())
+        return;
+
+    g.setColour(juce::Colours::black.withAlpha(0.8f));
+    g.fillRect(lane);
+    g.setColour(juce::Colour(0x40, 0x40, 0x40));
+    g.drawHorizontalLine(lane.getY(), (float) lane.getX(), (float) lane.getRight());
+
+    const int waveWidth = juce::jmax(1, area.getWidth() - 2);
+    const double savedSpan = savedBufferPreview.seconds / totalDuration * waveWidth;
+    const int pixels = juce::jmin(lane.getWidth(), juce::roundToInt(savedSpan));
+    const float centre = (float) lane.getCentreY() + 0.5f;
+    const float halfHeight = (lane.getHeight() - 4) * 0.5f;
+    g.setColour(juce::Colours::red.withAlpha(0.85f));
+    for (int x = 0; x < pixels; ++x)
+    {
+        const auto column = (size_t) juce::jmin((double) peaks.size() - 1.0,
+                                                x * (double) peaks.size() / juce::jmax(1.0, savedSpan));
+        const float half = juce::jmax(0.5f, juce::jmin(1.0f, peaks[column]) * halfHeight);
+        g.drawVerticalLine(lane.getX() + x, centre - half, centre + half);
+    }
+}
+
+// Keep the saved lane's waveform in step with myBuffer.wav, reading it again in the background
+// whenever the file changes.
+void Gary4juceAudioProcessorEditor::refreshSavedBufferPreview()
+{
+    const auto file = getGaryBufferFile();
+    const bool exists = file.existsAsFile();
+    const auto modified = exists ? file.getLastModificationTime() : juce::Time();
+    const auto size = exists ? file.getSize() : (juce::int64) 0;
+    if (file.getFullPathName() == savedBufferPreview.path && modified == savedBufferPreview.modified
+        && size == savedBufferPreview.size)
+        return;
+
+    if (!exists)
+    {
+        savedBufferPreview = { file.getFullPathName(), modified, size, 0.0, {} };
+        repaint(waveformArea);
+        return;
+    }
+    if (savedBufferPreviewLoading.exchange(true))
+        return;
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis, file, modified, size]()
+    {
+        SavedBufferPreview preview { file.getFullPathName(), modified, size, 0.0, {} };
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
+        {
+            const juce::int64 length = reader->lengthInSamples;
+            if (reader->sampleRate > 0.0 && length > 0)
+            {
+                constexpr int kColumns = 1024;
+                preview.seconds = (double) length / reader->sampleRate;
+                preview.peaks.resize(kColumns, 0.0f);
+                const juce::int64 perColumn = juce::jmax<juce::int64>(1, length / kColumns);
+                const int channels = (int) juce::jmin(reader->numChannels, 2u);
+                for (int column = 0; column < kColumns && column * perColumn < length; ++column)
+                {
+                    juce::Range<float> levels[2];
+                    reader->readMaxLevels(column * perColumn, perColumn, levels, channels);
+                    for (int ch = 0; ch < channels; ++ch)
+                        preview.peaks[(size_t) column] = juce::jmax(preview.peaks[(size_t) column],
+                            std::abs(levels[ch].getStart()), std::abs(levels[ch].getEnd()));
+                }
+            }
+        }
+        juce::MessageManager::callAsync([safeThis, preview = std::move(preview)]() mutable
+        {
+            if (safeThis == nullptr)
+                return;
+            safeThis->savedBufferPreview = std::move(preview);
+            safeThis->savedBufferPreviewLoading.store(false);
+            safeThis->repaint(safeThis->waveformArea);
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
@@ -3760,7 +3961,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     if (terryUI)
                         terryUI->setTransformButtonText("transform with terry");
                     showStatusMessage("transform complete!", 3000);
-                    saveGeneratedAudio(audioData);
+                    saveGeneratedAudio(audioData, responseVar);
                     DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
 
                     // Enable undo button now that transform is complete
@@ -3783,7 +3984,7 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                                       : "audio generation complete!", 3000);
                     audioProcessor.setUndoTransformAvailable(false);
                     audioProcessor.setRetryAvailable(true);
-                    const bool savedOutput = saveGeneratedAudio(audioData);
+                    const bool savedOutput = saveGeneratedAudio(audioData, responseVar);
                     if (isYueyOp && savedOutput)
                     {
                         reportYueyWarnings(responseObj);
@@ -4032,7 +4233,8 @@ bool decodeFlacToWav(const juce::MemoryBlock& flac, juce::MemoryBlock& wav)
 }
 }
 
-bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
+bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio,
+    const juce::var& response, const juce::var& restoredMetadata)
 {
     try
     {
@@ -4055,6 +4257,13 @@ bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
             return false;
         }
         const juce::MemoryBlock& audioData = isFlac ? wavFromFlac : received;
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> validated(formats.createReaderFor(
+            std::make_unique<juce::MemoryInputStream>(audioData, false)));
+        if (validated == nullptr || validated->lengthInSamples <= 0
+            || validated->numChannels == 0 || validated->sampleRate <= 0.0)
+            return false; // A corrupt response must not replace the previous output.
 
         if (!ensureGaryDataDirectoryAvailable())
             return false;
@@ -4082,6 +4291,7 @@ bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
             // Load the audio file into our buffer for waveform display
             loadOutputAudioFile();
+            commitGenerationMetadata(response, restoredMetadata);
 
             // Reset button text after successful generation
             if (garyUI)
@@ -4239,6 +4449,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         if (isLocalhostRequest)
             jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "generate", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         // Debug: Log the JSON structure (not content due to size)
@@ -4294,11 +4505,13 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode, startTime]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Gary callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelGaryOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -4333,7 +4546,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                         // The backend echoes the seed it actually ran, whether
                         // we asked for one or let it choose.
                         if (responseObj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", responseObj->getProperty("seed").toString());
                             safeThis->setGaryLastSeed(responseObj->getProperty("seed").toString());
+                        }
 
                         // START POLLING FOR RESULTS
                         safeThis->startPollingForResults(sessionId);
@@ -4516,6 +4732,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         if (isLocalhostRequest)
             jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "continue", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
@@ -4568,11 +4785,13 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Continue callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelContinueOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -4598,7 +4817,10 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                         // The backend echoes the seed it actually ran, whether
                         // we asked for one or let it choose.
                         if (obj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", obj->getProperty("seed").toString());
                             safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
+                        }
 
                         // Start polling for results (will replace current output audio when complete)
                         safeThis->startPollingForResults(sessionId);
@@ -4765,6 +4987,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         if (isLocalhostRequest)
             jsonRequest->setProperty("quantization_mode", capturedQuantizationMode);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "retry", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Retry JSON payload: " + jsonString);
@@ -4802,11 +5025,13 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Retry callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelRetryOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -4830,7 +5055,10 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                         // The backend echoes the seed it actually ran, whether
                         // we asked for one or let it choose.
                         if (obj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", obj->getProperty("seed").toString());
                             safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
+                        }
 
                         // Start polling for results (will replace current output when complete)
                         safeThis->startPollingForResults(newSessionId);
@@ -4992,8 +5220,16 @@ void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
 
 void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String& responseText)
 {
+    // Refetched on every health poll while the tab is open; rebuild only on a change.
+    if (responseText.isNotEmpty() && responseText == lastGaryModelsResponse)
+        return;
+
     if (responseText.isEmpty())
     {
+        // A refetch that missed keeps the list the server last gave.
+        if (lastGaryModelsResponse.isNotEmpty())
+            return;
+
         DBG("Empty Gary models response - using fallback");
         showStatusMessage("failed to load gary models", 3000);
 
@@ -5013,6 +5249,8 @@ void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String&
 
         return;
     }
+
+    lastGaryModelsResponse = responseText;
 
     try
     {
@@ -6202,12 +6440,17 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
 
     // Build the URL with request_id included
     juce::URL url = makeGenerateURL(reqId);
+    const auto generationToken = beginGenerationAsyncWork();
+    auto metadataRequest = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    for (int i = 0; i < url.getParameterNames().size(); ++i)
+        metadataRequest->setProperty(url.getParameterNames()[i], url.getParameterValues()[i]);
+    captureGenerationRequest(generationToken, "darius", "generate", juce::var(metadataRequest.get()));
 
     // Fire the POST on a worker thread
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
-    juce::Thread::launch([asyncAlive, editor, url]()
+    juce::Thread::launch([asyncAlive, editor, generationToken, url]()
         {
             juce::String responseText;
             int statusCode = 0;
@@ -6231,12 +6474,13 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
                 DBG("generate exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, statusCode]()
                 {
                     const auto alive = asyncAlive.lock();
                     if (alive == nullptr || !alive->load(std::memory_order_acquire))
                         return;
 
+                    if (!editor->isGenerationAsyncWorkCurrent(generationToken)) return;
                     editor->handleDariusGenerateResponse(responseText, statusCode);
                 });
         });
@@ -6292,7 +6536,7 @@ void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::Str
     }
 
     // success
-    saveGeneratedAudio(audio64);
+    saveGeneratedAudio(audio64, parsed);
     generationProgress = 100;               // snap to full
     showStatusMessage("Generated!", 1500);
     finish();
@@ -6598,6 +6842,7 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
         updateSA3EnablementSnapshot();
+        updateSA3LaneBackdrop();
         return;
     }
 
@@ -6633,11 +6878,13 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         updatePlayButtonIcon();
 
         hasOutputAudio = true;
+        currentOutputGenerationMetadata = loadOutputGenerationMetadata();
         updateYueyScoreOverlayState();
         playOutputButton.setEnabled(true);
         stopOutputButton.setEnabled(true);
         clearOutputButton.setEnabled(true);
         cropButton.setEnabled(true);
+        updateSA3LaneBackdrop();
 
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
@@ -7055,17 +7302,39 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     }
 }
 
+// The recording buffer's player plays the saved buffer (myBuffer.wav), what every model reads; a
+// take you just recorded is one you just heard.
+bool Gary4juceAudioProcessorEditor::loadSavedBufferForInputPlayback()
+{
+    const auto file = getGaryBufferFile();
+    audioProcessor.loadOutputAudioForPlayback(file);
+    inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
+    if (inputPlaybackDuration <= 0.0)
+        return false;
+    activePlaybackSource = PlaybackSource::Input;
+    inputPlaybackSnapshotSamples = juce::jmax(1, savedSamples);
+    inputPlaybackFileTime = file.getLastModificationTime();
+    isPlayingInput = false;
+    isPausedInput = false;
+    return true;
+}
+
+bool Gary4juceAudioProcessorEditor::inputPlaybackIsCurrent() const
+{
+    return activePlaybackSource == PlaybackSource::Input && inputPlaybackSnapshotSamples > 0
+        && inputPlaybackFileTime == getGaryBufferFile().getLastModificationTime();
+}
+
 void Gary4juceAudioProcessorEditor::playInputAudio()
 {
-    if (recordedSamples <= 0 || isRecording)
+    if (!hasSavedRecordingBuffer())
     {
         showStatusMessage(isRecording ? "stop recording before playing the buffer"
-                                      : "no recording buffer to play");
+                                      : "save the buffer to play it");
         return;
     }
 
-    const bool needsFreshSnapshot = activePlaybackSource != PlaybackSource::Input
-        || inputPlaybackSnapshotSamples != recordedSamples;
+    const bool needsFreshSnapshot = !inputPlaybackIsCurrent();
 
     if (needsFreshSnapshot)
     {
@@ -7077,18 +7346,12 @@ void Gary4juceAudioProcessorEditor::playInputAudio()
         pausedPosition = 0.0;
         updatePlayButtonIcon();
 
-        if (!audioProcessor.loadRecordingAudioForPlayback())
+        if (!loadSavedBufferForInputPlayback())
         {
-            showStatusMessage("could not load recording buffer for playback");
+            showStatusMessage("could not load the saved buffer for playback");
             activePlaybackSource = PlaybackSource::None;
             return;
         }
-
-        activePlaybackSource = PlaybackSource::Input;
-        inputPlaybackSnapshotSamples = recordedSamples;
-        inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
-        isPlayingInput = false;
-        isPausedInput = false;
         currentInputPlaybackPosition = 0.0;
     }
 
@@ -7117,7 +7380,7 @@ void Gary4juceAudioProcessorEditor::playInputAudio()
         isPausedInput = false;
         currentInputPlaybackPosition = 0.0;
         updateInputPlayButtonIcon();
-        showStatusMessage("playing recording buffer...", 2000);
+        showStatusMessage("playing saved buffer...", 2000);
     }
 }
 
@@ -7194,12 +7457,10 @@ bool Gary4juceAudioProcessorEditor::validateAudioDurationForModel(const juce::Fi
 
 void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
 {
-    if (recordedSamples <= 0 || isRecording)
+    if (!hasSavedRecordingBuffer())
         return;
 
-    const bool needsFreshSnapshot = activePlaybackSource != PlaybackSource::Input
-        || inputPlaybackSnapshotSamples != recordedSamples;
-    if (needsFreshSnapshot)
+    if (!inputPlaybackIsCurrent())
     {
         audioProcessor.stopOutputPlayback();
         isPlayingOutput = false;
@@ -7208,14 +7469,8 @@ void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
         pausedPosition = 0.0;
         updatePlayButtonIcon();
 
-        if (!audioProcessor.loadRecordingAudioForPlayback())
+        if (!loadSavedBufferForInputPlayback())
             return;
-
-        activePlaybackSource = PlaybackSource::Input;
-        inputPlaybackSnapshotSamples = recordedSamples;
-        inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
-        isPlayingInput = false;
-        isPausedInput = false;
     }
 
     const bool keepPlaying = isPlayingInput && audioProcessor.getIsPlayingOutput();
@@ -7356,6 +7611,8 @@ void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 
 void Gary4juceAudioProcessorEditor::clearOutputAudio()
 {
+    currentOutputGenerationMetadata = juce::var();
+    getGaryOutputFile().withFileExtension(".metadata.json").deleteFile();
     if (activePlaybackSource == PlaybackSource::Output)
     {
         stopOutputPlayback();
@@ -7598,6 +7855,7 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
         showStatusMessage("failed to load output audio", 3000);
         return;
     }
+    const auto selectedSourceMetadata = loadOutputGenerationMetadata();
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(dialog);
@@ -7614,7 +7872,7 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
-    dialog->onConfirm = [asyncAlive, editor, dialogWindow](
+    dialog->onConfirm = [asyncAlive, editor, dialogWindow, selectedSourceMetadata](
         const juce::AudioBuffer<float>& selectedBuffer,
         double sourceSampleRate,
         double selectionStartTime) mutable
@@ -7632,6 +7890,8 @@ void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
             return;
         }
 
+        editor->persistOutputGenerationMetadata(generation_metadata::cropped(selectedSourceMetadata,
+            selectionStartTime, selectedBuffer.getNumSamples() / juce::jmax(1.0, sourceSampleRate)));
         editor->loadOutputAudioFile();
         editor->markYueyScoreUnaligned();
         editor->audioProcessor.clearCurrentSessionId();
@@ -7719,6 +7979,62 @@ void Gary4juceAudioProcessorEditor::filesDropped(const juce::StringArray& files,
     loadAudioFileIntoBuffer(juce::File(files[0]));
 }
 
+// The whole of `reader`'s audio, resampled to the host's rate when it differs.
+bool Gary4juceAudioProcessorEditor::readAudioAtHostRate(juce::AudioFormatReader& reader,
+                                                        juce::AudioBuffer<float>& buffer) const
+{
+    const int channels = (int) reader.numChannels;
+    const int length = (int) reader.lengthInSamples;
+    buffer.setSize(channels, length);
+    if (!reader.read(&buffer, 0, length, 0, true, true))
+        return false;
+
+    const double fileSampleRate = reader.sampleRate;
+    const double hostSampleRate = audioProcessor.getCurrentSampleRate();
+    if (std::abs(fileSampleRate - hostSampleRate) <= 1.0)
+        return true;
+
+    DBG("Resampling from " + juce::String(fileSampleRate) + "Hz to " + juce::String(hostSampleRate) + "Hz");
+    const int resampledLength = (int) ((double) length * hostSampleRate / fileSampleRate);
+    juce::AudioBuffer<float> resampled(channels, resampledLength);
+    for (int channel = 0; channel < channels; ++channel)
+    {
+        juce::LagrangeInterpolator interpolator;
+        interpolator.reset();
+        interpolator.process(fileSampleRate / hostSampleRate, buffer.getReadPointer(channel),
+                             resampled.getWritePointer(channel), resampledLength, length, 0);
+    }
+    buffer = std::move(resampled);
+    return true;
+}
+
+// A plugin that opens with nothing recorded shows the saved buffer, which is what its tools read:
+// myBuffer.wav loaded into the recording buffer, saved as it is.
+void Gary4juceAudioProcessorEditor::restoreSavedBufferIntoRecording()
+{
+    if (audioProcessor.isRecording() || audioProcessor.getRecordedSamples() > 0)
+        return;
+
+    const auto file = getGaryBufferFile();
+    if (!file.existsAsFile())
+        return;
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0 || reader->numChannels > 2
+        || (double) reader->lengthInSamples / reader->sampleRate > Gary4juceAudioProcessor::kMaximumImportedAudioSeconds)
+        return;
+
+    juce::AudioBuffer<float> buffer;
+    if (!readAudioAtHostRate(*reader, buffer) || !audioProcessor.loadAudioIntoRecordingBuffer(buffer))
+        return;
+
+    audioProcessor.markRecordingSaved(buffer.getNumSamples());
+    savedSamples = audioProcessor.getSavedSamples();
+    DBG("Opened with the saved buffer: " + juce::String(buffer.getNumSamples()) + " samples");
+}
+
 void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog)
 try
 {
@@ -7772,52 +8088,11 @@ try
         // File is short enough - load directly
         DBG("File ≤" + juce::String(directLoadLimit, 0) + "s - loading directly into buffer");
 
-        // Read entire file into temp buffer
-        juce::AudioBuffer<float> tempBuffer((int)reader->numChannels, (int)reader->lengthInSamples);
-        if (!reader->read(&tempBuffer, 0, (int)reader->lengthInSamples, 0, true, true))
+        juce::AudioBuffer<float> tempBuffer;
+        if (!readAudioAtHostRate(*reader, tempBuffer))
         {
             showStatusMessage("couldn't decode audio file", 5000);
             return;
-        }
-
-        // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
-        double fileSampleRate = reader->sampleRate;
-        double hostSampleRate = audioProcessor.getCurrentSampleRate();
-
-        if (std::abs(fileSampleRate - hostSampleRate) > 1.0)  // Different sample rates
-        {
-            DBG("Resampling from " + juce::String(fileSampleRate) +
-                "Hz to " + juce::String(hostSampleRate) + "Hz");
-
-            // Calculate resampled size
-            double sizeRatio = hostSampleRate / fileSampleRate;
-            int resampledNumSamples = (int)((double)tempBuffer.getNumSamples() * sizeRatio);
-            double speedRatio = fileSampleRate / hostSampleRate;
-
-            // Create resampled buffer
-            juce::AudioBuffer<float> resampledBuffer((int)reader->numChannels, resampledNumSamples);
-
-            // Resample each channel
-            for (int channel = 0; channel < (int)reader->numChannels; ++channel)
-            {
-                juce::LagrangeInterpolator interpolator;
-                interpolator.reset();
-
-                const float* readPtr = tempBuffer.getReadPointer(channel);
-                float* writePtr = resampledBuffer.getWritePointer(channel);
-
-                interpolator.process(
-                    speedRatio,
-                    readPtr,
-                    writePtr,
-                    resampledNumSamples,
-                    tempBuffer.getNumSamples(),
-                    0
-                );
-            }
-
-            // Use resampled buffer
-            tempBuffer = std::move(resampledBuffer);
         }
 
         // Load into processor's recording buffer
@@ -8156,7 +8431,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         // Create a unique filename with timestamp for the drag
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
         auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
-        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName).getNonexistentSibling(false);
 
         // SAFETY: More robust file copy with validation
         if (!outputAudioFile.existsAsFile())
@@ -8183,6 +8458,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         {
             DBG("Copy validation failed");
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
             isDragInProgress.store(false);
             return;
         }
@@ -8245,6 +8521,7 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         {
             juce::ScopedLock lock(fileLock);
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
         }
         catch (...)
         {
@@ -8288,7 +8565,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         // Create unique filename with timestamp
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
         auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
-        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName).getNonexistentSibling(false);
 
         if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
@@ -8302,6 +8579,7 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
             postDragFailure("drag failed - copy verification failed");
             return { false, juce::File{} };
         }
@@ -8351,6 +8629,7 @@ bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragF
         DBG("Failed to start drag operation");
         showStatusMessage("drag failed - try again", 2000);
         dragFile.deleteFile();
+        dragFile.withFileExtension(".json").deleteFile();
         return false;
     }
 
@@ -8474,6 +8753,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     // Create a COPY of the file path to avoid any reference issues
     juce::File sourceFile = outputAudioFile;
+    const auto sourceMetadata = loadOutputGenerationMetadata();
 
     DBG("Reading source file: " + sourceFile.getFullPathName());
     DBG("File exists: " + juce::String(sourceFile.exists() ? "yes" : "no"));
@@ -8604,6 +8884,8 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     DBG("Moved temp file to original location");
     DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
 
+    persistOutputGenerationMetadata(generation_metadata::cropped(sourceMetadata, 0.0,
+        samplesToKeep / reader->sampleRate));
     // Reload the cropped audio (this will update currentAudioSampleRate)
     loadOutputAudioFile();
 
@@ -8808,14 +9090,16 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         double savedSeconds = (double)savedSamples / currentSampleRate;
 
         juce::String infoText;
-        if (savedSamples < recordedSamples)
+        if (isRecording || audioProcessor.isRecordingUnsaved())
         {
-            infoText = juce::String::formatted("%.1fs recorded (%.1fs saved) - %d samples",
-                recordedSeconds, savedSeconds, recordedSamples);
+            const double savedBufferSeconds = savedBufferPreview.peaks.empty() ? savedSeconds : savedBufferPreview.seconds;
+            infoText = savedBufferSeconds > 0.0
+                ? juce::String::formatted("%.1fs - unsaved (saved buffer %.1fs)", recordedSeconds, savedBufferSeconds)
+                : juce::String::formatted("%.1fs - unsaved", recordedSeconds);
         }
         else
         {
-            infoText = juce::String::formatted("%.1fs - %d samples - Saved",
+            infoText = juce::String::formatted("%.1fs - %d samples - saved",
                 recordedSeconds, recordedSamples);
         }
 
@@ -8882,15 +9166,18 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
         auto bounds = button.getBounds().toFloat();
         const bool lit = button.isOver() || button.isDown();
+        // Dimmed while it cannot run: stems before setup (a click opens its settings) or during a
+        // generation (disabled). Its tooltip says why.
+        const bool enabled = button.isEnabled() && !(bool) button.getProperties()["needsSetup"];
 
         g.setColour(juce::Colours::black.withAlpha(0.6f));
         g.fillRoundedRectangle(bounds, 3.0f);
         g.setColour(lit ? juce::Colours::orange.withAlpha(0.85f)
-                        : juce::Colours::white.withAlpha(0.35f));
+                        : juce::Colours::white.withAlpha(enabled ? 0.35f : 0.15f));
         g.drawRoundedRectangle(bounds, 3.0f, 1.0f);
 
         g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        g.setColour(lit ? juce::Colours::orange : juce::Colours::white.withAlpha(0.85f));
+        g.setColour(lit ? juce::Colours::orange : juce::Colours::white.withAlpha(enabled ? 0.85f : 0.3f));
         g.drawText(text, button.getBounds(), juce::Justification::centred);
     };
 
@@ -8905,7 +9192,16 @@ void Gary4juceAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
 
-    if (editorLayoutMode == EditorLayoutMode::Wide)
+    // Automation lanes take a column on the right; the layouts keep their size beside it.
+    const bool lanesShown = sa3LanePanelShown();
+    if (sa3LaneEditor != nullptr)
+    {
+        sa3LaneEditor->setVisible(lanesShown);
+        if (lanesShown)
+            sa3LaneEditor->setBounds(bounds.removeFromRight(kSA3LanePanelWidth).reduced(6, 10));
+    }
+
+    if (usingWideLayout())
     {
         auto leftColumn = bounds.removeFromLeft(kWideLeftColumnWidth);
         bounds.removeFromLeft(kWideColumnGap);
@@ -9098,7 +9394,7 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
     // ========== TAB AREA ==========
     auto tabSectionBounds = sectionBounds.reduced(20, 10);
 
-    if (editorLayoutMode == EditorLayoutMode::Wide)
+    if (usingWideLayout())
     {
         int preferredHeight = tabSectionBounds.getHeight();
 
@@ -9120,8 +9416,10 @@ void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sect
                 switch (careyUI->getCurrentSubTab())
                 {
                 case CareyUI::SubTab::Lego:     advancedOpen = careyUI->getLegoAdvancedOpen(); break;
-                case CareyUI::SubTab::Complete: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
+                case CareyUI::SubTab::Continue:
+                case CareyUI::SubTab::Generate: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
                 case CareyUI::SubTab::Cover:    advancedOpen = careyUI->getCoverAdvancedOpen(); break;
+                case CareyUI::SubTab::Complete: advancedOpen = careyUI->getArrangeAdvancedOpen(); break;
                 case CareyUI::SubTab::Extract:  advancedOpen = careyUI->getExtractAdvancedOpen(); break;
                 }
             }

@@ -424,6 +424,7 @@ void Gary4juceAudioProcessor::startRecording()
     deferredRecordingSamples = 0;
     deferredRecordingOverflowed = false;
     atomicRecordedSamples = 0;
+    recordingUnsaved = true;
     recording = true;
     atomicRecording = true;
 }
@@ -471,6 +472,7 @@ void Gary4juceAudioProcessor::applyPendingRecordingStateFromAudioThread(int tota
         bufferWritePosition = 0;
         recordedSamples = 0;
         atomicRecordedSamples.store(0, std::memory_order_release);
+        recordingUnsaved.store(true, std::memory_order_release);
         recording = true;
         atomicRecording.store(true, std::memory_order_release);
     }
@@ -604,6 +606,7 @@ void Gary4juceAudioProcessor::clearRecordingBuffer()
     
     // CRITICAL: Clear saved samples too
     savedSamples = 0;
+    recordingUnsaved = false;
     
     DBG("Recording buffer cleared and saved samples reset");
 }
@@ -737,6 +740,7 @@ bool Gary4juceAudioProcessor::saveRecordingToFile(const juce::File& file)
     }
 
     savedSamples = snapshotSamples;
+    recordingUnsaved = false;
     DBG("Successfully saved and stored " + juce::String(snapshotSamples) + " samples in processor");
 
     DBG("Final file size: " + juce::String(file.getSize()) + " bytes");
@@ -784,6 +788,7 @@ bool Gary4juceAudioProcessor::loadAudioIntoRecordingBuffer(const juce::AudioBuff
     recordedSamples = samplesToCopy;
     atomicRecordedSamples = samplesToCopy;
     savedSamples = 0;   // the new buffer is saved only after its file is successfully replaced
+    recordingUnsaved = true;
 
     DBG("Loaded " + juce::String(samplesToCopy) + " samples into recording buffer from dropped file");
     return true;

@@ -68,6 +68,19 @@ $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 & "$vs\MSBuild\Current\Bin\amd64\MSBuild.exe" Builds\VisualStudio2022\gary4juce.sln /t:Rebuild /p:Configuration=Release /p:Platform=x64 /m
 ```
 
+**Run the packaging scripts with PowerShell 7 (`pwsh`),** not Windows
+PowerShell 5.1 (`powershell.exe`). JUCE writes `moduleinfo.json` with trailing
+commas, which 5.1's `ConvertFrom-Json` rejects with "Invalid JSON primitive";
+7 parses it. The `.release/package-*.ps1` scripts start with
+`#Requires -Version 7.0`, so 5.1 refuses them before they stage anything. Keep
+that line when copying a script forward. 5.1 also lacks `&&`, `||` and `?:`, and
+wraps a native command's stderr as an error when it is redirected with `2>&1`.
+Install 7 with `winget install --id Microsoft.PowerShell --source winget`.
+
+```powershell
+pwsh -NoProfile -File .release\package-vX.Y.Z.ps1
+```
+
 Stage the bundle from:
 
 ```text

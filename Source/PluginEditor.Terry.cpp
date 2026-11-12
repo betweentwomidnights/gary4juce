@@ -8,6 +8,7 @@
 */
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Utils/GenerationMetadata.h"
 #include "PluginEditorTerryHelpers.h"
 
 using plugin_editor_detail::getTerryVariationNames;
@@ -39,6 +40,7 @@ void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
 
 void Gary4juceAudioProcessorEditor::setTerryLastSeed(const juce::String& seed)
 {
+    noteGenerationSeed("terry", seed);
     const auto trimmed = seed.trim();
     if (trimmed.isEmpty())
         return;
@@ -220,6 +222,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
     DBG("Terry seed: " + (requestSeed >= 0 ? juce::String(requestSeed) : juce::String("random")));
     const juce::URL requestUrl(getServiceUrl(ServiceType::Terry, "/api/juce/transform_audio"));
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    terrySourceGenerationMetadata = transformRecording ? juce::var() : loadOutputGenerationMetadata();
     const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as Gary and Jerry)
@@ -260,6 +263,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
             DBG("Terry fallback to default variation");
         }
 
+        const auto metadataSnapshot = generation_metadata::snapshot("terry", "transform", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Terry JSON payload size: " + juce::String(jsonString.length()) + " characters");
@@ -312,11 +316,13 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
         }
 
         // Handle response on main thread (same pattern as Gary)
-        juce::MessageManager::callAsync([safeThis, generationToken, responseText, statusCode, startTime]() {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode, startTime]() {
             if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Terry callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
 
             auto cancelTerryOperation = [safeThis]() {
                 safeThis->isGenerating = false;
@@ -451,9 +457,11 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
     if (terryUI)
         terryUI->setUndoButtonText("undoing...");
 
+    const auto restoredMetadata = loadOutputGenerationMetadata().getProperty("source_render", {});
+    const auto generationToken = beginGenerationAsyncWork();
     // Create HTTP request in background thread
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
-    juce::Thread::launch([safeThis, sessionId]() {
+    juce::Thread::launch([safeThis, sessionId, generationToken, restoredMetadata]() {
         // REMOVED: Don't check isGenerating for undo operations!
         // Undo operations are not generation operations and should proceed regardless
         // if (!isGenerating) {
@@ -471,7 +479,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
 
         DBG("Terry undo JSON payload: " + jsonString);
 
-        if (safeThis == nullptr)
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
         {
             DBG("Undo Terry request aborted - editor destroyed");
             return;
@@ -526,8 +534,8 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([safeThis, responseText, statusCode]() {
-            if (safeThis == nullptr)
+        juce::MessageManager::callAsync([safeThis, responseText, statusCode, generationToken, restoredMetadata]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
             {
                 DBG("Undo Terry callback aborted");
                 return;
@@ -555,7 +563,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                         if (audioData.isNotEmpty())
                         {
                             // Save the restored audio
-                            safeThis->saveGeneratedAudio(audioData);
+                            safeThis->saveGeneratedAudio(audioData, responseVar, restoredMetadata);
                             safeThis->showStatusMessage("transform undone - audio restored.", 3000);
                             DBG("Terry undo successful - audio restored");
 

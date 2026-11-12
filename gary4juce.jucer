@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.0"
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.4"
               useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
               companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
               defines="ASIO_STANDALONE" companyCopyright="Copyright (C) 2025-2026 Kevin Griffing">
@@ -62,8 +62,7 @@
         <FILE id="fndUI0" name="FoundationUI.h" compile="0" resource="0" file="Source/Components/Foundation/FoundationUI.h"/>
       </GROUP>
       <GROUP id="{6B1E5C2A-8F3D-4E7B-9A21-5C0D7E8F9A31}" name="Stems">
-        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0"
-              file="Source/Components/Stems/StemsDialog.cpp"/>
+        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0" file="Source/Components/Stems/StemsDialog.cpp"/>
         <FILE id="StDlg0" name="StemsDialog.h" compile="0" resource="0" file="Source/Components/Stems/StemsDialog.h"/>
         <FILE id="StSet1" name="StemsSettings.cpp" compile="1" resource="0"
               file="Source/Components/Stems/StemsSettings.cpp"/>
@@ -78,6 +77,11 @@
               file="Source/Components/Jerry/InstrumentPrompts.h"/>
         <FILE id="SA3UI1" name="SA3UI.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3UI.cpp"/>
         <FILE id="SA3UI0" name="SA3UI.h" compile="0" resource="0" file="Source/Components/Jerry/SA3UI.h"/>
+        <FILE id="SA3LnM" name="SA3LaneModel.h" compile="0" resource="0" file="Source/Components/Jerry/SA3LaneModel.h"/>
+        <FILE id="SA3Ln1" name="SA3Lanes.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3Lanes.cpp"/>
+        <FILE id="SA3Ln0" name="SA3Lanes.h" compile="0" resource="0" file="Source/Components/Jerry/SA3Lanes.h"/>
+        <FILE id="SA3LE1" name="SA3LaneEditor.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3LaneEditor.cpp"/>
+        <FILE id="SA3LE0" name="SA3LaneEditor.h" compile="0" resource="0" file="Source/Components/Jerry/SA3LaneEditor.h"/>
         <FILE id="YwJazQ" name="JerryUI.cpp" compile="1" resource="0" file="Source/Components/Jerry/JerryUI.cpp"/>
         <FILE id="SHFQj0" name="JerryUI.h" compile="0" resource="0" file="Source/Components/Jerry/JerryUI.h"/>
         <FILE id="PrHlpr" name="PromptHelpers.h" compile="0" resource="0" file="Source/Components/Jerry/PromptHelpers.h"/>
@@ -126,8 +130,10 @@
         <FILE id="YmScr0" name="YueyMidiScore.h" compile="0" resource="0" file="Source/Yuey/YueyMidiScore.h"/>
         <FILE id="YmImp1" name="YueyMidiImport.cpp" compile="1" resource="0"
               file="Source/Yuey/YueyMidiImport.cpp"/>
-        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0" file="Source/Yuey/YueyMidiImport.h"/>
-        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0" file="Source/Yuey/YueyScoreTempo.h"/>
+        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0"
+              file="Source/Yuey/YueyMidiImport.h"/>
+        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0"
+              file="Source/Yuey/YueyScoreTempo.h"/>
       </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"
@@ -140,6 +146,7 @@
             file="Source/PluginEditorTextHelpers.h"/>
     </GROUP>
     <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
+      <FILE id="genMeta" name="GenerationMetadata.h" compile="0" resource="0" file="Source/Utils/GenerationMetadata.h"/>
       <FILE id="lx8qMz" name="BarTrim.h" compile="0" resource="0" file="Source/Utils/BarTrim.h"/>
       <FILE id="WYW43J" name="CustomLookAndFeel.cpp" compile="1" resource="0"
             file="Source/Utils/CustomLookAndFeel.cpp"/>

@@ -3,6 +3,143 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.4 - SA3 LoRA automation lanes
+
+SA3 has an automation panel beside the editor, with a lane for each active
+LoRA. draw how strongly each LoRA acts across the output, snap points to the
+beat, half bar or bar, and give each lane its own prompt. its dice draw from
+that LoRA's own prompt pool. a drawn curve replaces the fixed strength slider.
+
+the blend slider has four stops from smooth to responsive, changing how many
+denoising steps the lanes share. generate, transform and continue all send the
+curves; continuations read them from where the source audio ends. the panel
+follows output playback, and its curves, prompts, snap and blend settings
+are saved with the editor state. the window widens while it is open and uses
+the compact layout if the wide layout and panel would not fit on screen.
+
+a backend must report lane support. local SA3 also needs gary4local v0.7.1,
+whose adapter forwards the curves, and sa3.cpp v0.2.3. older runtimes are
+refused rather than silently ignoring automation; the capability check runs
+again when the local server changes. update gary4local and press
+`update all runtimes` before using lanes on localhost.
+
+## v5.0.3 - generation details
+
+gary's model dropdown stays current as local models are downloaded or removed.
+
+audio storage has an optional generation-details setting. dragged audio keeps
+its timestamped filename, with a matching JSON file for the model, seed, prompt
+and request settings. those details come from the render that actually reached
+disk, not whichever controls are showing when you drag. crops retain the source
+render's details and record the retained range; Terry's undo restores the source
+provenance when it's known. WAV and FLAC exports both carry the sidecar.
+
+first handed to Kostas as a Windows preview alongside gary4local-rocm
+v0.7.0-rocm.1, then promoted unchanged alongside gary4local v0.7.0. stems.cpp
+stays pinned to v0.1.5; its v0.1.6 runtime update is held for the next release.
+
+## v5.0.2 - Carey on ace-server
+
+v5.0.2-rc.1 as a stable release, paired with gary4local v0.6.0, where Carey
+moves to acestep.cpp. the plugin is the same build as the preview below:
+Carey's tabs use ace-server's job API on localhost and on the remote backend,
+the new generate tab makes audio from a caption, and the saved recording keeps
+its own waveform lane while an unsaved take is present.
+
+local Carey needs the C++ runtime: press `migrate runtime` on Carey in
+gary4local v0.6.0 before using it on localhost. this plugin doesn't speak
+Python Carey's API anymore. the remote backend serves both APIs, so an older
+plugin keeps working there.
+
+## v5.0.2-rc.1 - Carey on ace-server
+
+Carey's tabs use ace-server's job API on both localhost and the remote
+backend. the new generate tab makes audio from a caption; continue extends
+the recording, cover reworks it, lego adds a stem, extract pulls a stem out,
+and complete arranges other tracks around the recording. lego and complete
+are still hit or miss, and their tabs say so. model size lives in each tab's
+advanced settings on localhost, where you can choose 2B or XL; the remote
+backend serves XL, so it doesn't show that choice. model and LoRA choices,
+progress, cancellation and adapter captions follow the new server contract.
+
+the saved recording buffer now has its own waveform lane while an unsaved
+recording is present. playback and stem separation use the saved buffer, and
+opening a file restores it there too. recording after a save marks the new
+audio as unsaved from the first sample, with its lane and label shown right
+away.
+
+pair this Windows preview with gary4local-rocm v0.6.0-rocm.1 for native Carey
+and its LoRA training. the remote backend keeps the legacy API alongside the
+new one for older plugins. local Carey needs the C++ migration in the paired
+gary4local build. the plugin reports version 5.0.2; the release tag identifies
+this preview.
+
+## v5.0.1 - cleanup models and drum kits
+
+the stem separator moves to stems.cpp v0.1.5 and gets eight more models:
+UVR's DeNoise and DeNoise Lite, De-Echo Normal and Aggressive, and
+DeEcho-DeReverb; anvuew's room dereverb for vocals recorded in a room;
+Kim_Vocal_2, a small and quick vocal splitter; and DrumSep, which splits drums
+into kick, snare, toms, hi-hat, ride and crash. each downloads from Hugging
+Face in the stem separator settings and is checked against a pinned hash. the
+cleanup models give you both halves, the clean audio and what was taken out.
+the settings list and the popup's model menu are grouped by what a model is
+for, and the list scrolls. thanks to kostas
+([@tsigoulas](https://github.com/tsigoulas)) for asking for these and checking
+them against UVR5.
+
+DrumSep is made for drums. after a separation with htdemucs, the drums stem
+gets a `split kit` button that splits it in place. picking DrumSep from the
+menu splits the audio itself, which is the one for a drum loop, and a `from`
+menu switches between the two.
+
+the `stems` handle shows on every waveform with audio now, not only after
+setup. until the runtime and a model are installed it's dimmed, its tooltip
+says what's missing, and clicking it opens the stem separator settings. the
+settings window is titled "gary settings > stem separator", so you know where
+to find it again.
+
+the runtime from v5.0.0 (stems.cpp v0.1.2) can't load the new models. the
+stems handle and the settings panel both offer to update it.
+
+jerry on localhost follows gary4local's new C++ jerry service. the model
+dropdown lists the base model and the finetunes you've downloaded in
+gary4local, the same way it lists the remote backend's, so the localhost-only
+`+` section for adding a Hugging Face checkpoint is gone. picking a finetune
+now loads its dice prompts on localhost too; before, only the remote backend
+did.
+
+## v5.0.1-rc.2 - jerry on gary4local's C++ runtime
+
+jerry on localhost follows gary4local's new C++ jerry service. the model
+dropdown lists the base model and the finetunes you've downloaded in
+gary4local, the same way it lists the remote backend's, so the localhost-only
+`+` section for adding a Hugging Face checkpoint is gone. picking a finetune
+now loads its dice prompts on localhost too; before, only the remote backend
+did.
+
+everything else is the same as v5.0.1-rc.1.
+
+## v5.0.1-rc.1 - cleanup models and drum kits
+
+the stem separator moves to stems.cpp v0.1.5 and gets eight more models:
+UVR's DeNoise and DeNoise Lite, De-Echo Normal and Aggressive, and
+DeEcho-DeReverb; anvuew's room dereverb for vocals recorded in a room;
+Kim_Vocal_2, a small and quick vocal splitter; and DrumSep, which splits drums
+into kick, snare, toms, hi-hat, ride and crash. each downloads from Hugging
+Face in the stem separator settings and is checked against a pinned hash. the
+settings list and the popup's model menu are now grouped by what a model is
+for, and the list scrolls.
+
+DrumSep is made for drums. after a separation with htdemucs, the drums stem
+gets a `split kit` button that splits it in place. picking DrumSep from the
+menu splits the audio itself, which is the one for a drum loop, and a `from`
+menu switches between the two.
+
+the runtime from v5.0.0 (stems.cpp v0.1.2) can't load the new models, so the
+settings panel offers to update it. the stems handle stays hidden until you
+do. the plugin reports version 5.0.1; the tag identifies this preview.
+
 ## v5.0.0 - 2026-10-07 - yuey and stems
 
 **yue2 is now inside the DAW.** the yuey tab runs

@@ -24,7 +24,8 @@ void Gary4juceAudioProcessorEditor::showStemsSettings()
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned(panel);
-    options.dialogTitle = "stem separator";
+    // Named by where it lives, for anyone who got here from a stems handle instead of the menu.
+    options.dialogTitle = "gary settings > stem separator";
     options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
@@ -71,30 +72,63 @@ namespace
 
 // --- the "stems" handle --------------------------------------------------------------------------
 
+juce::String Gary4juceAudioProcessorEditor::stemsSetupStep()
+{
+    auto& service = getStemsService();
+    if (!service.isRuntimeInstalled())
+        return service.installedOlderRuntimeTag().isNotEmpty() ? "update the stem separator runtime for this version"
+                                                               : "install the stem separator";
+    for (const auto& model : stems::modelCatalog())
+        if (service.isModelInstalled(model.id))
+            return {};
+    return "download a stem separation model";
+}
+
+void Gary4juceAudioProcessorEditor::stemsHandleClicked(bool fromRecordingBuffer)
+{
+    if (stemsSetupStep().isNotEmpty())
+        showStemsSettings();
+    else
+        showStemsDialog(fromRecordingBuffer);
+}
+
+// The handle shows on any waveform with audio, so the stem separator can be found without opening
+// settings. Until it can run it is dimmed, and a click opens its settings; the tooltip says what is
+// missing and where those settings live. During a generation it is disabled.
 void Gary4juceAudioProcessorEditor::updateStemsButtonState()
 {
     const bool haveOutput = hasOutputAudio && outputAudioFile.existsAsFile();
-    const bool haveInput = recordedSamples > 0 && !isRecording;
-    bool canSeparate = false;
-    if (haveOutput || haveInput)
-    {
-        auto& service = getStemsService();
-        if (service.isRuntimeInstalled())
-            for (const auto& model : stems::modelCatalog())
-                if (service.isModelInstalled(model.id)) { canSeparate = true; break; }
-    }
+    const bool haveInput = hasSavedRecordingBuffer();
+    const bool available = (haveOutput || haveInput) && getStemsService().isRuntimeAvailableForPlatform();
+    const auto setupStep = available ? stemsSetupStep() : juce::String();
+    const bool needsSetup = setupStep.isNotEmpty();
 
-    const auto apply = [this](juce::DrawableButton& handle, bool visible)
+    const auto apply = [&](juce::DrawableButton& handle, bool haveAudio, const juce::String& readyTip)
     {
-        if (handle.isVisible() != visible || handle.isEnabled() == isGenerating)
+        const bool visible = available && haveAudio;
+        const bool enabled = needsSetup || !isGenerating;
+        const auto tip = needsSetup ? "click to " + setupStep + " (also in gary settings > stem separator...)"
+                       : isGenerating ? juce::String("wait for the current generation to finish")
+                                      : readyTip;
+        if (handle.isVisible() != visible || handle.isEnabled() != enabled || handle.getTooltip() != tip
+            || (bool) handle.getProperties()["needsSetup"] != needsSetup)
         {
             handle.setVisible(visible);
-            handle.setEnabled(!isGenerating);
+            handle.setEnabled(enabled);
+            handle.setTooltip(tip);
+            handle.getProperties().set("needsSetup", needsSetup);   // drawn dimmed, see paint()
             repaint(handle.getBounds());
         }
     };
-    apply(stemsButton, canSeparate && haveOutput);
-    apply(stemsInputButton, canSeparate && haveInput);
+    apply(stemsButton, haveOutput, "separate this output into stems");
+    apply(stemsInputButton, haveInput, "separate the saved recording buffer into stems");
+}
+
+// The recording buffer's stems separate the saved buffer (myBuffer.wav), which is what every model
+// reads: a take is not used anywhere until it is saved.
+bool Gary4juceAudioProcessorEditor::hasSavedRecordingBuffer() const
+{
+    return !isRecording && savedSamples > 0 && getGaryBufferFile().existsAsFile();
 }
 
 void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
@@ -104,10 +138,10 @@ void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
         showStatusMessage("wait for the current generation to finish", 2500);
         return;
     }
-    if (fromRecordingBuffer ? (recordedSamples <= 0 || isRecording)
+    if (fromRecordingBuffer ? !hasSavedRecordingBuffer()
                             : (!hasOutputAudio || !outputAudioFile.existsAsFile()))
     {
-        showStatusMessage(fromRecordingBuffer ? "nothing in the recording buffer to separate"
+        showStatusMessage(fromRecordingBuffer ? "save the recording buffer first, then separate it"
                                               : "no output audio to separate", 2500);
         return;
     }
@@ -133,11 +167,11 @@ void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
 
     // The popup separates a copy, so whatever happens to the buffer or the output afterwards (a
     // stem dropped back onto the buffer, say) leaves its stems alone.
-    std::function<bool(const juce::File&)> writeSource;
-    if (fromRecordingBuffer)
-        writeSource = [this](const juce::File& destination) { return audioProcessor.saveRecordingToFile(destination); };
-    else
-        writeSource = [this](const juce::File& destination) { return outputAudioFile.copyFileTo(destination); };
+    const juce::File sourceFile = fromRecordingBuffer ? getGaryBufferFile() : outputAudioFile;
+    std::function<bool(const juce::File&)> writeSource = [sourceFile](const juce::File& destination)
+    {
+        return sourceFile.copyFileTo(destination);
+    };
 
     getStemsService();
     auto* dialog = new StemsDialog(stemsService, getUpdatePreferences(), std::move(host), writeSource,
@@ -297,6 +331,7 @@ void Gary4juceAudioProcessorEditor::startStemDrag(const juce::File& stem, const 
         if (!createDraggedAudioFile(stem, dragFile) || !dragFile.existsAsFile() || dragFile.getSize() <= 0)
         {
             dragFile.deleteFile();
+            dragFile.withFileExtension(".json").deleteFile();
             showStatusMessage("drag failed - could not create "
                 + getDraggedAudioFileExtension().substring(1).toUpperCase() + " file", 3000);
             isDragInProgress.store(false);
@@ -325,6 +360,7 @@ void Gary4juceAudioProcessorEditor::startStemDrag(const juce::File& stem, const 
         showStatusMessage("drag failed - try again", 2000);
         juce::ScopedLock lock(fileLock);
         dragFile.deleteFile();
+        dragFile.withFileExtension(".json").deleteFile();
         isDragInProgress.store(false);
     }
 }

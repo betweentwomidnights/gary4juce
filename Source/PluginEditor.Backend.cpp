@@ -408,6 +408,13 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
     updateAllGenerationButtonStates();
     updateJerrySubTabStates();
 
+    // gary4local's C++ gary lists the models on disk, which changes while it
+    // runs (the Python's list never did), so keep the dropdown current: when
+    // gary comes online, and on every poll while its tab is open.
+    if (service == ServiceType::Gary && online
+        && (statusChanged || currentTab == ModelTab::Gary))
+        fetchGaryAvailableModels();
+
     if (service == ServiceType::Jerry)
     {
         if (!online && jerryUI)
@@ -421,6 +428,14 @@ void Gary4juceAudioProcessorEditor::applyLocalServiceHealthResult(
     {
         refreshCareyAvailableLoras(statusChanged);
         updateCareyEnablementSnapshot();
+    }
+
+    // Whatever answers on SA3's port now may not be what said whether it runs automation lanes.
+    if (service == ServiceType::SA3 && statusChanged)
+    {
+        forgetSA3LaneSupport();
+        if (online && sa3LanePanelShown())
+            checkSA3LaneSupport(getServiceUrl(ServiceType::SA3, "/health"));
     }
 
     if (service == ServiceType::SA3
