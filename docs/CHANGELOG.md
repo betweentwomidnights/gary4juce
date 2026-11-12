@@ -3,6 +3,26 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.4 - SA3 LoRA automation lanes
+
+SA3 has an automation panel beside the editor, with a lane for each active
+LoRA. draw how strongly each LoRA acts across the output, snap points to the
+beat, half bar or bar, and give each lane its own prompt. its dice draw from
+that LoRA's own prompt pool. a drawn curve replaces the fixed strength slider.
+
+the blend slider has four stops from smooth to responsive, changing how many
+denoising steps the lanes share. generate, transform and continue all send the
+curves; continuations read them from where the source audio ends. the panel
+follows output playback, and its curves, prompts, snap and blend settings
+are saved with the editor state. the window widens while it is open and uses
+the compact layout if the wide layout and panel would not fit on screen.
+
+a backend must report lane support. local SA3 also needs gary4local v0.7.1,
+whose adapter forwards the curves, and sa3.cpp v0.2.3. older runtimes are
+refused rather than silently ignoring automation; the capability check runs
+again when the local server changes. update gary4local and press
+`update all runtimes` before using lanes on localhost.
+
 ## v5.0.3 - generation details
 
 gary's model dropdown stays current as local models are downloaded or removed.

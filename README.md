@@ -57,22 +57,18 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.3 - 11/08
+### upcoming v5.0.4 - 11/11
 
-**gary's model dropdown stays current** as local models are downloaded or
-removed, including after gary4local v0.7.0 moves gary to audiocraft.cpp.
+**draw SA3's LoRA automation beside the editor.** each active LoRA gets its
+own lane: draw its strength across the output, snap points to beats or bars,
+and give it a prompt. the dice beside a lane draw from that LoRA's own prompts.
+a curve replaces the fixed strength slider, and the four-stop blend slider
+runs from smooth to responsive.
 
-**save the details behind a good render.** in **audio storage**, turn on
-**generation details**. dragged audio keeps its timestamped filename and gets
-a matching JSON file with the model, seed, prompt and request settings. those
-details come from the render that reached disk, not whichever controls are
-showing when you drag. crops keep the source render's details and record the
-retained range, and Terry's undo restores its source details when they're
-known. the setting is off by default; see [export details](docs/EXPORT_METADATA.md).
-
-recommended local companions: [gary4local v0.7.0](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.0)
-on Windows, released alongside this one, and [gary4local mac v0.4.0](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.0)
-on macOS. the stem separator runs inside gary4juce and doesn't need either.
+the lanes work for generate, transform and continue, follow output playback,
+and save with the editor state. local automation needs gary4local v0.7.1 and
+sa3.cpp v0.2.3: update the app, then press `update all runtimes`. a backend
+without lane support is refused rather than ignoring the curves.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
