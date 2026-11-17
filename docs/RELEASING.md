@@ -413,7 +413,8 @@ changelog and preview feed consistent. A bare numeric 5.0.5 would compare newer
 than 5.0.5-linux-preview.2 and prevent preview-to-preview updates.
 
 Commit final source, tag it `vX.Y.Z-linux-preview.N`, and push the Linux branch
-and tag. The Linux preview workflow builds natively on Ubuntu 24.04 x64 and
+and tag. Register the workflow definition on main before its first use; manual
+dispatch should select the exact Linux preview tag. The Linux preview workflow builds natively on Ubuntu 24.04 x64 and
 ARM64. It does not install plugins into the runner's user directories. Download
 the workflow artifacts, verify every ZIP against its architecture's checksum
 file, and prepare a GitHub draft marked as a prerelease. Check legal/source

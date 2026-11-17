@@ -1,0 +1,43 @@
+{
+  "channel": "preview-linux",
+  "latest_version": "5.0.5-linux-preview.1",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.5-linux-preview.1",
+  "sha256": null,
+  "published_at": "2026-11-17T13:46:49Z",
+  "notes": [
+    "Experimental Ubuntu 24.04 VST3 and standalone builds for x64 and ARM64, refreshed through main v5.0.5.",
+    "Retains Linux prompt keyboard focus and the Bitwig export-copy fallback. Includes current model workflows and optional embedded generation details.",
+    "Use the matching CPU architecture. Built-in stems have no pinned Linux runtime yet; real DAW, audio-device and GPU-generation testing is still needed.",
+    "For testing with the separately supplied gary4local Linux desktop preview. Close your DAW before replacing plugin files."
+  ],
+  "artifacts": [
+    {
+      "filename": "gary4juce-v5.0.5-linux-preview.1-arm64-standalone.zip",
+      "architecture": "arm64",
+      "format": "standalone",
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.5-linux-preview.1/gary4juce-v5.0.5-linux-preview.1-arm64-standalone.zip",
+      "sha256": "e67bdeb9db73ace718dc6cca89352bb0ec4b32a99abc3d0d9670fe7c62ee7b67"
+    },
+    {
+      "filename": "gary4juce-v5.0.5-linux-preview.1-arm64-vst3.zip",
+      "architecture": "arm64",
+      "format": "vst3",
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.5-linux-preview.1/gary4juce-v5.0.5-linux-preview.1-arm64-vst3.zip",
+      "sha256": "46c580839106a29c50689210ae377df456b4df82d766168a6e886e5edca7b4a4"
+    },
+    {
+      "filename": "gary4juce-v5.0.5-linux-preview.1-x64-standalone.zip",
+      "architecture": "x64",
+      "format": "standalone",
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.5-linux-preview.1/gary4juce-v5.0.5-linux-preview.1-x64-standalone.zip",
+      "sha256": "f1c9b68740d78e3f3f8312052b5fc0f4030f370c0ccc0ad67fc030c9387afaed"
+    },
+    {
+      "filename": "gary4juce-v5.0.5-linux-preview.1-x64-vst3.zip",
+      "architecture": "x64",
+      "format": "vst3",
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.5-linux-preview.1/gary4juce-v5.0.5-linux-preview.1-x64-vst3.zip",
+      "sha256": "91b4643c2d89998aba23af05025fcfbf69d072c6d16aab5cff6de1a5efea54e2"
+    }
+  ]
+}
