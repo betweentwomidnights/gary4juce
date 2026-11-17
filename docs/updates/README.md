@@ -1,20 +1,35 @@
-# gary4juce Update Feeds
+# gary4juce update feeds
 
-`gary4juce` Phase 1 update checks use a static JSON manifest published from this repo's `docs/` folder.
+GitHub Pages serves these JSON manifests from the **main** branch's `docs/`.
+See the [release flow](../RELEASING.md) for packaging and publication order.
 
-See the tracked [release checklist](../RELEASING.md) for artifact packaging,
-verification, checksums, and release-note guidance.
+- [Windows stable](https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json)
+- [macOS stable](https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable-mac.json)
+- [Linux preview](https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview-linux.json)
+- [Legacy maintainer preview](https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview.json)
 
-Planned GitHub Pages URLs:
+Linux preview builds select `preview-linux.json` by default and compare the
+full preview version, such as `5.0.5-linux-preview.1`. The numeric native plugin
+version can still be 5.0.5. The optional build definition `GARY4JUCE_UPDATE_VERSION`
+provides the full updater version; the Linux CMake build supplies it from
+`GARY4JUCE_RELEASE_VERSION`.
 
-- `https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json`
-- `https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview.json`
+The Linux manifest's `download_url` opens the release page so users can choose
+their CPU architecture and plugin/standalone format. Its top-level `sha256` is
+null because the release has several assets; `artifacts` lists each filename,
+architecture, format, direct download URL and SHA-256. Windows stable and macOS
+stable feeds are not promoted by Linux prereleases.
 
-Production builds use the baked-in stable URL above.
+Publish the prerelease and verify its public downloads before updating the
+Linux preview feed on main. Use the exact release publication timestamp. The
+Linux branch's copy of a manifest does not publish to Pages.
 
-Maintainer preview/testing builds can override the manifest URL at runtime with:
+The runtime environment override `GARY4JUCE_UPDATE_MANIFEST_URL` takes
+precedence over the platform default. For a Linux maintainer test:
 
-- `GARY4JUCE_UPDATE_MANIFEST_URL`
+```sh
+GARY4JUCE_UPDATE_MANIFEST_URL=https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview-linux.json ./gary4juce
+```
 
 PowerShell example:
 
