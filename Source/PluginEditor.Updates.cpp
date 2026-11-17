@@ -11,8 +11,22 @@
 
 namespace
 {
+#if JUCE_LINUX
+    static constexpr auto kDefaultUpdateManifestUrl =
+        "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview-linux.json";
+#else
     static constexpr auto kDefaultUpdateManifestUrl =
         "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json";
+#endif
+
+    juce::String installedUpdateVersion()
+    {
+#ifdef GARY4JUCE_UPDATE_VERSION
+        return GARY4JUCE_UPDATE_VERSION;
+#else
+        return ProjectInfo::versionString;
+#endif
+    }
     static constexpr auto kUpdateManifestOverrideEnv = "GARY4JUCE_UPDATE_MANIFEST_URL";
     static constexpr auto kUpdatePrefsFolder = "gary4juce";
     static constexpr auto kUpdatePrefsAppName = "gary4juce-updater";
@@ -368,7 +382,7 @@ void Gary4juceAudioProcessorEditor::checkForPluginUpdates(bool manual, bool incl
         showStatusMessage("checking for updates...", 2500);
     }
 
-    const auto currentVersion = juce::String(ProjectInfo::versionString);
+    const auto currentVersion = installedUpdateVersion();
     const auto skippedVersion = includeSkippedVersion ? juce::String() : getSkippedUpdateVersion();
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
@@ -496,7 +510,7 @@ void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& l
     updatePromptVisible = true;
 
     auto* alertWindow = new juce::AlertWindow("update available",
-                                              buildUpdatePromptMessage(ProjectInfo::versionString,
+                                              buildUpdatePromptMessage(installedUpdateVersion(),
                                                                        latestVersion,
                                                                        notes,
                                                                        channel,
