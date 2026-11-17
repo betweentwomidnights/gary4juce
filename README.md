@@ -10,12 +10,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.4 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4)
+- [gary4juce v5.0.5 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.5)
 - [gary4juce v5.0.4-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4-mac)
 
 **recommended local companions:**
 
-- windows: [gary4local v0.7.1](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.1)
+- windows: [gary4local v0.7.3](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.3)
 - macOS: [gary4local mac v0.4.1](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.1)
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -57,7 +57,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.5 - 11/17
+### v5.0.5 - 11/17
 
 **keep generation details inside your audio.** in audio storage, choose a
 matching JSON file or embedded audio tags for dragged WAV and FLAC files.
