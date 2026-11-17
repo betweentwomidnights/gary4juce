@@ -1,0 +1,12 @@
+{
+  "channel": "stable",
+  "latest_version": "5.0.5",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.5",
+  "sha256": "5fa4487f7b601b19e940adefdcecac9f97cb8d3203ffd7d49b3984e180be3e3b",
+  "published_at": "2026-11-17T13:01:54Z",
+  "notes": [
+    "Choose matching JSON files or embedded WAV/FLAC tags for generation details in audio storage.",
+    "Keep the render's model, reported seed, prompt, supplied lyrics and request settings. Tag visibility varies by audio app.",
+    "Pair with gary4local v0.7.3. Close your DAW before replacing plugin files."
+  ]
+}

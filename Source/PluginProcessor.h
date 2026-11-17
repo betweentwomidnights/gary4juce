@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /*
   ==============================================================================
     This file contains the basic framework code for a JUCE plugin processor.
@@ -6,11 +9,14 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>  // ADD THIS FOR ATOMIC TYPES
+#include <cstdint>
+#include <memory>
 
 //==============================================================================
 /**
 */
-class Gary4juceAudioProcessor : public juce::AudioProcessor
+class Gary4juceAudioProcessor : public juce::AudioProcessor,
+                                public juce::ChangeBroadcaster
 {
 public:
     //==============================================================================
@@ -19,12 +25,37 @@ public:
 
     // Backend connection methods
     void checkBackendHealth();
-    bool isBackendConnected() const { return backendConnected; }
+    bool isBackendConnected() const { return backendConnected.load(); }
     void setBackendConnectionStatus(bool connected);
     void stopHealthChecks();
 
     // Service type enum for different ports
-    enum class ServiceType { Gary, Jerry, Terry };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3, Yuey };
+
+    struct LocalServiceHealthSnapshot
+    {
+        bool valid = false;
+        bool garyOnline = false;
+        bool terryOnline = false;
+        bool jerryOnline = false;
+        bool careyOnline = false;
+        bool foundationOnline = false;
+        bool sa3Online = false;
+        bool yueyOnline = false;
+        juce::int64 updatedAtMs = 0;
+
+        int getOnlineCount() const
+        {
+            return (garyOnline ? 1 : 0) + (terryOnline ? 1 : 0)
+                + (jerryOnline ? 1 : 0) + (careyOnline ? 1 : 0)
+                + (foundationOnline ? 1 : 0) + (sa3Online ? 1 : 0)
+                + (yueyOnline ? 1 : 0);
+        }
+    };
+
+    LocalServiceHealthSnapshot getLocalServiceHealthSnapshot() const;
+    void setLocalServiceHealthSnapshot(const LocalServiceHealthSnapshot& snapshot);
+    void clearLocalServiceHealthSnapshot();
     
     // Backend URL management methods
     void setUsingLocalhost(bool useLocalhost);
@@ -42,6 +73,16 @@ public:
     // State management methods
     void setSavedSamples(int samples) { savedSamples = samples; }
     int getSavedSamples() const { return savedSamples.load(); }
+    // Whether the recording buffer holds audio that myBuffer.wav does not: a take or loaded audio
+    // not saved since, or a recording that kept going after a save.
+    bool isRecordingUnsaved() const
+    {
+        return recordingUnsaved.load(std::memory_order_acquire)
+            || atomicRecordedSamples.load(std::memory_order_acquire) != savedSamples.load();
+    }
+    // The recording buffer now holds what myBuffer.wav does, without writing it: the editor
+    // loaded the file itself.
+    void markRecordingSaved(int samples) { savedSamples = samples; recordingUnsaved = false; }
     
     void setTransformRecording(bool useRecording) { transformRecording = useRecording; }
     bool getTransformRecording() const { return transformRecording.load(); }
@@ -49,7 +90,10 @@ public:
     // Recording buffer methods - REMOVE INLINE IMPLEMENTATIONS
     bool isRecording() const;  // Declaration only - implementation in .cpp
     float getRecordingProgress() const;  // Declaration only - implementation in .cpp
-    void saveRecordingToFile(const juce::File& file);
+    bool saveRecordingToFile(const juce::File& file);
+    // Imports may be longer than live recording, and grow storage only when needed.
+    static constexpr double kMaximumImportedAudioSeconds = 600.0;
+    bool loadAudioIntoRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer);
     void clearRecordingBuffer();
     const juce::AudioBuffer<float>& getRecordingBuffer() const { return recordingBuffer; }
     int getRecordedSamples() const;  // Declaration only - implementation in .cpp
@@ -97,8 +141,29 @@ public:
 
     double getCurrentBPM() const { return currentBPM.load(); }
 
+    // Carey lyrics persistence - one shared lyrics text across all tabs (message thread only)
+    void setCareyLyrics(const juce::String& text) { careyLyrics = text; DBG("[carey-processor] lyrics saved: '" + text.substring(0, 40) + "'"); }
+    juce::String getCareyLyrics() const { return careyLyrics; }
+
+    void setCareyLanguage(const juce::String& lang) { careyLanguage = lang; }
+    juce::String getCareyLanguage() const { return careyLanguage; }
+
+    // Foundation UI state persistence
+    void setFoundationState(const juce::String& json) { foundationState = json; }
+    juce::String getFoundationState() const { return foundationState; }
+
+    // Versioned editor configuration. The editor is a disposable host-owned
+    // view, so durable control state must live with the processor.
+    void setEditorState(const juce::String& json);
+    juce::String getEditorState() const;
+    std::uint64_t getHostStateRevision() const noexcept
+    {
+        return hostStateRevision.load(std::memory_order_acquire);
+    }
+
     // Output audio playback control (for host audio)
     void loadOutputAudioForPlayback(const juce::File& audioFile);
+    bool loadRecordingAudioForPlayback();
     void startOutputPlayback(double fromPosition = 0.0);
     void pauseOutputPlayback();
     void stopOutputPlayback();
@@ -112,29 +177,42 @@ private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Gary4juceAudioProcessor)
 
-        // Backend connection state
-        bool backendConnected = false;
-    std::atomic<bool> shouldStopBackgroundOperations{ false };
+    class BackendHealthChecker;
+
+    // Backend connection state
+    std::atomic<bool> backendConnected{ false };
+    std::unique_ptr<BackendHealthChecker> backendHealthChecker;
+    std::shared_ptr<std::atomic<bool>> backendHealthCallbackToken;
     
     // Backend URL management
     bool isUsingLocalhost = false;
     juce::String backendBaseUrl = "https://g4l.thecollabagepatch.com"; // Default to remote
+    mutable juce::SpinLock localHealthSnapshotLock;
+    LocalServiceHealthSnapshot localHealthSnapshot;
 
     // Thread safety - PUT THESE FIRST
     juce::CriticalSection bufferLock;
     std::atomic<int> atomicRecordedSamples{ 0 };
     std::atomic<bool> atomicRecording{ false };
+    std::atomic<bool> recordingStartPending{ false };
+    std::atomic<bool> recordingStopPending{ false };
+    std::atomic<bool> recordingUnsaved{ false };
 
     // Recording buffer state
     juce::AudioBuffer<float> recordingBuffer;
+    juce::AudioBuffer<float> deferredRecordingBuffer;
     int bufferWritePosition = 0;
     int recordedSamples = 0;
+    int deferredRecordingSamples = 0;
+    int maxDeferredRecordingSamples = 0;
+    bool deferredRecordingOverflowed = false;
     bool recording = false;
     bool wasPlaying = false;  // To detect transport state changes
     double currentSampleRate = 44100.0;  // Default fallback, updated in prepareToPlay()
 
     // Recording settings
-    static constexpr double recordingLengthSeconds = 30.0;
+    static constexpr double recordingLengthSeconds = 300.0;  // Supports localhost Carey generation up to five minutes
+    static constexpr double deferredRecordingLengthSeconds = 2.0;
     int maxRecordingSamples = 0;  // Will be calculated based on sample rate
 
     std::atomic<double> currentBPM{ 120.0 };  // Thread-safe BPM storage
@@ -150,17 +228,45 @@ private:
     std::atomic<bool> undoTransformAvailable{ false };
     std::atomic<bool> retryAvailable{ false };
 
+    // Carey lyrics/language persistence - shared across all tabs (survives editor destruction + plugin restart)
+    juce::String careyLyrics;
+    juce::String careyLanguage = "en";
+
+    // Foundation UI state persistence
+    juce::String foundationState;
+
+    mutable juce::CriticalSection editorStateLock;
+    juce::String editorState;
+    std::atomic<std::uint64_t> hostStateRevision { 0 };
+
+    struct OutputPlaybackData
+    {
+        juce::AudioBuffer<float> buffer;
+        double sampleRate = 44100.0;
+        double durationSeconds = 0.0;
+    };
+
     // Output audio playback state (for host audio mixing)
-    juce::AudioBuffer<float> outputPlaybackBuffer;
-    juce::CriticalSection playbackBufferLock;
+    std::shared_ptr<const OutputPlaybackData> outputPlaybackData;
     std::atomic<bool> isPlayingOutputAudio{false};
     std::atomic<bool> isPausedOutputAudio{false};
     std::atomic<double> outputPlaybackPosition{0.0};  // In seconds
     std::atomic<double> outputAudioDuration{0.0};     // Total duration in seconds
     std::atomic<double> outputAudioSampleRate{44100.0};
-    int outputPlaybackReadPosition = 0;  // In samples, accessed under lock
+    std::atomic<int> outputPlaybackReadPosition{ 0 };  // In samples
 
     // Private methods
     void startRecording();
     void stopRecording();
+    void requestRecordingStartFromAudioThread() noexcept;
+    void requestRecordingStopFromAudioThread() noexcept;
+    void applyPendingRecordingStateFromAudioThread(int totalNumInputChannels, bool& stoppedThisBlock);
+    void copyInputBlockToRecordingBuffer(const juce::AudioBuffer<float>& sourceBuffer,
+                                         int totalNumInputChannels,
+                                         int numSamples);
+    void appendDeferredRecordingBlock(const juce::AudioBuffer<float>& sourceBuffer,
+                                      int totalNumInputChannels,
+                                      int numSamples);
+    void flushDeferredRecordingBlocks(int totalNumInputChannels);
+    void stopRecordingNonBlocking() noexcept;
 };

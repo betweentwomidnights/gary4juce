@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="the collabage patch"
-              companyWebsite="thecollabagepatch.com" defines="ASIO_STANDALONE"
-              pluginCharacteristicsValue="pluginEditorRequiresKeys">
+<JUCERPROJECT id="XmhO4a" name="gary4juce" projectType="audioplug" version="5.0.5" pluginCharacteristicsValue="pluginEditorRequiresKeys"
+              useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              companyName="the collabage patch" companyWebsite="thecollabagepatch.com"
+              defines="ASIO_STANDALONE" companyCopyright="Copyright (C) 2025-2026 Kevin Griffing">
   <MAINGROUP id="DH6yqq" name="gary4juce">
     <GROUP id="{28B6528D-59DF-0DCA-1E43-B839575ABC1A}" name="New Group"/>
     <GROUP id="{CDB2FDFC-AC96-7A2F-13CC-D983E5D40D90}" name="Components">
+      <FILE id="ASDlg0" name="AudioSelectionDialog.cpp" compile="1" resource="0"
+            file="Source/Components/AudioSelectionDialog.cpp"/>
+      <FILE id="ASDlg1" name="AudioSelectionDialog.h" compile="0" resource="0"
+            file="Source/Components/AudioSelectionDialog.h"/>
       <GROUP id="{A022E90B-1D83-85D7-E010-3266D3B87D96}" name="Terry">
         <FILE id="T2PJUJ" name="TerryUI.cpp" compile="1" resource="0" file="Source/Components/Terry/TerryUI.cpp"/>
         <FILE id="QwPDAZ" name="TerryUI.h" compile="0" resource="0" file="Source/Components/Terry/TerryUI.h"/>
@@ -22,6 +26,7 @@
         <FILE id="hy0Tc6" name="CustomSlider.cpp" compile="1" resource="0"
               file="Source/Components/Base/CustomSlider.cpp"/>
         <FILE id="NVmho3" name="CustomSlider.h" compile="0" resource="0" file="Source/Components/Base/CustomSlider.h"/>
+        <FILE id="bpmCtrl" name="BpmControl.h" compile="0" resource="0" file="Source/Components/Base/BpmControl.h"/>
         <FILE id="MmMTuG" name="CustomTextEditor.cpp" compile="1" resource="0"
               file="Source/Components/Base/CustomTextEditor.cpp"/>
         <FILE id="wQ87Xd" name="CustomTextEditor.h" compile="0" resource="0"
@@ -39,6 +44,29 @@
         <FILE id="G7c6QK" name="GaryUI.cpp" compile="1" resource="0" file="Source/Components/Gary/GaryUI.cpp"/>
         <FILE id="pT4VqR" name="GaryUI.h" compile="0" resource="0" file="Source/Components/Gary/GaryUI.h"/>
       </GROUP>
+      <GROUP id="{9725C3F3-D755-8341-1DD9-AA047C147FCD}" name="Carey">
+        <FILE id="CrUiCp" name="CareyUI.cpp" compile="1" resource="0" file="Source/Components/Carey/CareyUI.cpp"/>
+        <FILE id="u2yVAk" name="CareyUI.h" compile="0" resource="0" file="Source/Components/Carey/CareyUI.h"/>
+      </GROUP>
+      <GROUP id="{4E70B11B-8D7F-4D97-9B62-659A6A594559}" name="Yuey">
+        <FILE id="YuUiCp" name="YueyUI.cpp" compile="1" resource="0" file="Source/Components/Yuey/YueyUI.cpp"/>
+        <FILE id="YuUiHp" name="YueyUI.h" compile="0" resource="0" file="Source/Components/Yuey/YueyUI.h"/>
+        <FILE id="YuSlCp" name="YueyMidiSlot.cpp" compile="1" resource="0"
+              file="Source/Components/Yuey/YueyMidiSlot.cpp"/>
+        <FILE id="YuSlHp" name="YueyMidiSlot.h" compile="0" resource="0" file="Source/Components/Yuey/YueyMidiSlot.h"/>
+      </GROUP>
+      <GROUP id="{F1D2E3A4-B5C6-7890-ABCD-EF1234567890}" name="Foundation">
+        <FILE id="fndUI1" name="FoundationUI.cpp" compile="1" resource="0"
+              file="Source/Components/Foundation/FoundationUI.cpp"/>
+        <FILE id="fndUI0" name="FoundationUI.h" compile="0" resource="0" file="Source/Components/Foundation/FoundationUI.h"/>
+      </GROUP>
+      <GROUP id="{6B1E5C2A-8F3D-4E7B-9A21-5C0D7E8F9A31}" name="Stems">
+        <FILE id="StDlg1" name="StemsDialog.cpp" compile="1" resource="0" file="Source/Components/Stems/StemsDialog.cpp"/>
+        <FILE id="StDlg0" name="StemsDialog.h" compile="0" resource="0" file="Source/Components/Stems/StemsDialog.h"/>
+        <FILE id="StSet1" name="StemsSettings.cpp" compile="1" resource="0"
+              file="Source/Components/Stems/StemsSettings.cpp"/>
+        <FILE id="StSet0" name="StemsSettings.h" compile="0" resource="0" file="Source/Components/Stems/StemsSettings.h"/>
+      </GROUP>
       <GROUP id="{3E3F36E6-3A8C-47B5-8D98-62F7C7D4A81A}" name="Jerry">
         <FILE id="BtPr0m" name="BeatPrompts.cpp" compile="1" resource="0" file="Source/Components/Jerry/BeatPrompts.cpp"/>
         <FILE id="BtPr0h" name="BeatPrompts.h" compile="0" resource="0" file="Source/Components/Jerry/BeatPrompts.h"/>
@@ -46,6 +74,14 @@
               file="Source/Components/Jerry/InstrumentPrompts.cpp"/>
         <FILE id="InPr0h" name="InstrumentPrompts.h" compile="0" resource="0"
               file="Source/Components/Jerry/InstrumentPrompts.h"/>
+        <FILE id="SA3UI1" name="SA3UI.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3UI.cpp"/>
+        <FILE id="SA3UI0" name="SA3UI.h" compile="0" resource="0" file="Source/Components/Jerry/SA3UI.h"/>
+        <FILE id="SA3LnM" name="SA3LaneModel.h" compile="0" resource="0" file="Source/Components/Jerry/SA3LaneModel.h"/>
+        <FILE id="SA3Ln1" name="SA3Lanes.cpp" compile="1" resource="0" file="Source/Components/Jerry/SA3Lanes.cpp"/>
+        <FILE id="SA3Ln0" name="SA3Lanes.h" compile="0" resource="0" file="Source/Components/Jerry/SA3Lanes.h"/>
+        <FILE id="SA3LE1" name="SA3LaneEditor.cpp" compile="1" resource="0"
+              file="Source/Components/Jerry/SA3LaneEditor.cpp"/>
+        <FILE id="SA3LE0" name="SA3LaneEditor.h" compile="0" resource="0" file="Source/Components/Jerry/SA3LaneEditor.h"/>
         <FILE id="YwJazQ" name="JerryUI.cpp" compile="1" resource="0" file="Source/Components/Jerry/JerryUI.cpp"/>
         <FILE id="SHFQj0" name="JerryUI.h" compile="0" resource="0" file="Source/Components/Jerry/JerryUI.h"/>
         <FILE id="PrHlpr" name="PromptHelpers.h" compile="0" resource="0" file="Source/Components/Jerry/PromptHelpers.h"/>
@@ -54,6 +90,8 @@
       <GROUP id="{C8878210-05F9-1555-C130-31CE216D7E81}" name="Specialized"/>
     </GROUP>
     <GROUP id="{06D435C9-D1E4-DA01-6881-63D8A3F53732}" name="Source">
+      <FILE id="G4Ic0n" name="gary4juce_icon.png" compile="0" resource="0"
+            file="gary4juce_icon.png"/>
       <FILE id="FiFbls" name="gary4live_logo.png" compile="0" resource="1"
             file="gary4live_logo.png"/>
       <FILE id="Y7HdDo" name="PluginProcessor.cpp" compile="1" resource="0"
@@ -62,9 +100,56 @@
             file="Source/PluginProcessor.h"/>
       <FILE id="fvEhHg" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
+      <FILE id="PECrC0" name="PluginEditor.Carey.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Carey.cpp"/>
+      <FILE id="PEYue0" name="PluginEditor.Yuey.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Yuey.cpp"/>
+      <FILE id="PEJry0" name="PluginEditor.Jerry.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Jerry.cpp"/>
+      <FILE id="PETry0" name="PluginEditor.Terry.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Terry.cpp"/>
+      <FILE id="PEBck0" name="PluginEditor.Backend.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Backend.cpp"/>
+      <FILE id="PEUpd0" name="PluginEditor.Updates.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Updates.cpp"/>
+      <FILE id="PEStr0" name="PluginEditor.Storage.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Storage.cpp"/>
+      <FILE id="PEFnd0" name="PluginEditor.Foundation.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Foundation.cpp"/>
+      <FILE id="PEStm0" name="PluginEditor.Stems.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.Stems.cpp"/>
+      <GROUP id="{9C4D2B7E-1A3F-4C5D-8E6F-7A8B9C0D1E2F}" name="Stems">
+        <FILE id="StRun1" name="StemsRuntime.cpp" compile="1" resource="0"
+              file="Source/Stems/StemsRuntime.cpp"/>
+        <FILE id="StRun0" name="StemsRuntime.h" compile="0" resource="0" file="Source/Stems/StemsRuntime.h"/>
+        <FILE id="StAbi0" name="libstems_v1.h" compile="0" resource="0" file="Source/Stems/libstems_v1.h"/>
+      </GROUP>
+      <GROUP id="{3F8A6D21-5B7C-4E90-A1D3-6C2E9B4F7A58}" name="Yuey">
+        <FILE id="YmScr1" name="YueyMidiScore.cpp" compile="1" resource="0"
+              file="Source/Yuey/YueyMidiScore.cpp"/>
+        <FILE id="YmScr0" name="YueyMidiScore.h" compile="0" resource="0" file="Source/Yuey/YueyMidiScore.h"/>
+        <FILE id="YmImp1" name="YueyMidiImport.cpp" compile="1" resource="0"
+              file="Source/Yuey/YueyMidiImport.cpp"/>
+        <FILE id="YmImp0" name="YueyMidiImport.h" compile="0" resource="0"
+              file="Source/Yuey/YueyMidiImport.h"/>
+        <FILE id="YuTmp0" name="YueyScoreTempo.h" compile="0" resource="0"
+              file="Source/Yuey/YueyScoreTempo.h"/>
+      </GROUP>
       <FILE id="m9hiVX" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="PECHlp" name="PluginEditorCareyHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorCareyHelpers.h"/>
+      <FILE id="PEJHlp" name="PluginEditorJerryHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorJerryHelpers.h"/>
+      <FILE id="PETHlp" name="PluginEditorTerryHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorTerryHelpers.h"/>
+      <FILE id="PETxHp" name="PluginEditorTextHelpers.h" compile="0" resource="0"
+            file="Source/PluginEditorTextHelpers.h"/>
     </GROUP>
     <GROUP id="{C5C817F7-424B-46B9-B8DE-361B47E374B7}" name="Utils">
+      <FILE id="embMeta" name="EmbeddedAudioMetadata.h" compile="0" resource="0"
+            file="Source/Utils/EmbeddedAudioMetadata.h"/>
+      <FILE id="genMeta" name="GenerationMetadata.h" compile="0" resource="0"
+            file="Source/Utils/GenerationMetadata.h"/>
       <FILE id="lx8qMz" name="BarTrim.h" compile="0" resource="0" file="Source/Utils/BarTrim.h"/>
       <FILE id="WYW43J" name="CustomLookAndFeel.cpp" compile="1" resource="0"
             file="Source/Utils/CustomLookAndFeel.cpp"/>
@@ -84,6 +169,7 @@
     <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_cryptography" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
@@ -92,7 +178,7 @@
   </MODULES>
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
-    <VS2022 targetFolder="Builds/VisualStudio2022">
+    <VS2022 targetFolder="Builds/VisualStudio2022" smallIcon="G4Ic0n" bigIcon="G4Ic0n">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="gary4juce" defines="ASIO_STANDALONE"/>
         <CONFIGURATION isDebug="0" name="Release" targetName="gary4juce" defines="ASIO_STANDALONE"/>
@@ -110,6 +196,7 @@
         <MODULEPATH id="juce_audio_plugin_client" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../JUCE/modules"/>
       </MODULEPATHS>
     </VS2022>
     <XCODE_MAC targetFolder="Builds/MacOSX">
@@ -130,6 +217,7 @@
         <MODULEPATH id="juce_graphics" path="../JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="../JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../JUCE/modules"/>
       </MODULEPATHS>
     </XCODE_MAC>
     <LINUX_MAKE targetFolder="Builds/LinuxMakefile">
@@ -140,6 +228,7 @@
                        libraryPath="/usr/lib/x86_64-linux-gnu"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
+        <MODULEPATH id="juce_cryptography" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_basics" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_devices" path="../JUCE/modules"/>
         <MODULEPATH id="juce_audio_formats" path="../JUCE/modules"/>

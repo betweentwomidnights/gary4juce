@@ -27,6 +27,7 @@ DerivedData/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+*.lnk
 
 # Linux
 *~
@@ -35,10 +36,15 @@ Desktop.ini
 *.tmp
 *.temp
 *.log
+.release/
+.storage-test/
 
 # IDE files
 .vscode/
 .idea/
+
+# Local agent workspace
+.agents/
 
 # Audio files (optional - you might want to keep some for testing)
 *.wav
@@ -47,6 +53,10 @@ Desktop.ini
 *.flac
 
 third_party/
+
+# Local/reference handoff notes
+SA3_API_HANDOFF.md
+kevs_docs_style.md
 
 # Claude.md (keep this if you want Claude to ignore it)
 CLAUDE.md

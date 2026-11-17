@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /*
   ==============================================================================
     This file contains the basic framework code for a JUCE plugin editor.
@@ -11,22 +14,36 @@
 #include "Components/Darius/DariusUI.h"
 #include "Components/Gary/GaryUI.h"
 #include "Components/Jerry/JerryUI.h"
+#include "Components/Jerry/SA3UI.h"
+#include "Components/Jerry/SA3LaneEditor.h"
+#include "Components/Carey/CareyUI.h"
+#include "Components/Yuey/YueyUI.h"
+#include "Yuey/YueyMidiImport.h"
+#include "Components/Foundation/FoundationUI.h"
+#include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
 #include "Utils/IconFactory.h"
 
 #include <atomic>
-#include <future>
+#include <map>
 #include <memory>
 #include <vector>
 #include <cstdint>
+
+namespace stems { class StemsService; }
 
 //==============================================================================
 /**
 */
 class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::Timer,
-    public juce::DragAndDropContainer
+    public juce::ChangeListener,
+    public juce::DragAndDropContainer,
+    public juce::FileDragAndDropTarget
 {
+    friend struct FullTrackAudioTest;
+    friend struct StemsModelsTest;
+    friend struct OutputMetadataTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;
@@ -35,6 +52,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+    void changeListenerCallback(juce::ChangeBroadcaster* source) override;
 
     // Backend connection status
     void updateConnectionStatus(bool connected);
@@ -43,7 +61,10 @@ public:
     void stopPolling();
     void pollForResults();
     void handlePollingResponse(const juce::String& responseText);
-    void saveGeneratedAudio(const juce::String& base64Audio);
+    // Returns false when the render never reached disk, so callers do not
+    // attach metadata to audio the user is not actually hearing.
+    bool saveGeneratedAudio(const juce::String& base64Audio, const juce::var& response = {},
+                            const juce::var& restoredMetadata = {});
 
     void loadOutputAudioFile();
     void drawOutputWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
@@ -53,10 +74,23 @@ public:
 
     void stopOutputPlayback();
     void checkPlaybackStatus();
+    void playInputAudio();
+    void stopInputPlayback();
+    void seekInputToPosition(double timeInSeconds);
+    double getInputWaveformDisplayDuration() const;
+    juce::File getInputReselectionFile() const;
+    void updateInputPlayButtonIcon();
 
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
     void mouseUp(const juce::MouseEvent& event) override;
+    void mouseDoubleClick(const juce::MouseEvent& event) override;
+
+    // FileDragAndDropTarget interface
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
+    void fileDragEnter(const juce::StringArray& files, int x, int y) override;
+    void fileDragExit(const juce::StringArray& files) override;
 
     void updateAllGenerationButtonStates();
     void updateGaryButtonStates(bool resetTexts = false);
@@ -64,6 +98,17 @@ public:
     
 
 private:
+    enum class EditorLayoutMode { Compact = 0, Wide };
+
+    void layoutInputSection(juce::Rectangle<int> sectionBounds);
+    void layoutModelSection(juce::Rectangle<int> sectionBounds);
+    void layoutOutputSection(juce::Rectangle<int> sectionBounds);
+    void showGarySettingsMenu();
+    void setEditorLayoutMode(EditorLayoutMode mode);
+    void applyEditorSize();
+    bool usingWideLayout() const;
+    bool sa3LanePanelFits(int width) const;
+
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     Gary4juceAudioProcessor& audioProcessor;
@@ -71,13 +116,25 @@ private:
     // Connection status
     bool isConnected = false;
     bool connectionFlashState = false;  // For flashing animation when connected
+    bool localGaryOnline = false;
+    bool localTerryOnline = false;
+    bool localJerryOnline = false;
+    bool localCareyOnline = false;
+    bool localFoundationOnline = false;
+    bool localSA3Online = false;
+    bool localYueyOnline = false;
+    int localOnlineCount = 0;
+    int localHealthPollCounter = 0;
+    juce::int64 localHealthLastPollMs = 0;
+    std::atomic<bool> localHealthPollInFlight{ false };
+    std::atomic<int> localHealthPollNonce{ 0 };
 
     // Backend toggle system
     bool isUsingLocalhost = false; // Local cache synced with processor
     CustomButton backendToggleButton;
 
     // Service type enum for URL construction (maps to processor enum)
-    enum class ServiceType { Gary, Jerry, Terry };
+    enum class ServiceType { Gary, Jerry, Terry, Carey, Foundation, SA3, Yuey };
 
     // Recording status (cached for UI)
     bool isRecording = false;
@@ -99,24 +156,35 @@ private:
 
     // UI Components
     CustomButton checkConnectionButton;
+    CustomButton checkUpdatesButton;
+    CustomButton licenseButton;
+    CustomButton settingsButton;
     CustomButton saveBufferButton;
     CustomButton clearBufferButton;
+    CustomButton playInputButton;
+    CustomButton stopInputButton;
 
     juce::Rectangle<int> titleArea;
     juce::Rectangle<int> connectionStatusArea;
     juce::Rectangle<int> recordingLabelArea;
     juce::Rectangle<int> inputStatusArea;      // For status messages
     juce::Rectangle<int> inputInfoArea;        // For sample count info
+    EditorLayoutMode editorLayoutMode = EditorLayoutMode::Compact;
 
     // ========== TAB SYSTEM ==========
     enum class ModelTab
     {
         Gary = 0,
-        Jerry,
+        Jerry,    // encompasses both Jerry SAOS and Foundation sub-tabs
+        Carey,
         Terry,
-        Darius // magenta
-
+        Darius,   // magenta
+        Yuey      // appended to preserve saved enum values from earlier versions
     };
+
+    // Jerry sub-tabs: Stable Audio 3 beta, the original SAOS model, and Foundation-1
+    enum class JerrySubTab { SA3 = 0, SAOS, Foundation };
+    JerrySubTab jerrySubTab = JerrySubTab::SA3;
 
     // Tracks which operation (if any) is in-flight, independent of the visible tab.
     enum class ActiveOp
@@ -127,17 +195,92 @@ private:
         GaryRetry,
         TerryTransform,
         JerryGenerate,
-        DariusGenerate
+        CareyGenerate,
+        DariusGenerate,
+        FoundationGenerate,
+        SA3Generate,
+        SA3Transform,
+        SA3Continue,
+        YueyGenerate,
+        YueyRemix,
+        YueyContinue,
+        YueyScoreTranscribe,
+        YueyRemixTranscribe
     };
 
     ModelTab currentTab = ModelTab::Terry;  // Initialize to different tab so first switchToTab() works
     CustomButton garyTabButton;
     CustomButton jerryTabButton;
-    CustomButton terryTabButton;  // For future
+    CustomButton careyTabButton;
+    CustomButton terryTabButton;
+    CustomButton yueyTabButton;
+
+    // Jerry sub-tab buttons (replace the title area when Jerry tab is active)
+    CustomButton jerrySubTabSAOS;      // "jerry (SAOS)"
+    CustomButton jerrySubTabSA3;       // "sa3"
+    CustomButton jerrySubTabFoundation; // "foundation-1"
+    void switchJerrySubTab(JerrySubTab sub);
+    void updateJerrySubTabStates();
+
 
     void switchToTab(ModelTab tab);
     void updateTabButtonStates();
     juce::Rectangle<int> fullTabAreaRect;  // Store the calculated tab area
+    ModelTab initialTab = ModelTab::Jerry;
+
+    juce::String serializePersistentState() const;
+    void restorePersistentState(const juce::String& json);
+    void applyProcessorStateToEditor();
+    void persistEditorState();
+
+    // Global user-data location (shared by every plugin/standalone instance).
+    void initializeGaryDataDirectory();
+    bool ensureGaryDataDirectoryAvailable(bool notifyUser = true);
+    enum class DraggedAudioFormat
+    {
+        Wav,
+        Flac
+    };
+    juce::File getGaryDataDirectory() const { return activeGaryDataDirectory; }
+    juce::File getGaryBufferFile() const { return activeGaryDataDirectory.getChildFile("myBuffer.wav"); }
+    juce::File getGaryOutputFile() const { return activeGaryDataDirectory.getChildFile("myOutput.wav"); }
+    juce::File getGaryDraggedAudioDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_audio"); }
+    juce::File getGaryDraggedMidiDirectory() const { return activeGaryDataDirectory.getChildFile("dragged_midi"); }
+    // The score sidecar sits beside myOutput.wav because it describes that
+    // render. Anything replacing the output audio must drop this with it.
+    juce::File getYueyScoreDirectory() const { return activeGaryDataDirectory.getChildFile("myOutput.score"); }
+    juce::String getDraggedAudioFileExtension() const;
+    void setDraggedAudioFormat(DraggedAudioFormat format);
+    bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
+    enum class DraggedAudioMetadata { Off = 1, Json = 2, Embedded = 3 };
+    DraggedAudioMetadata draggedAudioMetadata = DraggedAudioMetadata::Off;
+    void setDraggedAudioMetadata(DraggedAudioMetadata mode);
+    juce::var loadOutputGenerationMetadata() const;
+    bool persistOutputGenerationMetadata(const juce::var& metadata);
+    bool writeDraggedAudioMetadata(const juce::File& source, const juce::File& destination,
+                                   const juce::var& sourceMetadata) const;
+    void captureGenerationRequest(std::uint32_t token, const juce::String& service,
+                                  const juce::String& operation, const juce::var& request);
+    void acceptGenerationSnapshot(std::uint32_t token, const juce::var& snapshot);
+    void noteGenerationSeed(const juce::String& service, const juce::String& seed);
+    void commitGenerationMetadata(const juce::var& response, const juce::var& restoredMetadata);
+    juce::CriticalSection generationMetadataLock;
+    juce::var pendingGenerationMetadata;
+    juce::var currentOutputGenerationMetadata;
+    juce::var terrySourceGenerationMetadata;
+    void showStorageSettings();
+    void showStemsSettings();
+    stems::StemsService& getStemsService();   // created on first use, in the active data folder
+    void chooseGaryDataDirectory();
+    void migrateGaryDataDirectory(const juce::File& destination);
+    void activateGaryDataDirectory(const juce::File& directory, bool isFallback);
+    void recoverCurrentAudioFiles();
+    bool writeDataToFileSafely(const juce::File& file, const void* data, size_t dataSize) const;
+    bool writeAudioBufferToFileSafely(const juce::AudioBuffer<float>& buffer,
+                                      double sampleRate,
+                                      const juce::File& file) const;
+    bool writeCurrentOutputToFile(const juce::File& file) const;
+    void updateStorageButtonState();
 
     void setActiveOp(ActiveOp op) { activeOp = op; }
     ActiveOp getActiveOp() const { return activeOp; }
@@ -146,11 +289,31 @@ private:
     std::unique_ptr<GaryUI> garyUI;
     juce::StringArray garyModelItems;
 
+    // Gary model info structure for dynamic loading
+    struct GaryModelInfo {
+        juce::String displayName;  // "keygen-gary-small-6"
+        juce::String fullPath;     // "thepatch/keygen-gary-small-6"
+        int dropdownId;            // Unique ID for ComboBox
+    };
+    std::vector<GaryModelInfo> garyModelList;  // Maps dropdown ID -> model path
+
     // Current Gary settings
     float currentPromptDuration = 6.0f;
     int currentModelIndex = 0;
+    juce::String preferredGaryModelPath;
+    // The last /api/models reply the dropdown was built from, so a refetch that
+    // finds nothing new leaves the menu alone.
+    juce::String lastGaryModelsResponse;
+    int currentGaryTopK = 250;
+    float currentGaryCfg = 3.0f;
+    juce::String currentGaryDescription;
+    bool currentGaryAdvancedOpen = false;
+    juce::String currentGaryLastSeed;
+    bool currentGaryUseSeed = false;
+    juce::String currentGarySeedText;
 
     std::unique_ptr<JerryUI> jerryUI;
+    std::unique_ptr<SA3UI> sa3UI;
 
     // Add Darius tab button (with other tab buttons)
     CustomButton dariusTabButton;
@@ -236,10 +399,372 @@ private:
 
 
 
+    // ========== CAREY ==========
+    std::unique_ptr<CareyUI> careyUI;
+    CareyUI::SubTab currentCareySubTab = CareyUI::SubTab::Lego;
+    bool currentCareyLegoAdvancedOpen = false;
+    bool currentCareyCompleteAdvancedOpen = false;
+    bool currentCareyCoverAdvancedOpen = false;
+    bool currentCareyExtractAdvancedOpen = false;
+    juce::String currentCareyLastSeed;
+    bool currentCareyUseSeed = false;
+    juce::String currentCareySeedText;
+    juce::String currentCareyCaption = "";
+    juce::String currentCareyTrackName = "vocals";
+    int currentCareySteps = 50;
+    double currentLegoCfg = 7.0;
+    juce::String currentCareyLegoLora = "";
+    bool currentCareyLegoUseLora = false;
+    double currentCareyLegoLoraScale = 1.0;
+    double currentCareyBpm = 120.0;
+    bool currentCareyLoopAssistEnabled = true;
+    bool currentCareyTrimToInputEnabled = true;
+    juce::String currentCareyLyrics = "";     // Shared across all 3 tabs
+    juce::String currentCareyLanguage = "en"; // Language code for lyrics vocalization
+    juce::String currentCareyCompleteCaption = "";
+    juce::String currentCareyCompleteLora = "";
+    juce::String currentCareyCompleteModel = "xl-turbo";
+    int currentCareyCompleteBpm = 120;
+    int currentCareyCompleteSteps = 50;
+    double currentCompleteCfg = 7.0;
+    int currentCareyCompleteDurationSeconds = 120;
+    bool currentCareyCompleteUseLora = false;
+    double currentCareyCompleteLoraScale = 1.0;
+    bool currentCompleteUseSrcAsRef = false;
+    juce::StringArray availableCareyLoras;      // the backend's LoRAs for the chosen model size
+    std::vector<carey_native::Adapter> careyAdapters;  // every LoRA GET /props listed
+    juce::StringArray careyDits;                // every DiT GET /props listed
+    bool currentCareyXl = false;                // the local model size for every mode: 2B or XL
+    bool careyUsesXl() const;                   // the size requests use: always XL remotely
+    // The complete tab (ace-step's complete task), arrange* in code.
+    juce::StringArray currentCareyArrangeTracks { "drums", "bass" };
+    juce::String currentCareyArrangeCaption;
+    juce::String currentCareyArrangeLora;
+    bool currentCareyArrangeUseLora = false;
+    double currentCareyArrangeLoraScale = 1.0;
+    int currentCareyArrangeSteps = 50;
+    double currentCareyArrangeCfg = 7.0;
+    double currentCareyArrangeStrength = 1.0;
+    bool currentCareyArrangeLoopAssistEnabled = true;
+    bool currentCareyArrangeTrimToInputEnabled = true;
+    bool currentCareyArrangeAdvancedOpen = false;
+    juce::String careyLoraFetchBackendUrl;
+    juce::int64 careyLoraLastFetchMs = 0;
+    std::atomic<bool> careyLoraFetchInFlight { false };
+    std::atomic<int> careyLoraFetchNonce { 0 };
+    juce::String currentCoverCaption = "";
+    static constexpr bool kCareyCoverModelExperimentEnabled = true;
+    juce::String currentCoverModel = "xl-turbo";
+    juce::String currentCoverLora = "";
+    double currentCoverNoiseStrength = 0.2;
+    double currentCoverAudioStrength = 0.3;
+    int currentCoverSteps = CareyUI::kFixedCoverSteps;
+    double currentCoverCfg = CareyUI::kFixedCoverCfg;
+    bool currentCoverUseLora = false;
+    double currentCoverLoraScale = 1.0;
+    bool currentCoverUseSrcAsRef = false;
+    bool currentCoverLoopAssistEnabled = true;
+    bool currentCoverTrimToInputEnabled = true;
+    juce::String currentCareyExtractTrackName = "drums";
+    int currentCareyExtractBpm = 120;
+    int currentCareyExtractSteps = CareyUI::kDefaultExtractSteps;
+    double currentCareyExtractCfg = CareyUI::kDefaultExtractCfg;
+
+    juce::String currentCareyKeyScale = "";
+    juce::String currentCareyTimeSig = "";  // empty = auto-detect
+    std::atomic<int> careyRequestNonce { 0 };
+
+    // One Carey generation. `prepare` runs on the worker thread with the
+    // backend's models and LoRAs: it fills in the request and the length to
+    // trim the result to (0 keeps all of it), or explains why it cannot.
+    struct CareyJob
+    {
+        juce::String label;  // the mode, for the status bar
+        bool needsSourceAudio = true;
+        std::function<bool(const carey_native::Props&, carey_native::Request&,
+                           double& trimToSeconds, juce::String& error)> prepare;
+    };
+    void startCareyJob(CareyJob job);
+    juce::String randomCareyLoraCaption(const juce::String& lora) const;
+    void applyCareyModelFamily();
+
+    void sendToCarey();
+    void sendToCareyExtract();
+    void sendToCareyComplete();
+    void sendToCareyGenerate();
+    void sendToCareyArrange();
+    void requestCareyArrangeCaption();
+    juce::String getSelectedCareyArrangeLora() const;
+    void sendToCareyCover();
+    void setCareyLastSeed(const juce::String& seed);
+    void updateCareyEnablementSnapshot();
+    double getCareyBpmForRequest() const;
+    bool isCareyTabAvailable() const;
+    void updateCareyTabAvailability();
+    void refreshCareyAvailableLoras(bool force = false);
+    void syncCareyLoraUi();
+    void requestCareyCompleteCaption();
+    void requestCareyCoverCaption();
+    juce::String getSelectedCareyLegoLora() const;
+    juce::String getSelectedCareyCompleteLora() const;
+    juce::String getSelectedCareyCoverLora() const;
+
+    // ========== YUEY ==========
+    std::unique_ptr<YueyUI> yueyUI;
+    YueyUI::SubTab currentYueySubTab = YueyUI::SubTab::Create;
+    YueyUI::ContinuationMethod currentYueyContinuationMethod = YueyUI::ContinuationMethod::Score;
+    juce::String currentYueyCreatePrompt;
+    juce::String currentYueyRemixPrompt;
+    juce::String currentYueyContinuePrompt;
+    bool currentYueyCreateInstrumental = false;
+    // Off by default: we write the score rather than paying yuey to plan one.
+    bool currentYueyLetYueyPlan = false;
+    int currentYueyScaffoldVariation = 0;
+    bool currentYueyRemixInstrumental = true;
+    double currentYueyBpm = 120.0;
+    juce::String currentYueyKey = "C major";
+    juce::String currentYueyLastSeed;
+    bool currentYueyUseSeed = false;
+    juce::String currentYueySeedText;
+    juce::String currentYueyMeter = "4/4";
+    bool currentYueyFixedBars = false;
+    int currentYueyBars = 16;
+    bool currentYueyContinueFixedBars = false;
+    int currentYueyContinueBars = 8;
+    juce::String currentYueyTranscriptionMode = "melody";
+    void sendToYuey();
+    void submitYueyJson(const juce::String& endpoint,
+                        const juce::String& json,
+                        ActiveOp operation,
+                        const juce::String& activity);
+    void updateYueyEnablementSnapshot();
+    void applyYueyPlanMetadata(const juce::String& abc);
+    // symbolicMode and adoptPlan are for a score that came from a MIDI file: it conditions with its
+    // chords when it has any, and its serialization key (always C) says nothing about the music, so
+    // the tab's own key is left alone.
+    void continueYueyFromTranscription(const juce::String& abc, const juce::String& symbolicMode = {},
+                                       bool adoptPlan = true);
+    void remixYueyFromTranscription(const juce::String& abc);
+    double yueyTranscriptionBpm = 120.0; // capture the standalone target before the async transcription
+
+    // ---- MIDI as a source for remix and continue ----
+    // The two files live here, not in the tab: they belong to the session (and survive the editor
+    // being rebuilt), and nothing about the output audio or its score has anything to do with them.
+    struct YueyMidiInput
+    {
+        juce::File file;              // what the user gave us, kept even when it was refused
+        bool read = false;            // the file was read; clip is usable
+        yueymidi::Clip clip;
+        juce::String error;           // why it can't be used on its own
+        yueymidi::Score alone;        // what it converts to by itself, at the current tempo
+        bool usable() const { return read && alone.ok; }
+    };
+    YueyMidiInput yueyMidiMelody;
+    YueyMidiInput yueyMidiChords;
+    bool currentYueyMidiSelected = false;
+    bool yueyMidiReady = false;       // at least one usable lane, and the lanes agree
+    int yueyMidiSummaryBpm = 0;
+    int effectiveYueyBpm();
+    void readYueyMidi(YueyMidiInput& input, const juce::File& file);
+    void loadYueyMidiFile(YueyUI::MidiLane lane, const juce::File& file);
+    void clearYueyMidi(YueyUI::MidiLane lane);
+    // Re-checks both lanes at the current tempo and meter and tells the tab what to show.
+    void refreshYueyMidi();
+    // After the tab exists: read the files the saved session named and show them.
+    void restoreYueyMidi();
+    // The score the next render would use, from whichever lanes are usable.
+    bool buildYueyMidiScore(yueymidi::Score& score, juce::String& error);
+    void sendYueyMidi(bool remixing);
+
+    // Ceiling the active yuey backend puts on a planner-chosen score. Seconds,
+    // where 0 is unbounded and a negative value means unknown. Remembering the
+    // url it came from means switching between localhost and remote refetches
+    // it without any extra bookkeeping.
+    double yueyNaturalMaxSeconds = -1.0;
+    juce::String yueyNaturalMaxSource;
+    juce::int64 yueyNaturalMaxLastAttemptMs = 0;
+    // Whether this backend answers audio_format "flac", read from the same
+    // /health response. Unknown counts as no: older servers reject the value.
+    bool yueyAcceptsFlac = false;
+    void refreshYueyNaturalMax();
+
+    // The dice pool, fetched once per backend. Two buckets, chosen by the
+    // instrumental toggle of whichever tab rolled: an instrumental job has a
+    // no-vocals preamble prefixed to its style, so a prompt naming a singer
+    // there would argue with it.
+    juce::StringArray yueyDiceInstrumental;
+    juce::StringArray yueyDiceVocal;
+    juce::String yueyDiceSource;
+    juce::int64 yueyDiceLastAttemptMs = 0;
+    void refreshYueyDicePrompts();
+    void rollYueyDicePrompt(YueyUI::SubTab tab);
+    // Create, remix and continue share one prompt: this sets it everywhere it lives.
+    void setYueyPrompt(const juce::String& text);
+    // A prompt from the pool that is not `current`, or empty with `problem` saying why not.
+    juce::String pickYueyDicePrompt(bool instrumental, const juce::String& current,
+                                    juce::String& problem);
+
+    // ---------- yuey score: owned by the output audio, not by the tab ----------
+    struct YueyMidiLane
+    {
+        juce::String name;      // e.g. "melody.mid", as the server keys it
+        juce::MemoryBlock bytes;
+    };
+
+    struct YueyScore
+    {
+        juce::String originalAbc;   // exactly what the server returned
+        juce::String workingAbc;    // editable copy; Q: may be retimed to the host
+        juce::String sourceOp;      // generate | remix | continue
+        double originalTempo = 0.0; // the Q: the server sent
+        double workingTempo = 0.0;  // the Q: currently in workingAbc
+        bool syncedToHost = false;  // workingAbc's Q: came from the DAW, not the model
+        bool alignedToAudio = true; // false once the output is cropped or trimmed
+        int bars = 0;
+        std::vector<YueyMidiLane> midi; // lanes with notes, in display order
+
+        bool isValid() const { return originalAbc.isNotEmpty(); }
+    };
+
+    YueyScore yueyScore;
+
+    bool hasYueyScore() const { return yueyScore.isValid(); }
+    void attachYueyScore(juce::DynamicObject* completedResponse, const juce::String& sourceOp);
+    void clearYueyScore();
+    void persistYueyScore();
+    void markYueyScoreUnaligned();
+    bool loadYueyScoreFromDisk();
+    juce::File getYueyMidiFile(const juce::String& laneName) const;
+
+    // The midi handle lives on the output waveform rather than in the tab,
+    // because the midi belongs to the render rather than to the request.
+    // Dragging it carries every lane at once. The listener is declared first
+    // so it outlives the button it listens to.
+    std::unique_ptr<juce::MouseListener> yueyMidiDragListener;
+    juce::DrawableButton yueyMidiButton;
+    bool yueyMidiDragStarted = false;
+    void installYueyMidiDrag();
+    void dragYueyMidi();
+    void updateYueyScoreOverlayState();
+    juce::DrawableButton yueyScoreButton;
+    // The embedded stem separator's handles, bottom right of the output waveform and of the recording
+    // buffer (PluginEditor.Stems.cpp).
+    juce::DrawableButton stemsButton;
+    juce::DrawableButton stemsInputButton;
+    int stemsButtonTimerTicks = 0;
+    juce::File activeStemFile;          // in the output player while activePlaybackSource == Stem
+    double stemPausedPosition = 0.0;
+    bool stemPlaybackRunning = false;   // started and not paused or stopped by the user
+    // Where each stem not in the player was left (path -> seconds), so switching stems pauses the
+    // one you leave rather than forgetting it. Cleared when the stems popup closes.
+    std::map<juce::String, double> stemPositions;
+    double currentStemPosition() const;
+    double stemPosition(const juce::File& stem) const;
+    void updateStemsButtonState();
+    // What the stem separator needs before it can run ("install the stem separator", ...), or empty.
+    juce::String stemsSetupStep();
+    void stemsHandleClicked(bool fromRecordingBuffer);   // the popup, or its settings until set up
+    void checkStemPlaybackStatus();
+    void showStemsDialog(bool fromRecordingBuffer);
+    bool hasSavedRecordingBuffer() const;
+    void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
+    void toggleStemPlayback(const juce::File& stem);
+    void stopStemPlayback(const juce::File& stem);
+    void seekStem(const juce::File& stem, double seconds);
+    void releaseStemPlayback();
+    void startStemDrag(const juce::File& stem, const juce::String& stemName);
+    void openYueyScoreEditor();
+    void saveYueyWorkingScore(const juce::String& abc);
+    void renderYueyScore(const juce::String& abc, bool fullScore, const juce::String& prompt);
+    void saveYueyScorePrompt(const juce::String& prompt);
+    void reportYueyWarnings(juce::DynamicObject* completedResponse);
+    void recordYueyLastSeed(juce::DynamicObject* completedResponse);
+
+    // ========== FOUNDATION ==========
+    std::unique_ptr<FoundationUI> foundationUI;
+    juce::String lastFoundationPromptSnapshot;
+    double currentStandaloneBpm = 120.0;
+    void setStandaloneBpm(double bpm);
+    void sendToFoundation();
+    void randomizeFoundation();
+    void updateFoundationEnablementSnapshot();
+
+    // ========== SA3 ==========
+    juce::String currentSA3Prompt = "";
+    double currentSA3Bpm = 120.0;
+    int currentSA3DurationSeconds = 30;
+    bool currentSA3LoopEnabled = false;
+    int currentSA3Bars = 8;
+    int currentSA3Steps = 8;
+    double currentSA3Cfg = 1.0;
+    juce::String currentSA3Shift = "logsnr";
+    juce::String currentSA3KeyScale = "";
+    juce::String currentSA3NegativePrompt = "";
+    juce::String currentSA3TransformPrompt = "";
+    double currentSA3TransformStrength = 0.5;
+    juce::String currentSA3ContinuePrompt = "";
+    int currentSA3ContinueAddSeconds = 30;
+    bool currentSA3ContinueLatentPrefix = false;
+    bool currentSA3GenerateKeepsGoing = false;
+    bool currentSA3ContinueKeepsGoing = true;
+    SA3UI::SubTab currentSA3SubTab = SA3UI::SubTab::Generate;
+    bool currentSA3AdvancedOpen = false;
+    juce::String currentSA3LastSeed;
+    bool currentSA3UseSeed = false;
+    juce::String currentSA3SeedText;
+    bool currentSA3UseLora = false;
+    std::vector<SA3UI::LoraSelection> currentSA3LoraSelections;
+    juce::StringArray availableSA3Loras;
+    juce::String sa3LoraFetchBackendUrl;
+    juce::int64 sa3LoraLastFetchMs = 0;
+    std::atomic<bool> sa3LoraFetchInFlight { false };
+    std::atomic<int> sa3LoraFetchNonce { 0 };
+    std::atomic<int> sa3PromptRequestNonce { 0 };
+    void sendToSA3();
+    void sendSA3Transform();
+    void sendSA3Continue();
+    void requestSA3DicePrompt(SA3UI::SubTab targetTab);
+    void updateSA3EnablementSnapshot();
+    void refreshSA3AvailableLoras(bool force = false);
+    void syncSA3LoraUi();
+
+    // SA3 LoRA automation lanes, in a panel attached to the editor's right edge.
+    sa3lanes::State sa3Lanes;
+    std::unique_ptr<SA3LaneEditor> sa3LaneEditor;
+    double sa3LaneTimelineStart = 0.0;    // where the last SA3 render's curves began in its output
+    bool sa3LanesForcedCompact = false;   // the panel didn't fit beside the wide layout
+    // capabilities.lora_lanes from the SA3 backend's /health; localhost also needs gary4local's
+    // lora_lanes_forwarded, since 0.7.0's adapter passed the flag through but dropped the lanes.
+    // The answer belongs to whatever served sa3LanesCheckedUrl when it was asked; a different
+    // server can take that address, so it is forgotten whenever local SA3 goes on or offline.
+    bool sa3LanesSupported = false;
+    juce::String sa3LanesCheckedUrl;
+    std::atomic<bool> sa3LaneCheckInFlight { false };
+    int sa3LaneCheckGeneration = 0;   // a check started before the answer was forgotten is ignored
+    bool sa3LanePanelShown() const;
+    void updateSA3LanePanel();
+    void syncSA3Lanes();
+    // Tells the LoRA rows which strengths the lanes draw, and moves a slider to a flat lane dragged
+    // to a new strength, since a flat line is just a strength.
+    void updateSA3LoraAutomation();
+    void updateSA3LaneTimeline();
+    double sa3LaneRangeSeconds() const;
+    void updateSA3LaneBackdrop();
+    void rollSA3LanePrompt(size_t laneIndex);
+    // Asks unless healthUrl already has an answer; recheck asks anyway, keeping the old answer
+    // until the new one arrives.
+    void checkSA3LaneSupport(const juce::String& healthUrl, bool recheck = false);
+    void forgetSA3LaneSupport();
+    // Adds the lanes to an SA3 request when automation is on. False means don't send: the backend
+    // can't run lanes, and a status message says so.
+    bool addSA3LanesToRequest(juce::DynamicObject& request, double startSeconds, double seconds,
+                              const std::function<juce::String(const juce::String&)>& decoratePrompt);
+
     // Current Jerry settings
     juce::String currentJerryPrompt = "";
     float currentJerryCfg = 1.0f;
     int currentJerrySteps = 8;
+    int currentJerryManualBpm = 120;
     bool generateAsLoop = false;
     juce::String currentLoopType = "auto";
 
@@ -251,17 +776,18 @@ private:
     juce::String currentJerryFinetuneCheckpoint = "";     // NEW: e.g., 'jerry_encoded_epoch=33-step=100.ckpt'
     bool currentJerryIsFinetune = false;
     juce::String currentJerrySamplerType = "pingpong";
+    juce::String preferredJerryModelKey;
+    juce::String preferredJerryFinetuneRepo;
+    juce::String preferredJerryFinetuneCheckpoint;
 
-    void fetchJerryAvailableModels();
+    // Gary model API methods
+    void fetchGaryAvailableModels();
+    void handleGaryModelsResponse(const juce::String& responseText);
+    juce::String getSelectedGaryModelPath() const;
+
+    void fetchJerryAvailableModels(bool force = false);
     void handleJerryModelsResponse(const juce::String& responseText);
 
-    // Custom finetune methods
-    void fetchJerryCheckpoints(const juce::String& repo);
-    void handleJerryCheckpointsResponse(const juce::String& responseText);
-    void addCustomJerryModel(const juce::String& repo, const juce::String& checkpoint);
-    void handleAddCustomModelResponse(const juce::String& responseText,
-                                       const juce::String& repo,
-                                       const juce::String& checkpoint);
     juce::String extractCheckpointInfo(const juce::String& checkpoint);
 
     void fetchJerryPrompts(const juce::String& repo, const juce::String& checkpoint);
@@ -270,7 +796,7 @@ private:
         const juce::String& jsonText,
         int statusCode = 200);
 
-    void maybeFetchRemoteJerryPrompts(); // gatekeeper for remote mode, avoids hammering
+    void maybeFetchJerryPrompts(); // gatekeeper for either backend, avoids hammering
 
     // Optional local cache to avoid re-fetching
     juce::HashMap<juce::String, juce::String> promptsCache; // key: repo + "|" + checkpoint
@@ -295,9 +821,15 @@ private:
     float currentTerryFlowstep = 0.130f;
     bool useMidpointSolver = false;  // false = euler, true = midpoint
     bool transformRecording = false; // false = transform output, true = transform recording
+    juce::String currentTerryLastSeed;
+    bool currentTerryUseSeed = false;
+    juce::String currentTerrySeedText;
+    juce::String pendingDariusState;
 
     // Terry helper methods
     void updateTerryEnablementSnapshot();
+    void setTerryLastSeed(const juce::String& seed);
+    void setGaryLastSeed(const juce::String& seed);
     void setTerryAudioSource(bool useRecording);
     void sendToTerry();
     void undoTerryTransform();
@@ -306,15 +838,51 @@ private:
     juce::String getServiceUrl(ServiceType service, const juce::String& endpoint) const;
     void toggleBackend();
     void updateBackendToggleButton();
+    void triggerLocalServiceHealthPoll(bool force);
+    void applyLocalServiceHealthResult(ServiceType service, bool online, bool pollComplete);
+    void resetLocalServiceHealthSnapshot();
+    void restoreLocalServiceHealthSnapshot();
+    bool isLocalServiceOnline(ServiceType service) const;
+    ServiceType getActiveLocalService() const;
+    bool isActiveLocalServiceOnline() const;
+    juce::String getLocalConnectionLineOne() const;
+    bool isServiceReachable(ServiceType service) const;
 
     // UI Helper methods
     void updateRecordingStatus();
     void saveRecordingBuffer();
     void clearRecordingBuffer();
     void drawWaveform(juce::Graphics& g, const juce::Rectangle<int>& area);
+    juce::Rectangle<int> getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const;
+    void drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                             const juce::Rectangle<int>& lane, double totalDuration);
+    void refreshSavedBufferPreview();
+    bool readAudioAtHostRate(juce::AudioFormatReader& reader, juce::AudioBuffer<float>& buffer) const;
+    void restoreSavedBufferIntoRecording();
+    bool loadSavedBufferForInputPlayback();
+    bool inputPlaybackIsCurrent() const;
     void showStatusMessage(const juce::String& message, int durationMs = 3000);
     void sendToGary();
     void sendToJerry();  // New method for Jerry
+    void maybeAutoCheckForUpdates();
+    void checkForPluginUpdates(bool manual, bool includeSkippedVersion = false);
+    void maybeShowDeferredUpdatePrompt();
+    void showPluginUpdatePrompt(const juce::String& latestVersion,
+                                const juce::String& downloadUrl,
+                                const juce::StringArray& notes,
+                                const juce::String& channel,
+                                const juce::String& publishedAt);
+    void dismissPluginUpdatePrompt();
+    void trackEditorModalWindow(juce::Component* window);
+    void dismissEditorModalWindows();
+    void clearDeferredUpdatePrompt();
+    juce::PropertiesFile& getUpdatePreferences();
+    juce::String getSkippedUpdateVersion();
+    void setSkippedUpdateVersion(const juce::String& version);
+    juce::int64 getLastUpdateCheckTimeMs();
+    void setLastUpdateCheckTimeMs(juce::int64 timeMs);
+    bool getStartupUpdateCheckEnabled();
+    void setStartupUpdateCheckEnabled(bool enabled);
 
     // Polling system
     bool isPolling = false;
@@ -328,6 +896,8 @@ private:
     bool isGenerating = false;
     bool continueInProgress = false;  // Track if current generation is a continue operation
     ActiveOp activeOp = ActiveOp::None;
+    int careyWaveformProgress = 0;
+    bool careyWaveformQueued = false;
 
     // UI areas
     juce::Rectangle<int> outputWaveformArea;
@@ -341,8 +911,33 @@ private:
     juce::Label outputLabel;
     CustomButton stopOutputButton;
     juce::DrawableButton cropButton;
+    juce::DrawableButton uploadButton;
 
     bool isPlayingOutput = false;
+
+    enum class PlaybackSource { None, Input, Output, Stem };
+    PlaybackSource activePlaybackSource = PlaybackSource::None;
+
+    bool isPlayingInput = false;
+    bool isPausedInput = false;
+    double currentInputPlaybackPosition = 0.0;
+    double inputPlaybackDuration = 0.0;
+    int inputPlaybackSnapshotSamples = 0;
+    juce::Time inputPlaybackFileTime;   // the myBuffer.wav the input player loaded
+
+    // The saved buffer (myBuffer.wav), drawn along the bottom of the recording waveform while
+    // the take above it is unsaved: one peak per column, read in the background whenever the
+    // file changes.
+    struct SavedBufferPreview
+    {
+        juce::String path;
+        juce::Time modified;
+        juce::int64 size = 0;
+        double seconds = 0.0;
+        std::vector<float> peaks;
+    };
+    SavedBufferPreview savedBufferPreview;
+    std::atomic<bool> savedBufferPreviewLoading { false };
 
     // Playback cursor tracking
     double currentPlaybackPosition = 0.0;  // Current position in seconds
@@ -376,15 +971,38 @@ private:
 
 
     // Backend disconnection and stall handling methods
+    void markBackendDisconnectedFromRequestFailure(const juce::String& context);
     bool checkForGenerationStall();
     void handleGenerationStall();
     void handleBackendDisconnection();
     void handleGenerationFailure(const juce::String& reason);
+    void resetGenerationStateAfterTerminalResult();
     void resetStallDetection();
     void performSmartHealthCheck();
     void showBackendDisconnectionDialog();
+    void showGenerationFailureDialog(const juce::String& reason);
+    void showSupportDialog(const juce::String& title,
+                           const juce::String& message,
+                           const juce::String& detailText,
+                           bool showCheckConnectionHint);
+    bool shouldShowGenerationFailureDialog(const juce::String& reason) const;
 
     bool isCurrentlyQueued = false;
+    int getWaveformGenerationProgress() const
+    {
+        return activeOp == ActiveOp::CareyGenerate ? careyWaveformProgress : generationProgress;
+    }
+
+    bool getWaveformGenerationQueued() const
+    {
+        return activeOp == ActiveOp::CareyGenerate ? careyWaveformQueued : isCurrentlyQueued;
+    }
+
+    void setCareyWaveformState(int progress, bool queued)
+    {
+        careyWaveformProgress = juce::jlimit(0, 100, progress);
+        careyWaveformQueued = queued;
+    }
 
     void seekToPosition(double timeInSeconds);
 
@@ -395,16 +1013,41 @@ private:
     void retryLastContinuation();
     void updateRetryButtonState();
     void updateContinueButtonState();
+    using GenerationAsyncToken = std::uint32_t;
+    GenerationAsyncToken beginGenerationAsyncWork() noexcept;
+    GenerationAsyncToken currentGenerationAsyncToken() const noexcept;
+    void invalidateGenerationAsyncWork() noexcept;
+    bool isGenerationAsyncWorkCurrent(GenerationAsyncToken token) const noexcept;
 
-    // Drag and drop functionality
+    // Drag and drop functionality (output)
     bool isDragging = false;
     bool dragStarted = false;
     juce::Point<int> dragStartPosition;
     void startAudioDrag();
+#if JUCE_LINUX
+    CustomButton copyDraggedAudioButton;
+    void copyDraggedAudioFileToClipboard();
+#endif
     bool isMouseOverOutputWaveform(const juce::Point<int>& position) const;
+
+    // Drag and drop functionality (input)
+    bool isDragHoveringInput = false;
+    void loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog = false);
+    bool validateAudioDurationForModel(const juce::File& file, double maximumSeconds,
+                                      const juce::String& modelName);
+    double getCurrentModelInputLimit() const;
+    int getSA3MaximumDurationSeconds() const;
+    double getRecordingSelectionMaximumDuration() const;
+    juce::String getInputDurationHint() const;
+    void showOutputAudioSelectionDialog();
+    juce::File lastDraggedAudioFile;  // Stores path for double-click reselection
+    double lastSelectionStartTime = 0.0;  // Stores last selection position for reopening dialog
 
     // Crop icon
     std::unique_ptr<juce::Drawable> cropIcon;
+
+    // Upload icon (load file into recording buffer)
+    std::unique_ptr<juce::Drawable> uploadIcon;
 
     // Check connection icon
     std::unique_ptr<juce::Drawable> checkConnectionIcon;
@@ -428,7 +1071,8 @@ private:
 
     // Help icons
     std::unique_ptr<juce::Drawable> helpIcon;
-    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton;
+    juce::DrawableButton garyHelpButton, jerryHelpButton, terryHelpButton, dariusHelpButton, careyHelpButton, foundationHelpButton, sa3HelpButton, yueyHelpButton;
+    // foundationHelpButton is reused — visible when Jerry sub-tab is Foundation
 
     // Allow an extended grace period when we're at 0% but still receiving polls
     const int HF_WARMUP_GRACE_SECONDS = 480; // 8 minutes
@@ -439,27 +1083,69 @@ private:
     std::unique_ptr<juce::Drawable> discordIcon;
     std::unique_ptr<juce::Drawable> xIcon;
 
-    void debugModelSelection(const juce::String& functionName);
-    void updateModelAvailability();
-
     void stopAllBackgroundOperations();
 
     juce::CriticalSection fileLock;  // Protects file operations
     std::atomic<bool> isDragInProgress{ false };
     std::atomic<bool> isEditorValid{ true };  // Add this alongside your existing atomics
+    std::shared_ptr<std::atomic<bool>> editorAsyncAlive{ std::make_shared<std::atomic<bool>>(true) };
+    juce::int64 editorCreatedAtMs = 0;
+    std::atomic<bool> garyModelFetchScheduled{ false };
+    std::atomic<bool> garyModelFetchInFlight{ false };
+    int persistentStateTimerTicks = 0;
+    std::uint64_t lastAppliedHostStateRevision = 0;
+    bool applyingProcessorState = false;
 
     std::pair<bool, juce::File> prepareFileForDrag();
     bool performDragOperation(const juce::File& dragFile);
-    juce::StringArray currentExternalDragFiles;
 
-#if JUCE_LINUX
-    CustomButton copyDraggedAudioButton;
-    juce::String lastCopiedDragFile;
-    void copyDraggedAudioFileToClipboard();
-#endif
-
+    std::atomic<GenerationAsyncToken> generationAsyncToken{ 0 };
     std::atomic<bool> pollInFlight{ false };   // prevent overlapping polls
     juce::int64 lastGoodPollMs = 0;             // for diagnostics / backoff (optional)
+
+    // The read the current poll is doing, so the timer can cut it loose. A
+    // WinInet read that the network has abandoned can block past its own
+    // receive timeout, and while it does pollInFlight stays set and every tick
+    // returns before reaching anything that could notice. Cancelling the
+    // stream from another thread is what reliably hands control back.
+    struct PollTransfer
+    {
+        std::mutex lock;
+        std::shared_ptr<juce::WebInputStream> stream;
+        std::atomic<juce::int64> startedMs{ 0 };
+        std::atomic<juce::int64> lastByteMs{ 0 };
+        std::atomic<juce::int64> cancelledMs{ 0 };
+    };
+    std::mutex pollTransferLock;
+    std::shared_ptr<PollTransfer> currentPollTransfer;
+    void superviseInFlightPoll();
+    void finishPollTransfer(const std::shared_ptr<PollTransfer>& transfer);
+    void abandonPollTransfer();
+
+    std::unique_ptr<juce::PropertiesFile> updatePreferences;
+    // The embedded stem separator (Source/Stems). Shared so a job thread can finish after the editor.
+    std::shared_ptr<stems::StemsService> stemsService;
+    std::atomic<bool> updateCheckInFlight{ false };
+    bool hasCheckedForUpdatesThisEditorSession = false;
+    bool updatePromptVisible = false;
+    juce::Component::SafePointer<juce::AlertWindow> updatePromptWindow;
+    std::vector<juce::Component::SafePointer<juce::Component>> editorModalWindows;
+    std::unique_ptr<juce::FileChooser> uploadFileChooser;
+    std::unique_ptr<juce::FileChooser> storageFolderChooser;
+    std::unique_ptr<juce::ThreadWithProgressWindow> storageMigrationTask;
+    juce::File configuredGaryDataDirectory;
+    juce::File activeGaryDataDirectory;
+    DraggedAudioFormat draggedAudioFormat = DraggedAudioFormat::Wav;
+    bool usingGaryDataFallback = false;
+    bool garyDataFallbackDirty = false;
+    std::atomic<bool> storageMigrationInProgress { false };
+    int storageAvailabilityTimerTicks = 0;
+    bool deferredUpdatePromptReady = false;
+    juce::String deferredUpdateVersion;
+    juce::String deferredUpdateDownloadUrl;
+    juce::String deferredUpdateChannel = "stable";
+    juce::String deferredUpdatePublishedAt;
+    juce::StringArray deferredUpdateNotes;
 
     
 

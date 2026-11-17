@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #pragma once
 #include <JuceHeader.h>
 #include <memory>
@@ -8,6 +11,7 @@ public:
     // Static factory methods for each icon type
     static std::unique_ptr<juce::Drawable> createCropIcon();
     static std::unique_ptr<juce::Drawable> createCheckConnectionIcon();
+    static std::unique_ptr<juce::Drawable> createSettingsIcon();
     static std::unique_ptr<juce::Drawable> createTrashIcon();
     static std::unique_ptr<juce::Drawable> createPlayIcon();
     static std::unique_ptr<juce::Drawable> createPauseIcon();
@@ -15,6 +19,9 @@ public:
     static std::unique_ptr<juce::Drawable> createHelpIcon();
     static std::unique_ptr<juce::Drawable> createDiscordIcon();
     static std::unique_ptr<juce::Drawable> createXIcon();
+    static std::unique_ptr<juce::Drawable> createUploadIcon();
+    static std::unique_ptr<juce::Drawable> createZoomInIcon();
+    static std::unique_ptr<juce::Drawable> createZoomOutIcon();
     
     // Binary resource loading
     static juce::Image loadLogoImage();

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /*
   ==============================================================================
     This file contains the basic framework code for a JUCE plugin editor.
@@ -5,88 +8,893 @@
 */
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Utils/GenerationMetadata.h"
+#include "PluginEditorJerryHelpers.h"
+#include "PluginEditorTerryHelpers.h"
+#include "PluginEditorTextHelpers.h"
 #include "./Utils/BarTrim.h"
+#include "./Components/Base/CustomComboBox.h"
+#include "./Stems/StemsRuntime.h"
+#include <limits>
 
-static juce::File getGaryDir();
-static bool ensureParentDirExists(const juce::File& targetFile, const juce::String& context);
+using plugin_editor_detail::loopTypeIndexToString;
+using plugin_editor_detail::loopTypeStringToIndex;
+using plugin_editor_detail::getTerryVariationNames;
+using plugin_editor_detail::stripAnsiAndControlChars;
 
 namespace
 {
+    constexpr int kStartupNetworkGraceMs = 750;
+    constexpr int kCompactEditorWidth = 400;
+    constexpr int kCompactEditorHeight = 850;
+    constexpr int kWideEditorWidth = 1040;
+    constexpr int kWideEditorHeight = 720;
+    constexpr int kWideInputSectionHeight = 440;
+    constexpr int kWideLeftColumnWidth = 470;
+    constexpr int kWideColumnGap = 10;
+    constexpr int kSA3LanePanelWidth = 480;
+    constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
+}
 
-    int loopTypeStringToIndex(const juce::String& type)
+juce::String Gary4juceAudioProcessorEditor::serializePersistentState() const
+{
+    auto state = std::make_unique<juce::DynamicObject>();
+    state->setProperty("version", 4);
+    state->setProperty("layoutMode", static_cast<int>(editorLayoutMode));
+    state->setProperty("modelTab", static_cast<int>(currentTab));
+    state->setProperty("jerrySubTab", static_cast<int>(jerrySubTab));
+    state->setProperty("inputSourceFile", lastDraggedAudioFile.getFullPathName());
+    state->setProperty("standaloneBpm", currentStandaloneBpm);
+
+    state->setProperty("garyPromptDuration", currentPromptDuration);
+    state->setProperty("garyModelPath",
+        garyUI != nullptr && !garyModelList.empty() ? getSelectedGaryModelPath() : preferredGaryModelPath);
+    state->setProperty("garyTopK", currentGaryTopK);
+    state->setProperty("garyCfg", currentGaryCfg);
+    state->setProperty("garyDescription", currentGaryDescription);
+    state->setProperty("garyAdvancedOpen", currentGaryAdvancedOpen);
+    state->setProperty("garyLastSeed",
+        garyUI != nullptr ? garyUI->getLastSeed() : currentGaryLastSeed);
+    state->setProperty("garyUseSeed",
+        garyUI != nullptr ? garyUI->getUseSeedEnabled() : currentGaryUseSeed);
+    state->setProperty("garySeedText",
+        garyUI != nullptr ? garyUI->getSeedText() : currentGarySeedText);
+
+    state->setProperty("jerryPrompt", currentJerryPrompt);
+    state->setProperty("jerryCfg", currentJerryCfg);
+    state->setProperty("jerrySteps", currentJerrySteps);
+    state->setProperty("jerryManualBpm", currentStandaloneBpm);
+    state->setProperty("jerrySmartLoop", generateAsLoop);
+    state->setProperty("jerryLoopType", currentLoopType);
+    state->setProperty("jerryModelKey", currentJerryModelKey);
+    state->setProperty("jerryModelType", currentJerryModelType);
+    state->setProperty("jerryFinetuneRepo", currentJerryFinetuneRepo);
+    state->setProperty("jerryFinetuneCheckpoint", currentJerryFinetuneCheckpoint);
+    state->setProperty("jerryIsFinetune", currentJerryIsFinetune);
+    state->setProperty("jerrySampler", currentJerrySamplerType);
+
+    state->setProperty("sa3Prompt", currentSA3Prompt);
+    state->setProperty("sa3ManualBpm", currentStandaloneBpm);
+    state->setProperty("sa3Duration", currentSA3DurationSeconds);
+    state->setProperty("sa3Loop", currentSA3LoopEnabled);
+    state->setProperty("sa3Bars", currentSA3Bars);
+    state->setProperty("sa3Steps", currentSA3Steps);
+    state->setProperty("sa3Cfg", currentSA3Cfg);
+    state->setProperty("sa3Shift", currentSA3Shift);
+    state->setProperty("sa3KeyScale", currentSA3KeyScale);
+    state->setProperty("sa3NegativePrompt", currentSA3NegativePrompt);
+    state->setProperty("sa3TransformPrompt", currentSA3TransformPrompt);
+    state->setProperty("sa3TransformStrength", currentSA3TransformStrength);
+    state->setProperty("sa3ContinuePrompt", currentSA3ContinuePrompt);
+    state->setProperty("sa3ContinueAddSeconds", currentSA3ContinueAddSeconds);
+    state->setProperty("sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
+    state->setProperty("sa3GenerateKeepsGoing", currentSA3GenerateKeepsGoing);
+    state->setProperty("sa3ContinueKeepsGoing", currentSA3ContinueKeepsGoing);
+    state->setProperty("sa3SubTab", static_cast<int>(
+        sa3UI != nullptr ? sa3UI->getCurrentSubTab() : currentSA3SubTab));
+    state->setProperty("sa3AdvancedOpen",
+        sa3UI != nullptr ? sa3UI->getAdvancedOpen() : currentSA3AdvancedOpen);
+    state->setProperty("sa3LastSeed",
+        sa3UI != nullptr ? sa3UI->getLastSeed() : currentSA3LastSeed);
+    state->setProperty("sa3UseSeed",
+        sa3UI != nullptr ? sa3UI->getUseSeedEnabled() : currentSA3UseSeed);
+    state->setProperty("sa3SeedText",
+        sa3UI != nullptr ? sa3UI->getSeedText() : currentSA3SeedText);
+    state->setProperty("sa3UseLora",
+        sa3UI != nullptr ? sa3UI->getUseLoraEnabled() : currentSA3UseLora);
+
+    juce::Array<juce::var> sa3Loras;
+    const auto loraSelections = sa3UI != nullptr
+        ? sa3UI->getLoraSelections() : currentSA3LoraSelections;
+    for (const auto& selection : loraSelections)
     {
-        if (type.equalsIgnoreCase("drums"))
-            return 1;
-        if (type.equalsIgnoreCase("instruments"))
-            return 2;
-        return 0;
+        auto lora = std::make_unique<juce::DynamicObject>();
+        lora->setProperty("name", selection.name);
+        lora->setProperty("strength", selection.strength);
+        sa3Loras.add(juce::var(lora.release()));
+    }
+    state->setProperty("sa3Loras", sa3Loras);
+    state->setProperty("sa3Lanes", sa3lanes::toVar(sa3Lanes));
+
+    state->setProperty("terryVariation", currentTerryVariation);
+    state->setProperty("terryCustomPrompt", currentTerryCustomPrompt);
+    state->setProperty("terryFlowstep", currentTerryFlowstep);
+    state->setProperty("terryMidpoint", useMidpointSolver);
+    state->setProperty("transformRecording", transformRecording);
+    state->setProperty("terryLastSeed",
+        terryUI != nullptr ? terryUI->getLastSeed() : currentTerryLastSeed);
+    state->setProperty("terryUseSeed",
+        terryUI != nullptr ? terryUI->getUseSeedEnabled() : currentTerryUseSeed);
+    state->setProperty("terrySeedText",
+        terryUI != nullptr ? terryUI->getSeedText() : currentTerrySeedText);
+
+    state->setProperty("careySubTab", static_cast<int>(
+        careyUI != nullptr ? careyUI->getCurrentSubTab() : currentCareySubTab));
+    state->setProperty("careyLegoAdvanced", careyUI != nullptr
+        ? careyUI->getLegoAdvancedOpen() : currentCareyLegoAdvancedOpen);
+    state->setProperty("careyCompleteAdvanced", careyUI != nullptr
+        ? careyUI->getCompleteAdvancedOpen() : currentCareyCompleteAdvancedOpen);
+    state->setProperty("careyCoverAdvanced", careyUI != nullptr
+        ? careyUI->getCoverAdvancedOpen() : currentCareyCoverAdvancedOpen);
+    state->setProperty("careyExtractAdvanced", careyUI != nullptr
+        ? careyUI->getExtractAdvancedOpen() : currentCareyExtractAdvancedOpen);
+    state->setProperty("careyArrangeAdvanced", careyUI != nullptr
+        ? careyUI->getArrangeAdvancedOpen() : currentCareyArrangeAdvancedOpen);
+    state->setProperty("careyArrangeTracks", currentCareyArrangeTracks.joinIntoString(","));
+    state->setProperty("careyArrangeCaption", currentCareyArrangeCaption);
+    state->setProperty("careyArrangeLora", currentCareyArrangeLora);
+    state->setProperty("careyArrangeUseLora", currentCareyArrangeUseLora);
+    state->setProperty("careyArrangeLoraScale", currentCareyArrangeLoraScale);
+    state->setProperty("careyArrangeSteps", currentCareyArrangeSteps);
+    state->setProperty("careyArrangeCfg", currentCareyArrangeCfg);
+    state->setProperty("careyArrangeStrength", currentCareyArrangeStrength);
+    state->setProperty("careyArrangeLoopAssist", currentCareyArrangeLoopAssistEnabled);
+    state->setProperty("careyArrangeTrimToInput", currentCareyArrangeTrimToInputEnabled);
+    state->setProperty("careyLastSeed",
+        careyUI != nullptr ? careyUI->getLastSeed() : currentCareyLastSeed);
+    state->setProperty("careyUseSeed",
+        careyUI != nullptr ? careyUI->getUseSeedEnabled() : currentCareyUseSeed);
+    state->setProperty("careySeedText",
+        careyUI != nullptr ? careyUI->getSeedText() : currentCareySeedText);
+    state->setProperty("careyCaption", currentCareyCaption);
+    state->setProperty("careyTrack", currentCareyTrackName);
+    state->setProperty("careySteps", currentCareySteps);
+    state->setProperty("careyLegoCfg", currentLegoCfg);
+    state->setProperty("careyLegoLora", currentCareyLegoLora);
+    state->setProperty("careyLegoUseLora", currentCareyLegoUseLora);
+    state->setProperty("careyLegoLoraScale", currentCareyLegoLoraScale);
+    state->setProperty("careyLoopAssist", currentCareyLoopAssistEnabled);
+    state->setProperty("careyTrimToInput", currentCareyTrimToInputEnabled);
+    state->setProperty("careyExtractTrack", currentCareyExtractTrackName);
+    state->setProperty("careyExtractBpm", currentCareyExtractBpm);
+    state->setProperty("careyExtractSteps", currentCareyExtractSteps);
+    state->setProperty("careyExtractCfg", currentCareyExtractCfg);
+    state->setProperty("careyCompleteCaption", currentCareyCompleteCaption);
+    state->setProperty("careyCompleteLora", currentCareyCompleteLora);
+    state->setProperty("careyCompleteModel", currentCareyCompleteModel);
+    state->setProperty("careyXl", currentCareyXl);
+    state->setProperty("careyCompleteBpm", currentStandaloneBpm);
+    state->setProperty("careyCompleteSteps", currentCareyCompleteSteps);
+    state->setProperty("careyCompleteCfg", currentCompleteCfg);
+    state->setProperty("careyCompleteDuration", currentCareyCompleteDurationSeconds);
+    state->setProperty("careyCompleteUseLora", currentCareyCompleteUseLora);
+    state->setProperty("careyCompleteLoraScale", currentCareyCompleteLoraScale);
+    state->setProperty("careyCompleteUseSrcRef", currentCompleteUseSrcAsRef);
+    state->setProperty("careyCoverCaption", currentCoverCaption);
+    state->setProperty("careyCoverModel", currentCoverModel);
+    state->setProperty("careyCoverLora", currentCoverLora);
+    state->setProperty("careyCoverNoise", currentCoverNoiseStrength);
+    state->setProperty("careyCoverAudio", currentCoverAudioStrength);
+    state->setProperty("careyCoverSteps", currentCoverSteps);
+    state->setProperty("careyCoverCfg", currentCoverCfg);
+    state->setProperty("careyCoverUseLora", currentCoverUseLora);
+    state->setProperty("careyCoverLoraScale", currentCoverLoraScale);
+    state->setProperty("careyCoverUseSrcRef", currentCoverUseSrcAsRef);
+    state->setProperty("careyCoverLoopAssist", currentCoverLoopAssistEnabled);
+    state->setProperty("careyCoverTrimToInput", currentCoverTrimToInputEnabled);
+    state->setProperty("careyKeyScale", currentCareyKeyScale);
+    state->setProperty("careyTimeSig", currentCareyTimeSig);
+
+    state->setProperty("yueySubTab", static_cast<int>(
+        yueyUI != nullptr ? yueyUI->getCurrentSubTab() : currentYueySubTab));
+    // Retain the legacy nested task field so older builds reopen Continue
+    // sessions sensibly if this state is moved backwards.
+    state->setProperty("yueyRemixMode", currentYueySubTab == YueyUI::SubTab::Continue ? 1 : 0);
+    state->setProperty("yueyContinuationMethod", static_cast<int>(
+        yueyUI != nullptr ? yueyUI->getContinuationMethod() : currentYueyContinuationMethod));
+    state->setProperty("yueyCreatePrompt", currentYueyCreatePrompt);
+    state->setProperty("yueyRemixPrompt", currentYueyRemixPrompt);
+    state->setProperty("yueyContinuePrompt", currentYueyContinuePrompt);
+    // The two MIDI files are remembered by path and read again on restore.
+    state->setProperty("yueyMidiSelected", currentYueyMidiSelected);
+    state->setProperty("yueyMidiMelody", yueyMidiMelody.file.getFullPathName());
+    state->setProperty("yueyMidiChords", yueyMidiChords.file.getFullPathName());
+    state->setProperty("yueyCreateInstrumental", currentYueyCreateInstrumental);
+    state->setProperty("yueyRemixInstrumental", currentYueyRemixInstrumental);
+    state->setProperty("yueyBpm", currentYueyBpm);
+    state->setProperty("yueyKey", currentYueyKey);
+    state->setProperty("yueyLastSeed",
+        yueyUI != nullptr ? yueyUI->getLastSeed() : currentYueyLastSeed);
+    state->setProperty("yueyUseSeed",
+        yueyUI != nullptr ? yueyUI->getUseSeedEnabled() : currentYueyUseSeed);
+    state->setProperty("yueySeedText",
+        yueyUI != nullptr ? yueyUI->getSeedText() : currentYueySeedText);
+    state->setProperty("yueyMeter", currentYueyMeter);
+    state->setProperty("yueyFixedBars", currentYueyFixedBars);
+    state->setProperty("yueyBars", currentYueyBars);
+    state->setProperty("yueyContinueFixedBars", currentYueyContinueFixedBars);
+    state->setProperty("yueyContinueBars", currentYueyContinueBars);
+    state->setProperty("yueyTranscriptionMode", currentYueyTranscriptionMode);
+
+    state->setProperty("dariusState",
+        dariusUI != nullptr ? dariusUI->serializeState() : pendingDariusState);
+
+    return juce::JSON::toString(juce::var(state.release()), false);
+}
+
+void Gary4juceAudioProcessorEditor::restorePersistentState(const juce::String& json)
+{
+    if (json.trim().isEmpty())
+        return;
+
+    auto parsed = juce::JSON::parse(json);
+    auto* state = parsed.getDynamicObject();
+    if (state == nullptr)
+    {
+        DBG("Ignoring invalid editor state JSON");
+        return;
     }
 
-    juce::String loopTypeIndexToString(int index)
+    const auto has = [state](const char* name) { return state->hasProperty(name); };
+    const auto get = [state](const char* name) { return state->getProperty(name); };
+    const auto readString = [&has, &get](const char* name, const juce::String& fallback)
     {
-        switch (index)
+        return has(name) ? get(name).toString() : fallback;
+    };
+    const auto readInt = [&has, &get](const char* name, int fallback)
+    {
+        return has(name) ? static_cast<int>(get(name)) : fallback;
+    };
+    const auto readDouble = [&has, &get](const char* name, double fallback)
+    {
+        return has(name) ? static_cast<double>(get(name)) : fallback;
+    };
+    const auto readBool = [&has, &get](const char* name, bool fallback)
+    {
+        return has(name) ? static_cast<bool>(get(name)) : fallback;
+    };
+
+    editorLayoutMode = static_cast<EditorLayoutMode>(
+        juce::jlimit(0, 1, readInt("layoutMode", 0)));
+    initialTab = static_cast<ModelTab>(juce::jlimit(0, 5,
+        readInt("modelTab", static_cast<int>(ModelTab::Jerry))));
+    jerrySubTab = static_cast<JerrySubTab>(juce::jlimit(0, 2,
+        readInt("jerrySubTab", static_cast<int>(JerrySubTab::SA3))));
+    const auto inputSourcePath = readString("inputSourceFile", {});
+    if (inputSourcePath.isNotEmpty())
+        lastDraggedAudioFile = juce::File(inputSourcePath);
+
+    currentPromptDuration = static_cast<float>(
+        juce::jlimit(1.0, 30.0, readDouble("garyPromptDuration", currentPromptDuration)));
+    preferredGaryModelPath = readString("garyModelPath", preferredGaryModelPath);
+    currentGaryTopK = juce::jlimit(50, 300, readInt("garyTopK", currentGaryTopK));
+    currentGaryCfg = static_cast<float>(
+        juce::jlimit(1.0, 5.0, readDouble("garyCfg", currentGaryCfg)));
+    currentGaryDescription = readString("garyDescription", currentGaryDescription);
+    currentGaryAdvancedOpen = readBool("garyAdvancedOpen", currentGaryAdvancedOpen);
+    currentGaryLastSeed = readString("garyLastSeed", currentGaryLastSeed);
+    currentGaryUseSeed = readBool("garyUseSeed", currentGaryUseSeed);
+    currentGarySeedText = readString("garySeedText", currentGarySeedText);
+
+    currentJerryPrompt = readString("jerryPrompt", currentJerryPrompt);
+    currentJerryCfg = static_cast<float>(readDouble("jerryCfg", currentJerryCfg));
+    currentJerrySteps = readInt("jerrySteps", currentJerrySteps);
+    currentJerryManualBpm = juce::jlimit(20, 300, readInt("jerryManualBpm", currentJerryManualBpm));
+    generateAsLoop = readBool("jerrySmartLoop", generateAsLoop);
+    currentLoopType = readString("jerryLoopType", currentLoopType);
+    currentJerryModelKey = readString("jerryModelKey", currentJerryModelKey);
+    currentJerryModelType = readString("jerryModelType", currentJerryModelType);
+    currentJerryFinetuneRepo = readString("jerryFinetuneRepo", currentJerryFinetuneRepo);
+    currentJerryFinetuneCheckpoint = readString("jerryFinetuneCheckpoint", currentJerryFinetuneCheckpoint);
+    currentJerryIsFinetune = readBool("jerryIsFinetune", currentJerryIsFinetune);
+    currentJerrySamplerType = readString("jerrySampler", currentJerrySamplerType);
+    preferredJerryModelKey = currentJerryModelKey;
+    preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
+    preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
+
+    currentSA3Prompt = readString("sa3Prompt", currentSA3Prompt);
+    currentSA3Bpm = juce::jlimit(40.0, 300.0,
+        readDouble("sa3ManualBpm", currentSA3Bpm));
+    currentSA3DurationSeconds = juce::jlimit(1, SA3UI::kLocalMaximumDurationSeconds,
+        readInt("sa3Duration", currentSA3DurationSeconds));
+    currentSA3LoopEnabled = readBool("sa3Loop", currentSA3LoopEnabled);
+    currentSA3Bars = readInt("sa3Bars", currentSA3Bars);
+    currentSA3Steps = juce::jlimit(1, 50, readInt("sa3Steps", currentSA3Steps));
+    currentSA3Cfg = juce::jlimit(0.5, 2.0, readDouble("sa3Cfg", currentSA3Cfg));
+    currentSA3Shift = readString("sa3Shift", currentSA3Shift);
+    currentSA3KeyScale = readString("sa3KeyScale", currentSA3KeyScale);
+    currentSA3NegativePrompt = readString("sa3NegativePrompt", currentSA3NegativePrompt);
+    currentSA3TransformPrompt = readString("sa3TransformPrompt", currentSA3TransformPrompt);
+    currentSA3TransformStrength = juce::jlimit(
+        0.01, 1.0, readDouble("sa3TransformStrength", currentSA3TransformStrength));
+    currentSA3ContinuePrompt = readString("sa3ContinuePrompt", currentSA3ContinuePrompt);
+    currentSA3ContinueAddSeconds = juce::jlimit(
+        1, SA3UI::kLocalMaximumDurationSeconds, readInt("sa3ContinueAddSeconds",
+            readInt("sa3ContinueSeconds", currentSA3ContinueAddSeconds)));
+    currentSA3ContinueLatentPrefix = readBool(
+        "sa3ContinueLatentPrefix", currentSA3ContinueLatentPrefix);
+    currentSA3GenerateKeepsGoing = readBool(
+        "sa3GenerateKeepsGoing", currentSA3GenerateKeepsGoing);
+    currentSA3ContinueKeepsGoing = readBool(
+        "sa3ContinueKeepsGoing", currentSA3ContinueKeepsGoing);
+    currentSA3SubTab = static_cast<SA3UI::SubTab>(
+        juce::jlimit(0, 2, readInt("sa3SubTab", 0)));
+    currentSA3AdvancedOpen = readBool("sa3AdvancedOpen", currentSA3AdvancedOpen);
+    currentSA3LastSeed = readString("sa3LastSeed", currentSA3LastSeed);
+    currentSA3UseSeed = readBool("sa3UseSeed", currentSA3UseSeed);
+    currentSA3SeedText = readString("sa3SeedText", currentSA3SeedText);
+    currentSA3UseLora = readBool("sa3UseLora", currentSA3UseLora);
+    currentSA3LoraSelections.clear();
+    if (auto* loras = get("sa3Loras").getArray())
+    {
+        for (const auto& item : *loras)
         {
-        case 1: return "drums";
-        case 2: return "instruments";
-        default: return "auto";
+            if (auto* lora = item.getDynamicObject())
+            {
+                const auto name = lora->getProperty("name").toString().trim();
+                if (name.isNotEmpty())
+                {
+                    currentSA3LoraSelections.push_back({
+                        name,
+                        juce::jlimit(0.0, 2.0, static_cast<double>(lora->getProperty("strength")))
+                    });
+                }
+            }
+        }
+    }
+    if (has("sa3Lanes"))
+        sa3Lanes = sa3lanes::fromVar(get("sa3Lanes"));
+
+    currentTerryVariation = readInt("terryVariation", currentTerryVariation);
+    currentTerryCustomPrompt = readString("terryCustomPrompt", currentTerryCustomPrompt);
+    currentTerryFlowstep = static_cast<float>(readDouble("terryFlowstep", currentTerryFlowstep));
+    useMidpointSolver = readBool("terryMidpoint", useMidpointSolver);
+    transformRecording = readBool("transformRecording", transformRecording);
+    currentTerryLastSeed = readString("terryLastSeed", currentTerryLastSeed);
+    currentTerryUseSeed = readBool("terryUseSeed", currentTerryUseSeed);
+    currentTerrySeedText = readString("terrySeedText", currentTerrySeedText);
+
+    currentCareySubTab = static_cast<CareyUI::SubTab>(
+        juce::jlimit(0, 5, readInt("careySubTab", 0)));
+    if (currentCareySubTab == CareyUI::SubTab::Extract && ! CareyUI::kExtractTabVisible)
+        currentCareySubTab = CareyUI::SubTab::Lego;
+    currentCareyLegoAdvancedOpen = readBool("careyLegoAdvanced", currentCareyLegoAdvancedOpen);
+    currentCareyCompleteAdvancedOpen = readBool(
+        "careyCompleteAdvanced", currentCareyCompleteAdvancedOpen);
+    currentCareyCoverAdvancedOpen = readBool("careyCoverAdvanced", currentCareyCoverAdvancedOpen);
+    currentCareyArrangeAdvancedOpen = readBool("careyArrangeAdvanced", currentCareyArrangeAdvancedOpen);
+    if (has("careyArrangeTracks"))
+        currentCareyArrangeTracks = juce::StringArray::fromTokens(readString("careyArrangeTracks", {}), ",", {});
+    currentCareyArrangeCaption = readString("careyArrangeCaption", currentCareyArrangeCaption);
+    currentCareyArrangeLora = readString("careyArrangeLora", currentCareyArrangeLora);
+    currentCareyArrangeUseLora = readBool("careyArrangeUseLora", currentCareyArrangeUseLora);
+    currentCareyArrangeLoraScale = readDouble("careyArrangeLoraScale", currentCareyArrangeLoraScale);
+    currentCareyArrangeSteps = readInt("careyArrangeSteps", currentCareyArrangeSteps);
+    currentCareyArrangeCfg = readDouble("careyArrangeCfg", currentCareyArrangeCfg);
+    currentCareyArrangeStrength = readDouble("careyArrangeStrength", currentCareyArrangeStrength);
+    currentCareyArrangeLoopAssistEnabled = readBool("careyArrangeLoopAssist", currentCareyArrangeLoopAssistEnabled);
+    currentCareyArrangeTrimToInputEnabled = readBool("careyArrangeTrimToInput", currentCareyArrangeTrimToInputEnabled);
+    currentCareyExtractAdvancedOpen = readBool(
+        "careyExtractAdvanced", currentCareyExtractAdvancedOpen);
+    currentCareyLastSeed = readString("careyLastSeed", currentCareyLastSeed);
+    currentCareyUseSeed = readBool("careyUseSeed", currentCareyUseSeed);
+    currentCareySeedText = readString("careySeedText", currentCareySeedText);
+    currentCareyCaption = readString("careyCaption", currentCareyCaption);
+    currentCareyTrackName = readString("careyTrack", currentCareyTrackName);
+    currentCareySteps = readInt("careySteps", currentCareySteps);
+    currentLegoCfg = readDouble("careyLegoCfg", currentLegoCfg);
+    currentCareyLegoLora = readString("careyLegoLora", currentCareyLegoLora);
+    currentCareyLegoUseLora = readBool("careyLegoUseLora", currentCareyLegoUseLora);
+    currentCareyLegoLoraScale = readDouble("careyLegoLoraScale", currentCareyLegoLoraScale);
+    currentCareyLoopAssistEnabled = readBool("careyLoopAssist", currentCareyLoopAssistEnabled);
+    currentCareyTrimToInputEnabled = readBool("careyTrimToInput", currentCareyTrimToInputEnabled);
+    currentCareyExtractTrackName = readString("careyExtractTrack", currentCareyExtractTrackName);
+    currentCareyExtractBpm = readInt("careyExtractBpm", currentCareyExtractBpm);
+    currentCareyExtractSteps = readInt("careyExtractSteps", currentCareyExtractSteps);
+    currentCareyExtractCfg = readDouble("careyExtractCfg", currentCareyExtractCfg);
+    currentCareyCompleteCaption = readString("careyCompleteCaption", currentCareyCompleteCaption);
+    currentCareyCompleteLora = readString("careyCompleteLora", currentCareyCompleteLora);
+    currentCareyCompleteModel = readString("careyCompleteModel", currentCareyCompleteModel);
+    // Before v5.1 the size followed the backend: XL on the remote one, 2B locally.
+    currentCareyXl = readBool("careyXl", false);
+    currentCareyCompleteBpm = readInt("careyCompleteBpm", currentCareyCompleteBpm);
+    double legacyStandaloneBpm = currentJerryManualBpm;
+    if (initialTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
+        legacyStandaloneBpm = currentSA3Bpm;
+    else if (!has("standaloneBpm")
+             && initialTab == ModelTab::Jerry
+             && jerrySubTab == JerrySubTab::Foundation)
+    {
+        auto legacyFoundationState = juce::JSON::parse(audioProcessor.getFoundationState());
+        if (auto* foundationState = legacyFoundationState.getDynamicObject())
+            if (foundationState->hasProperty("standaloneBpm"))
+                legacyStandaloneBpm = static_cast<double>(foundationState->getProperty("standaloneBpm"));
+    }
+    else if (initialTab == ModelTab::Carey && currentCareySubTab == CareyUI::SubTab::Continue)
+        legacyStandaloneBpm = currentCareyCompleteBpm;
+
+    currentStandaloneBpm = juce::jlimit(40.0, 240.0,
+        readDouble("standaloneBpm", legacyStandaloneBpm));
+    currentJerryManualBpm = juce::roundToInt(currentStandaloneBpm);
+    currentSA3Bpm = currentStandaloneBpm;
+    currentCareyCompleteBpm = juce::roundToInt(currentStandaloneBpm);
+    currentCareyCompleteSteps = readInt("careyCompleteSteps", currentCareyCompleteSteps);
+    currentCompleteCfg = readDouble("careyCompleteCfg", currentCompleteCfg);
+    currentCareyCompleteDurationSeconds = readInt(
+        "careyCompleteDuration", currentCareyCompleteDurationSeconds);
+    currentCareyCompleteUseLora = readBool("careyCompleteUseLora", currentCareyCompleteUseLora);
+    currentCareyCompleteLoraScale = readDouble(
+        "careyCompleteLoraScale", currentCareyCompleteLoraScale);
+    currentCompleteUseSrcAsRef = readBool(
+        "careyCompleteUseSrcRef", currentCompleteUseSrcAsRef);
+    currentCoverCaption = readString("careyCoverCaption", currentCoverCaption);
+    currentCoverModel = readString("careyCoverModel", currentCoverModel);
+    currentCoverLora = readString("careyCoverLora", currentCoverLora);
+    currentCoverNoiseStrength = readDouble("careyCoverNoise", currentCoverNoiseStrength);
+    currentCoverAudioStrength = readDouble("careyCoverAudio", currentCoverAudioStrength);
+    currentCoverSteps = readInt("careyCoverSteps", currentCoverSteps);
+    currentCoverCfg = readDouble("careyCoverCfg", currentCoverCfg);
+    currentCoverUseLora = readBool("careyCoverUseLora", currentCoverUseLora);
+    currentCoverLoraScale = readDouble("careyCoverLoraScale", currentCoverLoraScale);
+    currentCoverUseSrcAsRef = readBool("careyCoverUseSrcRef", currentCoverUseSrcAsRef);
+    currentCoverLoopAssistEnabled = readBool(
+        "careyCoverLoopAssist", currentCoverLoopAssistEnabled);
+    currentCoverTrimToInputEnabled = readBool(
+        "careyCoverTrimToInput", currentCoverTrimToInputEnabled);
+    currentCareyKeyScale = readString("careyKeyScale", currentCareyKeyScale);
+    currentCareyTimeSig = readString("careyTimeSig", currentCareyTimeSig);
+
+    const int storedYueySubTab = juce::jlimit(0, 2, readInt("yueySubTab", 0));
+    const int legacyYueyRemixMode = juce::jlimit(0, 1, readInt("yueyRemixMode", 0));
+    currentYueySubTab = static_cast<YueyUI::SubTab>(
+        storedYueySubTab == 1 && legacyYueyRemixMode == 1 ? 2 : storedYueySubTab);
+    currentYueyContinuationMethod = static_cast<YueyUI::ContinuationMethod>(
+        juce::jlimit(0, 1, readInt("yueyContinuationMethod", 0)));
+    // Create, remix and continue share one prompt now. A session saved before that can hold
+    // three; the one on the tab they were last looking at is the one they'd call current.
+    const juce::String storedYueyPrompts[] = {
+        readString("yueyCreatePrompt", currentYueyCreatePrompt),
+        readString("yueyRemixPrompt", currentYueyRemixPrompt),
+        readString("yueyContinuePrompt", currentYueyContinuePrompt)
+    };
+    juce::String sharedYueyPrompt = storedYueyPrompts[static_cast<int>(currentYueySubTab)];
+    if (sharedYueyPrompt.trim().isEmpty())
+        for (const auto& stored : storedYueyPrompts)
+            if (stored.trim().isNotEmpty())
+            {
+                sharedYueyPrompt = stored;
+                break;
+            }
+    currentYueyCreatePrompt = currentYueyRemixPrompt = currentYueyContinuePrompt = sharedYueyPrompt;
+    currentYueyMidiSelected = readBool("yueyMidiSelected", false);
+    yueyMidiMelody.file = juce::File(readString("yueyMidiMelody", juce::String()));
+    yueyMidiChords.file = juce::File(readString("yueyMidiChords", juce::String()));
+    currentYueyCreateInstrumental = readBool(
+        "yueyCreateInstrumental", currentYueyCreateInstrumental);
+    currentYueyRemixInstrumental = readBool(
+        "yueyRemixInstrumental", currentYueyRemixInstrumental);
+    currentYueyBpm = juce::jlimit(40.0, 300.0,
+        readDouble("yueyBpm", currentYueyBpm));
+    currentYueyKey = readString("yueyKey", currentYueyKey);
+    currentYueyLastSeed = readString("yueyLastSeed", currentYueyLastSeed);
+    currentYueyUseSeed = readBool("yueyUseSeed", currentYueyUseSeed);
+    currentYueySeedText = readString("yueySeedText", currentYueySeedText);
+    currentYueyMeter = readString("yueyMeter", currentYueyMeter);
+    currentYueyFixedBars = readBool("yueyFixedBars", currentYueyFixedBars);
+    currentYueyBars = readInt("yueyBars", currentYueyBars);
+    currentYueyContinueFixedBars = readBool(
+        "yueyContinueFixedBars", currentYueyContinueFixedBars);
+    currentYueyContinueBars = readInt("yueyContinueBars", currentYueyContinueBars);
+    currentYueyTranscriptionMode = readString(
+        "yueyTranscriptionMode", currentYueyTranscriptionMode);
+    pendingDariusState = readString("dariusState", pendingDariusState);
+
+    DBG("Restored versioned editor state");
+}
+
+void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
+{
+    if (applyingProcessorState)
+        return;
+
+    const juce::ScopedValueSetter<bool> applyingState(applyingProcessorState, true);
+
+    restorePersistentState(audioProcessor.getEditorState());
+    savedSamples = audioProcessor.getSavedSamples();
+    transformRecording = audioProcessor.getTransformRecording();
+    currentCareyLyrics = audioProcessor.getCareyLyrics();
+    currentCareyLanguage = audioProcessor.getCareyLanguage();
+    isUsingLocalhost = audioProcessor.getIsUsingLocalhost();
+
+    applyEditorSize();
+
+    if (garyUI != nullptr)
+    {
+        garyUI->setPromptDuration(currentPromptDuration);
+        garyUI->setTopK(currentGaryTopK);
+        garyUI->setCfgCoef(currentGaryCfg);
+        garyUI->setDescription(currentGaryDescription);
+        garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
+        garyUI->setLastSeed(currentGaryLastSeed);
+        garyUI->setSeedState(currentGaryUseSeed, currentGarySeedText);
+
+        if (auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox()))
+        {
+            for (size_t i = 0; i < garyModelList.size(); ++i)
+            {
+                if (garyModelList[i].fullPath == preferredGaryModelPath)
+                {
+                    modelComboBox->setSelectedId(
+                        garyModelList[i].dropdownId, juce::dontSendNotification);
+                    currentModelIndex = static_cast<int>(i);
+                    break;
+                }
+            }
         }
     }
 
-    const juce::StringArray& getTerryVariationNames()
+    if (jerryUI != nullptr)
     {
-        static const juce::StringArray names = []()
-        {
-            juce::StringArray arr;
-            arr.add("accordion_folk");
-            arr.add("banjo_bluegrass");
-            arr.add("piano_classical");
-            arr.add("celtic");
-            arr.add("strings_quartet");
-            arr.add("synth_retro");
-            arr.add("synth_modern");
-            arr.add("synth_edm");
-            arr.add("lofi_chill");
-            arr.add("synth_bass");
-            arr.add("rock_band");
-            arr.add("cinematic_epic");
-            arr.add("retro_rpg");
-            arr.add("chiptune");
-            arr.add("steel_drums");
-            arr.add("gamelan_fusion");
-            arr.add("music_box");
-            arr.add("trap_808");
-            arr.add("lo_fi_drums");
-            arr.add("boom_bap");
-            arr.add("percussion_ensemble");
-            arr.add("future_bass");
-            arr.add("synthwave_retro");
-            arr.add("melodic_techno");
-            arr.add("dubstep_wobble");
-            arr.add("glitch_hop");
-            arr.add("digital_disruption");
-            arr.add("circuit_bent");
-            arr.add("orchestral_glitch");
-            arr.add("vapor_drums");
-            arr.add("industrial_textures");
-            arr.add("jungle_breaks");
-            return arr;
-        }();
-
-        return names;
+        jerryUI->selectModelByIdentity(currentJerryModelKey,
+                                       currentJerryFinetuneRepo,
+                                       currentJerryFinetuneCheckpoint);
+        jerryUI->setSelectedSamplerType(currentJerrySamplerType);
+        jerryUI->setPromptText(currentJerryPrompt);
+        jerryUI->setCfg(currentJerryCfg);
+        jerryUI->setSteps(currentJerrySteps);
+        jerryUI->setSmartLoop(generateAsLoop);
+        jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
+        jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
     }
+
+    if (sa3UI != nullptr)
+    {
+        sa3UI->setMaximumDurationSeconds(getSA3MaximumDurationSeconds());
+        sa3UI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
+        sa3UI->setPromptText(currentSA3Prompt);
+        sa3UI->setTransformPromptText(currentSA3TransformPrompt);
+        sa3UI->setTransformStrength(currentSA3TransformStrength);
+        sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
+        sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
+        sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+        sa3UI->setGenerateKeepsGoing(currentSA3GenerateKeepsGoing);
+        sa3UI->setContinueKeepsGoing(currentSA3ContinueKeepsGoing);
+        sa3UI->setDurationSeconds(currentSA3DurationSeconds);
+        sa3UI->setLoopEnabled(currentSA3LoopEnabled);
+        sa3UI->setBars(currentSA3Bars);
+        sa3UI->setSteps(currentSA3Steps);
+        sa3UI->setCfgScale(currentSA3Cfg);
+        sa3UI->setShift(currentSA3Shift);
+        sa3UI->setKeyScale(currentSA3KeyScale);
+        sa3UI->setNegativePromptText(currentSA3NegativePrompt);
+        sa3UI->setCurrentSubTab(currentSA3SubTab);
+        sa3UI->setAdvancedOpen(currentSA3AdvancedOpen);
+        sa3UI->setLastSeed(currentSA3LastSeed);
+        sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
+        sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+        sa3UI->setAutomationOpen(sa3Lanes.open);
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+        if (sa3LaneEditor != nullptr)
+            sa3LaneEditor->lanesReplaced();
+        updateSA3LanePanel();
+    }
+
+    if (terryUI != nullptr)
+    {
+        terryUI->setVariations(terryVariationNames, currentTerryVariation);
+        terryUI->setCustomPrompt(currentTerryCustomPrompt);
+        terryUI->setFlowstep(currentTerryFlowstep);
+        terryUI->setUseMidpointSolver(useMidpointSolver);
+        terryUI->setLastSeed(currentTerryLastSeed);
+        terryUI->setSeedState(currentTerryUseSeed, currentTerrySeedText);
+    }
+
+    if (dariusUI != nullptr)
+    {
+        dariusUI->restoreState(pendingDariusState);
+        dariusBackendUrl = dariusUI->getBackendUrl();
+        dariusUseBaseModel = dariusUI->getUsingBaseModel();
+        dariusFinetuneRepo = dariusUI->getFinetuneRepo();
+        dariusSelectedStepStr = dariusUI->getSelectedCheckpointStep();
+        dariusCentroidWeights = dariusUI->getCentroidWeights();
+    }
+
+    if (careyUI != nullptr)
+    {
+        careyUI->setCaptionText(currentCareyCaption);
+        careyUI->setTrackName(currentCareyTrackName);
+        careyUI->setSteps(currentCareySteps);
+        careyUI->setLegoCfg(currentLegoCfg);
+        careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
+        careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+        careyUI->setExtractTrackName(currentCareyExtractTrackName);
+        careyUI->setExtractBpm(currentCareyExtractBpm);
+        careyUI->setExtractSteps(currentCareyExtractSteps);
+        careyUI->setExtractCfg(currentCareyExtractCfg);
+        careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
+        careyUI->setCompleteModel(currentCareyCompleteModel);
+        careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
+        careyUI->setCompleteSteps(currentCareyCompleteSteps);
+        careyUI->setCompleteCfg(currentCompleteCfg);
+        careyUI->setCompleteMaximumDurationSeconds(audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds
+            : CareyUI::kRemoteMaximumDurationSeconds);
+        careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+        careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
+        careyUI->setCoverCaptionText(currentCoverCaption);
+        careyUI->setCoverModel(currentCoverModel);
+        careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
+        careyUI->setCoverAudioStrength(currentCoverAudioStrength);
+        careyUI->setCoverSteps(currentCoverSteps);
+        careyUI->setCoverCfg(currentCoverCfg);
+        careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
+        careyUI->setCoverLoopAssistEnabled(currentCoverLoopAssistEnabled);
+        careyUI->setCoverTrimToInputEnabled(currentCoverTrimToInputEnabled);
+        careyUI->setKeyScale(currentCareyKeyScale);
+        careyUI->setTimeSig(currentCareyTimeSig);
+        careyUI->setCurrentSubTab(currentCareySubTab);
+        careyUI->setLegoAdvancedOpen(currentCareyLegoAdvancedOpen);
+        careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
+        careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
+        careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+        careyUI->setArrangeAdvancedOpen(currentCareyArrangeAdvancedOpen);
+        careyUI->setArrangeTracks(currentCareyArrangeTracks);
+        careyUI->setArrangeCaptionText(currentCareyArrangeCaption);
+        careyUI->setArrangeSteps(currentCareyArrangeSteps);
+        careyUI->setArrangeCfg(currentCareyArrangeCfg);
+        careyUI->setArrangeStrength(currentCareyArrangeStrength);
+        careyUI->setArrangeLoopAssistEnabled(currentCareyArrangeLoopAssistEnabled);
+        careyUI->setArrangeTrimToInputEnabled(currentCareyArrangeTrimToInputEnabled);
+        careyUI->setLastSeed(currentCareyLastSeed);
+        careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
+        careyUI->setLyricsText(currentCareyLyrics);
+        careyUI->setLyricsLanguage(currentCareyLanguage);
+        syncCareyLoraUi();
+    }
+
+    if (yueyUI != nullptr)
+    {
+        yueyUI->setCurrentSubTab(currentYueySubTab);
+        yueyUI->setContinuationMethod(currentYueyContinuationMethod);
+        yueyUI->setCreatePrompt(currentYueyCreatePrompt);
+        yueyUI->setRemixPrompt(currentYueyRemixPrompt);
+        yueyUI->setContinuePrompt(currentYueyContinuePrompt);
+        yueyUI->setLyricsText(currentCareyLyrics);
+        yueyUI->setCreateInstrumental(currentYueyCreateInstrumental);
+        yueyUI->setRemixInstrumental(currentYueyRemixInstrumental);
+        yueyUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentYueyBpm
+            : (audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : currentYueyBpm));
+        yueyUI->setKey(currentYueyKey);
+        yueyUI->setMeter(currentYueyMeter);
+        yueyUI->setLastSeed(currentYueyLastSeed);
+        yueyUI->setSeedState(currentYueyUseSeed, currentYueySeedText);
+        yueyUI->setCreateLength(currentYueyFixedBars, currentYueyBars);
+        yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
+        yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
+        yueyUI->setAudioSourceRecording(transformRecording);
+        yueyUI->setMidiSourceSelected(currentYueyMidiSelected);
+        restoreYueyMidi();
+    }
+
+    if (foundationUI != nullptr)
+    {
+        const auto foundationState = audioProcessor.getFoundationState();
+        if (foundationState.isNotEmpty())
+            foundationUI->restoreState(foundationState);
+
+        foundationUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+            ? currentStandaloneBpm
+            : (audioProcessor.getCurrentBPM() > 0.0
+                ? audioProcessor.getCurrentBPM() : 120.0));
+    }
+
+    setTerryAudioSource(transformRecording);
+    updateBackendToggleButton();
+    updateCareyTabAvailability();
+    updateAllGenerationButtonStates();
+
+    const auto restoredTab = initialTab;
+    currentTab = restoredTab == ModelTab::Gary ? ModelTab::Terry : ModelTab::Gary;
+    switchToTab(restoredTab);
+
+    DBG("Applied host-loaded state to open editor");
+}
+
+void Gary4juceAudioProcessorEditor::persistEditorState()
+{
+    if (applyingProcessorState)
+        return;
+
+    const auto hostStateRevision = audioProcessor.getHostStateRevision();
+    if (hostStateRevision != lastAppliedHostStateRevision)
+    {
+        lastAppliedHostStateRevision = hostStateRevision;
+        applyProcessorStateToEditor();
+        return;
+    }
+
+    if (foundationUI != nullptr)
+        audioProcessor.setFoundationState(foundationUI->serializeState());
+
+    audioProcessor.setEditorState(serializePersistentState());
+}
+
+void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
+{
+    enum MenuItem
+    {
+        compactLayout = 1,
+        wideLayout,
+        audioStorage,
+        stemSeparator
+    };
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader("layout");
+    menu.addItem(compactLayout, "compact", true,
+        !usingWideLayout());
+    menu.addItem(wideLayout, "wide", true,
+        usingWideLayout());
+    menu.addSeparator();
+    menu.addItem(audioStorage,
+        usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
+    menu.addItem(stemSeparator, "stem separator...");
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    menu.showMenuAsync(
+        juce::PopupMenu::Options()
+            .withTargetComponent(&settingsButton)
+            .withMinimumWidth(190),
+        [safeThis](int result)
+        {
+            if (safeThis == nullptr || result == 0)
+                return;
+
+            if (result == compactLayout)
+                safeThis->setEditorLayoutMode(EditorLayoutMode::Compact);
+            else if (result == wideLayout)
+                safeThis->setEditorLayoutMode(EditorLayoutMode::Wide);
+            else if (result == audioStorage)
+                safeThis->showStorageSettings();
+            else if (result == stemSeparator)
+                safeThis->showStemsSettings();
+        });
+}
+
+bool Gary4juceAudioProcessorEditor::usingWideLayout() const
+{
+    return editorLayoutMode == EditorLayoutMode::Wide && !sa3LanesForcedCompact;
+}
+
+bool Gary4juceAudioProcessorEditor::sa3LanePanelFits(int width) const
+{
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* display = isShowing() ? displays.getDisplayForRect(getScreenBounds()) : displays.getPrimaryDisplay();
+    return display == nullptr || width <= display->userArea.getWidth();
+}
+
+void Gary4juceAudioProcessorEditor::applyEditorSize()
+{
+    const bool wide = usingWideLayout();
+    const int width = (wide ? kWideEditorWidth : kCompactEditorWidth)
+        + (sa3LanePanelShown() ? kSA3LanePanelWidth : 0);
+    const int height = wide ? kWideEditorHeight : kCompactEditorHeight;
+    if (getWidth() == width && getHeight() == height)
+        resized();   // the panel may still have to show or hide
+    else
+        setSize(width, height);
+}
+
+// Shows or hides the automation lanes panel for the current tab, resizing the editor around it.
+// The wide layout gives way to the compact one while the panel is open, if both don't fit on the
+// screen, and comes back when the panel hides.
+void Gary4juceAudioProcessorEditor::updateSA3LanePanel()
+{
+    if (sa3LanePanelShown())
+    {
+        syncSA3Lanes();
+        if (editorLayoutMode == EditorLayoutMode::Wide && !sa3LanesForcedCompact
+            && !sa3LanePanelFits(kWideEditorWidth + kSA3LanePanelWidth))
+        {
+            sa3LanesForcedCompact = true;
+            showStatusMessage("compact layout while automation is open: no room beside the wide one", 3000);
+        }
+        checkSA3LaneSupport(getServiceUrl(ServiceType::SA3, "/health"));
+        updateSA3LaneTimeline();
+        updateSA3LaneBackdrop();
+    }
+    else
+    {
+        sa3LanesForcedCompact = false;
+        updateSA3LoraAutomation();
+    }
+    applyEditorSize();
+}
+
+void Gary4juceAudioProcessorEditor::setEditorLayoutMode(EditorLayoutMode mode)
+{
+    if (editorLayoutMode == mode && !sa3LanesForcedCompact)
+        return;
+
+    editorLayoutMode = mode;
+    // An explicit choice replaces the compact layout the lanes panel asked for. If the panel
+    // doesn't fit beside the wide layout, it closes rather than running off the screen.
+    sa3LanesForcedCompact = false;
+    if (sa3LanePanelShown() && mode == EditorLayoutMode::Wide
+        && !sa3LanePanelFits(kWideEditorWidth + kSA3LanePanelWidth))
+    {
+        sa3Lanes.open = false;
+        if (sa3UI != nullptr)
+            sa3UI->setAutomationOpen(false);
+        showStatusMessage("automation closed: no room beside the wide layout on this screen", 3000);
+    }
+    applyEditorSize();
+    persistEditorState();
+    showStatusMessage(mode == EditorLayoutMode::Wide
+        ? "wide layout" : "compact layout", 1500);
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::setStandaloneBpm(double bpm)
+{
+    currentStandaloneBpm = juce::jlimit(40.0, 240.0, bpm);
+    currentJerryManualBpm = juce::roundToInt(currentStandaloneBpm);
+    currentSA3Bpm = currentStandaloneBpm;
+    currentCareyCompleteBpm = juce::roundToInt(currentStandaloneBpm);
+
+    if (!juce::JUCEApplicationBase::isStandaloneApp())
+        return;
+
+    if (jerryUI != nullptr)
+        jerryUI->setManualBpm(currentJerryManualBpm);
+    if (sa3UI != nullptr)
+        sa3UI->setBpm(currentSA3Bpm);
+    if (careyUI != nullptr)
+        careyUI->setCompleteBpm(currentCareyCompleteBpm);
+    if (foundationUI != nullptr)
+        foundationUI->setBpm(currentStandaloneBpm);
 }
 
 //==============================================================================
 Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p),
     cropButton("Crop", juce::DrawableButton::ImageFitted),
+    yueyMidiButton("YueyMidi", juce::DrawableButton::ImageFitted),
+    yueyScoreButton("YueyScore", juce::DrawableButton::ImageFitted),
+    stemsButton("Stems", juce::DrawableButton::ImageFitted),
+    stemsInputButton("StemsInput", juce::DrawableButton::ImageFitted),
     garyHelpButton("gary help", juce::DrawableButton::ImageFitted),
     jerryHelpButton("jerry help", juce::DrawableButton::ImageFitted),
+    sa3HelpButton("sa3 help", juce::DrawableButton::ImageFitted),
     terryHelpButton("terry help", juce::DrawableButton::ImageFitted),
-    dariusHelpButton("darius help", juce::DrawableButton::ImageFitted)
+    dariusHelpButton("darius help", juce::DrawableButton::ImageFitted),
+    careyHelpButton("carey help", juce::DrawableButton::ImageFitted),
+    yueyHelpButton("yuey help", juce::DrawableButton::ImageFitted),
+    foundationHelpButton("foundation help", juce::DrawableButton::ImageFitted),
+    uploadButton("Upload", juce::DrawableButton::ImageFitted)
 
 {
-    setSize(400, 850);  // Made taller to accommodate controls
+    editorCreatedAtMs = juce::Time::getCurrentTime().toMilliseconds();
+    transformRecording = audioProcessor.getTransformRecording();
+    restorePersistentState(audioProcessor.getEditorState());
+    lastAppliedHostStateRevision = audioProcessor.getHostStateRevision();
+    audioProcessor.setTransformRecording(transformRecording);
+
+    applyEditorSize();
+
+    audioProcessor.addChangeListener(this);
 
     // Check initial backend connection status
     isConnected = audioProcessor.isBackendConnected();
@@ -105,9 +913,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             const bool wasJerry = (currentTab == ModelTab::Jerry);
             switchToTab(ModelTab::Jerry);
 
-            // If we were already on Jerry, still allow a fetch (remote-only, TTL’d)
-            if (wasJerry && !audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+            // If we were already on Jerry, still allow a SAOS prompt refresh.
+            if (wasJerry)
+                maybeFetchJerryPrompts();
         };
     addAndMakeVisible(jerryTabButton);
 
@@ -117,10 +925,47 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     // terryTabButton.setEnabled(false);  // Disabled until implemented
     addAndMakeVisible(terryTabButton);
 
+    careyTabButton.setButtonText("carey");
+    careyTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    careyTabButton.onClick = [this]()
+        {
+            if (!isCareyTabAvailable())
+            {
+                showStatusMessage("carey is remote-only for now. switch backend to remote.", 3000);
+                return;
+            }
+            switchToTab(ModelTab::Carey);
+        };
+    addAndMakeVisible(careyTabButton);
+
+    yueyTabButton.setButtonText("yuey");
+    yueyTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    yueyTabButton.onClick = [this]() { switchToTab(ModelTab::Yuey); };
+    addAndMakeVisible(yueyTabButton);
+
     dariusTabButton.setButtonText("darius");
-    dariusTabButton.setButtonStyle(CustomButton::ButtonStyle::Darius); // We'll need to add this style
+    dariusTabButton.setButtonStyle(CustomButton::ButtonStyle::Darius);
     dariusTabButton.onClick = [this]() { switchToTab(ModelTab::Darius); };
     addAndMakeVisible(dariusTabButton);
+
+    // Jerry sub-tab buttons (shown when Jerry main tab is active)
+    jerrySubTabSA3.setButtonText("sa3");
+    jerrySubTabSA3.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    jerrySubTabSA3.onClick = [this]() { switchJerrySubTab(JerrySubTab::SA3); };
+    addAndMakeVisible(jerrySubTabSA3);
+    jerrySubTabSA3.setVisible(false);
+
+    jerrySubTabSAOS.setButtonText("jerry (SAOS)");
+    jerrySubTabSAOS.setButtonStyle(CustomButton::ButtonStyle::Jerry);
+    jerrySubTabSAOS.onClick = [this]() { switchJerrySubTab(JerrySubTab::SAOS); };
+    addAndMakeVisible(jerrySubTabSAOS);
+    jerrySubTabSAOS.setVisible(false);
+
+    jerrySubTabFoundation.setButtonText("foundation-1");
+    jerrySubTabFoundation.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+    jerrySubTabFoundation.onClick = [this]() { switchJerrySubTab(JerrySubTab::Foundation); };
+    addAndMakeVisible(jerrySubTabFoundation);
+    jerrySubTabFoundation.setVisible(false);
 
     garyUI = std::make_unique<GaryUI>();
     addAndMakeVisible(*garyUI);
@@ -134,6 +979,8 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     garyUI->onModelChanged = [this](int index)
     {
         currentModelIndex = index;
+        if (juce::isPositiveAndBelow(index, static_cast<int>(garyModelList.size())))
+            preferredGaryModelPath = garyModelList[static_cast<size_t>(index)].fullPath;
     };
 
     garyUI->onSendToGary = [this]()
@@ -151,20 +998,54 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
         retryLastContinuation();
     };
 
-    garyModelItems.clear();
-    garyModelItems.add("vanya_ai_dnb_0.1");
-    garyModelItems.add("bleeps-medium");
-    garyModelItems.add("gary_orchestra_2");
-    garyModelItems.add("hoenn_lofi");
+    garyUI->onTopKChanged = [this](int value)
+    {
+        currentGaryTopK = value;
+    };
+
+    garyUI->onCfgChanged = [this](double value)
+    {
+        currentGaryCfg = static_cast<float>(value);
+    };
+
+    garyUI->onDescriptionChanged = [this](const juce::String& text)
+    {
+        currentGaryDescription = text;
+    };
+
+    garyUI->onLayoutHeightChanged = [this]()
+    {
+        currentGaryAdvancedOpen = garyUI->getAdvancedOpen();
+        resized();
+        repaint();
+    };
 
     garyUI->setPromptDuration(currentPromptDuration);
-    garyUI->setModelItems(garyModelItems, currentModelIndex);
+    garyUI->setTopK(currentGaryTopK);
+    garyUI->setCfgCoef(currentGaryCfg);
+    garyUI->setDescription(currentGaryDescription);
+    garyUI->setAdvancedOpen(currentGaryAdvancedOpen);
+    garyUI->setLastSeed(currentGaryLastSeed);
+    garyUI->setSeedState(currentGaryUseSeed, currentGarySeedText);
 
-    updateModelAvailability();
+    // Fetch available models from backend (will populate dropdown when response arrives)
+    if (isConnected)
+        fetchGaryAvailableModels();
 
     // ========== JERRY CONTROLS SETUP ==========
     jerryUI = std::make_unique<JerryUI>();
     addAndMakeVisible(*jerryUI);
+
+    // Configure for standalone or plugin mode
+    jerryUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
+
+    // Handle manual BPM changes in standalone mode
+    jerryUI->onManualBpmChanged = [this](int newBpm)
+    {
+        setStandaloneBpm(newBpm);
+        DBG("Manual BPM changed to: " + juce::String(newBpm));
+        // The BPM will be retrieved via jerryUI->getManualBpm() when generating
+    };
 
     jerryUI->onPromptChanged = [this](const juce::String& text)
     {
@@ -213,6 +1094,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 currentJerryFinetuneRepo = jerryUI->getSelectedFinetuneRepo();
                 currentJerryFinetuneCheckpoint = jerryUI->getSelectedFinetuneCheckpoint();
                 currentJerrySamplerType = jerryUI->getSelectedSamplerType();
+                preferredJerryModelKey = currentJerryModelKey;
+                preferredJerryFinetuneRepo = currentJerryFinetuneRepo;
+                preferredJerryFinetuneCheckpoint = currentJerryFinetuneCheckpoint;
 
                 DBG("Selected model components:");
                 DBG("  Type: " + currentJerryModelType);
@@ -220,23 +1104,21 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
                 DBG("  Checkpoint: " + currentJerryFinetuneCheckpoint);
                 DBG("  Sampler: " + currentJerrySamplerType);
             }
-            if (!audioProcessor.getIsUsingLocalhost())
+            // Avoid hammering the backend, but fetch the bank whenever the
+            // selection changes, on localhost as on the remote backend.
+            if (isFinetune
+                && currentJerryFinetuneRepo.isNotEmpty()
+                && currentJerryFinetuneCheckpoint.isNotEmpty())
             {
-                // Remote mode: avoid hammering, but ensure we fetch when selection changes.
-                if (isFinetune
-                    && currentJerryFinetuneRepo.isNotEmpty()
-                    && currentJerryFinetuneCheckpoint.isNotEmpty())
-                {
-                    DBG("[prompts] onModelChanged -> remote -> fetching by repo+ckpt: "
-                        + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
-                    fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
-                }
-                else
-                {
-                    // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
-                    DBG("[prompts] onModelChanged -> remote -> using prefer=finetune (TTL guarded)");
-                    maybeFetchRemoteJerryPrompts(); // will no-op if TTL/in-flight/cache says so
-                }
+                DBG("[prompts] onModelChanged -> fetching by repo+ckpt: "
+                    + currentJerryFinetuneRepo + " | " + currentJerryFinetuneCheckpoint);
+                fetchJerryPrompts(currentJerryFinetuneRepo, currentJerryFinetuneCheckpoint);
+            }
+            else
+            {
+                // Either standard model or we don't have repo/ckpt yet—ask backend for the active finetune.
+                DBG("[prompts] onModelChanged -> using prefer=finetune (TTL guarded)");
+                maybeFetchJerryPrompts(); // will no-op if TTL/in-flight/cache says so
             }
         };
 
@@ -246,24 +1128,185 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             DBG("Jerry sampler type changed to: " + samplerType);
         };
 
-    jerryUI->onFetchCheckpoints = [this](const juce::String& repo) {
-        fetchJerryCheckpoints(repo);
-    };
-
-    jerryUI->onAddCustomModel = [this](const juce::String& repo, const juce::String& checkpoint) {
-        addCustomJerryModel(repo, checkpoint);
-    };
-
     jerryUI->setPromptText(currentJerryPrompt);
     jerryUI->setCfg(currentJerryCfg);
     jerryUI->setSteps(currentJerrySteps);
     jerryUI->setSmartLoop(generateAsLoop);
     jerryUI->setLoopType(loopTypeStringToIndex(currentLoopType));
     jerryUI->setBpm((int)audioProcessor.getCurrentBPM());
-    jerryUI->setButtonsEnabled(false, isConnected, isGenerating);
+    jerryUI->setManualBpm(juce::roundToInt(currentStandaloneBpm));
+    jerryUI->setButtonsEnabled(false, isServiceReachable(ServiceType::Jerry), isGenerating);
 
-    // Update localhost status
-    jerryUI->setUsingLocalhost(audioProcessor.getIsUsingLocalhost());
+    // ========== SA3 CONTROLS SETUP ==========
+    sa3UI = std::make_unique<SA3UI>();
+    addAndMakeVisible(*sa3UI);
+    sa3UI->setMaximumDurationSeconds(getSA3MaximumDurationSeconds());
+    const bool isStandaloneApp = juce::JUCEApplicationBase::isStandaloneApp();
+    sa3UI->setIsStandalone(isStandaloneApp);
+    sa3UI->onBpmChanged = [this](double bpm)
+    {
+        setStandaloneBpm(bpm);
+    };
+
+    sa3UI->onPromptChanged = [this](const juce::String& text)
+    {
+        currentSA3Prompt = text;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onDurationChanged = [this](int seconds)
+    {
+        currentSA3DurationSeconds = juce::jlimit(1, getSA3MaximumDurationSeconds(), seconds);
+    };
+    sa3UI->onLoopChanged = [this](bool enabled)
+    {
+        currentSA3LoopEnabled = enabled;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onGenerateKeepsGoingChanged = [this](bool keepsGoing)
+    {
+        currentSA3GenerateKeepsGoing = keepsGoing;
+    };
+    sa3UI->onContinueKeepsGoingChanged = [this](bool keepsGoing)
+    {
+        currentSA3ContinueKeepsGoing = keepsGoing;
+    };
+    sa3UI->onBarsChanged = [this](int bars)
+    {
+        currentSA3Bars = bars;
+    };
+    sa3UI->onStepsChanged = [this](int steps)
+    {
+        currentSA3Steps = juce::jlimit(1, 50, steps);
+    };
+    sa3UI->onCfgChanged = [this](double value)
+    {
+        currentSA3Cfg = juce::jlimit(0.5, 2.0, value);
+    };
+    sa3UI->onShiftChanged = [this](const juce::String& shift)
+    {
+        currentSA3Shift = shift.trim().toLowerCase();
+        if (currentSA3Shift.isEmpty())
+            currentSA3Shift = "logsnr";
+    };
+    sa3UI->onKeyScaleChanged = [this](const juce::String& keyScale)
+    {
+        currentSA3KeyScale = keyScale.trim();
+    };
+    sa3UI->onNegativePromptChanged = [this](const juce::String& text)
+    {
+        currentSA3NegativePrompt = text.trim();
+    };
+    sa3UI->onSubTabChanged = [this](SA3UI::SubTab subTab)
+    {
+        currentSA3SubTab = subTab;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onLayoutHeightChanged = [this]()
+    {
+        resized();
+        repaint();
+    };
+    sa3UI->onGenerate = [this]() { sendToSA3(); };
+    sa3UI->onGenerateDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Generate); };
+    sa3UI->onTransformPromptChanged = [this](const juce::String& text)
+    {
+        currentSA3TransformPrompt = text;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onTransformStrengthChanged = [this](double value)
+    {
+        currentSA3TransformStrength = juce::jlimit(0.01, 1.0, value);
+    };
+    sa3UI->onTransformAudioSourceChanged = [this](bool useRecording)
+    {
+        setTerryAudioSource(useRecording);
+    };
+    sa3UI->onTransform = [this]() { sendSA3Transform(); };
+    sa3UI->onTransformDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Transform); };
+    sa3UI->onContinuePromptChanged = [this](const juce::String& text)
+    {
+        currentSA3ContinuePrompt = text;
+        updateSA3EnablementSnapshot();
+    };
+    sa3UI->onContinueAddSecondsChanged = [this](int seconds)
+    {
+        currentSA3ContinueAddSeconds = juce::jlimit(1, getSA3MaximumDurationSeconds(), seconds);
+    };
+    sa3UI->onContinueLatentPrefixChanged = [this](bool enabled)
+    {
+        currentSA3ContinueLatentPrefix = enabled;
+    };
+    sa3UI->onContinueAudioSourceChanged = [this](bool useRecording)
+    {
+        setTerryAudioSource(useRecording);
+    };
+    sa3UI->onContinue = [this]() { sendSA3Continue(); };
+    sa3UI->onContinueDiceRequested = [this]() { requestSA3DicePrompt(SA3UI::SubTab::Continue); };
+    sa3UI->onLoraSelectionChanged = [this]()
+    {
+        sa3PromptRequestNonce.fetch_add(1);
+        updateSA3EnablementSnapshot();
+        syncSA3Lanes();
+    };
+    sa3UI->onAutomationToggled = [this](bool open)
+    {
+        sa3Lanes.open = open;
+        updateSA3LanePanel();
+        persistEditorState();
+    };
+
+    {
+        SA3LaneEditor::Host laneHost;
+        laneHost.isMissing = [this](const gary::SA3Lane& lane)
+        {
+            return sa3UI == nullptr || !sa3lanes::isActive(lane, sa3UI->getActiveLoras());
+        };
+        laneHost.resetStrength = [this](const gary::SA3Lane& lane)
+        {
+            return sa3UI == nullptr ? 0.f : (float)sa3lanes::strengthOf(lane, sa3UI->getActiveLoras());
+        };
+        laneHost.rollPrompt = [this](size_t laneIndex) { rollSA3LanePrompt(laneIndex); };
+        laneHost.notify = [this](const juce::String& message) { showStatusMessage(message, 2500); };
+        laneHost.changed = [this]()
+        {
+            updateSA3LoraAutomation();
+            persistEditorState();
+        };
+        sa3LaneEditor = std::make_unique<SA3LaneEditor>(sa3Lanes, std::move(laneHost));
+        addChildComponent(*sa3LaneEditor);
+    }
+
+    sa3UI->setBpm(isStandaloneApp ? currentStandaloneBpm : audioProcessor.getCurrentBPM());
+    sa3UI->setPromptText(currentSA3Prompt);
+    sa3UI->setTransformPromptText(currentSA3TransformPrompt);
+    sa3UI->setTransformStrength(currentSA3TransformStrength);
+    sa3UI->setContinuePromptText(currentSA3ContinuePrompt);
+    sa3UI->setContinueAddSeconds(currentSA3ContinueAddSeconds);
+    sa3UI->setContinueLatentPrefixEnabled(currentSA3ContinueLatentPrefix);
+    sa3UI->setGenerateKeepsGoing(currentSA3GenerateKeepsGoing);
+    sa3UI->setContinueKeepsGoing(currentSA3ContinueKeepsGoing);
+    sa3UI->setTransformAudioSourceRecording(transformRecording);
+    sa3UI->setTransformAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
+    sa3UI->setContinueAudioSourceRecording(transformRecording);
+    sa3UI->setContinueAudioSourceAvailability(savedSamples > 0, hasOutputAudio);
+    sa3UI->setDurationSeconds(currentSA3DurationSeconds);
+    sa3UI->setLoopEnabled(currentSA3LoopEnabled);
+    sa3UI->setBars(currentSA3Bars);
+    sa3UI->setSteps(currentSA3Steps);
+    sa3UI->setCfgScale(currentSA3Cfg);
+    sa3UI->setShift(currentSA3Shift);
+    sa3UI->setKeyScale(currentSA3KeyScale);
+    sa3UI->setNegativePromptText(currentSA3NegativePrompt);
+    sa3UI->setCurrentSubTab(currentSA3SubTab);
+    sa3UI->setAdvancedOpen(currentSA3AdvancedOpen);
+    sa3UI->setLastSeed(currentSA3LastSeed);
+    sa3UI->setSeedState(currentSA3UseSeed, currentSA3SeedText);
+    sa3UI->setLoraState(currentSA3UseLora, currentSA3LoraSelections);
+    sa3UI->setAutomationOpen(sa3Lanes.open);
+    sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+    sa3UI->setGenerateButtonEnabled(false, false);
+    sa3UI->setDiceButtonsEnabled(false);
+    sa3UI->setVisibleForTab(false);
 
     // ========== TERRY UI SETUP ==========
     terryUI = std::make_unique<TerryUI>();
@@ -277,7 +1320,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     terryUI->setUseMidpointSolver(useMidpointSolver);
     terryUI->setAudioSourceRecording(transformRecording);
     terryUI->setVisibleForTab(false);
-    terryUI->setBpm(audioProcessor.getCurrentBPM());
 
     terryUI->onVariationChanged = [this](int index)
     {
@@ -400,7 +1442,7 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusUI->onAudioSourceChanged = [this](bool useRecording)
     {
         DBG("Darius generation source set to " + juce::String(useRecording ? "Recording" : "Output"));
-        audioProcessor.setTransformRecording(useRecording);
+        setTerryAudioSource(useRecording);
     };
 
     dariusUI->setBackendUrl(dariusBackendUrl);
@@ -415,6 +1457,365 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     dariusUI->setBpm(audioProcessor.getCurrentBPM());
     dariusUI->setSteeringAssets(dariusAssetsMeanAvailable, dariusAssetsCentroidCount, dariusCentroidWeights);
+    dariusUI->restoreState(pendingDariusState);
+    dariusBackendUrl = dariusUI->getBackendUrl();
+    dariusUseBaseModel = dariusUI->getUsingBaseModel();
+    dariusFinetuneRepo = dariusUI->getFinetuneRepo();
+    dariusSelectedStepStr = dariusUI->getSelectedCheckpointStep();
+    dariusCentroidWeights = dariusUI->getCentroidWeights();
+    setTerryAudioSource(transformRecording);
+
+    // ========== CAREY UI ==========
+    careyUI = std::make_unique<CareyUI>();
+    addAndMakeVisible(*careyUI);
+
+    careyUI->onSubTabChanged = [this](CareyUI::SubTab tab)
+    {
+        currentCareySubTab = tab;
+        if (tab == CareyUI::SubTab::Lego
+            || tab == CareyUI::SubTab::Continue
+            || tab == CareyUI::SubTab::Generate
+            || tab == CareyUI::SubTab::Complete
+            || tab == CareyUI::SubTab::Cover)
+            refreshCareyAvailableLoras(true);
+        resized();
+        repaint();
+    };
+    careyUI->onLayoutHeightChanged = [this]()
+    {
+        resized();
+        repaint();
+    };
+    careyUI->onCaptionChanged = [this](const juce::String& text) { currentCareyCaption = text; };
+    careyUI->onTrackChanged = [this](const juce::String& track) { currentCareyTrackName = track.trim().toLowerCase(); };
+    careyUI->onStepsChanged = [this](int steps) { currentCareySteps = juce::jlimit(32, 100, steps); };
+    careyUI->onLegoCfgChanged = [this](double val) { currentLegoCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onLegoUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyLegoUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyLegoUseLora && currentCareyLegoLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyLegoLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onLegoLoraChanged = [this](const juce::String& loraName)
+    {
+        currentCareyLegoLora = loraName.trim();
+    };
+    careyUI->onLegoLoraScaleChanged = [this](double value)
+    {
+        currentCareyLegoLoraScale = juce::jlimit(0.0, 1.0, value);
+    };
+    careyUI->onLoopAssistChanged = [this](bool enabled) { currentCareyLoopAssistEnabled = enabled; };
+    careyUI->onTrimToInputChanged = [this](bool enabled) { currentCareyTrimToInputEnabled = enabled; };
+    careyUI->onLyricsChanged = [this](const juce::String& text)
+    {
+        currentCareyLyrics = text;
+        audioProcessor.setCareyLyrics(text);
+        if (yueyUI) yueyUI->setLyricsText(text);
+    };
+    careyUI->onLyricsLanguageChanged = [this](const juce::String& lang) { currentCareyLanguage = lang; audioProcessor.setCareyLanguage(lang); };
+    careyUI->onGenerate = [this]() { sendToCarey(); };
+
+    careyUI->onExtractTrackChanged = [this](const juce::String& track) { currentCareyExtractTrackName = track.trim().toLowerCase(); };
+    careyUI->onExtractBpmChanged = [this](int bpm) { currentCareyExtractBpm = juce::jlimit(20, 300, bpm); };
+    careyUI->onExtractStepsChanged = [this](int steps) { currentCareyExtractSteps = juce::jlimit(32, 100, steps); };
+    careyUI->onExtractCfgChanged = [this](double val) { currentCareyExtractCfg = juce::jlimit(3.0, 10.0, val); };
+    careyUI->onExtractGenerate = [this]() { sendToCareyExtract(); };
+
+    careyUI->onCompleteCaptionChanged = [this](const juce::String& text) { currentCareyCompleteCaption = text; };
+    careyUI->onCompleteCaptionDiceRequested = [this]() { requestCareyCompleteCaption(); };
+    careyUI->onCompleteUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyCompleteUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyCompleteUseLora && currentCareyCompleteLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyCompleteLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onCompleteLoraChanged = [this](const juce::String& loraName)
+    {
+        currentCareyCompleteLora = loraName.trim();
+    };
+    careyUI->onCompleteLoraScaleChanged = [this](double value)
+    {
+        currentCareyCompleteLoraScale = juce::jlimit(0.0, 1.0, value);
+    };
+    careyUI->onCompleteModelChanged = [this](const juce::String& model)
+    {
+        currentCareyCompleteModel = model.trim().toLowerCase();
+    };
+    careyUI->onCompleteBpmChanged = [this](int bpm) { setStandaloneBpm(bpm); };
+    careyUI->onCompleteStepsChanged = [this](int steps) { currentCareyCompleteSteps = juce::jlimit(8, 100, steps); };
+    careyUI->onCompleteCfgChanged = [this](double val) { currentCompleteCfg = juce::jlimit(1.0, 10.0, val); };
+    careyUI->onCompleteDurationChanged = [this](int seconds)
+    {
+        const int maximumSeconds = audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds
+            : CareyUI::kRemoteMaximumDurationSeconds;
+        currentCareyCompleteDurationSeconds = juce::jlimit(30, maximumSeconds, seconds);
+    };
+    careyUI->onCompleteGenerate = [this]() { sendToCareyComplete(); };
+    careyUI->onGenerateGenerate = [this]() { sendToCareyGenerate(); };
+
+    careyUI->onArrangeTracksChanged = [this](const juce::StringArray& tracks) { currentCareyArrangeTracks = tracks; };
+    careyUI->onArrangeCaptionChanged = [this](const juce::String& text) { currentCareyArrangeCaption = text; };
+    careyUI->onArrangeCaptionDiceRequested = [this]() { requestCareyArrangeCaption(); };
+    careyUI->onArrangeUseLoraChanged = [this](bool enabled)
+    {
+        currentCareyArrangeUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCareyArrangeUseLora && currentCareyArrangeLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCareyArrangeLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onArrangeLoraChanged = [this](const juce::String& loraName) { currentCareyArrangeLora = loraName.trim(); };
+    careyUI->onArrangeLoraScaleChanged = [this](double value) { currentCareyArrangeLoraScale = juce::jlimit(0.0, 1.0, value); };
+    careyUI->onArrangeStepsChanged = [this](int steps) { currentCareyArrangeSteps = juce::jlimit(32, 100, steps); };
+    careyUI->onArrangeCfgChanged = [this](double value) { currentCareyArrangeCfg = juce::jlimit(3.0, 10.0, value); };
+    careyUI->onArrangeStrengthChanged = [this](double value) { currentCareyArrangeStrength = juce::jlimit(0.0, 1.0, value); };
+    careyUI->onArrangeLoopAssistChanged = [this](bool enabled) { currentCareyArrangeLoopAssistEnabled = enabled; };
+    careyUI->onArrangeTrimToInputChanged = [this](bool enabled) { currentCareyArrangeTrimToInputEnabled = enabled; };
+    careyUI->onArrangeGenerate = [this]() { sendToCareyArrange(); };
+    // onCompleteLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
+    careyUI->onCompleteUseSrcAsRefChanged = [this](bool enabled) { currentCompleteUseSrcAsRef = enabled; };
+
+    careyUI->onCoverCaptionChanged = [this](const juce::String& text) { currentCoverCaption = text; };
+    careyUI->onCoverCaptionDiceRequested = [this]() { requestCareyCoverCaption(); };
+    careyUI->onCoverUseLoraChanged = [this](bool enabled)
+    {
+        currentCoverUseLora = enabled && !availableCareyLoras.isEmpty();
+        if (currentCoverUseLora && currentCoverLora.isEmpty() && !availableCareyLoras.isEmpty())
+        {
+            currentCoverLora = availableCareyLoras[0];
+            syncCareyLoraUi();
+        }
+    };
+    careyUI->onCoverLoraChanged = [this](const juce::String& loraName)
+    {
+        currentCoverLora = loraName.trim();
+    };
+    careyUI->onCoverLoraScaleChanged = [this](double value)
+    {
+        currentCoverLoraScale = juce::jlimit(0.0, 1.0, value);
+    };
+    careyUI->onCoverModelChanged = [this](const juce::String& model)
+    {
+        currentCoverModel = model.trim().toLowerCase();
+    };
+    // onCoverLyricsChanged removed - lyrics are shared, onLyricsChanged handles all tabs
+    careyUI->onCoverNoiseStrengthChanged = [this](double val) { currentCoverNoiseStrength = juce::jlimit(0.0, 1.0, val); };
+    careyUI->onCoverAudioStrengthChanged = [this](double val) { currentCoverAudioStrength = juce::jlimit(0.0, 1.0, val); };
+    careyUI->onCoverStepsChanged = [this](int steps) { currentCoverSteps = juce::jlimit(8, 100, steps); };
+    careyUI->onCoverCfgChanged = [this](double val) { currentCoverCfg = juce::jlimit(1.0, 10.0, val); };
+    careyUI->onCoverUseSrcAsRefChanged = [this](bool enabled) { currentCoverUseSrcAsRef = enabled; };
+    careyUI->onCoverLoopAssistChanged = [this](bool enabled) { currentCoverLoopAssistEnabled = enabled; };
+    careyUI->onCoverTrimToInputChanged = [this](bool enabled) { currentCoverTrimToInputEnabled = enabled; };
+    careyUI->onCoverGenerate = [this]() { sendToCareyCover(); };
+
+    careyUI->onKeyScaleChanged = [this](const juce::String& ks) { currentCareyKeyScale = ks; };
+    careyUI->onTimeSigChanged = [this](const juce::String& ts) { currentCareyTimeSig = ts; };
+
+    careyUI->setCaptionText(currentCareyCaption);
+    careyUI->setTrackName(currentCareyTrackName);
+    careyUI->setSteps(currentCareySteps);
+    careyUI->setLegoCfg(currentLegoCfg);
+    careyUI->setLegoLoraScale(currentCareyLegoLoraScale);
+    careyUI->setLegoUseLora(currentCareyLegoUseLora);
+    careyUI->setLoopAssistEnabled(currentCareyLoopAssistEnabled);
+    careyUI->setTrimToInputEnabled(currentCareyTrimToInputEnabled);
+    careyUI->setExtractTrackName(currentCareyExtractTrackName);
+    careyUI->setExtractBpm(currentCareyExtractBpm);
+    careyUI->setExtractSteps(currentCareyExtractSteps);
+    careyUI->setExtractCfg(currentCareyExtractCfg);
+    careyUI->setCompleteCaptionText(currentCareyCompleteCaption);
+    careyUI->setCompleteModel(currentCareyCompleteModel);
+    careyUI->setCompleteBpm(juce::roundToInt(currentStandaloneBpm));
+    careyUI->setCompleteSteps(currentCareyCompleteSteps);
+    careyUI->setCompleteCfg(currentCompleteCfg);
+    careyUI->setCompleteMaximumDurationSeconds(audioProcessor.getIsUsingLocalhost()
+        ? CareyUI::kLocalMaximumDurationSeconds
+        : CareyUI::kRemoteMaximumDurationSeconds);
+    careyUI->setCompleteDurationSeconds(currentCareyCompleteDurationSeconds);
+    careyUI->setCompleteLoraScale(currentCareyCompleteLoraScale);
+    careyUI->setCompleteUseSrcAsRef(currentCompleteUseSrcAsRef);
+    careyUI->setCoverModelSelectionEnabled(kCareyCoverModelExperimentEnabled);
+    careyUI->setExtractRemoteGenerationEnabled(true);
+    careyUI->setModelFamilySelectable(audioProcessor.getIsUsingLocalhost());
+    careyUI->setModelFamilyXl(careyUsesXl());
+    careyUI->onModelFamilyChanged = [this](bool xl)
+    {
+        currentCareyXl = xl;
+        applyCareyModelFamily();
+    };
+    careyUI->setCoverModel(currentCoverModel);
+    careyUI->setCoverNoiseStrength(currentCoverNoiseStrength);
+    careyUI->setCoverAudioStrength(currentCoverAudioStrength);
+    careyUI->setCoverSteps(currentCoverSteps);
+    careyUI->setCoverCfg(currentCoverCfg);
+    careyUI->setCoverLoraScale(currentCoverLoraScale);
+    careyUI->setCoverUseLora(currentCoverUseLora);
+    careyUI->setCoverUseSrcAsRef(currentCoverUseSrcAsRef);
+    careyUI->setCoverCaptionText(currentCoverCaption);
+    careyUI->setCoverLoopAssistEnabled(currentCoverLoopAssistEnabled);
+    careyUI->setCoverTrimToInputEnabled(currentCoverTrimToInputEnabled);
+    careyUI->setKeyScale(currentCareyKeyScale);
+    careyUI->setTimeSig(currentCareyTimeSig);
+    careyUI->setCurrentSubTab(currentCareySubTab);
+    careyUI->setLegoAdvancedOpen(currentCareyLegoAdvancedOpen);
+    careyUI->setCompleteAdvancedOpen(currentCareyCompleteAdvancedOpen);
+    careyUI->setCoverAdvancedOpen(currentCareyCoverAdvancedOpen);
+    careyUI->setExtractAdvancedOpen(currentCareyExtractAdvancedOpen);
+    careyUI->setArrangeAdvancedOpen(currentCareyArrangeAdvancedOpen);
+    careyUI->setArrangeTracks(currentCareyArrangeTracks);
+    careyUI->setArrangeCaptionText(currentCareyArrangeCaption);
+    careyUI->setArrangeSteps(currentCareyArrangeSteps);
+    careyUI->setArrangeCfg(currentCareyArrangeCfg);
+    careyUI->setArrangeStrength(currentCareyArrangeStrength);
+    careyUI->setArrangeLoopAssistEnabled(currentCareyArrangeLoopAssistEnabled);
+    careyUI->setArrangeTrimToInputEnabled(currentCareyArrangeTrimToInputEnabled);
+    careyUI->setLastSeed(currentCareyLastSeed);
+    careyUI->setSeedState(currentCareyUseSeed, currentCareySeedText);
+    syncCareyLoraUi();
+    careyUI->setGenerateButtonEnabled(false, false, false);
+
+    // Restore persisted lyrics + language from processor (shared across all tabs)
+    currentCareyLyrics = audioProcessor.getCareyLyrics();
+    currentCareyLanguage = audioProcessor.getCareyLanguage();
+    DBG("[carey] *** RESTORING SHARED LYRICS: '" + currentCareyLyrics.substring(0, 50) + "' lang=" + currentCareyLanguage + " ***");
+    careyUI->setLyricsText(currentCareyLyrics);  // This updates all 3 tab buttons
+    careyUI->setLyricsLanguage(currentCareyLanguage);
+
+    updateCareyTabAvailability();
+
+    // ========== YUEY UI ==========
+    yueyUI = std::make_unique<YueyUI>();
+    yueyUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
+    addAndMakeVisible(*yueyUI);
+    yueyUI->onLayoutHeightChanged = [this]()
+    {
+        if (currentTab == ModelTab::Yuey && usingWideLayout())
+        {
+            resized();
+            repaint();
+        }
+    };
+    yueyUI->onSubTabChanged = [this](YueyUI::SubTab tab)
+    {
+        currentYueySubTab = tab;
+        updateYueyEnablementSnapshot();
+        persistEditorState();
+    };
+    yueyUI->onContinuationMethodChanged = [this](YueyUI::ContinuationMethod method)
+    {
+        currentYueyContinuationMethod = method;
+        persistEditorState();
+    };
+    yueyUI->onPromptChanged = [this](YueyUI::SubTab, const juce::String& text)
+    {
+        // One prompt for create, remix and continue, whichever box it came from.
+        setYueyPrompt(text);
+        updateYueyEnablementSnapshot();
+    };
+    yueyUI->onLyricsChanged = [this](const juce::String& text)
+    {
+        currentCareyLyrics = text;
+        audioProcessor.setCareyLyrics(text);
+        if (careyUI) careyUI->setLyricsText(text);
+    };
+    yueyUI->onAudioSourceChanged = [this](bool useRecording)
+    {
+        setTerryAudioSource(useRecording);
+        updateYueyEnablementSnapshot();
+    };
+    yueyUI->onPlanningChanged = [this]()
+    {
+        if (!yueyUI) return;
+        currentYueyCreateInstrumental = yueyUI->getCreateInstrumental();
+        currentYueyRemixInstrumental = yueyUI->getRemixInstrumental();
+        currentYueyBpm = yueyUI->getBpm();
+        currentYueyKey = yueyUI->getKey();
+        currentYueyMeter = yueyUI->getMeter();
+        currentYueyFixedBars = yueyUI->getCreateFixedBars();
+        currentYueyBars = yueyUI->getCreateBars();
+        currentYueyContinueFixedBars = yueyUI->getContinueFixedBars();
+        currentYueyContinueBars = yueyUI->getContinueBars();
+        currentYueyTranscriptionMode = yueyUI->getTranscriptionMode();
+        currentYueyContinuationMethod = yueyUI->getContinuationMethod();
+        // The tempo and meter the midi score is written at may have just changed.
+        if (currentYueyMidiSelected)
+            refreshYueyMidi();
+    };
+    yueyUI->onMidiSourceChanged = [this](bool selected)
+    {
+        currentYueyMidiSelected = selected;
+        refreshYueyMidi();
+        persistEditorState();
+    };
+    yueyUI->onMidiFile = [this](YueyUI::MidiLane lane, const juce::File& file)
+    {
+        loadYueyMidiFile(lane, file);
+    };
+    yueyUI->onMidiCleared = [this](YueyUI::MidiLane lane) { clearYueyMidi(lane); };
+    yueyUI->onDice = [this](YueyUI::SubTab tab) { rollYueyDicePrompt(tab); };
+    yueyUI->onCreate = [this]() { sendToYuey(); };
+    yueyUI->onRemix = [this]() { sendToYuey(); };
+    yueyUI->onContinue = [this]() { sendToYuey(); };
+    yueyUI->setCurrentSubTab(currentYueySubTab);
+    yueyUI->setContinuationMethod(currentYueyContinuationMethod);
+    yueyUI->setCreatePrompt(currentYueyCreatePrompt);
+    yueyUI->setRemixPrompt(currentYueyRemixPrompt);
+    yueyUI->setContinuePrompt(currentYueyContinuePrompt);
+    yueyUI->setLyricsText(currentCareyLyrics);
+    yueyUI->setCreateInstrumental(currentYueyCreateInstrumental);
+    yueyUI->setRemixInstrumental(currentYueyRemixInstrumental);
+    yueyUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+        ? currentYueyBpm
+        : (audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : currentYueyBpm));
+    yueyUI->setKey(currentYueyKey);
+    yueyUI->setMeter(currentYueyMeter);
+    yueyUI->setLastSeed(currentYueyLastSeed);
+    yueyUI->setSeedState(currentYueyUseSeed, currentYueySeedText);
+    yueyUI->setCreateLength(currentYueyFixedBars, currentYueyBars);
+    yueyUI->setContinueLength(currentYueyContinueFixedBars, currentYueyContinueBars);
+    yueyUI->setTranscriptionMode(currentYueyTranscriptionMode);
+    yueyUI->setAudioSourceRecording(transformRecording);
+    yueyUI->setMidiSourceSelected(currentYueyMidiSelected);
+    restoreYueyMidi();
+    updateYueyEnablementSnapshot();
+
+    // ========== FOUNDATION CONTROLS SETUP ==========
+    foundationUI = std::make_unique<FoundationUI>();
+    addAndMakeVisible(*foundationUI);
+
+    foundationUI->setIsStandalone(juce::JUCEApplicationBase::isStandaloneApp());
+    foundationUI->setBpm(juce::JUCEApplicationBase::isStandaloneApp()
+        ? currentStandaloneBpm
+        : (audioProcessor.getCurrentBPM() > 0.0 ? audioProcessor.getCurrentBPM() : 120.0));
+    foundationUI->onBpmChanged = [this](double bpm) { setStandaloneBpm(bpm); };
+
+    foundationUI->onGenerate = [this]() { sendToFoundation(); };
+    foundationUI->onRandomize = [this]() { randomizeFoundation(); };
+
+    foundationUI->setGenerateButtonEnabled(false, false);
+
+    // Restore persisted Foundation state from processor
+    {
+        juce::String savedFoundation = audioProcessor.getFoundationState();
+        if (savedFoundation.isNotEmpty())
+        {
+            DBG("[foundation] Restoring saved state (" + juce::String(savedFoundation.length()) + " chars)");
+            foundationUI->restoreState(savedFoundation);
+        }
+    }
+
+    // The editor-wide standalone tempo is authoritative over the legacy BPM
+    // value stored inside Foundation's own state object.
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+        foundationUI->setBpm(currentStandaloneBpm);
 
     // ========== REMAINING SETUP (unchanged) ==========
 
@@ -426,37 +1827,92 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     checkConnectionButton.setTooltip("check backend connection");
     checkConnectionButton.onClick = [this]() {
         DBG("Manual backend health check requested");
-        audioProcessor.checkBackendHealth();
         checkConnectionButton.setEnabled(false);
-        
-        juce::Timer::callAfterDelay(6000, [this]() {
-            checkConnectionButton.setEnabled(true);
-            
+        audioProcessor.checkBackendHealth();
+        if (audioProcessor.getIsUsingLocalhost())
+            triggerLocalServiceHealthPoll(true);
+
+        juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+        juce::Timer::callAfterDelay(6000, [safeThis]() {
+            if (safeThis == nullptr)
+                return;
+
+            safeThis->checkConnectionButton.setEnabled(true);
+
             // Show popup if remote backend check failed, but throttle it
-            if (!audioProcessor.isBackendConnected() && !audioProcessor.getIsUsingLocalhost())
+            if (!safeThis->audioProcessor.isBackendConnected() && !safeThis->audioProcessor.getIsUsingLocalhost())
             {
                 auto currentTime = juce::Time::getCurrentTime();
-                auto timeSinceLastPopup = currentTime - lastBackendDisconnectionPopupTime;
-                
+                auto timeSinceLastPopup = currentTime - safeThis->lastBackendDisconnectionPopupTime;
+
                 // Only show popup if it hasn't been shown in the last 10 minutes
                 if (timeSinceLastPopup.inMinutes() >= 10)
                 {
-                    handleBackendDisconnection();
-                    lastBackendDisconnectionPopupTime = currentTime;
+                    safeThis->handleBackendDisconnection();
+                    safeThis->lastBackendDisconnectionPopupTime = currentTime;
                 }
                 else
                 {
                     // Just show a status message instead of the popup
-                    showStatusMessage("remote backend not responding", 4000);
-                    DBG("Manual check failed but popup throttled (last shown " + 
+                    safeThis->showStatusMessage("remote backend not responding", 4000);
+                    DBG("Manual check failed but popup throttled (last shown " +
                         juce::String(timeSinceLastPopup.inMinutes()) + " minutes ago)");
                 }
             }
         });
     };
 
+    checkUpdatesButton.setButtonText("check updates");
+    checkUpdatesButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    checkUpdatesButton.setTooltip("check GitHub Releases for a newer gary4juce build");
+    checkUpdatesButton.onClick = [this]()
+    {
+        checkForPluginUpdates(true, true);
+    };
+
+    licenseButton.setButtonText("about");
+    licenseButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    licenseButton.setTooltip("about gary4juce, source, and license");
+    licenseButton.onClick = [this]()
+    {
+        auto* alertWindow = new juce::AlertWindow(
+            "gary4juce source and license",
+            "gary4juce " + juce::String(ProjectInfo::versionString)
+                + "\n\nCopyright (C) 2025-2026 Kevin Griffing."
+                + "\nDeveloped and published by the collabage patch, inc."
+                + "\n\nLicensed under the GNU Affero General Public License,"
+                  " version 3 only."
+                + "\nYou may redistribute and modify gary4juce under that license."
+                + "\ngary4juce comes with no warranty."
+                + "\n\nUse \"view source\" below for the source code and full license.",
+            juce::MessageBoxIconType::InfoIcon,
+            this);
+
+        alertWindow->addButton("view source", 1);
+        alertWindow->addButton("close", 0);
+        trackEditorModalWindow(alertWindow);
+        alertWindow->enterModalState(true,
+            juce::ModalCallbackFunction::create([alertWindow](int result)
+        {
+            std::unique_ptr<juce::AlertWindow> cleanup(alertWindow);
+
+            if (result == 1)
+            {
+                juce::URL("https://github.com/betweentwomidnights/gary4juce")
+                    .launchInDefaultBrowser();
+            }
+        }));
+    };
+
+    settingsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    settingsButton.setIcon(IconFactory::createSettingsIcon());
+    settingsButton.setTooltip("gary settings: layout, storage & stem separator");
+    settingsButton.onClick = [this]() { showGarySettingsMenu(); };
+
     // Backend toggle button setup
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
+    if (isUsingLocalhost)
+        restoreLocalServiceHealthSnapshot();
     backendToggleButton.setButtonText("remote");
     backendToggleButton.onClick = [this]() { toggleBackend(); };
     updateBackendToggleButton(); // Set initial state
@@ -467,6 +1923,25 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     saveBufferButton.onClick = [this]() { saveRecordingBuffer(); };
     saveBufferButton.setEnabled(false); // Initially disabled
 
+    // Compact input-buffer audition controls. These share the host playback
+    // engine with the output player, so only one source can play at a time.
+    playIcon = IconFactory::createPlayIcon();
+    pauseIcon = IconFactory::createPauseIcon();
+    stopIcon = IconFactory::createStopIcon();
+
+    playInputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    updateInputPlayButtonIcon();
+    playInputButton.setTooltip("play recording buffer");
+    playInputButton.onClick = [this]() { playInputAudio(); };
+    playInputButton.setEnabled(false);
+
+    if (stopIcon)
+        stopInputButton.setIcon(stopIcon->createCopy());
+    stopInputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    stopInputButton.setTooltip("stop recording buffer playback");
+    stopInputButton.onClick = [this]() { stopInputPlayback(); };
+    stopInputButton.setEnabled(false);
+
     // Set up the "Clear Buffer" button
     trashIcon = IconFactory::createTrashIcon();
     if (trashIcon)
@@ -476,15 +1951,34 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     clearBufferButton.onClick = [this]() { clearRecordingBuffer(); };
 
     addAndMakeVisible(checkConnectionButton);
+    addAndMakeVisible(checkUpdatesButton);
+    addAndMakeVisible(licenseButton);
+    addAndMakeVisible(settingsButton);
     addAndMakeVisible(backendToggleButton);
-    addAndMakeVisible(saveBufferButton);
+
+    initializeGaryDataDirectory();
+    restoreSavedBufferIntoRecording();
+
+    // Only show save buffer button in plugin mode (not needed in standalone with drag & drop)
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    if (!isStandalone)
+    {
+        addAndMakeVisible(saveBufferButton);
+    }
+
     addAndMakeVisible(clearBufferButton);
+    addAndMakeVisible(playInputButton);
+    addAndMakeVisible(stopInputButton);
 
     // Start timer to update recording status (refresh every 50ms for smooth waveform)
     startTimer(50);
 
     // Initial status update
     updateRecordingStatus();
+
+    // Kick off initial local service health poll if using localhost
+    if (audioProcessor.getIsUsingLocalhost())
+        triggerLocalServiceHealthPoll(true);
 
     // Set up output audio controls
     outputLabel.setText("output", juce::dontSendNotification);
@@ -495,15 +1989,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 #if JUCE_LINUX
     copyDraggedAudioButton.setButtonText("copy");
     copyDraggedAudioButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    copyDraggedAudioButton.setTooltip("save a copy to dragged_audio (Linux workaround)");
+    copyDraggedAudioButton.setTooltip("save a copy and reveal it in the file manager for DAWs that cannot accept a plugin drag");
     copyDraggedAudioButton.onClick = [this]() { copyDraggedAudioFileToClipboard(); };
-    copyDraggedAudioButton.setEnabled(false);
     addAndMakeVisible(copyDraggedAudioButton);
 #endif
 
     // Play output button
-    playIcon = IconFactory::createPlayIcon();
-    pauseIcon = IconFactory::createPauseIcon();
     playOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     updatePlayButtonIcon(); // Set initial icon
     playOutputButton.onClick = [this]() { playOutputAudio(); };
@@ -520,7 +2011,6 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     addAndMakeVisible(clearOutputButton);
 
     // Stop output button  
-    stopIcon = IconFactory::createStopIcon();
     if (stopIcon)
         stopOutputButton.setIcon(stopIcon->createCopy());
     stopOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -537,32 +2027,97 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     
     cropButton.setTooltip("crop audio at current playback position");
     cropButton.onClick = [this]() { cropAudioAtCurrentPosition(); };
+
+    yueyMidiButton.setTooltip("drag the midi yuey rendered into your daw");
+    yueyMidiButton.onClick = [this]()
+    {
+        // Releasing the press that started a drag also clicks; that one is not
+        // a request for the hint.
+        if (std::exchange(yueyMidiDragStarted, false))
+            return;
+        showStatusMessage("drag midi into your daw to drop every lane", 3000);
+    };
+    installYueyMidiDrag();
+    yueyMidiButton.setVisible(false);
+    yueyMidiButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    yueyMidiButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(yueyMidiButton);
+
+    yueyScoreButton.setTooltip("read and edit the abc score yuey rendered, then render it again");
+    yueyScoreButton.onClick = [this]() { openYueyScoreEditor(); };
+    yueyScoreButton.setVisible(false);
+    yueyScoreButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    yueyScoreButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(yueyScoreButton);
+
+    stemsButton.setTooltip("separate this output into stems");
+    stemsButton.onClick = [this]() { stemsHandleClicked(false); };
+    stemsInputButton.setTooltip("separate the recording buffer into stems");
+    stemsInputButton.onClick = [this]() { stemsHandleClicked(true); };
+    for (auto* handle : { &stemsButton, &stemsInputButton })
+    {
+        handle->setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+        handle->setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+        addChildComponent(*handle);   // shown by updateStemsButtonState once its waveform has audio
+    }
     cropButton.setEnabled(false);
     cropButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
     cropButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
     addAndMakeVisible(cropButton);
 
-    // Initialize output file path (idempotent + robust)
-    auto garyDir = getGaryDir();
-    outputAudioFile = garyDir.getChildFile("myOutput.wav");
-    DBG("Output file path: " + outputAudioFile.getFullPathName());
+    // Upload button - load audio file into recording buffer
+    uploadIcon = IconFactory::createUploadIcon();
+    uploadButton.setTooltip("load an audio file into the recording buffer");
+    uploadButton.onClick = [this]()
+    {
+        const auto savedDirectory = juce::File(
+            getUpdatePreferences().getValue(kRecordingBufferFileChooserDirectoryKey));
+        const auto initialDirectory = savedDirectory.isDirectory()
+            ? savedDirectory
+            : juce::File::getSpecialLocation(juce::File::userDesktopDirectory);
 
-    if (outputAudioFile.existsAsFile())
+        uploadFileChooser = std::make_unique<juce::FileChooser>(
+            "load audio into recording buffer",
+            initialDirectory,
+            "*.wav;*.mp3;*.aiff;*.flac;*.ogg;*.m4a",
+            true,
+            false,
+            this);
+
+        const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+        auto* editor = this;
+
+        uploadFileChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+            [asyncAlive, editor](const juce::FileChooser& fc)
+            {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                auto result = fc.getResult();
+                if (result.existsAsFile())
+                {
+                    auto& preferences = editor->getUpdatePreferences();
+                    preferences.setValue(kRecordingBufferFileChooserDirectoryKey,
+                                         result.getParentDirectory().getFullPathName());
+                    preferences.saveIfNeeded();
+                    editor->loadAudioFileIntoBuffer(result);
+                }
+            });
+    };
+    uploadButton.setColour(juce::DrawableButton::backgroundColourId, juce::Colours::transparentBlack);
+    uploadButton.setColour(juce::DrawableButton::backgroundOnColourId, juce::Colours::orange.withAlpha(0.3f));
+    addAndMakeVisible(uploadButton);
+
+    // Initialize output file path from the validated global storage location.
+    outputAudioFile = getGaryOutputFile();
+
+    // Check if output file already exists and load it
+    if (outputAudioFile.exists())
     {
-        const auto existingSize = outputAudioFile.getSize();
-        DBG("Existing output file detected (" + juce::String(existingSize) + " bytes)");
-        if (existingSize > 0)
-        {
-            loadOutputAudioFile();
-        }
-        else
-        {
-            DBG("Existing output file is empty; skipping load");
-        }
-    }
-    else
-    {
-        DBG("No previous output file found at: " + outputAudioFile.getFullPathName());
+        loadOutputAudioFile();
+        // The score sidecar outlives this editor, exactly as the audio does.
+        loadYueyScoreFromDisk();
     }
 
     // Enable drag and drop for this component
@@ -570,11 +2125,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     outputLabel.setTooltip("drag generated audio to your DAW timeline");
     setInterceptsMouseClicks(true, true);
 
-    // Set initial tab state
+    // The final constructor step applies the persisted tab after every child
+    // component and help button exists.
     updateTabButtonStates();
-    
-    // CRITICAL: Set initial visibility state for tabs
-    switchToTab(ModelTab::Gary);
     
     // Initialize tooltip window
     tooltipWindow = std::make_unique<juce::TooltipWindow>(this);
@@ -601,6 +2154,14 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://huggingface.co/stabilityai/stable-audio-open-small").launchInDefaultBrowser();
         };
         addAndMakeVisible(jerryHelpButton);
+
+        // sa3 help button
+        sa3HelpButton.setImages(helpIcon.get());
+        sa3HelpButton.setTooltip("learn more about stable audio 3");
+        sa3HelpButton.onClick = [this]() {
+            juce::URL("https://github.com/stability-ai/stable-audio-3").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(sa3HelpButton);
         
         // terry help button
         terryHelpButton.setImages(helpIcon.get());
@@ -617,6 +2178,29 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
             juce::URL("https://huggingface.co/spaces/thecollabagepatch/magenta-retry").launchInDefaultBrowser();
         };
         addAndMakeVisible(dariusHelpButton);
+
+        // carey help button
+        careyHelpButton.setImages(helpIcon.get());
+        careyHelpButton.setTooltip("learn more about ace-step");
+        careyHelpButton.onClick = [this]() {
+            juce::URL("https://github.com/betweentwomidnights/ace-lego").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(careyHelpButton);
+
+        yueyHelpButton.setImages(helpIcon.get());
+        yueyHelpButton.setTooltip("learn more about yuey.cpp and YuE2");
+        yueyHelpButton.onClick = [this]() {
+            juce::URL("https://github.com/betweentwomidnights/yuey.cpp").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(yueyHelpButton);
+
+        // foundation help button
+        foundationHelpButton.setImages(helpIcon.get());
+        foundationHelpButton.setTooltip("learn more about foundation-1");
+        foundationHelpButton.onClick = [this]() {
+            juce::URL("https://huggingface.co/RoyalCities/Foundation-1").launchInDefaultBrowser();
+        };
+        addAndMakeVisible(foundationHelpButton);
     }
     
     // ========== CRITICAL: STATE RESTORATION AFTER COMPONENT CREATION ==========
@@ -632,26 +2216,19 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     DBG("Restored connection status: " + juce::String(isConnected ? "connected" : "disconnected"));
     
     // 2. Restore output audio state by checking file existence
-    const bool outputFileExists = outputAudioFile.existsAsFile();
-    if (!hasOutputAudio && outputFileExists)
+    if (outputAudioFile.exists())
     {
-        const auto outputSize = outputAudioFile.getSize();
-        if (outputSize > 0)
-        {
-            loadOutputAudioFile();  // This sets hasOutputAudio = true
-            DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName()
-                + " (" + juce::String(outputSize) + " bytes)");
-        }
-        else
-        {
-            DBG("Output audio file exists but is empty, skipping load: " + outputAudioFile.getFullPathName());
-        }
+        loadOutputAudioFile();  // This sets hasOutputAudio = true, and redraws the lanes' backdrop
+        loadYueyScoreFromDisk();
+        DBG("Output audio file found and loaded: " + outputAudioFile.getFullPathName());
     }
-    else if (!outputFileExists)
+    else
     {
         DBG("No output audio file found");
     }
 
+
+    
     // 3. CRITICAL: Restore Terry audio source selection
     const bool restoredTransformRecording = audioProcessor.getTransformRecording();
     setTerryAudioSource(restoredTransformRecording);
@@ -695,20 +2272,150 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     updateContinueButtonState();     
     updateTerryEnablementSnapshot(); 
 
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+
     // 6. Double-check button states after connection stabilizes
-    juce::Timer::callAfterDelay(2000, [this]() {
-        updateRetryButtonState();
-        updateTerryEnablementSnapshot();
+    juce::Timer::callAfterDelay(2000, [safeThis]() {
+        if (safeThis == nullptr)
+            return;
+
+        safeThis->updateRetryButtonState();
+        safeThis->updateTerryEnablementSnapshot();
         DBG("Button states updated after connection check");
-        });
-    
+    });
+
     DBG("All button states updated after restoration");
-    
-    // 5. Set initial tab and visibility
-    switchToTab(ModelTab::Gary);
-    
+
+    // 5. Set initial tab and visibility. Force a transition even when the
+    // default currentTab happens to match the persisted tab.
+    currentTab = initialTab == ModelTab::Gary ? ModelTab::Terry : ModelTab::Gary;
+    switchToTab(initialTab);
+
     // Force initial layout now that help icons are created
     resized();
+
+    juce::Timer::callAfterDelay(1500, [safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->maybeAutoCheckForUpdates();
+    });
+
+juce::MessageManager::callAsync([safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->audioProcessor.checkBackendHealth();
+    });
+
+    persistEditorState();
+}
+
+Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::beginGenerationAsyncWork() noexcept
+{
+    juce::ScopedLock lock(generationMetadataLock);
+    pendingGenerationMetadata = juce::var();
+    return generationAsyncToken.fetch_add(1, std::memory_order_acq_rel) + 1;
+}
+
+Gary4juceAudioProcessorEditor::GenerationAsyncToken Gary4juceAudioProcessorEditor::currentGenerationAsyncToken() const noexcept
+{
+    return generationAsyncToken.load(std::memory_order_acquire);
+}
+
+void Gary4juceAudioProcessorEditor::invalidateGenerationAsyncWork() noexcept
+{
+    generationAsyncToken.fetch_add(1, std::memory_order_acq_rel);
+    abandonPollTransfer();
+    pollInFlight.store(false, std::memory_order_release);
+}
+
+namespace
+{
+    // Longer than the read loop's own limits, so the watchdog only acts when
+    // the loop has lost control rather than racing it.
+    constexpr juce::int64 kPollSilenceMs = 25000;
+    constexpr juce::int64 kPollMaxMs = 200000;
+    // How long a cancelled read gets to come back before polling moves on.
+    constexpr juce::int64 kPollAbandonMs = 10000;
+}
+
+void Gary4juceAudioProcessorEditor::abandonPollTransfer()
+{
+    std::shared_ptr<PollTransfer> transfer;
+    {
+        std::lock_guard<std::mutex> guard(pollTransferLock);
+        transfer.swap(currentPollTransfer);
+    }
+    if (transfer == nullptr)
+        return;
+
+    std::shared_ptr<juce::WebInputStream> stream;
+    {
+        std::lock_guard<std::mutex> guard(transfer->lock);
+        stream = transfer->stream;
+    }
+    transfer->cancelledMs.store(juce::Time::getCurrentTime().toMilliseconds());
+    if (stream != nullptr)
+        stream->cancel();
+}
+
+void Gary4juceAudioProcessorEditor::finishPollTransfer(const std::shared_ptr<PollTransfer>& transfer)
+{
+    std::lock_guard<std::mutex> guard(pollTransferLock);
+    // A poll the watchdog already gave up on is not the current one any more;
+    // its late return must not clear the flag of the poll that replaced it.
+    if (currentPollTransfer != transfer)
+        return;
+    currentPollTransfer.reset();
+    pollInFlight.store(false, std::memory_order_release);
+}
+
+void Gary4juceAudioProcessorEditor::superviseInFlightPoll()
+{
+    std::shared_ptr<PollTransfer> transfer;
+    {
+        std::lock_guard<std::mutex> guard(pollTransferLock);
+        transfer = currentPollTransfer;
+    }
+    if (transfer == nullptr)
+        return;
+
+    const auto now = juce::Time::getCurrentTime().toMilliseconds();
+    const auto cancelled = transfer->cancelledMs.load();
+    if (cancelled == 0)
+    {
+        const bool silent = now - transfer->lastByteMs.load() > kPollSilenceMs;
+        const bool tooLong = now - transfer->startedMs.load() > kPollMaxMs;
+        if (!silent && !tooLong)
+            return;
+
+        DBG(juce::String("Polling: cancelling a read that has ")
+            + (silent ? "received nothing for " + juce::String((now - transfer->lastByteMs.load()) / 1000) + "s"
+                      : "run for " + juce::String((now - transfer->startedMs.load()) / 1000) + "s"));
+        transfer->cancelledMs.store(now);
+        std::shared_ptr<juce::WebInputStream> stream;
+        {
+            std::lock_guard<std::mutex> guard(transfer->lock);
+            stream = transfer->stream;
+        }
+        if (stream != nullptr)
+            stream->cancel();
+        return;
+    }
+
+    // Cancelled, and the thread still has not come back. Stop waiting for it:
+    // the result is still unconsumed on the backend, so the next poll asks
+    // again on a fresh connection.
+    if (now - cancelled > kPollAbandonMs)
+    {
+        DBG("Polling: abandoning a read that did not return after cancel");
+        finishPollTransfer(transfer);
+    }
+}
+
+bool Gary4juceAudioProcessorEditor::isGenerationAsyncWorkCurrent(GenerationAsyncToken token) const noexcept
+{
+    return isEditorValid.load(std::memory_order_acquire)
+        && generationAsyncToken.load(std::memory_order_acquire) == token;
 }
 
 void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
@@ -725,15 +2432,16 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
     lastProgressUpdateTime = 0;
     lastKnownServerProgress = 0;
     hasDetectedStall = false;
+    invalidateGenerationAsyncWork();
 
     // REMOVED: Don't clear session to prevent new requests
     // audioProcessor.clearCurrentSessionId();  // <-- REMOVE THIS LINE!
 
     // Stop any health checks in processor
     audioProcessor.stopHealthChecks();
-
-    // Wait for ongoing requests to notice the flags and abort
-    juce::Thread::sleep(150);
+    updateCheckInFlight.store(false);
+    updatePromptVisible = false;
+    clearDeferredUpdatePrompt();
 
     DBG("Background operations stopped - threads should abort");
     DBG("Session ID preserved: '" + audioProcessor.getCurrentSessionId() + "'");
@@ -743,15 +2451,32 @@ void Gary4juceAudioProcessorEditor::stopAllBackgroundOperations()
 
 Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
 {
-    isEditorValid.store(false);
-    // NEW: Stop all background operations FIRST
+    persistEditorState();
+    DBG("=== EDITOR DESTROYED (processor state retained) ===");
+
+    // End independently-owned UI before the host tears down this editor so no
+    // modal or native chooser can block host shutdown after its parent is gone.
+    dismissPluginUpdatePrompt();
+    dismissEditorModalWindows();
+    uploadFileChooser.reset();
+    storageFolderChooser.reset();
+    // A download or test still running finishes on its own thread, which holds the service.
+    if (stemsService != nullptr)
+        stemsService->cancelJob();
+
+    isEditorValid.store(false, std::memory_order_release);
+    if (editorAsyncAlive != nullptr)
+        editorAsyncAlive->store(false, std::memory_order_release);
+
+    // Stop timers before mutating teardown state so no periodic UI work can interleave.
+    stopTimer();
+
+    audioProcessor.removeChangeListener(this);
+
     stopAllBackgroundOperations();
     
     // Ensure tooltip window is cleaned up first
     tooltipWindow.reset();
-    
-    // CRITICAL: Stop all timers first to prevent any callbacks during destruction
-    stopTimer();
 
     // Stop playback through processor (host audio)
     audioProcessor.stopOutputPlayback();
@@ -773,20 +2498,32 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showJerry = (tab == ModelTab::Jerry);
 
     if (garyUI)
+    {
         garyUI->setVisibleForTab(showGary);
+
+        if (showGary)
+            fetchGaryAvailableModels();
+    }
 
     if (jerryUI)
     {
-        jerryUI->setVisibleForTab(showJerry);
+        jerryUI->setVisibleForTab(showJerry && jerrySubTab == JerrySubTab::SAOS);
 
-        // NEW: Fetch available models when switching to Jerry tab
-        if (showJerry)
+        if (showJerry && jerrySubTab == JerrySubTab::SAOS)
         {
             fetchJerryAvailableModels();
+            maybeFetchJerryPrompts();
+        }
+    }
 
-            // NEW: Only for remote backend, fetch prompts once (TTL’d) for the active finetune
-            if (!audioProcessor.getIsUsingLocalhost())
-                maybeFetchRemoteJerryPrompts();
+    if (sa3UI)
+    {
+        sa3UI->setRemoteAvailable(isServiceReachable(ServiceType::SA3));
+        sa3UI->setVisibleForTab(showJerry && jerrySubTab == JerrySubTab::SA3);
+        if (showJerry && jerrySubTab == JerrySubTab::SA3)
+        {
+            refreshSA3AvailableLoras(true);
+            updateSA3EnablementSnapshot();
         }
     }
 
@@ -794,6 +2531,32 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
     bool showTerry = (tab == ModelTab::Terry);
     if (terryUI)
         terryUI->setVisibleForTab(showTerry);
+
+    // Carey controls visibility
+    const bool showCarey = (tab == ModelTab::Carey);
+    if (careyUI)
+    {
+        careyUI->setVisibleForTab(showCarey);
+        if (showCarey)
+        {
+            refreshCareyAvailableLoras(true);
+            updateCareyEnablementSnapshot();
+        }
+    }
+
+    const bool showYuey = (tab == ModelTab::Yuey);
+    if (yueyUI)
+    {
+        yueyUI->setVisibleForTab(showYuey);
+        if (showYuey)
+        {
+            yueyUI->setLyricsText(audioProcessor.getCareyLyrics());
+            yueyUI->setAudioSourceRecording(transformRecording);
+            if (!juce::JUCEApplicationBase::isStandaloneApp() && audioProcessor.getCurrentBPM() > 0.0)
+                yueyUI->setBpm(audioProcessor.getCurrentBPM());
+            updateYueyEnablementSnapshot();
+        }
+    }
 
     // Darius controls visibility
     const bool showDarius = (tab == ModelTab::Darius);
@@ -803,23 +2566,57 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 
         // Only fetch when showing Darius (avoid needless calls when leaving the tab)
         if (showDarius)
-            fetchDariusAssetsStatus();  // async; callback should re-check currentTab == ModelTab::Darius
+            fetchDariusAssetsStatus();
+    }
+
+    // Jerry sub-tab buttons visibility (only when Jerry main tab is active)
+    jerrySubTabSA3.setVisible(showJerry);
+    jerrySubTabSAOS.setVisible(showJerry);
+    jerrySubTabFoundation.setVisible(showJerry);
+
+    // Jerry sub-tab components: show the right one
+    if (showJerry)
+    {
+        bool showSA3 = (jerrySubTab == JerrySubTab::SA3);
+        bool showSAOS = (jerrySubTab == JerrySubTab::SAOS);
+        if (sa3UI) sa3UI->setVisibleForTab(showSA3);
+        if (showSA3) refreshSA3AvailableLoras(true);
+        if (jerryUI) jerryUI->setVisibleForTab(showSAOS);
+        if (foundationUI)
+        {
+            foundationUI->setVisibleForTab(jerrySubTab == JerrySubTab::Foundation);
+            if (jerrySubTab == JerrySubTab::Foundation) updateFoundationEnablementSnapshot();
+        }
+    }
+    else
+    {
+        // Jerry tab not active — hide both sub-components
+        if (sa3UI) sa3UI->setVisibleForTab(false);
+        if (foundationUI) foundationUI->setVisibleForTab(false);
     }
 
     // Help button visibility
     if (helpIcon)
     {
         garyHelpButton.setVisible(showGary);
-        jerryHelpButton.setVisible(showJerry);
+        sa3HelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::SA3);
+        // Jerry help: show SAOS help when Jerry tab + SAOS sub-tab
+        jerryHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::SAOS);
+        // Foundation help: show when Jerry tab + Foundation sub-tab
+        foundationHelpButton.setVisible(showJerry && jerrySubTab == JerrySubTab::Foundation);
         terryHelpButton.setVisible(showTerry);
         dariusHelpButton.setVisible(showDarius);
+        careyHelpButton.setVisible(showCarey);
+        yueyHelpButton.setVisible(showYuey);
     }
 
-    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showTerry ? "Terry" : "Darius"))));
+    DBG("Switched to tab: " + juce::String(showGary ? "Gary" : (showJerry ? "Jerry" : (showCarey ? "Carey" : (showYuey ? "Yuey" : (showTerry ? "Terry" : "Darius"))))));
 
-    // Force a complete relayout to position help icons correctly
-    resized();
+    // Force a complete relayout to position help icons correctly. The automation lanes panel
+    // shows only on the SA3 tab, so this can also resize the editor.
+    updateSA3LanePanel();
     repaint();
+    persistEditorState();
 }
 
 void Gary4juceAudioProcessorEditor::updateTabButtonStates()
@@ -831,11 +2628,25 @@ void Gary4juceAudioProcessorEditor::updateTabButtonStates()
     jerryTabButton.setButtonStyle(currentTab == ModelTab::Jerry ?
         CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
 
+    // Carey uses Terry styling when active (same orange theme)
+    if (isCareyTabAvailable())
+        careyTabButton.setButtonStyle(currentTab == ModelTab::Carey ?
+            CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+    else
+        careyTabButton.setButtonStyle(CustomButton::ButtonStyle::Inactive);
+
     terryTabButton.setButtonStyle(currentTab == ModelTab::Terry ?
         CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
 
     dariusTabButton.setButtonStyle(currentTab == ModelTab::Darius ?
         CustomButton::ButtonStyle::Darius : CustomButton::ButtonStyle::Inactive);
+
+    yueyTabButton.setButtonStyle(currentTab == ModelTab::Yuey ?
+        CustomButton::ButtonStyle::Terry : CustomButton::ButtonStyle::Inactive);
+
+    // Update Jerry sub-tab button states when Jerry is the active tab
+    if (currentTab == ModelTab::Jerry)
+        updateJerrySubTabStates();
 }
 
 void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
@@ -845,16 +2656,38 @@ void Gary4juceAudioProcessorEditor::updateAllGenerationButtonStates()
 
     if (jerryUI)
     {
-        const bool canGenerate = isConnected && !currentJerryPrompt.trim().isEmpty();
-        const bool canSmartLoop = isConnected;
+        const bool jerryOnline = isServiceReachable(ServiceType::Jerry);
+        const bool canGenerate = jerryOnline && !currentJerryPrompt.trim().isEmpty();
+        const bool canSmartLoop = jerryOnline;
         jerryUI->setButtonsEnabled(canGenerate, canSmartLoop, isGenerating);
     }
 
     updateTerryEnablementSnapshot();
+    updateCareyEnablementSnapshot();
+    updateYueyEnablementSnapshot();
+    updateFoundationEnablementSnapshot();
+    updateSA3EnablementSnapshot();
+}
+
+void Gary4juceAudioProcessorEditor::setGaryLastSeed(const juce::String& seed)
+{
+    const auto trimmed = seed.trim();
+    if (trimmed.isEmpty())
+        return;
+
+    currentGaryLastSeed = trimmed;
+    currentGarySeedText = trimmed;
+    if (garyUI)
+        garyUI->setLastSeed(trimmed);
 }
 
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 {
+#if JUCE_LINUX
+    copyDraggedAudioButton.setEnabled(hasOutputAudio && outputAudioFile.existsAsFile()
+        && outputAudioFile.getSize() > 0);
+#endif
+
     if (!garyUI)
         return;
 
@@ -865,7 +2698,7 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
     const bool retryAvailableFlag = audioProcessor.getRetryAvailable();
     const bool retryAvailable = hasValidSession && retryAvailableFlag;
 
-    garyUI->setButtonsEnabled(hasAudio, isConnected, isGenerating, retryAvailable, continueAvailable);
+    garyUI->setButtonsEnabled(hasAudio, isServiceReachable(ServiceType::Gary), isGenerating, retryAvailable, continueAvailable);
 
     if (resetTexts || !isGenerating)
     {
@@ -873,11 +2706,6 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
         garyUI->setContinueButtonText("continue");
         garyUI->setRetryButtonText("retry");
     }
-
-#if JUCE_LINUX
-    const bool copyEnabled = hasOutputAudio && outputAudioFile.existsAsFile() && outputAudioFile.getSize() > 0;
-    copyDraggedAudioButton.setEnabled(copyEnabled);
-#endif
 }
 
 
@@ -885,15 +2713,49 @@ void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 // Updated timerCallback() with smooth progress animation:
 void Gary4juceAudioProcessorEditor::timerCallback()
 {
+    if (!isEditorValid.load(std::memory_order_acquire))
+        return;
+
     updateRecordingStatus();
 
-    // Update Jerry BPM display with current DAW BPM
+    // Detect a removed external drive without probing it on every 50ms tick.
+    if (++storageAvailabilityTimerTicks >= 40)
+    {
+        storageAvailabilityTimerTicks = 0;
+        if (!activeGaryDataDirectory.isDirectory())
+            ensureGaryDataDirectoryAvailable(true);
+    }
+
+    if (++persistentStateTimerTicks >= 10)
+    {
+        persistentStateTimerTicks = 0;
+        persistEditorState();
+    }
+
+    // Whether stems can run changes from the settings panel and with each output; once a second.
+    if (++stemsButtonTimerTicks >= 20)
+    {
+        stemsButtonTimerTicks = 0;
+        updateStemsButtonState();
+        refreshSavedBufferPreview();
+    }
+
+    // Update Jerry BPM display with current DAW BPM (only in plugin mode, not standalone)
     double currentBPM = audioProcessor.getCurrentBPM();
-    if (jerryUI)
+    if (jerryUI && !juce::JUCEApplicationBase::isStandaloneApp())
         jerryUI->setBpm(juce::roundToInt(currentBPM));
 
-    if (terryUI)
-        terryUI->setBpm(currentBPM);
+    if (sa3UI && !juce::JUCEApplicationBase::isStandaloneApp())
+        sa3UI->setBpm(currentBPM);
+
+    if (yueyUI && !juce::JUCEApplicationBase::isStandaloneApp() && currentBPM > 0.0)
+    {
+        yueyUI->setBpm(currentBPM);
+        // setBpm is deliberately silent. Rebuild summaries only when the score's
+        // effective tempo changes, including changes while another tab is open.
+        if (currentYueyMidiSelected && yueyMidiSummaryBpm != effectiveYueyBpm())
+            refreshYueyMidi();
+    }
 
     if (dariusUI)
     {
@@ -903,6 +2765,13 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         dariusUI->setAudioSourceRecording(audioProcessor.getTransformRecording());
     }
 
+    // Foundation BPM sync (plugin mode only)
+    if (foundationUI && !juce::JUCEApplicationBase::isStandaloneApp() && currentBPM > 0.0)
+        foundationUI->setBpm(currentBPM);
+
+    // Track BPM for carey requests
+    currentCareyBpm = currentBPM;
+
     // Darius progress polling cadence (every ~250ms)
     if (dariusIsPollingProgress) {
         if (++dariusProgressPollTick >= 5) { // 5 * 50ms = 250ms
@@ -911,11 +2780,17 @@ void Gary4juceAudioProcessorEditor::timerCallback()
         }
     }
 
+    maybeShowDeferredUpdatePrompt();
+
     // Check playback status every timer tick when playing (every 50ms for smooth cursor)
-    if (isPlayingOutput)
+    if (isPlayingOutput || isPlayingInput || stemPlaybackRunning)
     {
         checkPlaybackStatus();
     }
+
+    // The lanes' range follows the SA3 controls, and their cursor follows output playback.
+    if (sa3LanePanelShown())
+        updateSA3LaneTimeline();
 
     // Smooth progress animation for generation (every 50ms for smooth animation)
     if (isGenerating && smoothProgressAnimation)
@@ -925,7 +2800,10 @@ void Gary4juceAudioProcessorEditor::timerCallback()
 
     // Connection status flash animation (every 20 ticks = ~1 second)
     static int flashCounter = 0;
-    if (isConnected)
+    const bool flashConnected = audioProcessor.getIsUsingLocalhost()
+        ? (localOnlineCount > 0)
+        : isConnected;
+    if (flashConnected)
     {
         flashCounter++;
         if (flashCounter >= 20) // 20 * 50ms = 1 second flash interval
@@ -934,6 +2812,21 @@ void Gary4juceAudioProcessorEditor::timerCallback()
             connectionFlashState = !connectionFlashState;
             repaint(); // Repaint to show flash change
         }
+    }
+
+    // Local service health polling (every 3 seconds)
+    if (audioProcessor.getIsUsingLocalhost())
+    {
+        localHealthPollCounter++;
+        if (localHealthPollCounter >= 60) // 60 * 50ms = 3 seconds
+        {
+            localHealthPollCounter = 0;
+            triggerLocalServiceHealthPoll(false);
+        }
+    }
+    else
+    {
+        localHealthPollCounter = 0;
     }
 
     // Poll backend every 60 timer ticks (every 3 seconds since timer runs every 50ms)
@@ -995,8 +2888,33 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
     recordingProgress = audioProcessor.getRecordingProgress();
     recordedSamples = audioProcessor.getRecordedSamples();
 
-    // Update save button state
-    saveBufferButton.setEnabled(recordedSamples > 0);
+    // The buffer's playback plays what is saved: what every model will read.
+    const bool canAuditionInput = hasSavedRecordingBuffer();
+    playInputButton.setEnabled(canAuditionInput);
+    stopInputButton.setEnabled(canAuditionInput);
+
+    // A new recording replaces the buffer, even if it happens to end up with
+    // the same sample count as the previous take.
+    if (isRecording && !wasRecording)
+    {
+        if (activePlaybackSource == PlaybackSource::Input)
+        {
+            stopInputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
+
+        inputPlaybackSnapshotSamples = 0;
+        inputPlaybackDuration = 0.0;
+        lastDraggedAudioFile = {};
+        lastSelectionStartTime = 0.0;
+    }
+
+    // Update save button state (only in plugin mode)
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+    if (!isStandalone)
+    {
+        saveBufferButton.setEnabled(recordedSamples > 0);
+    }
 
     // ONLY update generation button states when something relevant has changed
     bool needsButtonUpdate = (wasRecording != isRecording) ||
@@ -1029,7 +2947,7 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
 
 void Gary4juceAudioProcessorEditor::showStatusMessage(const juce::String& message, int durationMs)
 {
-    statusMessage = message;
+    statusMessage = stripAnsiAndControlChars(message);
     statusMessageTime = juce::Time::getCurrentTime().toMilliseconds();
     statusMessageDuration = durationMs;  // Store custom duration
     hasStatusMessage = true;
@@ -1046,12 +2964,28 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     g.setColour(juce::Colour(0x40, 0x40, 0x40));
     g.drawRect(area, 1);
 
-    if (recordedSamples <= 0)
+    // A take that has just started has no samples yet, but its lane and label belong on screen.
+    if (recordedSamples <= 0 && !isRecording)
     {
-        // Show "waiting" state
+        // Show "waiting" state with different message based on plugin mode
         g.setFont(juce::FontOptions(14.0f));
         g.setColour(juce::Colours::darkgrey);
-        g.drawText("press PLAY in DAW to start recording", area, juce::Justification::centred);
+
+        bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+        if (isStandalone)
+        {
+            g.drawText("drag an audio file here to use with gary, carey, terry, or darius",
+                        area, juce::Justification::centred);
+        }
+        else
+        {
+            auto splitArea = area;
+            auto topLine = splitArea.removeFromTop(splitArea.getHeight() / 2 - 4);
+            g.drawText("press PLAY in DAW to start recording", topLine, juce::Justification::centredBottom);
+            splitArea.removeFromTop(8);
+            g.setFont(juce::FontOptions(11.0f));
+            g.drawText("(or drag an audio file in)", splitArea, juce::Justification::centredTop);
+        }
         return;
     }
 
@@ -1068,151 +3002,73 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
     // FIXED: Use actual sample rate from processor instead of hardcoded 44100
     const double currentSampleRate = audioProcessor.getCurrentSampleRate();
 
-    // Time calculations
-    const double totalDuration = 30.0; // 30 seconds max
+    // Time calculations — zoom to fit: show 30s window until content exceeds it, then full buffer
     const double recordedDuration = juce::jmax(0.0, (double)recordedSamples / currentSampleRate);
-    const double savedDuration = juce::jmax(0.0, (double)savedSamples / currentSampleRate);
+    const double totalDuration = getInputWaveformDisplayDuration();
 
-    // Pixel calculations with safety checks
-    const int recordedPixels = juce::jmax(0, juce::jmin(waveWidth, (int)((recordedDuration / totalDuration) * waveWidth)));
-    const int savedPixels = juce::jmax(0, juce::jmin(recordedPixels, (int)((savedDuration / totalDuration) * waveWidth)));
-
-    // Early exit if nothing to draw
-    if (recordedPixels <= 0)
-        return;
+    // Pixel calculations with safety checks. A recording shows from its first sample: with a long
+    // saved buffer the axis spans minutes, and a pixel can be most of a second.
+    const int recordedPixels = recordedSamples > 0
+        ? juce::jlimit(1, waveWidth, (int)((recordedDuration / totalDuration) * waveWidth))
+        : 0;
 
     // Safe samples per pixel calculation - avoid division by zero
     const int samplesPerPixel = (recordedPixels > 0) ? juce::jmax(1, recordedSamples / recordedPixels) : 1;
 
-    // Draw saved portion (solid red)
-    if (savedPixels > 0)
+    // The take: solid once it is what myBuffer.wav holds, faded while it is unsaved, which
+    // includes while it records. The saved buffer is drawn under an unsaved take.
+    const bool takeUnsaved = isRecording || audioProcessor.isRecordingUnsaved();
+    const auto takeColour = juce::Colours::red.withAlpha(takeUnsaved ? 0.45f : 1.0f);
+    const auto edgeColour = juce::Colours::red.withAlpha(takeUnsaved ? 0.25f : 0.6f);
+    const int numSamples = recordingBuffer.getNumSamples();
+    const int numChannels = recordingBuffer.getNumChannels();
+
+    for (int x = 0; x < recordedPixels; ++x)
     {
-        g.setColour(juce::Colours::red);
+        const int startSample = x * samplesPerPixel;
+        const int endSample = juce::jmin(startSample + samplesPerPixel, recordedSamples, numSamples);
+        if (endSample <= startSample)
+            continue;
 
-        for (int x = 0; x < savedPixels; ++x)
+        // Min and max of the channel average over this pixel's samples
+        float minVal = 0.0f, maxVal = 0.0f;
+        for (int sample = startSample; sample < endSample; ++sample)
         {
-            const int startSample = x * samplesPerPixel;
-            const int endSample = juce::jmin(startSample + samplesPerPixel, savedSamples);
+            float sampleValue = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                sampleValue += recordingBuffer.getSample(ch, sample);
+            sampleValue /= (float) numChannels;
 
-            if (endSample > startSample && startSample < recordingBuffer.getNumSamples())
-            {
-                // Find min/max in this pixel's worth of samples
-                float minVal = 0.0f, maxVal = 0.0f;
+            minVal = juce::jmin(minVal, sampleValue);
+            maxVal = juce::jmax(maxVal, sampleValue);
+        }
 
-                for (int sample = startSample; sample < endSample && sample < recordingBuffer.getNumSamples(); ++sample)
-                {
-                    // Average across channels safely
-                    float sampleValue = 0.0f;
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        sampleValue += recordingBuffer.getSample(ch, sample);
-                    }
-                    sampleValue /= recordingBuffer.getNumChannels();
+        const int minY = juce::jlimit(area.getY(), area.getBottom(), centerY - (int) (minVal * waveHeight * 0.4f));
+        const int maxY = juce::jlimit(area.getY(), area.getBottom(), centerY - (int) (maxVal * waveHeight * 0.4f));
+        const int drawX = area.getX() + 1 + x;
 
-                    minVal = juce::jmin(minVal, sampleValue);
-                    maxVal = juce::jmax(maxVal, sampleValue);
-                }
-
-                // Scale to display area with clamping
-                const int minY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(minVal * waveHeight * 0.4f));
-                const int maxY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(maxVal * waveHeight * 0.4f));
-
-                const int drawX = area.getX() + 1 + x;
-
-                // Draw thicker, smoother lines
-                if (maxY != minY)
-                {
-                    // Main line
-                    g.drawVerticalLine(drawX, (float)maxY, (float)minY);
-                    // Add thickness by drawing adjacent pixels with slight transparency
-                    if (x > 0) // Left side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.6f));
-                        g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red); // Reset for next iteration
-                    }
-                    if (x < savedPixels - 1) // Right side  
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.6f));
-                        g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red); // Reset for next iteration
-                    }
-                }
-                else
-                {
-                    // For silent parts, draw a thicker center line
-                    g.fillRect(drawX - 1, centerY - 1, 3, 2);
-                }
-            }
+        g.setColour(takeColour);
+        if (maxY != minY)
+        {
+            g.drawVerticalLine(drawX, (float) maxY, (float) minY);
+            // Thicken the line with fainter neighbours
+            g.setColour(edgeColour);
+            if (x > 0)
+                g.drawVerticalLine(drawX - 1, (float) maxY, (float) minY);
+            if (x < recordedPixels - 1)
+                g.drawVerticalLine(drawX + 1, (float) maxY, (float) minY);
+        }
+        else
+        {
+            // Silence: a thicker centre line
+            g.fillRect(drawX - 1, centerY - 1, 3, 2);
         }
     }
 
-    // Draw unsaved portion (semi-transparent red)
-    if (recordedPixels > savedPixels)
-    {
-        g.setColour(juce::Colours::red.withAlpha(0.5f));
-
-        for (int x = savedPixels; x < recordedPixels; ++x)
-        {
-            const int startSample = x * samplesPerPixel;
-            const int endSample = juce::jmin(startSample + samplesPerPixel, recordedSamples);
-
-            if (endSample > startSample && startSample < recordingBuffer.getNumSamples())
-            {
-                // Find min/max in this pixel's worth of samples
-                float minVal = 0.0f, maxVal = 0.0f;
-
-                for (int sample = startSample; sample < endSample && sample < recordingBuffer.getNumSamples(); ++sample)
-                {
-                    // Average across channels safely
-                    float sampleValue = 0.0f;
-                    for (int ch = 0; ch < recordingBuffer.getNumChannels(); ++ch)
-                    {
-                        sampleValue += recordingBuffer.getSample(ch, sample);
-                    }
-                    sampleValue /= recordingBuffer.getNumChannels();
-
-                    minVal = juce::jmin(minVal, sampleValue);
-                    maxVal = juce::jmax(maxVal, sampleValue);
-                }
-
-                // Scale to display area with clamping
-                const int minY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(minVal * waveHeight * 0.4f));
-                const int maxY = juce::jlimit(area.getY(), area.getBottom(),
-                    centerY - (int)(maxVal * waveHeight * 0.4f));
-
-                const int drawX = area.getX() + 1 + x;
-
-                // Draw thicker, smoother lines for unsaved portion
-                if (maxY != minY)
-                {
-                    // Main line
-                    g.drawVerticalLine(drawX, (float)maxY, (float)minY);
-                    // Add thickness by drawing adjacent pixels with slight transparency
-                    if (x > savedPixels) // Left side (don't overlap with saved portion)
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.3f)); // Even more transparent for thickness
-                        g.drawVerticalLine(drawX - 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red.withAlpha(0.5f)); // Reset for next iteration
-                    }
-                    if (x < recordedPixels - 1) // Right side
-                    {
-                        g.setColour(juce::Colours::red.withAlpha(0.3f));
-                        g.drawVerticalLine(drawX + 1, (float)maxY, (float)minY);
-                        g.setColour(juce::Colours::red.withAlpha(0.5f)); // Reset for next iteration
-                    }
-                }
-                else
-                {
-                    // For silent parts, draw a thicker center line with transparency
-                    g.fillRect(drawX - 1, centerY - 1, 3, 2);
-                }
-            }
-        }
-    }
+    // While the take is unsaved, the saved buffer runs along the bottom: what every model and the
+    // buffer's own playback use.
+    const bool showSavedLane = takeUnsaved && !savedBufferPreview.peaks.empty();
+    const auto savedLane = showSavedLane ? getSavedBufferLaneBounds(area) : juce::Rectangle<int>();
 
     // Add recording indicator if currently recording
     if (isRecording && recordedPixels > 0)
@@ -1231,6 +3087,149 @@ void Gary4juceAudioProcessorEditor::drawWaveform(juce::Graphics& g, const juce::
             g.fillRect(recordingX, area.getY(), 2, area.getHeight());
         }
     }
+
+    if (showSavedLane)
+        drawSavedBufferLane(g, area, savedLane, totalDuration);
+
+    // The input player uses the same white cursor treatment as the output
+    // player, mapped to the input waveform's current time scale.
+    if ((isPlayingInput || isPausedInput) && inputPlaybackDuration > 0.0)
+    {
+        const double progressPercent = juce::jlimit(0.0, 1.0,
+            currentInputPlaybackPosition / totalDuration);
+        const int cursorX = area.getX() + 1 + (int)(progressPercent * waveWidth);
+        // Playback is of the saved buffer, so its cursor runs on the saved lane when it shows.
+        const float cursorTop = showSavedLane ? (float) savedLane.getY() + 1 : (float) area.getY() + 1;
+        const float cursorBottom = showSavedLane ? (float) savedLane.getBottom() : (float) area.getBottom() - 1;
+
+        g.setColour(juce::Colours::white.withAlpha(isPlayingInput ? 0.9f : 0.7f));
+        g.drawVerticalLine(cursorX, cursorTop, cursorBottom);
+        g.setColour(juce::Colours::white.withAlpha(0.3f));
+        if (cursorX > area.getX() + 1)
+            g.drawVerticalLine(cursorX - 1, cursorTop, cursorBottom);
+        if (cursorX < area.getRight() - 1)
+            g.drawVerticalLine(cursorX + 1, cursorTop, cursorBottom);
+    }
+
+    // An unsaved take says so at the top left.
+    if (takeUnsaved)
+    {
+        const juce::String label = savedBufferPreview.peaks.empty() ? "unsaved - save buffer to use it"
+                                                                    : "unsaved - models use the saved buffer below";
+        // Measured in the font it is drawn with (the look and feel's), clear of the folder icon.
+        g.setFont(juce::FontOptions(11.0f));
+        const int textWidth = juce::roundToInt(std::ceil(juce::GlyphArrangement::getStringWidth(g.getCurrentFont(), label)));
+        const int labelWidth = juce::jmin(area.getWidth() - 44, textWidth + 12);
+        const auto labelArea = juce::Rectangle<int>(area.getX() + 3, area.getY() + 3, labelWidth, 14);
+        g.setColour(juce::Colours::black.withAlpha(0.7f));
+        g.fillRect(labelArea);
+        g.setColour(juce::Colour(0xffef9f27));
+        g.drawText(label, labelArea.reduced(5, 0), juce::Justification::centredLeft, true);
+    }
+    // The same range editor is available in plugin and standalone builds. The saved lane takes
+    // the bottom left while it shows; the stems handle has the bottom right.
+    if (recordedSamples > 0 && !isRecording && !showSavedLane)
+    {
+        g.setFont(juce::FontOptions(13.0f));
+        g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+        auto hintArea = juce::Rectangle<int>(area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
+        g.drawText("double-click to select range", hintArea, juce::Justification::centredLeft);
+    }
+}
+
+// A compact lane along the bottom of the recording waveform, which stops short of the stems handle.
+juce::Rectangle<int> Gary4juceAudioProcessorEditor::getSavedBufferLaneBounds(const juce::Rectangle<int>& area) const
+{
+    constexpr int laneHeight = 14;
+    const int right = area.getRight() - 1 - (stemsInputButton.isVisible() ? 58 : 2);
+    return { area.getX() + 1, area.getBottom() - 1 - laneHeight, juce::jmax(0, right - (area.getX() + 1)), laneHeight };
+}
+
+// The saved buffer in its lane, scaled to the waveform's own time axis so its length compares with
+// the take's at a glance.
+void Gary4juceAudioProcessorEditor::drawSavedBufferLane(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                                        const juce::Rectangle<int>& lane, double totalDuration)
+{
+    const auto& peaks = savedBufferPreview.peaks;
+    if (peaks.empty() || totalDuration <= 0.0 || lane.isEmpty())
+        return;
+
+    g.setColour(juce::Colours::black.withAlpha(0.8f));
+    g.fillRect(lane);
+    g.setColour(juce::Colour(0x40, 0x40, 0x40));
+    g.drawHorizontalLine(lane.getY(), (float) lane.getX(), (float) lane.getRight());
+
+    const int waveWidth = juce::jmax(1, area.getWidth() - 2);
+    const double savedSpan = savedBufferPreview.seconds / totalDuration * waveWidth;
+    const int pixels = juce::jmin(lane.getWidth(), juce::roundToInt(savedSpan));
+    const float centre = (float) lane.getCentreY() + 0.5f;
+    const float halfHeight = (lane.getHeight() - 4) * 0.5f;
+    g.setColour(juce::Colours::red.withAlpha(0.85f));
+    for (int x = 0; x < pixels; ++x)
+    {
+        const auto column = (size_t) juce::jmin((double) peaks.size() - 1.0,
+                                                x * (double) peaks.size() / juce::jmax(1.0, savedSpan));
+        const float half = juce::jmax(0.5f, juce::jmin(1.0f, peaks[column]) * halfHeight);
+        g.drawVerticalLine(lane.getX() + x, centre - half, centre + half);
+    }
+}
+
+// Keep the saved lane's waveform in step with myBuffer.wav, reading it again in the background
+// whenever the file changes.
+void Gary4juceAudioProcessorEditor::refreshSavedBufferPreview()
+{
+    const auto file = getGaryBufferFile();
+    const bool exists = file.existsAsFile();
+    const auto modified = exists ? file.getLastModificationTime() : juce::Time();
+    const auto size = exists ? file.getSize() : (juce::int64) 0;
+    if (file.getFullPathName() == savedBufferPreview.path && modified == savedBufferPreview.modified
+        && size == savedBufferPreview.size)
+        return;
+
+    if (!exists)
+    {
+        savedBufferPreview = { file.getFullPathName(), modified, size, 0.0, {} };
+        repaint(waveformArea);
+        return;
+    }
+    if (savedBufferPreviewLoading.exchange(true))
+        return;
+
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Thread::launch([safeThis, file, modified, size]()
+    {
+        SavedBufferPreview preview { file.getFullPathName(), modified, size, 0.0, {} };
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        if (std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor(file) })
+        {
+            const juce::int64 length = reader->lengthInSamples;
+            if (reader->sampleRate > 0.0 && length > 0)
+            {
+                constexpr int kColumns = 1024;
+                preview.seconds = (double) length / reader->sampleRate;
+                preview.peaks.resize(kColumns, 0.0f);
+                const juce::int64 perColumn = juce::jmax<juce::int64>(1, length / kColumns);
+                const int channels = (int) juce::jmin(reader->numChannels, 2u);
+                for (int column = 0; column < kColumns && column * perColumn < length; ++column)
+                {
+                    juce::Range<float> levels[2];
+                    reader->readMaxLevels(column * perColumn, perColumn, levels, channels);
+                    for (int ch = 0; ch < channels; ++ch)
+                        preview.peaks[(size_t) column] = juce::jmax(preview.peaks[(size_t) column],
+                            std::abs(levels[ch].getStart()), std::abs(levels[ch].getEnd()));
+                }
+            }
+        }
+        juce::MessageManager::callAsync([safeThis, preview = std::move(preview)]() mutable
+        {
+            if (safeThis == nullptr)
+                return;
+            safeThis->savedBufferPreview = std::move(preview);
+            safeThis->savedBufferPreviewLoading.store(false);
+            safeThis->repaint(safeThis->waveformArea);
+        });
+    });
 }
 
 void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
@@ -1243,25 +3242,17 @@ void Gary4juceAudioProcessorEditor::saveRecordingBuffer()
 
     DBG("Save buffer button clicked with " + juce::String(recordedSamples) + " samples");
 
-    auto garyDir = getGaryDir();
-    auto recordingFile = garyDir.getChildFile("myBuffer.wav");
-
-    DBG("Saving recording to: " + recordingFile.getFullPathName());
-    if (!ensureParentDirExists(recordingFile, "saveRecordingBuffer"))
-    {
-        showStatusMessage("unable to access recording folder", 4000);
+    if (!ensureGaryDataDirectoryAvailable())
         return;
-    }
 
-    audioProcessor.saveRecordingToFile(recordingFile);
+    // Always save to the same filename (overwrite each time)
+    auto recordingFile = getGaryBufferFile();
 
-    if (recordingFile.existsAsFile())
+    DBG("Saving to: " + recordingFile.getFullPathName());
+    if (!audioProcessor.saveRecordingToFile(recordingFile))
     {
-        DBG("Recording saved (" + juce::String(recordingFile.getSize()) + " bytes)");
-    }
-    else
-    {
-        DBG("Recording save did not produce file: " + recordingFile.getFullPathName());
+        showStatusMessage("could not save input buffer - check storage settings", 7000);
+        return;
     }
 
     // Get the saved samples from processor (source of truth)
@@ -1285,6 +3276,7 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
     audioProcessor.setCurrentSessionId(sessionId);
     isPolling = true;
     isGenerating = true;
+    pollInFlight.store(false, std::memory_order_release);
     generationProgress = 0;
     resetStallDetection();
     pollingStartTimeMs = juce::Time::getCurrentTime().toMilliseconds();
@@ -1296,9 +3288,7 @@ void Gary4juceAudioProcessorEditor::startPollingForResults(const juce::String& s
 void Gary4juceAudioProcessorEditor::stopPolling()
 {
     isPolling = false;
-    
-    // Wait briefly for any ongoing poll requests to notice the flag
-    juce::Thread::sleep(50);
+    invalidateGenerationAsyncWork();
     
     DBG("Stopped polling - ongoing requests should abort");
 }
@@ -1314,9 +3304,13 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     if (withinWarmup)
         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
 
-    // Don�t start another poll while one is in flight
+    // Don�t start another poll while one is in flight, but do keep an eye on
+    // it: this guard is also what used to hide a read that never came back.
     if (pollInFlight.exchange(true))
+    {
+        superviseInFlightPoll();
         return;
+    }
 
     // Optional: if you have a very fast poll timer, add a micro-backoff while warming
     const bool softBackoff = withinWarmup || isCurrentlyQueued;
@@ -1326,62 +3320,172 @@ void Gary4juceAudioProcessorEditor::pollForResults()
     // Only trip �stall� when not warming up
     if (!withinWarmup && checkForGenerationStall())
     {
-        pollInFlight = false;
+        pollInFlight.store(false, std::memory_order_release);
         handleGenerationStall();
         return;
     }
 
-    juce::Thread::launch([this, sessionId]()
-        {
-            auto clearInFlight = [this]() { pollInFlight = false; };
+    const auto generationToken = currentGenerationAsyncToken();
+    const auto activeOperation = getActiveOp();
+    const bool warmupSnapshot = withinWarmup;
+    const bool queuedSnapshot = isCurrentlyQueued;
+    const bool generatingSnapshot = isGenerating;
+    const int connectionTimeoutMs = warmupSnapshot ? 4000 : 8000;
+    const juce::URL pollUrl = [&]() {
+        if (activeOperation == ActiveOp::SA3Generate
+            || activeOperation == ActiveOp::SA3Transform
+            || activeOperation == ActiveOp::SA3Continue)
+            return juce::URL(getServiceUrl(ServiceType::SA3, "/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::FoundationGenerate)
+            return juce::URL(getServiceUrl(ServiceType::Foundation, "/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::CareyGenerate)
+            return juce::URL(getServiceUrl(ServiceType::Carey, "/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::YueyGenerate
+            || activeOperation == ActiveOp::YueyRemix
+            || activeOperation == ActiveOp::YueyContinue
+            || activeOperation == ActiveOp::YueyScoreTranscribe
+            || activeOperation == ActiveOp::YueyRemixTranscribe)
+            return juce::URL(getServiceUrl(ServiceType::Yuey, "/poll_status/" + sessionId));
+        if (activeOperation == ActiveOp::TerryTransform)
+            return juce::URL(getServiceUrl(ServiceType::Terry, "/api/juce/poll_status/" + sessionId));
+        return juce::URL(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
+    }();
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
 
-            // SAFETY: Exit if polling stopped
-            if (!isPolling || sessionId.isEmpty())
+    auto transfer = std::make_shared<PollTransfer>();
+    {
+        const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+        transfer->startedMs.store(nowMs);
+        transfer->lastByteMs.store(nowMs);
+        std::lock_guard<std::mutex> guard(pollTransferLock);
+        currentPollTransfer = transfer;
+    }
+
+    juce::Thread::launch([safeThis, transfer, generationToken, sessionId, pollUrl, connectionTimeoutMs, warmupSnapshot, queuedSnapshot, generatingSnapshot]()
+        {
+            auto clearInFlight = [safeThis, transfer]()
+                {
+                    if (safeThis != nullptr)
+                        safeThis->finishPollTransfer(transfer);
+                };
+
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || sessionId.isEmpty())
             {
                 clearInFlight();
                 DBG("Polling aborted - no longer active");
                 return;
             }
 
-            juce::URL pollUrl(getServiceUrl(ServiceType::Gary, "/api/juce/poll_status/" + sessionId));
-
             try
             {
-                int httpStatus = 0;
-                juce::StringPairArray responseHeaders;
-
-                auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                    .withConnectionTimeoutMs(withinWarmup ? 4000 : 8000) // shorter during warmup
-                    .withNumRedirectsToFollow(3)
-                    .withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
-                    .withResponseHeaders(&responseHeaders)
-                    .withStatusCode(&httpStatus);
+                // Opened by hand rather than through URL::createInputStream so the
+                // watchdog can reach the stream and cancel it.
+                auto open = [&]() -> std::shared_ptr<juce::WebInputStream>
+                    {
+                        auto web = std::make_shared<juce::WebInputStream>(pollUrl, false);
+                        web->withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
+                            .withConnectionTimeout(connectionTimeoutMs)
+                            .withNumRedirectsToFollow(3);
+                        {
+                            std::lock_guard<std::mutex> guard(transfer->lock);
+                            transfer->stream = web;
+                        }
+                        if (transfer->cancelledMs.load() != 0 || !web->connect(nullptr) || web->isError())
+                            return nullptr;
+                        return web;
+                    };
 
                 // Attempt #1
-                std::unique_ptr<juce::InputStream> stream(pollUrl.createInputStream(options));
+                auto stream = open();
 
                 // If we didn�t get a stream while warming, quick retry once
-                if (stream == nullptr && (withinWarmup || isCurrentlyQueued || isGenerating))
+                if (stream == nullptr && transfer->cancelledMs.load() == 0
+                    && (warmupSnapshot || queuedSnapshot || generatingSnapshot))
                 {
                     DBG("Polling: null stream during warmup/active; quick retry");
-                    juce::Thread::sleep(150);
-
-                    // Move-assign the new unique_ptr result into our existing one
-                    auto retryStream = pollUrl.createInputStream(options); // returns std::unique_ptr<InputStream>
-                    if (retryStream)
-                        stream = std::move(retryStream); // or simply: stream = pollUrl.createInputStream(options);
+                    stream = open();
                 }
 
                 if (stream != nullptr)
                 {
-                    const auto responseText = stream->readEntireStreamAsString();
-                    lastGoodPollMs = juce::Time::getCurrentTime().toMilliseconds();
+                    // Read with deadlines rather than readEntireStreamAsString, which
+                    // blocks for as long as the socket stays open. withConnectionTimeoutMs
+                    // only covers getting connected; once bytes start flowing there is no
+                    // bound, so a wifi drop part way through a large completed response
+                    // parks this thread forever. pollInFlight then stays true, every later
+                    // tick returns at the guard above without reaching the stall detector,
+                    // and the UI sits on its last progress reading with the result still
+                    // waiting unconsumed on the backend. A yuey song is tens of megabytes,
+                    // which is why this surfaced here first.
+                    juce::MemoryOutputStream received;
+                    const auto startedMs = juce::Time::getCurrentTime().toMilliseconds();
+                    auto lastByteMs = startedMs;
+                    bool complete = false;
+                    {
+                        juce::HeapBlock<char> chunk(65536);
+                        for (;;)
+                        {
+                            if (transfer->cancelledMs.load() != 0) break;
+                            if (stream->isExhausted()) { complete = true; break; }
+                            const int got = stream->read(chunk, 65536);
+                            const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+                            if (got > 0)
+                            {
+                                received.write(chunk, (size_t) got);
+                                lastByteMs = nowMs;
+                                transfer->lastByteMs.store(nowMs);
+                            }
+                            else if (stream->isExhausted())
+                            {
+                                complete = true;
+                                break;
+                            }
+                            // Nothing arriving for this long means the far end is gone,
+                            // whatever the socket still believes.
+                            if (nowMs - lastByteMs > 20000) break;
+                            // And a transfer that has run this long is not going to finish.
+                            if (nowMs - startedMs > 180000) break;
+                            if (safeThis == nullptr) break;
+                        }
+                    }
+
+                    // JUCE's Windows stream reports itself exhausted whenever a read
+                    // returns nothing, which a receive timeout or a dropped
+                    // connection also does. The server states the body's length,
+                    // so a short one is a failed transfer, not a response.
+                    const auto expected = stream->getTotalLength();
+                    if (complete && expected >= 0 && (juce::int64) received.getDataSize() < expected)
+                        complete = false;
+                    if (transfer->cancelledMs.load() != 0)
+                        complete = false;
+
+                    if (!complete)
+                    {
+                        // Not a failure: the job is still sitting on the backend
+                        // unconsumed, so the next tick asks again. Failing here would
+                        // throw away a render that actually succeeded.
+                        DBG("Polling: incomplete read after "
+                            + juce::String(received.getDataSize()) + " bytes; will retry");
+                        clearInFlight();
+                        return;
+                    }
+
+                    const auto responseText = received.toString();
+
+                    if (safeThis != nullptr)
+                        safeThis->lastGoodPollMs = juce::Time::getCurrentTime().toMilliseconds();
+
                     clearInFlight();
 
-                    juce::MessageManager::callAsync([this, responseText]()
+                    juce::MessageManager::callAsync([safeThis, generationToken, responseText]()
                         {
-                            if (!isPolling) { DBG("Polling callback aborted"); return; }
-                            handlePollingResponse(responseText);
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                            {
+                                DBG("Polling callback aborted");
+                                return;
+                            }
+
+                            safeThis->handlePollingResponse(responseText);
                         });
                     return;
                 }
@@ -1389,35 +3493,45 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 // No stream: consider whether this is a transient warmup hiccup
                 clearInFlight();
 
-                const bool treatAsTransient =
-                    withinWarmup || isCurrentlyQueued || isGenerating;
+                const bool treatAsTransient = warmupSnapshot || queuedSnapshot;
 
                 if (treatAsTransient)
                 {
                     // Keep UI alive; don�t escalate to failure.
-                    juce::MessageManager::callAsync([this]()
+                    juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                return;
+
                             // keep user informed but gentle
-                            showStatusMessage("warming up... (network jitter)", 2500);
+                            safeThis->showStatusMessage("warming up... (network jitter)", 2500);
                             // also reset stall timer so we don�t trip
-                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                            safeThis->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
-                    return; // simply wait for next timer tick to poll again
+                    return;
                 }
 
                 // Not warming/queued and no stream: do your existing health check path
                 DBG("Polling failed - checking backend health (no stream; status unknown)");
-                juce::MessageManager::callAsync([this]()
+                juce::MessageManager::callAsync([safeThis, generationToken]()
                     {
-                        if (!isPolling) { DBG("Polling health check callback aborted"); return; }
-                        audioProcessor.checkBackendHealth();
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                        {
+                            DBG("Polling health check callback aborted");
+                            return;
+                        }
 
-                        juce::Timer::callAfterDelay(6000, [this]()
+                        safeThis->audioProcessor.checkBackendHealth();
+
+                        juce::Timer::callAfterDelay(6000, [safeThis, generationToken]()
                             {
-                                if (!audioProcessor.isBackendConnected())
-                                    handleBackendDisconnection();
+                                if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                    return;
+
+                                if (!safeThis->audioProcessor.isBackendConnected())
+                                    safeThis->handleBackendDisconnection();
                                 else
-                                    handleGenerationFailure("polling failed - try again");
+                                    safeThis->handleGenerationFailure("polling failed - try again");
                             });
                     });
             }
@@ -1427,18 +3541,24 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 DBG("Polling exception: " + juce::String(e.what()));
 
                 // During warmup, treat as transient
-                if (withinWarmup || isCurrentlyQueued || isGenerating)
+                if (warmupSnapshot || queuedSnapshot)
                 {
-                    juce::MessageManager::callAsync([this]()
+                    juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
-                            showStatusMessage("warming up... (transient)", 2500);
-                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                return;
+
+                            safeThis->showStatusMessage("warming up... (transient)", 2500);
+                            safeThis->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
                 }
 
-                juce::MessageManager::callAsync([this]() {
-                    handleGenerationFailure("network error during generation");
+                juce::MessageManager::callAsync([safeThis, generationToken]() {
+                    if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                        return;
+
+                    safeThis->handleGenerationFailure("network error during generation");
                     });
             }
             catch (...)
@@ -1446,18 +3566,24 @@ void Gary4juceAudioProcessorEditor::pollForResults()
                 clearInFlight();
                 DBG("Unknown polling exception");
 
-                if (withinWarmup || isCurrentlyQueued || isGenerating)
+                if (warmupSnapshot || queuedSnapshot)
                 {
-                    juce::MessageManager::callAsync([this]()
+                    juce::MessageManager::callAsync([safeThis, generationToken]()
                         {
-                            showStatusMessage("warming up... (transient)", 2500);
-                            lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                                return;
+
+                            safeThis->showStatusMessage("warming up... (transient)", 2500);
+                            safeThis->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
                         });
                     return;
                 }
 
-                juce::MessageManager::callAsync([this]() {
-                    handleGenerationFailure("network error during generation");
+                juce::MessageManager::callAsync([safeThis, generationToken]() {
+                    if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isPolling)
+                        return;
+
+                    safeThis->handleGenerationFailure("network error during generation");
                     });
             }
         });
@@ -1466,26 +3592,22 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
 void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& responseText)
 {
+    const auto applyTerminalFailureRetryPolicy = [this]()
+    {
+        const auto op = getActiveOp();
+        const bool keepGaryRetry = op == ActiveOp::GaryContinue || op == ActiveOp::GaryRetry;
+
+        audioProcessor.setRetryAvailable(keepGaryRetry);
+        if (!keepGaryRetry)
+            audioProcessor.clearCurrentSessionId();
+    };
+
     if (responseText.isEmpty())
     {
         DBG("Empty polling response - backend likely down");
-        stopPolling();
-
-        // Empty response indicates backend failure - check health immediately
         audioProcessor.checkBackendHealth();
-
-        juce::Timer::callAfterDelay(3000, [this]() {
-            if (!audioProcessor.isBackendConnected())
-            {
-                handleBackendDisconnection();
-                lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-            }
-            else
-            {
-                showStatusMessage("backend reachable but no response; retry", 3000);
-            }
-            });
-        setActiveOp(ActiveOp::None);
+        applyTerminalFailureRetryPolicy();
+        handleGenerationFailure("polling failed - empty response from backend");
         return;
     }
 
@@ -1529,9 +3651,19 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 // --- END WARMUP HANDLING ---
 
                 DBG("Polling error: " + responseObj->getProperty("error").toString());
-                stopPolling();
-                showStatusMessage("processing failed", 3000);
-                setActiveOp(ActiveOp::None);
+                const juce::String error = responseObj->getProperty("error").toString().trim();
+                applyTerminalFailureRetryPolicy();
+                // The backend keeps a finished job for a few minutes. When every
+                // attempt to collect it failed for that long, the job is simply
+                // gone, and "processing failed" would blame the render.
+                if (error.containsIgnoreCase("unknown session"))
+                {
+                    handleGenerationFailure("the result expired before it could be downloaded - "
+                                            "check the connection and try again");
+                    return;
+                }
+                handleGenerationFailure(error.isNotEmpty() ? "processing failed: " + error
+                                                           : "processing failed");
                 return;
             }
 
@@ -1539,27 +3671,39 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             bool generationInProgress = responseObj->getProperty("generation_in_progress");
             bool transformInProgress = responseObj->getProperty("transform_in_progress");
 
+            // Musicgen's seed rides under its own key: plain "seed" on a poll is
+            // the last terry transform's, and both can share one session.
+            if (responseObj->hasProperty("generation_seed"))
+                setGaryLastSeed(responseObj->getProperty("generation_seed").toString());
+
             if (generationInProgress || transformInProgress)
             {
                 // If we were previously in warmup, keep UI responsive and prevent stall
                 if (withinWarmup)
                 {
-                    // Heuristics to exit warmup: any server progress > 0, or explicit queue ready
+                    // Heuristics to exit warmup: any server progress > 0, or a status past warming
                     int warmProgressCheck = responseObj->getProperty("progress");
                     juce::String warmQueueStatus;
+                    juce::String warmQueueMessage;
                     if (auto* warmQueueObj = responseObj->getProperty("queue_status").getDynamicObject())
-                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
-
-                    if (warmProgressCheck > 0 || warmQueueStatus == "ready")
                     {
-                        DBG("Exiting warmup state (progress or ready observed)");
+                        warmQueueStatus = warmQueueObj->getProperty("status").toString();
+                        warmQueueMessage = warmQueueObj->getProperty("message").toString();
+                    }
+
+                    // Any progress, or any backend status that is no longer "warming", means the
+                    // model is loaded and the run proper has started.
+                    if (warmProgressCheck > 0
+                        || (warmQueueStatus.isNotEmpty() && warmQueueStatus != "warming"))
+                    {
+                        DBG("Exiting warmup state (progress or non-warming status observed)");
                         withinWarmup = false;
                     }
                     else
                     {
                         // Stay in warmup: keep resetting the stall timer and show a gentle status
                         lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                        showStatusMessage("warming up...", 3000);
+                        showStatusMessage(warmQueueMessage.isNotEmpty() ? warmQueueMessage : "warming up...", 3000);
                         // Don't early-return: allow the rest of the block to parse queue info etc.
                     }
                 }
@@ -1580,6 +3724,12 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                     queueMessage = queueStatusObj->getProperty("message").toString();
                     hasValidQueueStatus = !queueStatus.isEmpty();
                     isQueuedForProcessing = (queueStatus == "queued");
+
+                    // A cold start reports "warming" over a perfectly healthy 200 with no error
+                    // field, so this is the only place we learn a model is still downloading.
+                    // Without it a multi-GB hub download reads as an ordinary stalled generation.
+                    if (queueStatus == "warming")
+                        withinWarmup = true;
 
                     DBG("Queue status found - Status: " + queueStatus + ", Message: " + queueMessage);
                 }
@@ -1651,6 +3801,15 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                         showStatusMessage("queued for processing...", 5000);
                     }
                 }
+                else if (queueStatus == "warming")
+                {
+                    // Backend already wrote a useful line ("loading <model> (first run / hub
+                    // download)") - show it instead of a generic progress message.
+                    showStatusMessage(queueMessage.isNotEmpty()
+                        ? queueMessage
+                        : "warming up (loading model)...", 5000);
+                    DBG("Warming: " + queueMessage);
+                }
                 else if (serverProgress > 0 || queueStatus == "ready")
                 {
                     juce::String verb = currentOperationVerb();
@@ -1664,8 +3823,14 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 else
                 {
                     // Fallback message when we have no specific queue info but task is in progress
-                    if (getActiveOp() == ActiveOp::TerryTransform || transformInProgress)
+                    if (getActiveOp() == ActiveOp::TerryTransform
+                        || getActiveOp() == ActiveOp::SA3Transform
+                        || transformInProgress)
                         showStatusMessage("processing transform...", 5000);
+                    else if (getActiveOp() == ActiveOp::SA3Continue)
+                        showStatusMessage("processing continuation...", 5000);
+                    else if (getActiveOp() == ActiveOp::YueyContinue)
+                        showStatusMessage("transcribing and rendering continuation...", 5000);
                     else
                         showStatusMessage("processing audio...", 5000);
                 }
@@ -1676,8 +3841,29 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
             // COMPLETED - Check what TYPE of completion this is FIRST
             auto audioData = responseObj->getProperty("audio_data").toString();
             auto status = responseObj->getProperty("status").toString();
-            const auto activeOp = getActiveOp();
-            const bool isTransformOp = transformInProgress || activeOp == ActiveOp::TerryTransform;
+            const auto activeOperation = getActiveOp();
+            const bool isSA3TransformOp = activeOperation == ActiveOp::SA3Transform;
+            const bool isSA3ContinueOp = activeOperation == ActiveOp::SA3Continue;
+            const bool isTerryTransformOp = activeOperation == ActiveOp::TerryTransform
+                || (transformInProgress && !isSA3TransformOp && !isSA3ContinueOp);
+            const bool isTransformOp = isTerryTransformOp || isSA3TransformOp;
+            const bool isYueyOp = activeOperation == ActiveOp::YueyGenerate
+                || activeOperation == ActiveOp::YueyRemix
+                || activeOperation == ActiveOp::YueyContinue;
+
+            if ((activeOperation == ActiveOp::YueyScoreTranscribe || activeOperation == ActiveOp::YueyRemixTranscribe)
+                && status == "completed")
+            {
+                const auto abc = responseObj->getProperty("abc").toString();
+                stopPolling();
+                isCurrentlyQueued = false;
+                audioProcessor.clearCurrentSessionId();
+                if (activeOperation == ActiveOp::YueyRemixTranscribe)
+                    remixYueyFromTranscription(abc);
+                else
+                    continueYueyFromTranscription(abc);
+                return;
+            }
 
             withinWarmup = false; // completed/terminal statuses should clear warmup
 
@@ -1697,13 +3883,13 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 isGenerating = false;
 
                 // DIFFERENTIATE: Check if we're completing a transform vs generation
-                if (isTransformOp)
+                if (isTerryTransformOp)
                 {
                     // TRANSFORM COMPLETION - Keep session ID for undo
                     if (terryUI)
                         terryUI->setTransformButtonText("transform with terry");
                     showStatusMessage("transform complete!", 3000);
-                    saveGeneratedAudio(audioData);
+                    saveGeneratedAudio(audioData, responseVar);
                     DBG("Successfully received transformed audio: " + juce::String(audioData.length()) + " chars");
 
                     // Enable undo button now that transform is complete
@@ -1716,12 +3902,31 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 }
                 else
                 {
-                    // GENERATION COMPLETION (Gary/Jerry)
-                    showStatusMessage("audio generation complete!", 3000);
+                    // GENERATION COMPLETION (Gary/Jerry) or SA3 mode completion
+                    showStatusMessage(isYueyOp ? (activeOperation == ActiveOp::YueyContinue
+                                                    ? "yuey continuation complete!"
+                                                    : activeOperation == ActiveOp::YueyRemix
+                                                        ? "yuey remix complete!" : "yuey song complete!")
+                                      : isSA3ContinueOp ? "sa3 continuation complete!"
+                                      : isSA3TransformOp ? "sa3 transform complete!"
+                                      : "audio generation complete!", 3000);
                     audioProcessor.setUndoTransformAvailable(false);
                     audioProcessor.setRetryAvailable(true);
-                    saveGeneratedAudio(audioData);
-                    DBG("Successfully received generated audio: " + juce::String(audioData.length()) + " chars");
+                    const bool savedOutput = saveGeneratedAudio(audioData, responseVar);
+                    if (isYueyOp && savedOutput)
+                    {
+                        reportYueyWarnings(responseObj);
+                        attachYueyScore(responseObj,
+                            activeOperation == ActiveOp::YueyRemix ? "remix"
+                            : activeOperation == ActiveOp::YueyContinue ? "continue"
+                            : "generate");
+                        applyYueyPlanMetadata(responseObj->getProperty("abc").toString());
+                        recordYueyLastSeed(responseObj);
+                    }
+                    DBG(juce::String(isSA3TransformOp ? "Successfully received SA3 transformed audio: "
+                                                       : isSA3ContinueOp ? "Successfully received SA3 continuation audio: "
+                                                       : "Successfully received generated audio: ")
+                        + juce::String(audioData.length()) + " chars");
 
                     // Check if this was a continue operation using our flag
                     if (continueInProgress)
@@ -1732,6 +3937,20 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                             garyUI->setRetryButtonText("retry");  // Reset retry button text
                         updateRetryButtonState();
                         DBG("Continue operation completed - retry button enabled");
+                    }
+                    else if (isSA3TransformOp)
+                    {
+                        audioProcessor.setRetryAvailable(false);
+                        audioProcessor.clearCurrentSessionId();
+                        updateRetryButtonState();
+                        DBG("SA3 transform completed - retry disabled");
+                    }
+                    else if (isSA3ContinueOp)
+                    {
+                        audioProcessor.setRetryAvailable(false);
+                        audioProcessor.clearCurrentSessionId();
+                        updateRetryButtonState();
+                        DBG("SA3 continuation completed - retry disabled");
                     }
                     else
                     {
@@ -1754,98 +3973,139 @@ void Gary4juceAudioProcessorEditor::handlePollingResponse(const juce::String& re
                 if (status == "failed")
                 {
                     auto error = responseObj->getProperty("error").toString();
-                    stopPolling();
+                    juce::String message;
 
                     if (isTransformOp)
                     {
-                        showStatusMessage("transform failed: " + error, 5000);
+                        message = "transform failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
                         audioProcessor.setUndoTransformAvailable(false);
                         audioProcessor.setRetryAvailable(false);
-                        updateRetryButtonState();
+                        if (isSA3TransformOp)
+                            audioProcessor.clearCurrentSessionId();
+                    }
+                    else if (isSA3ContinueOp)
+                    {
+                        message = "continue failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
+                        audioProcessor.setRetryAvailable(false);
+                        audioProcessor.clearCurrentSessionId();
                     }
                     else
                     {
-                        showStatusMessage("generation failed: " + error, 5000);
-                        audioProcessor.setRetryAvailable(true);
-                        updateRetryButtonState();
+                        message = "generation failed";
+                        if (error.isNotEmpty())
+                            message += ": " + error;
+
+                        applyTerminalFailureRetryPolicy();
                     }
 
-                    isGenerating = false;
-                    isCurrentlyQueued = false;
-                    updateAllGenerationButtonStates();
-                    repaint();
-
-                    setActiveOp(ActiveOp::None);
+                    handleGenerationFailure(message);
                 }
                 else if (status == "completed")
                 {
-                    stopPolling();
+                    juce::String message;
 
                     if (isTransformOp)
                     {
-                        showStatusMessage("transform completed but no audio received", 3000);
+                        message = "transform completed but no audio received";
+                        if (isSA3TransformOp)
+                            audioProcessor.clearCurrentSessionId();
+                    }
+                    else if (isSA3ContinueOp)
+                    {
+                        message = "continuation completed but no audio received";
+                        audioProcessor.clearCurrentSessionId();
                     }
                     else
                     {
-                        showStatusMessage("generation completed but no audio received", 3000);
+                        message = "generation completed but no audio received";
                     }
 
-                    isGenerating = false;
-                    isCurrentlyQueued = false;
-                    updateAllGenerationButtonStates();
-                    repaint();
-
-                    setActiveOp(ActiveOp::None);
+                    resetGenerationStateAfterTerminalResult();
+                    showStatusMessage(message, 3000);
+                }
+                else
+                {
+                    const juce::String fallbackStatus = status.trim().isNotEmpty()
+                        ? status.trim()
+                        : "missing terminal status";
+                    applyTerminalFailureRetryPolicy();
+                    handleGenerationFailure("processing failed: " + fallbackStatus);
                 }
             }
         }
         else
         {
             DBG("Failed to parse polling response as JSON - backend likely down");
-            stopPolling();
-
-            // JSON parsing failure indicates backend issues - check health
             audioProcessor.checkBackendHealth();
-
-            juce::Timer::callAfterDelay(3000, [this]() {
-                if (!audioProcessor.isBackendConnected())
-                {
-                    handleBackendDisconnection();
-                    lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-                }
-                else
-                {
-                    showStatusMessage("bad response; retry", 3000);
-                }
-                });
-            setActiveOp(ActiveOp::None);
+            applyTerminalFailureRetryPolicy();
+            handleGenerationFailure("polling failed - bad response from backend");
         }
     }
+
     catch (...)
     {
         DBG("Exception parsing polling response - backend likely down");
-        stopPolling();
-
-        // Exception indicates backend issues - check health
         audioProcessor.checkBackendHealth();
-
-        juce::Timer::callAfterDelay(3000, [this]() {
-            if (!audioProcessor.isBackendConnected())
-            {
-                handleBackendDisconnection();
-                lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-            }
-            else
-            {
-                showStatusMessage("parse error; retry", 3000);
-            }
-            });
-        setActiveOp(ActiveOp::None);
+        applyTerminalFailureRetryPolicy();
+        handleGenerationFailure("polling failed - could not parse backend response");
     }
 }
 
 
-void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio)
+namespace
+{
+// A backend may answer in FLAC to halve the network transfer. Everything
+// downstream reads myOutput.wav, so it becomes 16-bit WAV again here, read as
+// integers so the samples come back exactly: JUCE's float path scales by
+// 32768 going in and 32767 coming out.
+bool decodeFlacToWav(const juce::MemoryBlock& flac, juce::MemoryBlock& wav)
+{
+    juce::FlacAudioFormat flacFormat;
+    std::unique_ptr<juce::AudioFormatReader> reader(flacFormat.createReaderFor(
+        new juce::MemoryInputStream(flac, false), true));
+    if (reader == nullptr || reader->bitsPerSample != 16 || reader->numChannels < 1
+        || reader->lengthInSamples <= 0 || reader->lengthInSamples > std::numeric_limits<int>::max())
+        return false;
+
+    const auto channels = (int) reader->numChannels;
+    const auto frames = (int) reader->lengthInSamples;
+    juce::HeapBlock<int> storage((size_t) channels * (size_t) frames);
+    std::vector<int*> lanes((size_t) channels);
+    for (int c = 0; c < channels; ++c)
+        lanes[(size_t) c] = storage.get() + (size_t) c * (size_t) frames;
+    if (!reader->read(lanes.data(), channels, 0, frames, false))
+        return false;
+
+    const auto dataBytes = (juce::uint32) ((size_t) frames * (size_t) channels * 2);
+    juce::MemoryOutputStream out(wav, false);
+    out.write("RIFF", 4);
+    out.writeInt((int) (36 + dataBytes));
+    out.write("WAVEfmt ", 8);
+    out.writeInt(16);
+    out.writeShort(1);
+    out.writeShort((short) channels);
+    out.writeInt((int) reader->sampleRate);
+    out.writeInt((int) reader->sampleRate * channels * 2);
+    out.writeShort((short) (channels * 2));
+    out.writeShort(16);
+    out.write("data", 4);
+    out.writeInt((int) dataBytes);
+    for (int i = 0; i < frames; ++i)
+        for (int c = 0; c < channels; ++c)
+            out.writeShort((short) (lanes[(size_t) c][i] >> 16));
+    out.flush();
+    return true;
+}
+}
+
+bool Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base64Audio,
+    const juce::var& response, const juce::var& restoredMetadata)
 {
     try
     {
@@ -1855,31 +4115,42 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
         if (!juce::Base64::convertFromBase64(outputStream, base64Audio))
         {
             DBG("Failed to decode base64 audio");
-            return;
+            return false;
         }
 
         // Get the decoded data
-        const juce::MemoryBlock& audioData = outputStream.getMemoryBlock();
+        const juce::MemoryBlock& received = outputStream.getMemoryBlock();
+        juce::MemoryBlock wavFromFlac;
+        const bool isFlac = received.getSize() >= 4 && std::memcmp(received.getData(), "fLaC", 4) == 0;
+        if (isFlac && !decodeFlacToWav(received, wavFromFlac))
+        {
+            DBG("Failed to decode FLAC audio");
+            return false;
+        }
+        const juce::MemoryBlock& audioData = isFlac ? wavFromFlac : received;
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> validated(formats.createReaderFor(
+            std::make_unique<juce::MemoryInputStream>(audioData, false)));
+        if (validated == nullptr || validated->lengthInSamples <= 0
+            || validated->numChannels == 0 || validated->sampleRate <= 0.0)
+            return false; // A corrupt response must not replace the previous output.
 
-        // Save to gary4juce directory as myOutput.wav (overwrite each time)
-        auto garyDir = getGaryDir();
+        if (!ensureGaryDataDirectoryAvailable())
+            return false;
 
         // FIXED: Always save as myOutput.wav
-        outputAudioFile = garyDir.getChildFile("myOutput.wav");
-        DBG("Generated audio target: " + outputAudioFile.getFullPathName());
-
-        if (!ensureParentDirExists(outputAudioFile, "saveGeneratedAudio"))
-        {
-            showStatusMessage("failed to create output folder", 3000);
-            return;
-        }
+        outputAudioFile = getGaryOutputFile();
 
         // Write to file
-        if (outputAudioFile.replaceWithData(audioData.getData(), audioData.getSize()))
+        if (writeDataToFileSafely(outputAudioFile, audioData.getData(), audioData.getSize()))
         {
+            // Every service writes output through here, so this is where a score
+            // stops matching what the user is hearing. The yuey path re-attaches
+            // immediately after this call returns.
+            clearYueyScore();
             showStatusMessage("generated audio ready", 3000);
-            DBG("Generated audio saved to: " + outputAudioFile.getFullPathName()
-                + " (" + juce::String(outputAudioFile.getSize()) + " bytes)");
+            DBG("Generated audio saved to: " + outputAudioFile.getFullPathName());
 
             // STOP any current playback before loading new audio
             // This prevents confusion where old audio plays but new waveform shows
@@ -1891,6 +4162,7 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
             // Load the audio file into our buffer for waveform display
             loadOutputAudioFile();
+            commitGenerationMetadata(response, restoredMetadata);
 
             // Reset button text after successful generation
             if (garyUI)
@@ -1908,20 +4180,24 @@ void Gary4juceAudioProcessorEditor::saveGeneratedAudio(const juce::String& base6
 
             // Update UI
             repaint();
+            return true;
         }
         else
         {
-            DBG("Failed to save generated audio file: " + outputAudioFile.getFullPathName());
+            DBG("Failed to save generated audio file");
         }
     }
     catch (...)
     {
         DBG("Exception saving generated audio");
     }
+    return false;
 }
 
 void Gary4juceAudioProcessorEditor::sendToGary()
 {
+    if (!validateAudioDurationForModel(getGaryBufferFile(), 30.0, "gary"))
+        return;
     setActiveOp(ActiveOp::GaryGenerate);
 
     auto cancelGaryOperation = [this]() {
@@ -1948,10 +4224,10 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         return;
     }
 
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Gary))
     {
         cancelGaryOperation();
-        showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("gary not reachable - check connection first");
         return;
     }
 
@@ -1960,25 +4236,18 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     audioProcessor.clearCurrentSessionId();
     updateRetryButtonState();
 
-    // Get the model names
-    const juce::StringArray modelNames = {
-        "thepatch/vanya_ai_dnb_0.1",
-        "thepatch/bleeps-medium",
-        "thepatch/gary_orchestra_2",
-        "thepatch/hoenn_lofi"
-    };
-
-    auto selectedModel = modelNames[currentModelIndex];
+    // Get the selected model from dynamic list
+    auto selectedModel = getSelectedGaryModelPath();
 
     // Debug current values
     DBG("Current prompt duration value: " + juce::String(currentPromptDuration) + " (will be cast to: " + juce::String((int)currentPromptDuration) + ")");
 
     // Read the saved audio file
-    auto garyDir = getGaryDir();
-    auto audioFile = garyDir.getChildFile("myBuffer.wav");
-    DBG("Gary upload source: " + audioFile.getFullPathName());
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+    auto audioFile = getGaryBufferFile();
 
-    if (!audioFile.existsAsFile())
+    if (!audioFile.exists())
     {
         cancelGaryOperation();
         showStatusMessage("audio file not found - save recording first");
@@ -2016,10 +4285,18 @@ void Gary4juceAudioProcessorEditor::sendToGary()
     updateAllGenerationButtonStates();
     repaint(); // Force immediate UI update
 
+    const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
+
     // Create HTTP request in background thread
-    juce::Thread::launch([this, selectedModel, base64Audio, cancelGaryOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, selectedModel, promptDuration, base64Audio, topK, cfgCoef, description, requestSeed, requestUrl]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Gary request aborted - generation stopped");
             return;
         }
@@ -2029,20 +4306,20 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         // Create JSON payload - Clean construction without double encoding
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("model_name", selectedModel);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
+        jsonRequest->setProperty("prompt_duration", promptDuration);
         jsonRequest->setProperty("audio_data", base64Audio);
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "generate", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         // Debug: Log the JSON structure (not content due to size)
         DBG("JSON payload size: " + juce::String(jsonString.length()) + " characters");
         DBG("JSON preview: " + jsonString.substring(0, 100) + "...");
-
-        juce::URL url(getServiceUrl(ServiceType::Gary, "/api/juce/process_audio"));
 
         juce::String responseText;
         int statusCode = 0;
@@ -2051,7 +4328,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         {
             // JUCE 8.0.8 CORRECT HYBRID APPROACH: 
             // Use URL.withPOSTData for POST body, InputStreamOptions for modern settings
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -2093,12 +4370,20 @@ void Gary4juceAudioProcessorEditor::sendToGary()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, cancelGaryOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode, startTime]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Gary callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
+
+            auto cancelGaryOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->continueInProgress = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
 
             auto totalTime = juce::Time::getCurrentTime() - startTime;
             DBG("Total request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
@@ -2120,31 +4405,39 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                     if (success)
                     {
                         juce::String sessionId = responseObj->getProperty("session_id").toString();
-                        showStatusMessage("sent to gary. processing...", 2000);
+                        safeThis->showStatusMessage("sent to gary. processing...", 2000);
                         DBG("Session ID: " + sessionId);
 
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (responseObj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", responseObj->getProperty("seed").toString());
+                            safeThis->setGaryLastSeed(responseObj->getProperty("seed").toString());
+                        }
+
                         // START POLLING FOR RESULTS
-                        startPollingForResults(sessionId);
+                        safeThis->startPollingForResults(sessionId);
                     }
                     else
                     {
                         juce::String error = responseObj->getProperty("error").toString();
-                        showStatusMessage("Error: " + error, 5000);
+                        safeThis->showStatusMessage("Error: " + error, 5000);
                         DBG("Server error: " + error);
 
                         cancelGaryOperation();
-                        if (garyUI)
-                            garyUI->setSendButtonText("send to gary");
+                        if (safeThis->garyUI)
+                            safeThis->garyUI->setSendButtonText("send to gary");
                     }
                 }
                 else
                 {
-                    showStatusMessage("Invalid JSON response from server", 4000);
+                    safeThis->showStatusMessage("Invalid JSON response from server", 4000);
                     DBG("Failed to parse JSON response: " + responseText.substring(0, 100));
 
                     cancelGaryOperation();
-                    if (garyUI)
-                        garyUI->setSendButtonText("send to gary");
+                    if (safeThis->garyUI)
+                        safeThis->garyUI->setSendButtonText("send to gary");
                 }
             }
             else
@@ -2152,12 +4445,15 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
                 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    safeThis->markBackendDisconnectedFromRequestFailure("gary request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -2167,28 +4463,31 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 else
                     errorMsg = "Empty response from server";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Gary request failed: " + errorMsg);
 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Gary failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
                     
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
 
                 // Reset button text on error
-                if (garyUI)
-                    garyUI->setSendButtonText("send to gary");
+                if (safeThis->garyUI)
+                    safeThis->garyUI->setSendButtonText("send to gary");
 
                 cancelGaryOperation();
             }
@@ -2215,7 +4514,7 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     }
 
     // Encode current output audio as base64
-    if (!outputAudioFile.existsAsFile())
+    if (!outputAudioFile.exists())
     {
         showStatusMessage("output file not found", 2000);
         cancelContinueOperation();
@@ -2237,49 +4536,11 @@ void Gary4juceAudioProcessorEditor::continueMusic()
     sendContinueRequest(base64Audio);
 }
 
-void Gary4juceAudioProcessorEditor::debugModelSelection(const juce::String& functionName)
-{
-    const juce::StringArray modelNames = {
-        "thepatch/vanya_ai_dnb_0.1",
-        "thepatch/bleeps-medium",
-        "thepatch/gary_orchestra_2",
-        "thepatch/hoenn_lofi"
-    };
-
-    DBG("=== MODEL SELECTION DEBUG (" + functionName + ") ===");
-    const int uiIndex = garyUI ? garyUI->getSelectedModelIndex() : currentModelIndex;
-    const juce::String uiText = (uiIndex >= 0 && uiIndex < garyModelItems.size()) ? garyModelItems[uiIndex]
-                                                                                : juce::String();
-    DBG("GaryUI selected index: " + juce::String(uiIndex));
-    DBG("GaryUI selected text: " + uiText);
-    DBG("currentModelIndex: " + juce::String(currentModelIndex));
-
-    if (currentModelIndex >= 0 && currentModelIndex < modelNames.size())
-    {
-        DBG("Selected model: " + modelNames[currentModelIndex]);
-    }
-    else
-    {
-        DBG("ERROR: currentModelIndex out of bounds!");
-    }
-    DBG("=== END DEBUG ===");
-}
-
 // UPDATED: sendContinueRequest with proper debugging
 void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audioData)
 {
-    // Debug model selection BEFORE starting request
-    debugModelSelection("sendContinueRequest");
-
     DBG("Sending continue request with " + juce::String(audioData.length()) + " chars of audio data");
     showStatusMessage("requesting continuation...", 3000);
-
-    auto cancelContinueOperation = [this]() {
-        isGenerating = false;
-        continueInProgress = false;
-        setActiveOp(ActiveOp::None);
-        updateAllGenerationButtonStates();
-    };
 
     // Reset generation state immediately
     isGenerating = true;
@@ -2296,57 +4557,44 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
     if (garyUI)
         garyUI->setContinueButtonText("continuing...");
 
-    // Capture current model index NOW (before thread launch)
-    int capturedModelIndex = currentModelIndex;
-    DBG("Captured model index for continue: " + juce::String(capturedModelIndex));
+    // Capture current model path NOW (before thread launch)
+    juce::String capturedModelPath = getSelectedGaryModelPath();
+    DBG("Captured model path for continue: " + capturedModelPath);
+    const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread
-    juce::Thread::launch([this, audioData, capturedModelIndex, cancelContinueOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, audioData, capturedModelPath, promptDuration, topK, cfgCoef, description, requestSeed, requestUrl]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Continue request aborted - generation stopped");
             return;
         }
 
         auto startTime = juce::Time::getCurrentTime();
 
-        // Get the model names array
-        const juce::StringArray modelNames = {
-            "thepatch/vanya_ai_dnb_0.1",
-            "thepatch/bleeps-medium",
-            "thepatch/gary_orchestra_2",
-            "thepatch/hoenn_lofi"
-        };
-
-        // Safely get selected model with bounds checking
-        juce::String selectedModel;
-        if (capturedModelIndex >= 0 && capturedModelIndex < modelNames.size())
-        {
-            selectedModel = modelNames[capturedModelIndex];
-        }
-        else
-        {
-            DBG("ERROR: Invalid model index " + juce::String(capturedModelIndex) + ", defaulting to first model");
-            selectedModel = modelNames[0];
-        }
-
-        DBG("Continue using model: " + selectedModel + " (index: " + juce::String(capturedModelIndex) + ")");
+        DBG("Continue using model: " + capturedModelPath);
 
         // Create JSON payload - same structure as sendToGary
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("audio_data", audioData);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
-        jsonRequest->setProperty("model_name", selectedModel); // Use captured selected model
-        jsonRequest->setProperty("top_k", 250);
+        jsonRequest->setProperty("prompt_duration", promptDuration);
+        jsonRequest->setProperty("model_name", capturedModelPath); // Use captured model path
+        jsonRequest->setProperty("top_k", topK);
         jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
 
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "continue", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Continue JSON payload size: " + juce::String(jsonString.length()) + " characters");
-
-        juce::URL url(getServiceUrl(ServiceType::Gary, "/api/juce/continue_music"));
 
         juce::String responseText;
         int statusCode = 0;
@@ -2354,7 +4602,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         try
         {
             // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -2396,12 +4644,20 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, cancelContinueOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Continue callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
+
+            auto cancelContinueOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->continueInProgress = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
             if (statusCode == 200 && responseText.isNotEmpty())
             {
                 DBG("Continue response: " + responseText);
@@ -2415,26 +4671,34 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                     {
                         auto sessionId = obj->getProperty("session_id").toString();
                         DBG("Continue request queued, session ID: " + sessionId);
-                        showStatusMessage("continuation queued...", 2000);
+                        safeThis->showStatusMessage("continuation queued...", 2000);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (obj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", obj->getProperty("seed").toString());
+                            safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
+                        }
 
                         // Start polling for results (will replace current output audio when complete)
-                        startPollingForResults(sessionId);
+                        safeThis->startPollingForResults(sessionId);
                     }
                     else
                     {
                         auto error = obj->getProperty("error").toString();
-                        showStatusMessage("continue failed: " + error, 5000);
-                        if (garyUI)
-                            garyUI->setContinueButtonText("continue");
+                        safeThis->showStatusMessage("continue failed: " + error, 5000);
+                        if (safeThis->garyUI)
+                            safeThis->garyUI->setContinueButtonText("continue");
 
                         cancelContinueOperation();
                     }
                 }
                 else
                 {
-                    showStatusMessage("invalid response format", 3000);
-                    if (garyUI)
-                        garyUI->setContinueButtonText("continue");
+                    safeThis->showStatusMessage("invalid response format", 3000);
+                    if (safeThis->garyUI)
+                        safeThis->garyUI->setContinueButtonText("continue");
 
                     cancelContinueOperation();
                 }
@@ -2444,12 +4708,15 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
                 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    safeThis->markBackendDisconnectedFromRequestFailure("continue request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -2459,27 +4726,30 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 else
                     errorMsg = "Empty response from server";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Continue request failed: " + errorMsg);
                 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Continue failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
                     
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
                 
-                if (garyUI)
-                    garyUI->setContinueButtonText("continue");
+                if (safeThis->garyUI)
+                    safeThis->garyUI->setContinueButtonText("continue");
 
                 cancelContinueOperation();
             }
@@ -2507,9 +4777,9 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         return;
     }
 
-    if (!isConnected)
+    if (!isServiceReachable(ServiceType::Gary))
     {
-        showStatusMessage("backend not connected - check connection first");
+        showStatusMessage("gary not reachable - check connection first");
         cancelRetryOperation();
         return;
     }
@@ -2518,8 +4788,6 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
     if (isPolling) {
         DBG("Stopping existing polling before retry");
         stopPolling();
-        // Give it a moment to clean up
-        juce::Thread::sleep(50);
     }
 
 
@@ -2541,11 +4809,19 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         garyUI->setRetryButtonText("retrying...");
     
     showStatusMessage("retrying last continuation...", 2000);
+    const int promptDuration = (int)currentPromptDuration;
+    const int topK = currentGaryTopK;
+    const double cfgCoef = (double)currentGaryCfg;
+    const juce::String description = currentGaryDescription;
+    const juce::int64 requestSeed = garyUI != nullptr ? garyUI->getSeed() : -1;
+    const juce::String selectedModel = getSelectedGaryModelPath();
+    const juce::URL requestUrl(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    const auto generationToken = beginGenerationAsyncWork();
 
     // Create HTTP request in background thread (same pattern as other requests)
-    juce::Thread::launch([this, sessionId, cancelRetryOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
+    juce::Thread::launch([safeThis, generationToken, sessionId, promptDuration, selectedModel, topK, cfgCoef, description, requestSeed, requestUrl]() {
+        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken)) {
             DBG("Retry request aborted - generation stopped");
             return;
         }
@@ -2555,26 +4831,20 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         // Create JSON payload with current UI parameters
         juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
         jsonRequest->setProperty("session_id", sessionId);
-        jsonRequest->setProperty("prompt_duration", (int)currentPromptDuration);
-        
-        // Get current model selection
-        const juce::StringArray modelNames = {
-            "thepatch/vanya_ai_dnb_0.1",
-            "thepatch/bleeps-medium", 
-            "thepatch/gary_orchestra_2",
-            "thepatch/hoenn_lofi"
-        };
-        jsonRequest->setProperty("model_name", modelNames[currentModelIndex]);
-        jsonRequest->setProperty("top_k", 250);
-        jsonRequest->setProperty("temperature", 1.0);
-        jsonRequest->setProperty("cfg_coef", 3.0);
-        jsonRequest->setProperty("description", "");
+        jsonRequest->setProperty("prompt_duration", promptDuration);
 
+        // Get current model selection from dynamic list
+        jsonRequest->setProperty("model_name", selectedModel);
+        jsonRequest->setProperty("top_k", topK);
+        jsonRequest->setProperty("temperature", 1.0);
+        jsonRequest->setProperty("cfg_coef", cfgCoef);
+        jsonRequest->setProperty("description", description);
+        jsonRequest->setProperty("seed", requestSeed);
+
+        const auto metadataSnapshot = generation_metadata::snapshot("gary", "retry", juce::var(jsonRequest.get()));
         auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
 
         DBG("Retry JSON payload: " + jsonString);
-
-        juce::URL url(getServiceUrl(ServiceType::Gary, "/api/juce/retry_music"));
 
         juce::String responseText;
         int statusCode = 0;
@@ -2582,7 +4852,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         try
         {
             // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
+            juce::URL postUrl = requestUrl.withPOSTData(jsonString);
 
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(30000)
@@ -2609,12 +4879,20 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, cancelRetryOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
+        juce::MessageManager::callAsync([safeThis, generationToken, metadataSnapshot, responseText, statusCode]() {
+            if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken) || !safeThis->isGenerating) {
                 DBG("Retry callback aborted");
                 return;
             }
+
+            safeThis->acceptGenerationSnapshot(generationToken, metadataSnapshot);
+
+            auto cancelRetryOperation = [safeThis]() {
+                safeThis->isGenerating = false;
+                safeThis->continueInProgress = false;
+                safeThis->setActiveOp(ActiveOp::None);
+                safeThis->updateAllGenerationButtonStates();
+            };
             if (statusCode == 200 && responseText.isNotEmpty())
             {
                 // Parse response JSON
@@ -2626,28 +4904,36 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                     {
                         auto newSessionId = obj->getProperty("session_id").toString();
                         DBG("Retry request queued, session ID: " + newSessionId);
-                        showStatusMessage("retry queued...", 2000);
+                        safeThis->showStatusMessage("retry queued...", 2000);
+
+                        // The backend echoes the seed it actually ran, whether
+                        // we asked for one or let it choose.
+                        if (obj->hasProperty("seed"))
+                        {
+                            safeThis->noteGenerationSeed("gary", obj->getProperty("seed").toString());
+                            safeThis->setGaryLastSeed(obj->getProperty("seed").toString());
+                        }
 
                         // Start polling for results (will replace current output when complete)
-                        startPollingForResults(newSessionId);
+                        safeThis->startPollingForResults(newSessionId);
                     }
                     else
                     {
                         auto error = obj->getProperty("error").toString();
-                        showStatusMessage("retry failed: " + error, 5000);
-                        updateRetryButtonState();
-                        if (garyUI)
-                            garyUI->setRetryButtonText("retry");
+                        safeThis->showStatusMessage("retry failed: " + error, 5000);
+                        safeThis->updateRetryButtonState();
+                        if (safeThis->garyUI)
+                            safeThis->garyUI->setRetryButtonText("retry");
 
                         cancelRetryOperation();
                     }
                 }
                 else
                 {
-                    showStatusMessage("invalid retry response format", 3000);
-                    updateRetryButtonState();
-                    if (garyUI)
-                        garyUI->setRetryButtonText("retry");
+                    safeThis->showStatusMessage("invalid retry response format", 3000);
+                    safeThis->updateRetryButtonState();
+                    if (safeThis->garyUI)
+                        safeThis->garyUI->setRetryButtonText("retry");
 
                     cancelRetryOperation();
                 }
@@ -2657,12 +4943,15 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 juce::String errorMsg;
                 bool shouldCheckHealth = false;
                 
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
+                if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
+                {
                     errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    safeThis->markBackendDisconnectedFromRequestFailure("retry request");
+                }
                 else if (statusCode == 0)
                 {
                     errorMsg = "Failed to connect to remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
+                    shouldCheckHealth = true;  // Connection failure on remote - confirm the backend is down
                 }
                 else if (statusCode >= 400)
                 {
@@ -2672,28 +4961,31 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 else
                     errorMsg = "Empty response from server";
 
-                showStatusMessage(errorMsg, 4000);
+                safeThis->showStatusMessage(errorMsg, 4000);
                 DBG("Retry request failed: " + errorMsg);
                 
                 // Check backend health if connection/server failure
                 if (shouldCheckHealth)
                 {
                     DBG("Retry failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
+                    safeThis->audioProcessor.checkBackendHealth();
                     
                     // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
+                    juce::Timer::callAfterDelay(6000, [safeThis, generationToken]() {
+                        if (safeThis == nullptr || !safeThis->isGenerationAsyncWorkCurrent(generationToken))
+                            return;
+
+                        if (!safeThis->audioProcessor.isBackendConnected())
                         {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
+                            safeThis->handleBackendDisconnection();
+                            safeThis->lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
                         }
                     });
                 }
 
-                updateRetryButtonState();
-                if (garyUI)
-                    garyUI->setRetryButtonText("retry");
+                safeThis->updateRetryButtonState();
+                if (safeThis->garyUI)
+                    safeThis->garyUI->setRetryButtonText("retry");
 
                 cancelRetryOperation();
             }
@@ -2711,24 +5003,53 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
 
 
 
-// JERRY API CALLS
+// GARY MODEL API CALLS
 
-void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
+void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
 {
-    if (!isConnected)
+    if (!isEditorValid.load(std::memory_order_acquire))
+        return;
+
+    if (!isServiceReachable(ServiceType::Gary))
     {
-        DBG("Not connected - skipping model fetch");
+        DBG("Gary not reachable - skipping model fetch");
         return;
     }
 
-    juce::Thread::launch([this]()
+    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
+    const auto editorAgeMs = nowMs - editorCreatedAtMs;
+    if (editorAgeMs < kStartupNetworkGraceMs)
+    {
+        if (!garyModelFetchScheduled.exchange(true, std::memory_order_acq_rel))
         {
-            // Determine endpoint based on connection type (same pattern as sendToJerry)
-            juce::String endpoint = audioProcessor.getIsUsingLocalhost()
-                ? "/models/status"           // Localhost: no /audio prefix
-                : "/audio/models/status";    // Remote: requires /audio prefix
+            const auto delayMs = static_cast<int>(kStartupNetworkGraceMs - editorAgeMs);
+            const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+            auto* editor = this;
 
-            juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+            juce::Timer::callAfterDelay(delayMs, [asyncAlive, editor]()
+            {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                editor->garyModelFetchScheduled.store(false, std::memory_order_release);
+                editor->fetchGaryAvailableModels();
+            });
+        }
+
+        return;
+    }
+
+    if (garyModelFetchInFlight.exchange(true, std::memory_order_acq_rel))
+        return;
+
+    const auto modelsUrl = getServiceUrl(ServiceType::Gary, "/api/models");
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, modelsUrl]()
+        {
+            juce::URL url(modelsUrl);
 
             std::unique_ptr<juce::InputStream> stream(url.createInputStream(
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
@@ -2739,23 +5060,47 @@ void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels()
             if (stream != nullptr)
                 responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText]()
                 {
-                    handleJerryModelsResponse(responseText);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->garyModelFetchInFlight.store(false, std::memory_order_release);
+                    editor->handleGaryModelsResponse(responseText);
                 });
         });
 }
 
-void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String& responseText)
+void Gary4juceAudioProcessorEditor::handleGaryModelsResponse(const juce::String& responseText)
 {
+    // Refetched on every health poll while the tab is open; rebuild only on a change.
+    if (responseText.isNotEmpty() && responseText == lastGaryModelsResponse)
+        return;
+
     if (responseText.isEmpty())
     {
-        DBG("Empty models response");
+        // A refetch that missed keeps the list the server last gave.
+        if (lastGaryModelsResponse.isNotEmpty())
+            return;
+
+        DBG("Empty Gary models response - using fallback");
+        showStatusMessage("failed to load gary models", 3000);
+
+        // Fallback to safe defaults
+        garyModelList.clear();
+        garyModelList.push_back({"vanya ai dnb 0.1", "thepatch/vanya_ai_dnb_0.1", 1});
+
+        garyModelItems.clear();
+        garyModelItems.add("vanya ai dnb 0.1");
+
+        if (garyUI)
+            garyUI->setModelItems(garyModelItems, 0);
+
         return;
     }
 
-    DBG("=== RAW MODELS RESPONSE ===");
-    DBG("Response length: " + juce::String(responseText.length()) + " characters");
+    lastGaryModelsResponse = responseText;
 
     try
     {
@@ -2763,1382 +5108,277 @@ void Gary4juceAudioProcessorEditor::handleJerryModelsResponse(const juce::String
 
         if (!parsed.isObject())
         {
-            DBG("Invalid models response format - not an object");
+            DBG("Invalid Gary models response format - not an object");
             return;
         }
 
         auto* obj = parsed.getDynamicObject();
-        if (!obj || !obj->hasProperty("model_details"))
+        if (!obj || !obj->hasProperty("models"))
         {
-            DBG("Response missing 'model_details' property");
+            DBG("Response missing 'models' property");
             return;
         }
 
-        auto modelDetails = obj->getProperty("model_details");
-        if (!modelDetails.isObject())
+        auto modelsVar = obj->getProperty("models");
+        if (!modelsVar.isObject())
         {
-            DBG("model_details is not an object");
+            DBG("models property is not an object");
             return;
         }
 
-        // Parse models into component arrays
-        juce::StringArray modelNames;
-        juce::StringArray modelKeys;
-        juce::StringArray modelTypes;
-        juce::StringArray modelRepos;
-        juce::StringArray modelCheckpoints;
-        juce::Array<bool> isFinetune;
-
-        auto* detailsObj = modelDetails.getDynamicObject();
-        if (!detailsObj)
-        {
-            DBG("Failed to get model_details as dynamic object");
+        auto* modelsObj = modelsVar.getDynamicObject();
+        if (!modelsObj)
             return;
-        }
 
-        DBG("Found " + juce::String(detailsObj->getProperties().size()) + " models in cache");
+        // Clear existing model data
+        garyModelList.clear();
+        garyModelItems.clear();
 
-        for (auto& entry : detailsObj->getProperties())
+        int nextId = 1;  // ComboBox IDs start at 1
+        int firstSelectableId = 0;  // Track first selectable item ID
+
+        // Build hierarchical menu structure
+        std::vector<CustomComboBox::MenuItem> menuItems;
+
+        // Process each size category (small, medium, large)
+        const juce::StringArray sizeCategories = {"small", "medium", "large"};
+
+        for (const auto& size : sizeCategories)
         {
-            juce::String modelKey = entry.name.toString();
-            auto* modelData = entry.value.getDynamicObject();
+            if (!modelsObj->hasProperty(size))
+                continue;
 
-            if (modelData)
+            auto sizeArray = modelsObj->getProperty(size);
+            if (!sizeArray.isArray())
+                continue;
+
+            auto* array = sizeArray.getArray();
+            if (!array || array->size() == 0)
+                continue;
+
+            // Add section header
+            juce::String headerText = size.substring(0, 1).toUpperCase() + size.substring(1) + " Models";
+            CustomComboBox::MenuItem sectionHeader;
+            sectionHeader.name = headerText.toUpperCase();
+            sectionHeader.itemId = 0;
+            sectionHeader.isSectionHeader = true;
+            sectionHeader.isSubMenu = false;
+            menuItems.push_back(sectionHeader);
+
+            // Process models in this size category
+            for (int i = 0; i < array->size(); ++i)
             {
-                juce::String source = modelData->getProperty("source").toString();
-                juce::String type = modelData->getProperty("type").toString();
+                auto modelVar = array->getUnchecked(i);
+                if (!modelVar.isObject())
+                    continue;
 
-                DBG("Processing model - Key: " + modelKey + ", Source: " + source + ", Type: " + type);
+                auto* modelObj = modelVar.getDynamicObject();
+                if (!modelObj)
+                    continue;
 
-                juce::String displayName;
-                juce::String repo;
-                juce::String checkpoint;
+                auto typeStr = modelObj->getProperty("type").toString();
 
-                if (type == "standard")
+                if (typeStr == "single")
                 {
-                    displayName = "Standard SAOS";
-                    repo = "";
-                    checkpoint = "";
+                    // Single model - add as regular menu item
+                    auto name = modelObj->getProperty("name").toString();
+                    auto path = modelObj->getProperty("path").toString();
+
+                    CustomComboBox::MenuItem item;
+                    item.name = name;
+                    item.itemId = nextId;
+                    item.isSectionHeader = false;
+                    item.isSubMenu = false;
+                    menuItems.push_back(item);
+
+                    garyModelList.push_back({name, path, nextId});
+                    if (firstSelectableId == 0)
+                        firstSelectableId = nextId;
+
+                    nextId++;
                 }
-                else if (type == "finetune")
+                else if (typeStr == "group")
                 {
-                    // Parse source: "thepatch/jerry_grunge/jerry_encoded_epoch=33-step=100.ckpt"
-                    juce::StringArray parts;
-                    parts.addTokens(source, "/", "");
+                    // Group of checkpoints
+                    auto groupName = modelObj->getProperty("name").toString();
 
-                    if (parts.size() >= 3)
+                    if (!modelObj->hasProperty("checkpoints"))
+                        continue;
+
+                    auto checkpointsVar = modelObj->getProperty("checkpoints");
+                    if (!checkpointsVar.isArray())
+                        continue;
+
+                    auto* checkpointsArray = checkpointsVar.getArray();
+                    if (!checkpointsArray || checkpointsArray->size() == 0)
+                        continue;
+
+                    // If only ONE checkpoint, add it as a regular item (no submenu)
+                    if (checkpointsArray->size() == 1)
                     {
-                        repo = parts[0] + "/" + parts[1];  // "thepatch/jerry_grunge"
-                        checkpoint = parts[2];              // "jerry_encoded_epoch=33-step=100.ckpt"
-
-                        // Create base display name from repo
-                        juce::String baseName = parts[1].replace("_", " ");
-
-                        // Capitalize each word
-                        juce::StringArray words;
-                        words.addTokens(baseName, " ", "");
-                        baseName.clear();
-                        for (auto& word : words)
+                        auto checkpointVar = checkpointsArray->getUnchecked(0);
+                        if (checkpointVar.isObject())
                         {
-                            if (word.isNotEmpty())
+                            auto* checkpointObj = checkpointVar.getDynamicObject();
+                            if (checkpointObj)
                             {
-                                baseName += word.substring(0, 1).toUpperCase() +
-                                    word.substring(1).toLowerCase() + " ";
+                                auto checkpointName = checkpointObj->getProperty("name").toString();
+                                auto checkpointPath = checkpointObj->getProperty("path").toString();
+                                auto epoch = checkpointObj->getProperty("epoch");
+
+                                juce::String displayName = checkpointName;
+                                if (!epoch.isVoid())
+                                    displayName += " (epoch " + epoch.toString() + ")";
+
+                                CustomComboBox::MenuItem item;
+                                item.name = displayName;
+                                item.itemId = nextId;
+                                item.isSectionHeader = false;
+                                item.isSubMenu = false;
+                                menuItems.push_back(item);
+
+                                garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                                if (firstSelectableId == 0)
+                                    firstSelectableId = nextId;
+
+                                nextId++;
                             }
-                        }
-                        baseName = baseName.trim();
-
-                        // NEW: Extract step/epoch info from checkpoint filename
-                        juce::String checkpointInfo = extractCheckpointInfo(checkpoint);
-
-                        if (checkpointInfo.isNotEmpty())
-                        {
-                            displayName = baseName + " (" + checkpointInfo + ")";
-                        }
-                        else
-                        {
-                            displayName = baseName;
                         }
                     }
                     else
                     {
-                        displayName = "Unknown Finetune";
-                        repo = source;
-                        checkpoint = "";
+                        // Multiple checkpoints - create submenu
+                        CustomComboBox::MenuItem groupItem;
+                        groupItem.name = groupName;
+                        groupItem.itemId = 0;
+                        groupItem.isSectionHeader = false;
+                        groupItem.isSubMenu = true;
+
+                        // Add checkpoints as sub-items
+                        for (int j = 0; j < checkpointsArray->size(); ++j)
+                        {
+                            auto checkpointVar = checkpointsArray->getUnchecked(j);
+                            if (!checkpointVar.isObject())
+                                continue;
+
+                            auto* checkpointObj = checkpointVar.getDynamicObject();
+                            if (!checkpointObj)
+                                continue;
+
+                            auto checkpointName = checkpointObj->getProperty("name").toString();
+                            auto checkpointPath = checkpointObj->getProperty("path").toString();
+                            auto epoch = checkpointObj->getProperty("epoch");
+
+                            juce::String displayName = checkpointName;
+                            if (!epoch.isVoid())
+                                displayName += " (epoch " + epoch.toString() + ")";
+
+                            CustomComboBox::MenuItem subItem;
+                            subItem.name = displayName;
+                            subItem.itemId = nextId;
+                            subItem.isSectionHeader = false;
+                            subItem.isSubMenu = false;
+                            groupItem.subItems.push_back(subItem);
+
+                            garyModelList.push_back({checkpointName, checkpointPath, nextId});
+                            if (firstSelectableId == 0)
+                                firstSelectableId = nextId;
+
+                            nextId++;
+                        }
+
+                        menuItems.push_back(groupItem);
                     }
                 }
-                else
-                {
-                    displayName = "Unknown Model";
-                    repo = "";
-                    checkpoint = "";
-                }
-
-                modelNames.add(displayName);
-                modelKeys.add(modelKey);
-                modelTypes.add(type);
-                modelRepos.add(repo);
-                modelCheckpoints.add(checkpoint);
-                isFinetune.add(type == "finetune");
-
-                DBG("Added model: " + displayName);
-                DBG("  Type: " + type + ", Repo: " + repo + ", Checkpoint: " + checkpoint);
             }
         }
 
-        if (jerryUI && modelNames.size() > 0)
+        // Update UI with hierarchical menu
+        if (garyUI)
         {
-            jerryUI->setAvailableModels(modelNames, isFinetune, modelKeys,
-                modelTypes, modelRepos, modelCheckpoints);
-            DBG("=== SUCCESS: Updated Jerry UI with " + juce::String(modelNames.size()) + " models ===");
+            auto* modelComboBox = dynamic_cast<CustomComboBox*>(&garyUI->getModelComboBox());
+            if (modelComboBox)
+            {
+                modelComboBox->setHierarchicalItems(menuItems);
+
+                int selectedId = firstSelectableId;
+                if (preferredGaryModelPath.isNotEmpty())
+                {
+                    for (const auto& model : garyModelList)
+                    {
+                        if (model.fullPath == preferredGaryModelPath)
+                        {
+                            selectedId = model.dropdownId;
+                            break;
+                        }
+                    }
+                }
+
+                if (selectedId > 0)
+                {
+                    modelComboBox->setSelectedId(selectedId, juce::dontSendNotification);
+
+                    for (size_t i = 0; i < garyModelList.size(); ++i)
+                    {
+                        if (garyModelList[i].dropdownId == selectedId)
+                        {
+                            currentModelIndex = static_cast<int>(i);
+                            preferredGaryModelPath = garyModelList[i].fullPath;
+                            break;
+                        }
+                    }
+                }
+            }
         }
+
+        DBG("Loaded " + juce::String(garyModelList.size()) + " Gary models with hierarchical menu");
     }
     catch (...)
     {
-        DBG("Exception parsing models response");
+        DBG("Exception parsing Gary models response");
+        showStatusMessage("failed to parse gary models", 3000);
     }
 }
 
-void Gary4juceAudioProcessorEditor::fetchJerryCheckpoints(const juce::String& repo)
+juce::String Gary4juceAudioProcessorEditor::getSelectedGaryModelPath() const
 {
-    if (jerryUI)
-        jerryUI->setFetchingCheckpoints(true);
+    // Get the selected ID from the ComboBox
+    if (!garyUI)
+    {
+        DBG("GaryUI not available, using fallback");
+        return "thepatch/vanya_ai_dnb_0.1";
+    }
 
-    juce::Thread::launch([this, repo]() {
-        juce::String endpoint = "/models/checkpoints";  // No /audio prefix on localhost
-        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
+    auto* modelComboBox = dynamic_cast<const CustomComboBox*>(&garyUI->getModelComboBox());
+    if (!modelComboBox)
+    {
+        DBG("Model ComboBox not available, using fallback");
+        return "thepatch/vanya_ai_dnb_0.1";
+    }
 
-        // Build JSON body
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("finetune_repo", repo);
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
+    int selectedId = modelComboBox->getSelectedId();
+    if (selectedId == 0)
+    {
+        DBG("No model selected, using fallback");
+        return "thepatch/vanya_ai_dnb_0.1";
+    }
 
-        juce::URL postUrl = url.withPOSTData(jsonString);
+    // Find the model with this ID in our list
+    for (const auto& model : garyModelList)
+    {
+        if (model.dropdownId == selectedId)
+        {
+            DBG("Selected Gary model: " + model.fullPath + " (ID: " + juce::String(selectedId) + ")");
+            return model.fullPath;
+        }
+    }
 
-        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-            .withConnectionTimeoutMs(10000)
-            .withExtraHeaders("Content-Type: application/json");
-
-        std::unique_ptr<juce::InputStream> stream(postUrl.createInputStream(options));
-
-        juce::String responseText;
-        if (stream != nullptr)
-            responseText = stream->readEntireStreamAsString();
-
-        juce::MessageManager::callAsync([this, responseText]() {
-            handleJerryCheckpointsResponse(responseText);
-        });
-    });
+    // Fallback to safe default
+    DBG("Invalid Gary model ID: " + juce::String(selectedId) + ", using fallback");
+    return "thepatch/vanya_ai_dnb_0.1";
 }
 
-void Gary4juceAudioProcessorEditor::handleJerryCheckpointsResponse(const juce::String& responseText)
-{
-    if (jerryUI)
-        jerryUI->setFetchingCheckpoints(false);
-
-    if (responseText.isEmpty()) {
-        showStatusMessage("failed to fetch checkpoints", 3000);
-        return;
-    }
-
-    try {
-        auto parsed = juce::JSON::parse(responseText);
-        if (auto* obj = parsed.getDynamicObject()) {
-            bool success = obj->getProperty("success");
-
-            if (success) {
-                juce::StringArray checkpoints;
-                auto checkpointsArray = obj->getProperty("checkpoints");
-
-                if (auto* arr = checkpointsArray.getArray()) {
-                    for (auto& item : *arr) {
-                        checkpoints.add(item.toString());
-                    }
-                }
-
-                if (jerryUI)
-                    jerryUI->setAvailableCheckpoints(checkpoints);
-
-                showStatusMessage(juce::String(checkpoints.size()) + " checkpoints found", 2500);
-            } else {
-                auto error = obj->getProperty("error").toString();
-                showStatusMessage("fetch failed: " + error, 4000);
-            }
-        }
-    } catch (...) {
-        showStatusMessage("invalid checkpoint response", 3000);
-    }
-}
-
-juce::URL Gary4juceAudioProcessorEditor::buildPromptsUrl(const juce::String& repo,
-    const juce::String& checkpoint) const
-{
-    const bool isLocal = audioProcessor.getIsUsingLocalhost();
-    const juce::String endpoint = isLocal ? "/models/prompts" : "/audio/models/prompts";
-
-    // getServiceUrl(...) -> juce::String  ⇒  wrap it into a juce::URL
-    juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
-
-    url = url.withParameter("repo", repo)
-        .withParameter("checkpoint", checkpoint);
-
-    return url;
-}
-
-// --- In PluginEditor.cpp ---
-void Gary4juceAudioProcessorEditor::fetchJerryPrompts(const juce::String& repo,
-    const juce::String& checkpoint)
-{
-    const auto cacheKey = repo + "|" + checkpoint;
-    if (promptsCache.contains(cacheKey))
-    {
-        DBG("[prompts] cache hit for " + cacheKey + " - applying");
-        applyJerryPromptsToUI(repo, checkpoint, promptsCache[cacheKey]);
-        return;
-    }
-
-    juce::Thread::launch([this, repo, checkpoint]()
-        {
-            juce::URL url = buildPromptsUrl(repo, checkpoint);
-
-            int statusCode = 0;
-            juce::StringPairArray responseHeaders;
-
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(10000)
-                .withStatusCode(&statusCode)
-                .withResponseHeaders(&responseHeaders);
-
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(options));
-            juce::String responseText;
-            if (stream) responseText = stream->readEntireStreamAsString();
-
-            DBG("[prompts] GET " + url.toString(true) +
-                " status=" + juce::String(statusCode) +
-                " bytes=" + juce::String((int)responseText.getNumBytesAsUTF8()));
-
-            if (statusCode < 200 || statusCode >= 300)
-            {
-                DBG("[prompts] non-2xx - first512: " + responseText.substring(0, 512));
-            }
-
-            juce::MessageManager::callAsync([this, repo, checkpoint, responseText, statusCode]()
-                {
-                    applyJerryPromptsToUI(repo, checkpoint, responseText, statusCode);
-                });
-        });
-}
-
-
-void Gary4juceAudioProcessorEditor::maybeFetchRemoteJerryPrompts()
-{
-    DBG("[prompts] maybeFetchRemoteJerryPrompts called");
-    // Don’t re-enter
-    if (promptsFetchInFlight) { DBG("[prompts] in flight – skipping"); return; }
-
-    // TTL: only refresh every 5 minutes (tweak if you want)
-    const auto now = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
-    if (now - lastPromptsFetchMs < kPromptsTTLms) {
-        DBG("[prompts] TTL not expired – skipping");
-        return;
-    }
-
-    // If we already have a bank for the currently selected finetune, bail early
-    if (jerryUI)
-    {
-        const auto repo = jerryUI->getSelectedFinetuneRepo();
-        const auto ckpt = jerryUI->getSelectedFinetuneCheckpoint();
-        if (repo.isNotEmpty() && ckpt.isNotEmpty())
-        {
-            const auto key = repo + "|" + ckpt;
-            if (promptsCache.contains(key))
-            {
-                DBG("[prompts] cache hit for " + key + " – applying");
-                // We already have it cached – apply it to the UI and skip fetch
-                applyJerryPromptsToUI(repo, ckpt, promptsCache[key]);
-                lastPromptsFetchMs = now;
-                return;
-            }
-        }
-    }
-
-    // If we don't know exact repo/ckpt (or not cached), ask backend for the active finetune
-    promptsFetchInFlight = true;
-
-    juce::Thread::launch([this]()
-        {
-            // Prefer whatever finetune is currently active on the remote cache
-            juce::URL url(getServiceUrl(ServiceType::Jerry, "/audio/models/prompts"));
-            url = url.withParameter("prefer", "finetune");
-
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(8000);
-
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(options));
-            juce::String responseText;
-            if (stream) responseText = stream->readEntireStreamAsString();
-
-            juce::MessageManager::callAsync([this, responseText]()
-                {
-                    promptsFetchInFlight = false;
-                    lastPromptsFetchMs = static_cast<std::int64_t>(juce::Time::getCurrentTime().toMilliseconds());
-                    if (responseText.isEmpty()) return;
-
-                    // Parse and store under the resolved repo/ckpt that the backend returns
-                    auto parsed = juce::JSON::parse(responseText);
-                    if (auto* obj = parsed.getDynamicObject())
-                    {
-                        if (!obj->getProperty("success")) return;
-
-                        const auto promptsVar = obj->getProperty("prompts");
-                        const auto repo = obj->getProperty("source").toString();
-                        const auto ckpt = obj->getProperty("checkpoint").toString();
-
-                        if (promptsVar.isObject() && repo.isNotEmpty() && ckpt.isNotEmpty())
-                        {
-                            const auto cacheKey = repo + "|" + ckpt;
-                            promptsCache.set(cacheKey, responseText);
-
-                            if (jerryUI)
-                                jerryUI->setFinetunePromptBank(repo, ckpt, promptsVar);
-                        }
-                    }
-                });
-        });
-}
-
-
-void Gary4juceAudioProcessorEditor::applyJerryPromptsToUI(const juce::String& repo,
-    const juce::String& checkpoint,
-    const juce::String& jsonText,
-    int statusCode /* = 200 */)
-{
-    if (jsonText.isEmpty())
-    {
-        DBG("[prompts] empty response - skipping");
-        return;
-    }
-
-    juce::var parsed;
-    try
-    {
-        parsed = juce::JSON::parse(jsonText);
-    }
-    catch (...)
-    {
-        DBG("[prompts] JSON parse error - first512: " + jsonText.substring(0, 512));
-        return;
-    }
-
-    if (auto* obj = parsed.getDynamicObject())
-    {
-        if (!obj->getProperty("success"))
-        {
-            DBG("[prompts] success=false - payload first512: " + jsonText.substring(0, 512));
-            return;
-        }
-
-        auto promptsVar = obj->getProperty("prompts");
-        if (!promptsVar.isObject())
-        {
-            DBG("[prompts] prompts missing/invalid - payload first512: " + jsonText.substring(0, 512));
-            return;
-        }
-
-        // Trust backend's resolved source/checkpoint if provided; otherwise use ours
-        auto resolvedRepo = obj->getProperty("source").toString();
-        auto resolvedCkpt = obj->getProperty("checkpoint").toString();
-        if (resolvedRepo.isEmpty()) resolvedRepo = repo;
-        if (resolvedCkpt.isEmpty()) resolvedCkpt = checkpoint;
-
-        const auto cacheKey = resolvedRepo + "|" + resolvedCkpt;
-        promptsCache.set(cacheKey, jsonText);
-
-        if (jerryUI)
-            jerryUI->setFinetunePromptBank(resolvedRepo, resolvedCkpt, promptsVar);
-
-        DBG("[prompts] stored bank for " + cacheKey);
-    }
-}
-
-
-
-void Gary4juceAudioProcessorEditor::addCustomJerryModel(const juce::String& repo, const juce::String& checkpoint)
-{
-    // Extract display info for loading message
-    juce::String checkpointInfo = extractCheckpointInfo(checkpoint);
-    juce::String loadingMessage = checkpointInfo.isNotEmpty()
-        ? "loading " + checkpointInfo
-        : "loading " + checkpoint;
-
-    showStatusMessage(loadingMessage + "...", 15000);  // Much longer duration for model downloads
-
-    // Set loading state in UI
-    if (jerryUI)
-    {
-        jerryUI->setLoadingModel(true, checkpointInfo);
-    }
-
-    juce::Thread::launch([this, repo, checkpoint]() {
-        juce::String endpoint = "/models/switch";  // No /audio prefix on localhost
-        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
-
-        // Build JSON body
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("model_type", "finetune");
-        jsonRequest->setProperty("finetune_repo", repo);
-        jsonRequest->setProperty("finetune_checkpoint", checkpoint);
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
-        juce::URL postUrl = url.withPOSTData(jsonString);
-
-        auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-            .withConnectionTimeoutMs(300000)  // Increased to 5 minutes - model downloads can take several minutes!
-            .withExtraHeaders("Content-Type: application/json");
-
-        std::unique_ptr<juce::InputStream> stream(postUrl.createInputStream(options));
-
-        juce::String responseText;
-        if (stream != nullptr)
-            responseText = stream->readEntireStreamAsString();
-
-        juce::MessageManager::callAsync([this, responseText, repo, checkpoint]() {
-            handleAddCustomModelResponse(responseText, repo, checkpoint);
-        });
-    });
-}
-
-void Gary4juceAudioProcessorEditor::handleAddCustomModelResponse(const juce::String& responseText,
-                                                                  const juce::String& repo,
-                                                                  const juce::String& checkpoint)
-{
-    if (responseText.isEmpty()) {
-        showStatusMessage("failed to switch model - connection timeout", 5000);
-
-        // Clear loading state on error
-        if (jerryUI)
-        {
-            jerryUI->setLoadingModel(false);
-        }
-        return;
-    }
-
-    try {
-        auto parsed = juce::JSON::parse(responseText);
-        if (auto* obj = parsed.getDynamicObject()) {
-            bool success = obj->getProperty("success");
-
-            if (success) {
-                // Show success message with checkpoint info
-                juce::String checkpointInfo = extractCheckpointInfo(checkpoint);
-                juce::String successMsg = checkpointInfo.isNotEmpty()
-                    ? "model loaded: " + checkpointInfo
-                    : "model loaded successfully";
-
-                showStatusMessage(successMsg + "!", 4000);
-
-                DBG("Model switch successful - refreshing model list");
-
-                // CRITICAL: Refresh model list FIRST, then clear loading state
-                // The refresh will update the dropdown with the new model
-                fetchJerryAvailableModels();
-
-                // Clear loading state after a short delay to ensure model list refresh completes
-                // Also try to select the newly loaded model if we can identify it
-                juce::Timer::callAfterDelay(500, [this, checkpointInfo, repo, checkpoint]() {
-                    if (jerryUI)
-                    {
-                        jerryUI->setLoadingModel(false);
-
-                        // Best-effort auto-select by repo (you already do this)
-                        jerryUI->selectModelByRepo(repo);
-
-                        // Now fetch prompts for THIS finetune explicitly
-                        fetchJerryPrompts(repo, checkpoint);
-                    }
-                    });
-            } else {
-                auto error = obj->getProperty("error").toString();
-                showStatusMessage("load failed: " + error, 5000);
-
-                // Clear loading state on error
-                if (jerryUI)
-                {
-                    jerryUI->setLoadingModel(false);
-                }
-
-                DBG("Model switch failed: " + error);
-            }
-        }
-    } catch (...) {
-        showStatusMessage("invalid response from server", 4000);
-
-        // Clear loading state on error
-        if (jerryUI)
-        {
-            jerryUI->setLoadingModel(false);
-        }
-    }
-}
-
-juce::String Gary4juceAudioProcessorEditor::extractCheckpointInfo(const juce::String& checkpoint)
-{
-    // Try to extract step or epoch from checkpoint filename
-    // Examples:
-    // "jerry_encoded_epoch=33-step=100.ckpt" → "step 100"
-    // "jerry_un-encoded_epoch=32-step=2000.ckpt" → "step 2000"
-    // "model_epoch=5.ckpt" → "epoch 5"
-
-    // Try step first (preferred)
-    if (checkpoint.contains("step="))
-    {
-        auto stepStart = checkpoint.indexOf("step=") + 5;
-        auto stepEnd = checkpoint.indexOfChar(stepStart, '.');
-        if (stepEnd < 0) stepEnd = checkpoint.indexOfChar(stepStart, '-');
-        if (stepEnd < 0) stepEnd = checkpoint.length();
-
-        auto stepValue = checkpoint.substring(stepStart, stepEnd);
-        if (stepValue.containsOnly("0123456789"))
-        {
-            return "step " + stepValue;
-        }
-    }
-
-    // Fall back to epoch
-    if (checkpoint.contains("epoch="))
-    {
-        auto epochStart = checkpoint.indexOf("epoch=") + 6;
-        auto epochEnd = checkpoint.indexOfChar(epochStart, '.');
-        if (epochEnd < 0) epochEnd = checkpoint.indexOfChar(epochStart, '-');
-        if (epochEnd < 0) epochEnd = checkpoint.length();
-
-        auto epochValue = checkpoint.substring(epochStart, epochEnd);
-        if (epochValue.containsOnly("0123456789"))
-        {
-            return "epoch " + epochValue;
-        }
-    }
-
-    return "";  // No step/epoch info found
-}
-
-
-void Gary4juceAudioProcessorEditor::sendToJerry()
-{
-    if (!isConnected)
-    {
-        showStatusMessage("backend not connected - check connection first");
-        return;
-    }
-
-    if (currentJerryPrompt.trim().isEmpty())
-    {
-        showStatusMessage("please enter a text prompt for jerry");
-        return;
-    }
-
-    // 1. Get DAW BPM from processor
-    double bpm = audioProcessor.getCurrentBPM();
-
-    // 2. Append BPM to prompt (same pattern as Max for Live)
-    juce::String fullPrompt = currentJerryPrompt + " " + juce::String((int)bpm) + "bpm";
-
-    // 3. Determine endpoint based on smart loop toggle
-    juce::String endpoint;
-
-    if (audioProcessor.getIsUsingLocalhost())
-    {
-        // Localhost endpoints do NOT have the /audio prefix
-        endpoint = generateAsLoop ? "/generate/loop" : "/generate";
-    }
-    else
-    {
-        // Remote backend requires /audio prefix
-        endpoint = generateAsLoop ? "/audio/generate/loop" : "/audio/generate";
-    }
-
-    juce::String statusText = generateAsLoop ?
-        "cooking a smart loop with jerry..." : "baking with jerry...";
-
-    DBG("=== JERRY GENERATION REQUEST ===");
-    DBG("Jerry generating with prompt: " + fullPrompt);
-    DBG("Endpoint: " + endpoint);
-    DBG("Model key: " + currentJerryModelKey);
-    DBG("Model is finetune: " + juce::String(currentJerryIsFinetune ? "true" : "false"));
-    DBG("Sampler type: " + currentJerrySamplerType);
-    DBG("CFG: " + juce::String(currentJerryCfg, 1) + ", Steps: " + juce::String(currentJerrySteps));
-
-    if (generateAsLoop) {
-        DBG("Loop Type: " + currentLoopType);
-    }
-
-    // Button text feedback and status during processing
-    if (jerryUI)
-        jerryUI->setGenerateButtonText("generating");
-    showStatusMessage(statusText, 2000);
-
-    // Create HTTP request in background thread
-    juce::Thread::launch([this, fullPrompt, endpoint]() {
-        auto startTime = juce::Time::getCurrentTime();
-
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("prompt", fullPrompt);
-        jsonRequest->setProperty("steps", currentJerrySteps);
-        jsonRequest->setProperty("cfg_scale", currentJerryCfg);
-        jsonRequest->setProperty("return_format", "base64");
-        jsonRequest->setProperty("seed", -1);
-
-        // NEW: Send model components instead of model_key
-        jsonRequest->setProperty("model_type", currentJerryModelType);
-        if (currentJerryIsFinetune)
-        {
-            jsonRequest->setProperty("finetune_repo", currentJerryFinetuneRepo);
-            jsonRequest->setProperty("finetune_checkpoint", currentJerryFinetuneCheckpoint);
-        }
-        jsonRequest->setProperty("sampler_type", currentJerrySamplerType);
-
-        // Add loop-specific parameters if using smart loop
-        if (generateAsLoop) {
-            jsonRequest->setProperty("loop_type", currentLoopType);
-        }
-
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
-        DBG("Jerry JSON payload: " + jsonString);
-
-        // Use the appropriate endpoint
-        juce::URL url(getServiceUrl(ServiceType::Jerry, endpoint));
-
-        juce::String responseText;
-        int statusCode = 0;
-
-        try
-        {
-            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
-
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(30000)
-                .withExtraHeaders("Content-Type: application/json");
-
-            auto stream = postUrl.createInputStream(options);
-
-            auto requestTime = juce::Time::getCurrentTime() - startTime;
-            DBG("Jerry HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
-
-            if (stream != nullptr)
-            {
-                responseText = stream->readEntireStreamAsString();
-
-                auto totalTime = juce::Time::getCurrentTime() - startTime;
-                DBG("Jerry HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
-                DBG("Jerry response length: " + juce::String(responseText.length()) + " characters");
-
-                statusCode = 200; // Assume success if we got data
-            }
-            else
-            {
-                DBG("Failed to create input stream for Jerry request");
-                responseText = "";
-                statusCode = 0;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            DBG("Jerry HTTP request exception: " + juce::String(e.what()));
-            responseText = "";
-            statusCode = 0;
-        }
-        catch (...)
-        {
-            DBG("Unknown Jerry HTTP request exception");
-            responseText = "";
-            statusCode = 0;
-        }
-
-        // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime]() {
-           
-
-            auto totalTime = juce::Time::getCurrentTime() - startTime;
-            DBG("Total Jerry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
-
-            if (statusCode == 200 && responseText.isNotEmpty())
-            {
-                DBG("Jerry response: " + responseText.substring(0, 200) + "...");
-
-                // Parse response JSON
-                auto responseVar = juce::JSON::parse(responseText);
-                if (auto* responseObj = responseVar.getDynamicObject())
-                {
-                    bool success = responseObj->getProperty("success");
-                    if (success)
-                    {
-                        // Get the base64 audio data
-                        auto audioBase64 = responseObj->getProperty("audio_base64").toString();
-
-                        if (audioBase64.isNotEmpty())
-                        {
-                            if (jerryUI)
-                                jerryUI->setGenerateButtonText("generate with jerry");
-                            
-                            // Save generated audio (same as Gary's saveGeneratedAudio function)
-                            saveGeneratedAudio(audioBase64);
-
-                            audioProcessor.clearCurrentSessionId();
-                            audioProcessor.setUndoTransformAvailable(false);  // ADD THIS
-                            audioProcessor.setRetryAvailable(false);          // ADD THIS
-
-                            // Get metadata if available
-                            if (auto* metadata = responseObj->getProperty("metadata").getDynamicObject())
-                            {
-                                auto genTime = metadata->getProperty("generation_time").toString();
-                                auto rtFactor = metadata->getProperty("realtime_factor").toString();
-
-                                // Show different success message based on generation type
-                                if (generateAsLoop) {
-                                    auto bars = (int)metadata->getProperty("bars");
-                                    auto loopDuration = (double)metadata->getProperty("loop_duration_seconds");
-                                    showStatusMessage("smart loop rdy " + juce::String(bars) + " bars (" +
-                                        juce::String(loopDuration, 1) + "s) " + genTime + "s", 5000);
-                                    DBG("Jerry loop metadata - Bars: " + juce::String(bars) +
-                                        ", Duration: " + juce::String(loopDuration, 1) + "s");
-                                }
-                                else {
-                                    showStatusMessage("jerry's done already " + genTime + "s (" + rtFactor + "x RT)", 4000);
-                                }
-
-                                DBG("Jerry metadata - Generation time: " + genTime + "s, RT factor: " + rtFactor + "x");
-                            }
-                            else
-                            {
-                                juce::String successMsg = generateAsLoop ?
-                                    "smart loop rdy" : "jerry's done already";
-                                showStatusMessage(successMsg, 3000);
-                            }
-                        }
-                        else
-                        {
-                            showStatusMessage("jerry finished but no audio received", 3000);
-                            DBG("Jerry success but missing audio_base64");
-                        }
-                    }
-                    else
-                    {
-                        auto error = responseObj->getProperty("error").toString();
-                        showStatusMessage("jerry error: " + error, 5000);
-                        DBG("Jerry server error: " + error);
-                    }
-                }
-                else
-                {
-                    showStatusMessage("invalid JSON response from jerry", 4000);
-                    DBG("Failed to parse Jerry JSON response");
-                    
-                    // Invalid JSON could indicate backend issues - check health
-                    DBG("Jerry JSON parsing failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
-                    
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
-                        {
-                            handleBackendDisconnection();
-                        }
-                    });
-                }
-            }
-            else
-            {
-                juce::String errorMsg;
-                bool shouldCheckHealth = false;
-                
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
-                    errorMsg = "cannot connect to jerry on localhost - ensure docker compose is running";
-                else if (statusCode == 0)
-                {
-                    errorMsg = "failed to connect to jerry on remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
-                }
-                else if (statusCode >= 400)
-                {
-                    errorMsg = "jerry server error (HTTP " + juce::String(statusCode) + ")";
-                    shouldCheckHealth = true;  // Server error - might be backend issue
-                }
-                else
-                    errorMsg = "empty response from jerry";
-
-                showStatusMessage(errorMsg, 4000);
-                DBG("Jerry request failed: " + errorMsg);
-                
-                // Check backend health if connection/server failure
-                if (shouldCheckHealth)
-                {
-                    DBG("Jerry failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
-                    
-                    // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
-                        {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-                        }
-                    });
-                }
-            }
-
-            if (jerryUI)
-                jerryUI->setGenerateButtonText("generate with jerry");
-            });
-        });
-}
-
-void Gary4juceAudioProcessorEditor::setTerryAudioSource(bool useRecording)
-{
-    transformRecording = useRecording;
-
-    // Persist this state in processor so rest of app is aware
-    audioProcessor.setTransformRecording(useRecording);
-
-    DBG("Terry audio source set to: " + juce::String(useRecording ? "Recording" : "Output"));
-    if (terryUI)
-        terryUI->setAudioSourceRecording(useRecording);
-
-    updateTerryEnablementSnapshot();
-}
-
-void Gary4juceAudioProcessorEditor::updateTerryEnablementSnapshot()
-{
-    if (!terryUI)
-        return;
-
-    const bool recordingAvailable = savedSamples > 0;
-    const bool outputAvailable = hasOutputAudio;
-    terryUI->setAudioSourceAvailability(recordingAvailable, outputAvailable);
-
-    const bool hasVariation = currentTerryVariation >= 0;
-    const bool hasCustomPrompt = !currentTerryCustomPrompt.trim().isEmpty();
-
-    bool canTransform = false;
-    if (transformRecording)
-        canTransform = recordingAvailable;
-    else
-        canTransform = outputAvailable;
-
-    canTransform = canTransform && isConnected && (hasVariation || hasCustomPrompt);
-
-    const bool undoAvailable = audioProcessor.getUndoTransformAvailable() &&
-        !audioProcessor.getCurrentSessionId().isEmpty();
-
-    terryUI->setButtonsEnabled(canTransform, isGenerating, undoAvailable);
-
-    if (!isGenerating)
-    {
-        terryUI->setTransformButtonText("transform with terry");
-        terryUI->setUndoButtonText("undo transform");
-    }
-}
-
-void Gary4juceAudioProcessorEditor::sendToTerry()
-{
-    setActiveOp(ActiveOp::TerryTransform);
-
-    auto cancelTerryOperation = [this]() {
-        isGenerating = false;
-        setActiveOp(ActiveOp::None);
-        updateAllGenerationButtonStates();
-    };
-
-    // Reset generation state immediately (like Gary)
-    isGenerating = true;
-    generationProgress = 0;
-    lastKnownProgress = 0;
-    resetStallDetection();
-    targetProgress = 0;
-    smoothProgressAnimation = false;
-
-
-    // Clear any previous session ID since we're starting fresh transform
-    audioProcessor.clearCurrentSessionId();
-    audioProcessor.setRetryAvailable(false);  // ADD THIS - clear retry for new transform
-    updateRetryButtonState();
-
-    updateAllGenerationButtonStates();
-    repaint(); // Force immediate UI update
-
-    // Basic validation checks (like Gary and Jerry)
-    if (!isConnected)
-    {
-        showStatusMessage("backend not connected - check connection first");
-        cancelTerryOperation();
-        return;
-    }
-
-    // Check that we have either a variation selected OR a custom prompt
-    bool hasVariation = (currentTerryVariation >= 0);
-    bool hasCustomPrompt = !currentTerryCustomPrompt.trim().isEmpty();
-
-    if (!hasVariation && !hasCustomPrompt)
-    {
-        showStatusMessage("please select a variation OR enter a custom prompt");
-        cancelTerryOperation();
-        updateAllGenerationButtonStates();
-        return;
-    }
-
-    // Check that we have the selected audio source
-    if (transformRecording)
-    {
-        if (savedSamples <= 0)
-        {
-            showStatusMessage("no recording available - save your recording first");
-            cancelTerryOperation();
-            updateAllGenerationButtonStates();
-            return;
-        }
-    }
-    else // transforming output
-    {
-        if (!hasOutputAudio)
-        {
-            showStatusMessage("no output audio available - generate with gary or jerry first");
-            cancelTerryOperation();
-            updateAllGenerationButtonStates();
-            return;
-        }
-    }
-
-    // Get the variation names array (matches your backend list)
-    const auto& variationNames = terryVariationNames.isEmpty() ? getTerryVariationNames() : terryVariationNames;
-
-    // Determine which audio file to read
-    juce::File audioFile;
-    auto garyDir = getGaryDir();
-
-    if (transformRecording)
-    {
-        audioFile = garyDir.getChildFile("myBuffer.wav");
-        DBG("Terry transforming recording: " + audioFile.getFullPathName());
-    }
-    else
-    {
-        audioFile = garyDir.getChildFile("myOutput.wav");
-        DBG("Terry transforming output: " + audioFile.getFullPathName());
-    }
-
-    if (!audioFile.existsAsFile())
-    {
-        showStatusMessage("audio file not found - " + audioFile.getFileName());
-        cancelTerryOperation();
-        updateAllGenerationButtonStates();
-        return;
-    }
-
-    // Read and encode audio file (same as Gary)
-    juce::MemoryBlock audioData;
-    if (!audioFile.loadFileAsData(audioData))
-    {
-        showStatusMessage("failed to read audio file");
-        cancelTerryOperation();
-        updateAllGenerationButtonStates();
-        return;
-    }
-
-    if (audioData.getSize() == 0)
-    {
-        showStatusMessage("audio file is empty");
-        cancelTerryOperation();
-        updateAllGenerationButtonStates();
-        return;
-    }
-
-    auto base64Audio = juce::Base64::toBase64(audioData.getData(), audioData.getSize());
-
-    // Debug: Log audio data size
-    DBG("Terry audio file size: " + juce::String(audioData.getSize()) + " bytes");
-    DBG("Terry base64 length: " + juce::String(base64Audio.length()) + " chars");
-    DBG("Terry flowstep: " + juce::String(currentTerryFlowstep, 3));
-    DBG("Terry solver: " + juce::String(useMidpointSolver ? "midpoint" : "euler"));
-
-    // Button text feedback and status during processing
-    if (terryUI)
-        terryUI->setTransformButtonText("transforming...");
-    showStatusMessage("sending audio to terry for transformation...");
-
-    // Create HTTP request in background thread (same pattern as Gary and Jerry)
-    juce::Thread::launch([this, base64Audio, variationNames, hasVariation, hasCustomPrompt, cancelTerryOperation]() {
-        // SAFETY: Exit if generation stopped
-        if (!isGenerating) {
-            DBG("Terry request aborted - generation stopped");
-            return;
-        }
-
-        auto startTime = juce::Time::getCurrentTime();
-
-        // Create JSON payload
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("audio_data", base64Audio);
-        jsonRequest->setProperty("flowstep", currentTerryFlowstep);
-        jsonRequest->setProperty("solver", useMidpointSolver ? "midpoint" : "euler");
-
-        // FIXED: Always send a variation (required by backend), custom_prompt overrides it
-        if (hasCustomPrompt)
-        {
-            // Send default variation + custom_prompt (custom_prompt will override)
-            jsonRequest->setProperty("variation", "accordion_folk");  // Default/neutral variation
-            jsonRequest->setProperty("custom_prompt", currentTerryCustomPrompt);
-            DBG("Terry using custom prompt: " + currentTerryCustomPrompt + " (with default variation)");
-        }
-        else if (hasVariation && currentTerryVariation < variationNames.size())
-        {
-            // Send selected variation only
-            jsonRequest->setProperty("variation", variationNames[currentTerryVariation]);
-            DBG("Terry using variation: " + variationNames[currentTerryVariation]);
-        }
-        else
-        {
-            // Fallback - should not happen due to validation, but safety net
-            jsonRequest->setProperty("variation", "accordion_folk");
-            DBG("Terry fallback to default variation");
-        }
-
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
-        DBG("Terry JSON payload size: " + juce::String(jsonString.length()) + " characters");
-
-        juce::URL url(getServiceUrl(ServiceType::Terry, "/api/juce/transform_audio"));
-
-        juce::String responseText;
-        int statusCode = 0;
-
-        try
-        {
-            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions (same as Gary/Jerry)
-            juce::URL postUrl = url.withPOSTData(jsonString);
-
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(30000)
-                .withExtraHeaders("Content-Type: application/json");
-
-            auto stream = postUrl.createInputStream(options);
-
-            auto requestTime = juce::Time::getCurrentTime() - startTime;
-            DBG("Terry HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
-
-            if (stream != nullptr)
-            {
-                responseText = stream->readEntireStreamAsString();
-
-                auto totalTime = juce::Time::getCurrentTime() - startTime;
-                DBG("Terry HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
-                DBG("Terry response length: " + juce::String(responseText.length()) + " characters");
-
-                statusCode = 200; // Assume success if we got data
-            }
-            else
-            {
-                DBG("Failed to create input stream for Terry request");
-                responseText = "";
-                statusCode = 0;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            DBG("Terry HTTP request exception: " + juce::String(e.what()));
-            responseText = "";
-            statusCode = 0;
-        }
-        catch (...)
-        {
-            DBG("Unknown Terry HTTP request exception");
-            responseText = "";
-            statusCode = 0;
-        }
-
-        // Handle response on main thread (same pattern as Gary)
-        juce::MessageManager::callAsync([this, responseText, statusCode, startTime, cancelTerryOperation]() {
-            // SAFETY: Don't process if generation stopped
-            if (!isGenerating) {
-                DBG("Terry callback aborted");
-                return;
-            }
-
-            auto totalTime = juce::Time::getCurrentTime() - startTime;
-            DBG("Total Terry request time: " + juce::String(totalTime.inMilliseconds()) + "ms");
-
-            if (statusCode == 200 && responseText.isNotEmpty())
-            {
-                DBG("Terry response preview: " + responseText.substring(0, 200) + (responseText.length() > 200 ? "..." : ""));
-
-                // Parse response JSON (same as Gary)
-                auto responseVar = juce::JSON::parse(responseText);
-                if (auto* responseObj = responseVar.getDynamicObject())
-                {
-                    bool success = responseObj->getProperty("success");
-                    if (success)
-                    {
-                        juce::String sessionId = responseObj->getProperty("session_id").toString();
-                        showStatusMessage("sent to terry. processing...", 2000);
-                        DBG("Terry session ID: " + sessionId);
-
-                        // START POLLING FOR RESULTS (same as Gary)
-                        startPollingForResults(sessionId);  // This sets currentSessionId = sessionId
-
-                        // Disable undo button until transform completes
-                        updateTerryEnablementSnapshot();
-                    }
-                    else
-                    {
-                        juce::String error = responseObj->getProperty("error").toString();
-                        showStatusMessage("terry error: " + error, 5000);
-                        DBG("Terry server error: " + error);
-
-                        if (terryUI)
-                            terryUI->setTransformButtonText("transform with terry");
-                        cancelTerryOperation();
-                    }
-                }
-                else
-                {
-                    showStatusMessage("invalid JSON response from terry", 4000);
-                    DBG("Failed to parse Terry JSON response: " + responseText.substring(0, 100));
-
-                    if (terryUI)
-                        terryUI->setTransformButtonText("transform with terry");
-                    cancelTerryOperation();
-                }
-            }
-            else
-            {
-                juce::String errorMsg;
-                bool shouldCheckHealth = false;
-                
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
-                    errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
-                else if (statusCode == 0)
-                {
-                    errorMsg = "failed to connect to Terry on remote backend";
-                    shouldCheckHealth = true;  // Connection failure on remote - check if VM is down
-                }
-                else if (statusCode >= 400)
-                {
-                    errorMsg = "terry server error (HTTP " + juce::String(statusCode) + ")";
-                    shouldCheckHealth = true;  // Server error - might be backend issue
-                }
-                else
-                    errorMsg = "empty response from terry";
-
-                showStatusMessage(errorMsg, 4000);
-                DBG("Terry request failed: " + errorMsg);
-                
-                // Check backend health if connection/server failure
-                if (shouldCheckHealth)
-                {
-                    DBG("Terry failed - checking backend health");
-                    audioProcessor.checkBackendHealth();
-                    
-                    // Give health check time, then handle result
-                    juce::Timer::callAfterDelay(6000, [this]() {
-                        if (!audioProcessor.isBackendConnected())
-                        {
-                            handleBackendDisconnection();
-                            lastBackendDisconnectionPopupTime = juce::Time::getCurrentTime();
-                        }
-                    });
-                }
-
-                if (terryUI)
-                    terryUI->setTransformButtonText("transform with terry");
-
-                cancelTerryOperation();
-            }
-
-            // Re-enable transform button (same pattern as Gary/Jerry)
-            updateTerryEnablementSnapshot();
-
-            });
-        });
-}
-
-void Gary4juceAudioProcessorEditor::undoTerryTransform()
-{
-    // We need a session ID to undo - this should be the current session
-    juce::String sessionId = audioProcessor.getCurrentSessionId();
-    if (sessionId.isEmpty())
-    {
-        showStatusMessage("no transform session to undo", 3000);
-        return;
-    }
-
-    DBG("Attempting to undo Terry transform for session: " + sessionId);
-    showStatusMessage("undoing transform...", 2000);
-
-    // Disable undo button during request
-    audioProcessor.setUndoTransformAvailable(false);
-    updateTerryEnablementSnapshot();
-    if (terryUI)
-        terryUI->setUndoButtonText("undoing...");
-
-    // Create HTTP request in background thread
-    juce::Thread::launch([this, sessionId]() {
-        // REMOVED: Don't check isGenerating for undo operations!
-        // Undo operations are not generation operations and should proceed regardless
-        // if (!isGenerating) {
-        //     DBG("Undo Terry request aborted - generation stopped");
-        //     return;
-        // }
-
-        auto startTime = juce::Time::getCurrentTime();
-
-        // Create JSON payload - just needs session_id
-        juce::DynamicObject::Ptr jsonRequest = new juce::DynamicObject();
-        jsonRequest->setProperty("session_id", sessionId);
-
-        auto jsonString = juce::JSON::toString(juce::var(jsonRequest.get()));
-
-        DBG("Terry undo JSON payload: " + jsonString);
-
-        juce::URL url(getServiceUrl(ServiceType::Terry, "/api/juce/undo_transform"));
-
-        juce::String responseText;
-        int statusCode = 0;
-
-        try
-        {
-            // Use JUCE 8.0.8 pattern: withPOSTData + InputStreamOptions
-            juce::URL postUrl = url.withPOSTData(jsonString);
-
-            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-                .withConnectionTimeoutMs(15000)  // Shorter timeout for undo - should be quick
-                .withExtraHeaders("Content-Type: application/json");
-
-            auto stream = postUrl.createInputStream(options);
-
-            auto requestTime = juce::Time::getCurrentTime() - startTime;
-            DBG("Terry undo HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
-
-            if (stream != nullptr)
-            {
-                responseText = stream->readEntireStreamAsString();
-
-                auto totalTime = juce::Time::getCurrentTime() - startTime;
-                DBG("Terry undo HTTP request completed in " + juce::String(totalTime.inMilliseconds()) + "ms");
-
-                statusCode = 200; // Assume success if we got data
-            }
-            else
-            {
-                DBG("Failed to create input stream for Terry undo request");
-                responseText = "";
-                statusCode = 0;
-            }
-        }
-        catch (const std::exception& e)
-        {
-            DBG("Terry undo HTTP request exception: " + juce::String(e.what()));
-            responseText = "";
-            statusCode = 0;
-        }
-        catch (...)
-        {
-            DBG("Unknown Terry undo HTTP request exception");
-            responseText = "";
-            statusCode = 0;
-        }
-
-        // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, statusCode]() {
-            // REMOVED: Don't check isGenerating for undo callback either!
-            // if (!isGenerating) {
-            //     DBG("Undo Terry callback aborted");
-            //     return;
-            // }
-
-            if (statusCode == 200 && responseText.isNotEmpty())
-            {
-                DBG("Terry undo response: " + responseText);
-
-                // Parse response JSON
-                auto responseVar = juce::JSON::parse(responseText);
-                if (auto* responseObj = responseVar.getDynamicObject())
-                {
-                    bool success = responseObj->getProperty("success");
-                    if (success)
-                    {
-                        // Get the restored audio data
-                        auto audioData = responseObj->getProperty("audio_data").toString();
-                        if (audioData.isNotEmpty())
-                        {
-                            // Save the restored audio
-                            saveGeneratedAudio(audioData);
-                            showStatusMessage("transform undone - audio restored.", 3000);
-                            DBG("Terry undo successful - audio restored");
-
-                            // Clear session ID since undo is complete
-                            audioProcessor.clearCurrentSessionId();
-                            audioProcessor.setRetryAvailable(false);          // ADD THIS
-                            updateTerryEnablementSnapshot();
-                            if (terryUI)
-                                terryUI->setUndoButtonText("undo transform");
-                            updateRetryButtonState();
-                        }
-                        else
-                        {
-                            showStatusMessage("undo completed but no audio data received", 3000);
-                            DBG("Terry undo success but missing audio data");
-                            // Re-enable undo button since this is an error case
-                            audioProcessor.setUndoTransformAvailable(true);
-                            updateTerryEnablementSnapshot();
-                            if (terryUI)
-                                terryUI->setUndoButtonText("undo transform");
-                        }
-                    }
-                    else
-                    {
-                        auto error = responseObj->getProperty("error").toString();
-                        showStatusMessage("undo failed: " + error, 4000);
-                        DBG("Terry undo server error: " + error);
-                        audioProcessor.setUndoTransformAvailable(true);
-                        updateTerryEnablementSnapshot();
-                        if (terryUI)
-                            terryUI->setUndoButtonText("undo transform");
-                    }
-                }
-                else
-                {
-                    showStatusMessage("invalid undo response format", 3000);
-                    DBG("Failed to parse Terry undo JSON response");
-                    audioProcessor.setUndoTransformAvailable(true);
-                    updateTerryEnablementSnapshot();
-                    if (terryUI)
-                        terryUI->setUndoButtonText("undo transform");
-                }
-            }
-            else
-            {
-                juce::String errorMsg;
-                if (statusCode == 0 && audioProcessor.getIsUsingLocalhost())
-                    errorMsg = "cannot connect for undo on localhost - ensure docker compose is running";
-                else if (statusCode == 0)
-                    errorMsg = "failed to connect for undo on remote backend";
-                else if (statusCode >= 400)
-                    errorMsg = "undo server error (HTTP " + juce::String(statusCode) + ")";
-                else
-                    errorMsg = "empty undo response";
-
-                showStatusMessage(errorMsg, 4000);
-                DBG("Terry undo request failed: " + errorMsg);
-                audioProcessor.setUndoTransformAvailable(true);
-                updateTerryEnablementSnapshot();
-                if (terryUI)
-                    terryUI->setUndoButtonText("undo transform");
-            }
-            });
-        });
-}
-
-
-
+// JERRY API CALLS
 
 void Gary4juceAudioProcessorEditor::checkDariusHealth()
 {
@@ -4156,13 +5396,16 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
         dariusUI->setConnectionStatus("checking connection...", juce::Colours::yellow);
     }
 
-    // Create health check request in background thread
-    juce::Thread::launch([this]() {
-        juce::String healthUrl = dariusBackendUrl.trim();
-        if (!healthUrl.endsWith("/"))
-            healthUrl += "/";
-        healthUrl += "health";
+    juce::String healthUrl = dariusBackendUrl.trim();
+    if (!healthUrl.endsWith("/"))
+        healthUrl += "/";
+    healthUrl += "health";
 
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    // Create health check request in background thread
+    juce::Thread::launch([asyncAlive, editor, healthUrl]() {
         juce::URL url(healthUrl);
 
         std::unique_ptr<juce::InputStream> stream(url.createInputStream(
@@ -4180,8 +5423,12 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
         }
 
         // Handle response on main thread
-        juce::MessageManager::callAsync([this, responseText, connectionSucceeded]() {
-            handleDariusHealthResponse(responseText, connectionSucceeded);
+        juce::MessageManager::callAsync([asyncAlive, editor, responseText, connectionSucceeded]() {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->handleDariusHealthResponse(responseText, connectionSucceeded);
             });
         });
 }
@@ -4286,15 +5533,16 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
         return;
     }
 
-    // Launch background fetch (same pattern as health)
-    juce::Thread::launch([this]()
-        {
-            // Build URL exactly like checkDariusHealth(), but for /model/config
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String full = base + "model/config";
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String full = base + "model/config";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    // Launch background fetch (same pattern as health)
+    juce::Thread::launch([asyncAlive, editor, full]()
+        {
             juce::URL url(full);
 
             std::unique_ptr<juce::InputStream> stream(url.createInputStream(
@@ -4315,9 +5563,13 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
                 responseText = stream->readEntireStreamAsString();
 
             // Bounce back to main thread
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusConfigResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusConfigResponse(responseText, statusCode);
                 });
         });
 }
@@ -4396,13 +5648,15 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
         return;
     }
 
-    juce::Thread::launch([this, repo, revision]()
-        {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String endpoint = base + "model/checkpoints";
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String endpoint = base + "model/checkpoints";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
 
+    juce::Thread::launch([asyncAlive, editor, repo, revision, endpoint]()
+        {
             juce::URL url(endpoint);
             // Add query parameters like the Swift service (repo_id, revision)
             url = url.withParameter("repo_id", repo)
@@ -4421,9 +5675,13 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
             if (stream != nullptr)
                 responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusCheckpointsResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusCheckpointsResponse(responseText, statusCode);
                 });
         });
 }
@@ -4577,16 +5835,16 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
         return;
     }
 
-    juce::Thread::launch([this, requestObj]()
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/"))
+        base += "/";
+    const juce::String endpoint = base + "model/select";
+    const juce::String jsonString = juce::JSON::toString(requestObj);
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, endpoint, jsonString]()
         {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/"))
-                base += "/";
-            const juce::String endpoint = base + "model/select";
-
-            // Build JSON body (follow your existing POST pattern)
-            const juce::String jsonString = juce::JSON::toString(requestObj);
-
             juce::URL url(endpoint);
             juce::URL postUrl = url.withPOSTData(jsonString);
 
@@ -4612,9 +5870,13 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
                 DBG("select exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]()
                 {
-                    handleDariusSelectResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    editor->handleDariusSelectResponse(responseText, statusCode);
                 });
         });
 }
@@ -4730,22 +5992,26 @@ void Gary4juceAudioProcessorEditor::startDariusWarmPolling(int attempt)
     fetchDariusConfig();
 
     // Inspect the latest snapshot after a short delay (let network return)
-    juce::Timer::callAfterDelay(300, [this, attempt]()
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    juce::Timer::callAfterDelay(300, [safeThis, attempt]()
         {
+            if (safeThis == nullptr)
+                return;
+
             bool warmed = false;
-            if (lastDariusConfig.isObject())
+            if (safeThis->lastDariusConfig.isObject())
             {
-                if (auto* o = lastDariusConfig.getDynamicObject())
+                if (auto* o = safeThis->lastDariusConfig.getDynamicObject())
                     warmed = (bool)o->getProperty("warmup_done");
             }
 
             if (warmed)
             {
-                dariusIsWarming = false;
-                stopWarmDots();
-                updateDariusModelControlsEnabled();
-                showStatusMessage("Model ready (prewarmed)", 2200);
-                updateDariusModelConfigUI();
+                safeThis->dariusIsWarming = false;
+                safeThis->stopWarmDots();
+                safeThis->updateDariusModelControlsEnabled();
+                safeThis->showStatusMessage("Model ready (prewarmed)", 2200);
+                safeThis->updateDariusModelConfigUI();
                 return;
             }
 
@@ -4753,15 +6019,18 @@ void Gary4juceAudioProcessorEditor::startDariusWarmPolling(int attempt)
             if (attempt >= 40)
             {
                 // Give up gracefully but leave UI enabled
-                dariusIsWarming = false;
-                stopWarmDots();
-                updateDariusModelControlsEnabled();
-                showStatusMessage("Still warming... try again or check backend logs", 3000);
+                safeThis->dariusIsWarming = false;
+                safeThis->stopWarmDots();
+                safeThis->updateDariusModelControlsEnabled();
+                safeThis->showStatusMessage("Still warming... try again or check backend logs", 3000);
                 return;
             }
 
             // Schedule another tick
-            juce::Timer::callAfterDelay(500, [this, attempt]() { startDariusWarmPolling(attempt + 1); });
+            juce::Timer::callAfterDelay(500, [safeThis, attempt]() {
+                if (safeThis != nullptr)
+                    safeThis->startDariusWarmPolling(attempt + 1);
+            });
         });
 }
 
@@ -4825,77 +6094,13 @@ void Gary4juceAudioProcessorEditor::updateDariusModelControlsEnabled()
 
 
 
-static juce::File getGaryDir()
-{
-    using namespace juce;
 
-    File documents = File::getSpecialLocation(File::userDocumentsDirectory);
-    if (!documents.isDirectory())
-        documents = File::getSpecialLocation(File::userHomeDirectory).getChildFile("Documents");
-    if (!documents.isDirectory())
-        documents = File::getSpecialLocation(File::userHomeDirectory);
-
-    auto dir = documents.getChildFile("gary4juce");
-    auto res = dir.createDirectory(); // idempotent
-    DBG("getGaryDir path: " + dir.getFullPathName());
-    if (!res.wasOk())
-        DBG("ERROR: couldn't create " + dir.getFullPathName() + " : " + res.getErrorMessage());
-    return dir;
-}
-
-static bool ensureParentDirExists(const juce::File& targetFile, const juce::String& context)
-{
-    auto parent = targetFile.getParentDirectory();
-    const bool parentExists = parent.isDirectory();
-    DBG(context + " parent: " + parent.getFullPathName()
-        + " exists=" + juce::String(parentExists ? "true" : "false"));
-
-    if (parentExists)
-        return true;
-
-    auto result = parent.createDirectory();
-    if (!result.wasOk())
-    {
-        DBG("ERROR (" + context + "): cannot create parent dir "
-            + parent.getFullPathName() + " : " + result.getErrorMessage());
-        return false;
-    }
-
-    DBG(context + " created parent: " + parent.getFullPathName());
-    return true;
-}
-
-static void pruneOldDraggedAudioFiles(const juce::File& draggedAudioDir, std::int64_t maxAgeMs = static_cast<std::int64_t>(24) * 60 * 60 * 1000)
-{
-    if (!draggedAudioDir.isDirectory())
-        return;
-
-    juce::Array<juce::File> files;
-    draggedAudioDir.findChildFiles(files, juce::File::findFiles, false, "*.wav");
-
-    const auto nowMs = juce::Time::getCurrentTime().toMilliseconds();
-    for (auto& file : files)
-    {
-        if (!file.existsAsFile())
-            continue;
-
-        const auto ageMs = nowMs - file.getLastModificationTime().toMilliseconds();
-        if (ageMs > maxAgeMs)
-        {
-            DBG("Pruning stale drag file: " + file.getFullPathName()
-                + " ageMs=" + juce::String(ageMs));
-            file.deleteFile();
-        }
-    }
-}
 
 // Generation: which file to upload to /generate
 juce::String Gary4juceAudioProcessorEditor::getGenAudioFilePath() const
 {
     const bool useRec = audioProcessor.getTransformRecording(); // shared Terry flag
-    auto garyDir = getGaryDir();
-    const auto audioFile = useRec ? garyDir.getChildFile("myBuffer.wav")
-                                  : garyDir.getChildFile("myOutput.wav");
+    const auto audioFile = useRec ? getGaryBufferFile() : getGaryOutputFile();
     DBG("Darius generate path: " + audioFile.getFullPathName());
     return audioFile.getFullPathName();
 }
@@ -4924,6 +6129,9 @@ juce::String Gary4juceAudioProcessorEditor::centroidWeightsCSV() const
 void Gary4juceAudioProcessorEditor::onClickGenerate()
 {
     if (genIsGenerating)
+        return;
+
+    if (!ensureGaryDataDirectoryAvailable())
         return;
 
     if (dariusBackendUrl.trim().isEmpty())
@@ -5028,9 +6236,17 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
 
     // Build the URL with request_id included
     juce::URL url = makeGenerateURL(reqId);
+    const auto generationToken = beginGenerationAsyncWork();
+    auto metadataRequest = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    for (int i = 0; i < url.getParameterNames().size(); ++i)
+        metadataRequest->setProperty(url.getParameterNames()[i], url.getParameterValues()[i]);
+    captureGenerationRequest(generationToken, "darius", "generate", juce::var(metadataRequest.get()));
 
     // Fire the POST on a worker thread
-    juce::Thread::launch([this, url]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, generationToken, url]()
         {
             juce::String responseText;
             int statusCode = 0;
@@ -5054,9 +6270,14 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
                 DBG("generate exception: " + juce::String(e.what()));
             }
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]()
+            juce::MessageManager::callAsync([asyncAlive, editor, generationToken, responseText, statusCode]()
                 {
-                    handleDariusGenerateResponse(responseText, statusCode);
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                        return;
+
+                    if (!editor->isGenerationAsyncWorkCurrent(generationToken)) return;
+                    editor->handleDariusGenerateResponse(responseText, statusCode);
                 });
         });
 }
@@ -5111,7 +6332,7 @@ void Gary4juceAudioProcessorEditor::handleDariusGenerateResponse(const juce::Str
     }
 
     // success
-    saveGeneratedAudio(audio64);
+    saveGeneratedAudio(audio64, parsed);
     generationProgress = 100;               // snap to full
     showStatusMessage("Generated!", 1500);
     finish();
@@ -5146,9 +6367,14 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
 
     auto url = makeDariusProgressURL(dariusProgressRequestId);
 
-    std::async(std::launch::async, [this, url]()
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, url]()
         {
-            std::unique_ptr<juce::InputStream> s(url.createInputStream(false, nullptr, nullptr, {}, 10000));
+            auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+                .withConnectionTimeoutMs(10000);
+            std::unique_ptr<juce::InputStream> s(url.createInputStream(options));
             if (!s) return;
 
             auto jsonText = s->readEntireStreamAsString();
@@ -5164,19 +6390,23 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
                 const int pct = pctVar.isVoid() ? 0 : (int)pctVar;
                 const juce::String stage = stageVar.toString();
 
-                juce::MessageManager::callAsync([this, pct, stage]()
+                juce::MessageManager::callAsync([asyncAlive, editor, pct, stage]()
                     {
-                        if (!dariusIsPollingProgress) return;
+                        const auto alive = asyncAlive.lock();
+                        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                            return;
+
+                        if (!editor->dariusIsPollingProgress) return;
 
                         // feed your smoothing fields
-                        lastKnownProgress = generationProgress;
-                        targetProgress = juce::jlimit(0, 100, pct);
-                        lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
-                        smoothProgressAnimation = true;
+                        editor->lastKnownProgress = editor->generationProgress;
+                        editor->targetProgress = juce::jlimit(0, 100, pct);
+                        editor->lastProgressUpdateTime = juce::Time::getCurrentTime().toMilliseconds();
+                        editor->smoothProgressAnimation = true;
 
                         if (stage == "done" || stage == "error" || pct >= 100)
                         {
-                            stopDariusProgressPoll();
+                            editor->stopDariusProgressPoll();
                             // leave isGenerating changes to the POST response handler
                         }
                     });
@@ -5195,11 +6425,15 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
     if (dariusBackendUrl.trim().isEmpty())
         return;
 
-    juce::Thread::launch([this]()
+    juce::String base = dariusBackendUrl.trim();
+    if (!base.endsWith("/")) base += "/";
+    const juce::String assetsStatusUrl = base + "model/assets/status";
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    juce::Thread::launch([asyncAlive, editor, assetsStatusUrl]()
         {
-            juce::String base = dariusBackendUrl.trim();
-            if (!base.endsWith("/")) base += "/";
-            juce::URL url(base + "model/assets/status");
+            juce::URL url(assetsStatusUrl);
 
             juce::String responseText;
             int statusCode = 0;
@@ -5212,8 +6446,12 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
                 statusCode = web->getStatusCode();
             if (stream) responseText = stream->readEntireStreamAsString();
 
-            juce::MessageManager::callAsync([this, responseText, statusCode]() {
-                handleDariusAssetsStatusResponse(responseText, statusCode);
+            juce::MessageManager::callAsync([asyncAlive, editor, responseText, statusCode]() {
+                const auto alive = asyncAlive.lock();
+                if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                    return;
+
+                editor->handleDariusAssetsStatusResponse(responseText, statusCode);
                 });
         });
 }
@@ -5297,9 +6535,48 @@ void Gary4juceAudioProcessorEditor::handleDariusAssetsStatusResponse(const juce:
 
 void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
 {
+    if (activePlaybackSource == PlaybackSource::Input)
+    {
+        stopInputPlayback();
+        activePlaybackSource = PlaybackSource::None;
+    }
+    inputPlaybackDuration = 0.0;
+    inputPlaybackSnapshotSamples = 0;
+    lastDraggedAudioFile = {};
+    lastSelectionStartTime = 0.0;
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
     updateRecordingStatus();
+}
+
+void Gary4juceAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster* source)
+{
+    if (source != &audioProcessor || !isEditorValid.load())
+        return;
+
+    const auto hostStateRevision = audioProcessor.getHostStateRevision();
+    if (hostStateRevision != lastAppliedHostStateRevision)
+    {
+        lastAppliedHostStateRevision = hostStateRevision;
+        applyProcessorStateToEditor();
+
+        // The model list is backend-owned rather than preset state. Refresh it
+        // explicitly after a host restore so Jerry cannot remain on the combo
+        // box's initial "loading models..." placeholder.
+        fetchJerryAvailableModels(true);
+
+        // Host preset loading deliberately resets connectivity to unknown.
+        // Revalidate immediately so an open editor does not remain stuck on
+        // "disconnected" after the restored controls have been applied.
+        audioProcessor.checkBackendHealth();
+        if (audioProcessor.getIsUsingLocalhost())
+        {
+            resetLocalServiceHealthSnapshot();
+            triggerLocalServiceHealthPoll(true);
+        }
+    }
+
+    updateConnectionStatus(audioProcessor.isBackendConnected());
 }
 
 // ========== UPDATED CONNECTION STATUS METHOD ==========
@@ -5313,6 +6590,24 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
         // Update ALL button states when connection changes
         updateAllGenerationButtonStates();
 
+        // Fetch Gary models when connection is established
+        if (connected)
+        {
+            fetchGaryAvailableModels();
+
+            // A preset may also switch the remote backend while Jerry is
+            // visible. Its first refresh is skipped while connectivity is
+            // unknown, so retry as soon as that backend is confirmed healthy.
+            if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SAOS)
+                fetchJerryAvailableModels();
+
+            if (currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3)
+            {
+                refreshSA3AvailableLoras(true);
+                updateSA3EnablementSnapshot();
+            }
+        }
+
         repaint(); // Trigger a redraw to update tab section border
 
         // Re-enable check button if it was disabled
@@ -5324,86 +6619,16 @@ void Gary4juceAudioProcessorEditor::updateConnectionStatus(bool connected)
     }
 }
 
-// ========== BACKEND TOGGLE METHODS ==========
-juce::String Gary4juceAudioProcessorEditor::getServiceUrl(ServiceType service, const juce::String& endpoint) const
-{
-    // Map editor ServiceType to processor ServiceType
-    Gary4juceAudioProcessor::ServiceType processorService;
-    switch (service)
-    {
-        case ServiceType::Gary:  processorService = Gary4juceAudioProcessor::ServiceType::Gary; break;
-        case ServiceType::Jerry: processorService = Gary4juceAudioProcessor::ServiceType::Jerry; break;
-        case ServiceType::Terry: processorService = Gary4juceAudioProcessor::ServiceType::Terry; break;
-    }
-    
-    return audioProcessor.getServiceUrl(processorService, endpoint);
-}
-
-void Gary4juceAudioProcessorEditor::toggleBackend()
-{
-    isUsingLocalhost = !isUsingLocalhost;
-
-    // Tell processor to switch backends
-    audioProcessor.setUsingLocalhost(isUsingLocalhost);
-
-    // ALSO update processor's connection state
-    audioProcessor.setBackendConnectionStatus(false);
-
-    // Update button text and styling
-    updateBackendToggleButton();
-
-    // NEW: Update model availability based on new backend
-    updateModelAvailability();
-
-    // Update connection status display
-    updateConnectionStatus(false);
-
-    // Clear any loading state when switching backends
-    if (jerryUI)
-    {
-        jerryUI->setLoadingModel(false);
-        jerryUI->setUsingLocalhost(isUsingLocalhost);
-    }
-
-    DBG("Switched to " + audioProcessor.getCurrentBackendType() + " backend");
-}
-
-void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
-{
-    if (isUsingLocalhost)
-    {
-        backendToggleButton.setButtonText("local");
-        backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (ports 8000/8005) - click to switch to remote");
-    }
-    else
-    {
-        backendToggleButton.setButtonText("remote");
-        backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Standard); // Standard style for remote
-        backendToggleButton.setTooltip("using remote backend (g4l.thecollabagepatch.com) - click to switch to localhost");
-    }
-}
-
 void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
 {
-    if (!outputAudioFile.existsAsFile())
+    if (!outputAudioFile.exists())
     {
-        DBG("loadOutputAudioFile: missing target " + outputAudioFile.getFullPathName());
-        hasOutputAudio = false;
-        playOutputButton.setEnabled(false);
-        stopOutputButton.setEnabled(false);
-        clearOutputButton.setEnabled(false);
-        cropButton.setEnabled(false);
-        totalAudioDuration = 0.0;
-        currentAudioSampleRate = 44100.0;
-        updateGaryButtonStates(!isGenerating);
-        return;
-    }
+        if (activePlaybackSource == PlaybackSource::Output)
+        {
+            stopOutputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
 
-    const auto fileSize = outputAudioFile.getSize();
-    if (fileSize <= 0)
-    {
-        DBG("loadOutputAudioFile: target file is empty, skipping load: " + outputAudioFile.getFullPathName());
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
         stopOutputButton.setEnabled(false);
@@ -5412,6 +6637,8 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
+        updateSA3LaneBackdrop();
         return;
     }
 
@@ -5430,32 +6657,56 @@ void Gary4juceAudioProcessorEditor::loadOutputAudioFile()
         totalAudioDuration = (double)reader->lengthInSamples / reader->sampleRate;
         currentAudioSampleRate = reader->sampleRate;
 
-        // Load into processor for host audio playback
+        // Loading a new output replaces any input-buffer snapshot in the
+        // shared host playback engine.
+        isPlayingInput = false;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
+
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+
         audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+        activePlaybackSource = PlaybackSource::Output;
+        updatePlayButtonIcon();
 
         hasOutputAudio = true;
+        currentOutputGenerationMetadata = loadOutputGenerationMetadata();
+        updateYueyScoreOverlayState();
         playOutputButton.setEnabled(true);
         stopOutputButton.setEnabled(true);
         clearOutputButton.setEnabled(true);
         cropButton.setEnabled(true);
+        updateSA3LaneBackdrop();
 
         DBG("Loaded output audio: " + juce::String(reader->lengthInSamples) + " samples, " +
             juce::String(reader->numChannels) + " channels, " +
             juce::String(totalAudioDuration, 2) + " seconds at " +
-            juce::String(reader->sampleRate) + " Hz (" + juce::String(fileSize) + " bytes)");
+            juce::String(reader->sampleRate) + " Hz");
 
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
     }
     else
     {
         DBG("Failed to read output audio file");
+        if (activePlaybackSource == PlaybackSource::Output)
+        {
+            stopOutputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
         hasOutputAudio = false;
         playOutputButton.setEnabled(false);
+        stopOutputButton.setEnabled(false);
         clearOutputButton.setEnabled(false);
         cropButton.setEnabled(false);
         totalAudioDuration = 0.0;
         currentAudioSampleRate = 44100.0;
         updateGaryButtonStates(!isGenerating);
+        updateSA3EnablementSnapshot();
     }
 }
 
@@ -5464,12 +6715,25 @@ juce::String Gary4juceAudioProcessorEditor::currentOperationVerb() const
     switch (getActiveOp())
     {
         case ActiveOp::TerryTransform:
+        case ActiveOp::SA3Transform:
             return "transforming";
+        case ActiveOp::SA3Continue:
+        case ActiveOp::YueyContinue:
+            return "continuing";
+        case ActiveOp::YueyScoreTranscribe:
+        case ActiveOp::YueyRemixTranscribe:
+            return "transcribing";
         case ActiveOp::GaryGenerate:
         case ActiveOp::GaryContinue:
         case ActiveOp::GaryRetry:
         case ActiveOp::JerryGenerate:
             return "cooking";
+        case ActiveOp::CareyGenerate:
+        case ActiveOp::FoundationGenerate:
+        case ActiveOp::SA3Generate:
+        case ActiveOp::YueyGenerate:
+        case ActiveOp::YueyRemix:
+            return "generating";
         default:
             return "processing";
     }
@@ -5487,6 +6751,9 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
 
     if (isGenerating)
     {
+        const int displayedProgress = getWaveformGenerationProgress();
+        const bool displayedQueued = getWaveformGenerationQueued();
+
         // PROGRESS VISUALIZATION during generation
 
         // If we have existing output, draw it first (dimmed)
@@ -5496,7 +6763,7 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
         }
 
         // ENHANCED: Different visual treatment for queued vs processing
-        if (isCurrentlyQueued)
+        if (displayedQueued)
         {
             // QUEUED STATE - Show pulsing queue indicator instead of progress bar
             auto time = juce::Time::getCurrentTime().toMilliseconds();
@@ -5513,7 +6780,7 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
         else
         {
             // PROCESSING STATE - Show traditional progress bar
-            const int progressWidth = (area.getWidth() - 2) * generationProgress / 100;
+            const int progressWidth = (area.getWidth() - 2) * displayedProgress / 100;
 
             if (progressWidth > 0)
             {
@@ -5532,18 +6799,31 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
         g.setColour(juce::Colours::white);
 
         juce::String displayText;
-        if (isCurrentlyQueued)
+        if (displayedQueued)
         {
             // Show queue status instead of confusing "cooking: 0%"
             switch (getActiveOp())
             {
                 case ActiveOp::TerryTransform:
+                case ActiveOp::SA3Transform:
                     displayText = "queued for transform";
+                    break;
+                case ActiveOp::SA3Continue:
+                case ActiveOp::YueyContinue:
+                    displayText = "queued for continuation";
+                    break;
+                case ActiveOp::YueyScoreTranscribe:
+                case ActiveOp::YueyRemixTranscribe:
+                    displayText = "queued for transcription";
                     break;
                 case ActiveOp::GaryGenerate:
                 case ActiveOp::GaryContinue:
                 case ActiveOp::GaryRetry:
                 case ActiveOp::JerryGenerate:
+                case ActiveOp::FoundationGenerate:
+                case ActiveOp::SA3Generate:
+                case ActiveOp::YueyGenerate:
+                case ActiveOp::YueyRemix:
                     displayText = "queued for generation";
                     break;
                 default:
@@ -5557,16 +6837,31 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             switch (getActiveOp())
             {
                 case ActiveOp::TerryTransform:
-                    displayText = "transforming: " + juce::String(generationProgress) + "%";
+                case ActiveOp::SA3Transform:
+                    displayText = "transforming: " + juce::String(displayedProgress) + "%";
+                    break;
+                case ActiveOp::SA3Continue:
+                case ActiveOp::YueyContinue:
+                    displayText = "continuing: " + juce::String(displayedProgress) + "%";
+                    break;
+                case ActiveOp::YueyScoreTranscribe:
+                case ActiveOp::YueyRemixTranscribe:
+                    displayText = "transcribing: " + juce::String(displayedProgress) + "%";
                     break;
                 case ActiveOp::GaryGenerate:
                 case ActiveOp::GaryContinue:
                 case ActiveOp::GaryRetry:
                 case ActiveOp::JerryGenerate:
-                    displayText = "cooking: " + juce::String(generationProgress) + "%";
+                    displayText = "cooking: " + juce::String(displayedProgress) + "%";
+                    break;
+                case ActiveOp::FoundationGenerate:
+                case ActiveOp::SA3Generate:
+                case ActiveOp::YueyGenerate:
+                case ActiveOp::YueyRemix:
+                    displayText = "generating: " + juce::String(displayedProgress) + "%";
                     break;
                 default:
-                    displayText = "processing: " + juce::String(generationProgress) + "%";
+                    displayText = "processing: " + juce::String(displayedProgress) + "%";
                     break;
             }
         }
@@ -5593,6 +6888,16 @@ void Gary4juceAudioProcessorEditor::drawOutputWaveform(juce::Graphics& g, const 
             g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
             g.setColour(juce::Colours::white);
             g.drawText("dragging to DAW...", area, juce::Justification::centred);
+        }
+        else
+        {
+            g.setFont(juce::FontOptions(13.0f));
+            g.setColour(juce::Colours::lightgrey.withAlpha(0.8f));
+            // Bottom left; the stems handle has the bottom right.
+            auto hintArea = juce::Rectangle<int>(
+                area.getX() + 4, area.getBottom() - 15, area.getWidth() - 8, 15);
+            g.drawText("double-click to select range", hintArea,
+                       juce::Justification::centredLeft);
         }
     }
     else
@@ -5703,17 +7008,32 @@ void Gary4juceAudioProcessorEditor::drawExistingOutput(juce::Graphics& g, const 
 
 void Gary4juceAudioProcessorEditor::playOutputAudio()
 {
-    if (!hasOutputAudio || !outputAudioFile.existsAsFile())
+    if (!hasOutputAudio || !outputAudioFile.exists())
     {
         showStatusMessage("no output audio to play");
         return;
     }
 
-    // Get current state from processor
-    bool processorIsPlaying = audioProcessor.getIsPlayingOutput();
-    bool processorIsPaused = audioProcessor.getIsPausedOutput();
+    if (activePlaybackSource != PlaybackSource::Output)
+    {
+        audioProcessor.stopOutputPlayback();
+        isPlayingInput = false;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
 
-    if (processorIsPlaying)
+        audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+        activePlaybackSource = PlaybackSource::Output;
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+    }
+
+    const bool processorIsPlaying = audioProcessor.getIsPlayingOutput();
+    const bool processorIsPaused = audioProcessor.getIsPausedOutput();
+
+    if (isPlayingOutput && processorIsPlaying)
     {
         // Currently playing -> pause it
         audioProcessor.pauseOutputPlayback();
@@ -5746,10 +7066,212 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
     }
 }
 
+// The recording buffer's player plays the saved buffer (myBuffer.wav), what every model reads; a
+// take you just recorded is one you just heard.
+bool Gary4juceAudioProcessorEditor::loadSavedBufferForInputPlayback()
+{
+    const auto file = getGaryBufferFile();
+    audioProcessor.loadOutputAudioForPlayback(file);
+    inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
+    if (inputPlaybackDuration <= 0.0)
+        return false;
+    activePlaybackSource = PlaybackSource::Input;
+    inputPlaybackSnapshotSamples = juce::jmax(1, savedSamples);
+    inputPlaybackFileTime = file.getLastModificationTime();
+    isPlayingInput = false;
+    isPausedInput = false;
+    return true;
+}
+
+bool Gary4juceAudioProcessorEditor::inputPlaybackIsCurrent() const
+{
+    return activePlaybackSource == PlaybackSource::Input && inputPlaybackSnapshotSamples > 0
+        && inputPlaybackFileTime == getGaryBufferFile().getLastModificationTime();
+}
+
+void Gary4juceAudioProcessorEditor::playInputAudio()
+{
+    if (!hasSavedRecordingBuffer())
+    {
+        showStatusMessage(isRecording ? "stop recording before playing the buffer"
+                                      : "save the buffer to play it");
+        return;
+    }
+
+    const bool needsFreshSnapshot = !inputPlaybackIsCurrent();
+
+    if (needsFreshSnapshot)
+    {
+        audioProcessor.stopOutputPlayback();
+
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+
+        if (!loadSavedBufferForInputPlayback())
+        {
+            showStatusMessage("could not load the saved buffer for playback");
+            activePlaybackSource = PlaybackSource::None;
+            return;
+        }
+        currentInputPlaybackPosition = 0.0;
+    }
+
+    if (isPlayingInput && audioProcessor.getIsPlayingOutput())
+    {
+        audioProcessor.pauseOutputPlayback();
+        isPlayingInput = false;
+        isPausedInput = true;
+        currentInputPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
+        updateInputPlayButtonIcon();
+        showStatusMessage("buffer playback paused", 1500);
+        repaint();
+    }
+    else if (isPausedInput || audioProcessor.getIsPausedOutput())
+    {
+        audioProcessor.startOutputPlayback(currentInputPlaybackPosition);
+        isPlayingInput = true;
+        isPausedInput = false;
+        updateInputPlayButtonIcon();
+        showStatusMessage("resumed buffer playback", 1500);
+    }
+    else
+    {
+        audioProcessor.startOutputPlayback(0.0);
+        isPlayingInput = true;
+        isPausedInput = false;
+        currentInputPlaybackPosition = 0.0;
+        updateInputPlayButtonIcon();
+        showStatusMessage("playing saved buffer...", 2000);
+    }
+}
+
+double Gary4juceAudioProcessorEditor::getInputWaveformDisplayDuration() const
+{
+    const double sampleRate = juce::jmax(1.0, audioProcessor.getCurrentSampleRate());
+    const double fullBufferDuration = juce::jmax(1.0,
+        (double)audioProcessor.getMaxRecordingSamples() / sampleRate);
+    const double contentDuration = juce::jmax(
+        (double)recordedSamples / sampleRate,
+        (double)savedSamples / sampleRate);
+    return contentDuration > 30.0 ? juce::jmax(fullBufferDuration, contentDuration)
+                                  : juce::jmin(30.0, fullBufferDuration);
+}
+
+int Gary4juceAudioProcessorEditor::getSA3MaximumDurationSeconds() const
+{
+    return audioProcessor.getIsUsingLocalhost()
+        ? SA3UI::kLocalMaximumDurationSeconds : SA3UI::kRemoteMaximumDurationSeconds;
+}
+
+double Gary4juceAudioProcessorEditor::getRecordingSelectionMaximumDuration() const
+{
+    const double modelLimit = getCurrentModelInputLimit();
+    return modelLimit > 0.0
+        ? juce::jmin(modelLimit, Gary4juceAudioProcessor::kMaximumImportedAudioSeconds)
+        : Gary4juceAudioProcessor::kMaximumImportedAudioSeconds;
+}
+
+double Gary4juceAudioProcessorEditor::getCurrentModelInputLimit() const
+{
+    switch (currentTab)
+    {
+        case ModelTab::Gary:
+        case ModelTab::Terry: return 30.0;
+        case ModelTab::Carey: return audioProcessor.getIsUsingLocalhost()
+            ? CareyUI::kLocalMaximumDurationSeconds : CareyUI::kRemoteMaximumDurationSeconds;
+        case ModelTab::Jerry: return jerrySubTab == JerrySubTab::SA3
+            ? getSA3MaximumDurationSeconds() : (jerrySubTab == JerrySubTab::Foundation ? 240.0 : 0.0);
+        case ModelTab::Yuey: return currentYueyMidiSelected ? 0.0 : 240.0;
+        default: return 0.0;   // Darius already creates its short, bar-aligned context copy.
+    }
+}
+
+juce::String Gary4juceAudioProcessorEditor::getInputDurationHint() const
+{
+    const double limit = getCurrentModelInputLimit();
+    const double seconds = (double)audioProcessor.getRecordedSamples()
+        / juce::jmax(1.0, audioProcessor.getCurrentSampleRate());
+    if (limit <= 0.0 || seconds <= limit + 0.001)
+        return {};
+    return "full track for stems; double-click: model input max " + juce::String(limit, 0) + "s";
+}
+
+bool Gary4juceAudioProcessorEditor::validateAudioDurationForModel(const juce::File& file,
+    double maximumSeconds, const juce::String& modelName)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0)
+    {
+        showStatusMessage("could not read audio for " + modelName, 5000);
+        return false;
+    }
+    const double seconds = (double)reader->lengthInSamples / reader->sampleRate;
+    if (seconds <= maximumSeconds + 0.001)
+        return true;
+    showStatusMessage(modelName + " input is limited to " + juce::String(maximumSeconds, 0)
+        + "s on " + audioProcessor.getCurrentBackendType()
+        + ". double-click buffer / crop output to select shorter audio", 9000);
+    return false;   // never upload or silently crop an oversized source
+}
+
+void Gary4juceAudioProcessorEditor::seekInputToPosition(double timeInSeconds)
+{
+    if (!hasSavedRecordingBuffer())
+        return;
+
+    if (!inputPlaybackIsCurrent())
+    {
+        audioProcessor.stopOutputPlayback();
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+
+        if (!loadSavedBufferForInputPlayback())
+            return;
+    }
+
+    const bool keepPlaying = isPlayingInput && audioProcessor.getIsPlayingOutput();
+    timeInSeconds = juce::jlimit(0.0, inputPlaybackDuration, timeInSeconds);
+    audioProcessor.seekOutputPlayback(timeInSeconds);
+    currentInputPlaybackPosition = timeInSeconds;
+    isPlayingInput = keepPlaying;
+    isPausedInput = !keepPlaying;
+    updateInputPlayButtonIcon();
+    repaint(waveformArea);
+}
+
+juce::File Gary4juceAudioProcessorEditor::getInputReselectionFile() const
+{
+    if (lastDraggedAudioFile.existsAsFile())
+        return lastDraggedAudioFile;
+
+    return getGaryBufferFile();
+}
+
+void Gary4juceAudioProcessorEditor::stopInputPlayback()
+{
+    if (activePlaybackSource == PlaybackSource::Input)
+        audioProcessor.stopOutputPlayback();
+
+    isPlayingInput = false;
+    isPausedInput = false;
+    currentInputPlaybackPosition = 0.0;
+    updateInputPlayButtonIcon();
+    repaint();
+}
+
 // Updated stopOutputPlayback() - distinguish between pause and full stop
 void Gary4juceAudioProcessorEditor::stopOutputPlayback()
 {
-    audioProcessor.stopOutputPlayback();
+    if (activePlaybackSource == PlaybackSource::Output)
+        audioProcessor.stopOutputPlayback();
 
     isPlayingOutput = false;
     isPausedOutput = false;
@@ -5771,6 +7293,25 @@ void Gary4juceAudioProcessorEditor::fullStopOutputPlayback()
 // Updated checkPlaybackStatus() - full stop when audio finishes naturally
 void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 {
+    checkStemPlaybackStatus();
+
+    if (isPlayingInput && activePlaybackSource == PlaybackSource::Input)
+    {
+        currentInputPlaybackPosition = audioProcessor.getOutputPlaybackPosition();
+
+        if (!audioProcessor.getIsPlayingOutput())
+        {
+            isPlayingInput = false;
+            isPausedInput = false;
+            currentInputPlaybackPosition = 0.0;
+            updateInputPlayButtonIcon();
+            showStatusMessage("buffer playback finished", 1500);
+        }
+
+        repaint();
+        return;
+    }
+
     // Update position from processor
     if (isPlayingOutput)
     {
@@ -5792,22 +7333,34 @@ void Gary4juceAudioProcessorEditor::checkPlaybackStatus()
 
 void Gary4juceAudioProcessorEditor::clearOutputAudio()
 {
+    currentOutputGenerationMetadata = juce::var();
+    getGaryOutputFile().withFileExtension(".metadata.json").deleteFile();
+    if (activePlaybackSource == PlaybackSource::Output)
+    {
+        stopOutputPlayback();
+        activePlaybackSource = PlaybackSource::None;
+    }
+
     hasOutputAudio = false;
     outputAudioBuffer.clear();
     playOutputButton.setEnabled(false);
-   clearOutputButton.setEnabled(false);
+    stopOutputButton.setEnabled(false);
+    clearOutputButton.setEnabled(false);
     cropButton.setEnabled(false);
     updateGaryButtonStates(!isGenerating);
 
     // Reset playback tracking
     currentPlaybackPosition = 0.0;
     totalAudioDuration = 0.0;
+    updateSA3EnablementSnapshot();
 
     // Optionally delete the file
-    if (outputAudioFile.existsAsFile())
+    if (outputAudioFile.exists())
     {
         outputAudioFile.deleteFile();
     }
+
+    clearYueyScore();
 
     showStatusMessage("output cleared", 2000);
     repaint();
@@ -5826,6 +7379,15 @@ void Gary4juceAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
     isDragging = false;
     dragStarted = false;
     dragStartPosition = event.getPosition();
+
+    if (waveformArea.contains(event.getPosition()) && recordedSamples > 0 && !isRecording)
+    {
+        const int waveformWidth = juce::jmax(1, waveformArea.getWidth() - 2);
+        const double clickPercent = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / waveformWidth);
+        seekInputToPosition(clickPercent * getInputWaveformDisplayDuration());
+        return;
+    }
 
     // Check if click is within the output waveform area
     if (outputWaveformArea.contains(event.getPosition()) && hasOutputAudio && totalAudioDuration > 0.0)
@@ -5858,6 +7420,15 @@ void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
     if (!isEditorValid.load())
     {
         DBG("MouseDrag ignored - editor not valid");
+        return;
+    }
+
+    if (waveformArea.contains(dragStartPosition) && recordedSamples > 0 && !isRecording)
+    {
+        const int waveformWidth = juce::jmax(1, waveformArea.getWidth() - 2);
+        const double dragPercent = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / waveformWidth);
+        seekInputToPosition(dragPercent * getInputWaveformDisplayDuration());
         return;
     }
 
@@ -5901,6 +7472,16 @@ void Gary4juceAudioProcessorEditor::mouseDrag(const juce::MouseEvent& event)
 
 void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
 {
+    if (waveformArea.contains(dragStartPosition) && recordedSamples > 0 && !isRecording)
+    {
+        const int waveformWidth = juce::jmax(1, waveformArea.getWidth() - 2);
+        const double releasePercent = juce::jlimit(0.0, 1.0,
+            (double)(event.x - waveformArea.getX() - 1) / waveformWidth);
+        seekInputToPosition(releasePercent * getInputWaveformDisplayDuration());
+        dragStartPosition = {};
+        return;
+    }
+
     // If we didn't drag, and we're in the output waveform area, perform seek
     if (!dragStarted && isMouseOverOutputWaveform(event.getPosition()) && 
         hasOutputAudio && totalAudioDuration > 0.0)
@@ -5928,8 +7509,560 @@ void Gary4juceAudioProcessorEditor::mouseUp(const juce::MouseEvent& event)
     juce::Component::mouseUp(event);
 }
 
+void Gary4juceAudioProcessorEditor::mouseDoubleClick(const juce::MouseEvent& event)
+{
+    // Check if double-click is on the recorded audio waveform area
+    if (waveformArea.contains(event.getPosition()))
+    {
+        if (recordedSamples <= 0 || isRecording)
+        {
+            showStatusMessage("finish recording before selecting a range", 2500);
+            return;
+        }
+
+        auto selectionSource = getInputReselectionFile();
+        if (!lastDraggedAudioFile.existsAsFile())
+        {
+            if (!ensureGaryDataDirectoryAvailable())
+                return;
+
+            selectionSource = getGaryBufferFile();
+            if (!audioProcessor.saveRecordingToFile(selectionSource))
+            {
+                showStatusMessage("could not prepare the recording buffer for editing", 4000);
+                return;
+            }
+            savedSamples = audioProcessor.getSavedSamples();
+        }
+
+        if (selectionSource.existsAsFile())
+        {
+            DBG("Double-click on waveform - reopening selection dialog for: " +
+                selectionSource.getFileName());
+            loadAudioFileIntoBuffer(selectionSource, true);
+        }
+        else
+        {
+            showStatusMessage("source audio is no longer available", 2500);
+        }
+        return;
+    }
+
+    if (outputWaveformArea.contains(event.getPosition()) && hasOutputAudio)
+    {
+        showOutputAudioSelectionDialog();
+        return;
+    }
+
+    // Call parent implementation for other areas
+    juce::Component::mouseDoubleClick(event);
+}
+
+void Gary4juceAudioProcessorEditor::showOutputAudioSelectionDialog()
+{
+    if (!hasOutputAudio || !outputAudioFile.existsAsFile() || totalAudioDuration <= 0.0)
+    {
+        showStatusMessage("output audio is no longer available", 2500);
+        return;
+    }
+
+    auto* dialog = new AudioSelectionDialog();
+    dialog->setSelectionWindowConstraints(1.0, totalAudioDuration, totalAudioDuration);
+
+    if (!dialog->loadAudioFile(outputAudioFile))
+    {
+        delete dialog;
+        showStatusMessage("failed to load output audio", 3000);
+        return;
+    }
+    const auto selectedSourceMetadata = loadOutputGenerationMetadata();
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned(dialog);
+    options.dialogTitle = "Select Output Audio Range";
+    options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = true;
+    options.resizable = true;
+    options.useBottomRightCornerResizer = false;
+
+    auto dialogWindow = options.launchAsync();
+    trackEditorModalWindow(dialogWindow);
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    dialog->onConfirm = [asyncAlive, editor, dialogWindow, selectedSourceMetadata](
+        const juce::AudioBuffer<float>& selectedBuffer,
+        double sourceSampleRate,
+        double selectionStartTime) mutable
+    {
+        const auto alive = asyncAlive.lock();
+        if (alive == nullptr || !alive->load(std::memory_order_acquire))
+            return;
+
+        editor->fullStopOutputPlayback();
+
+        if (!editor->writeAudioBufferToFileSafely(
+                selectedBuffer, sourceSampleRate, editor->outputAudioFile))
+        {
+            editor->showStatusMessage("failed to save selected output range", 4000);
+            return;
+        }
+
+        editor->persistOutputGenerationMetadata(generation_metadata::cropped(selectedSourceMetadata,
+            selectionStartTime, selectedBuffer.getNumSamples() / juce::jmax(1.0, sourceSampleRate)));
+        editor->loadOutputAudioFile();
+        editor->markYueyScoreUnaligned();
+        editor->audioProcessor.clearCurrentSessionId();
+        editor->audioProcessor.setUndoTransformAvailable(false);
+        editor->audioProcessor.setRetryAvailable(false);
+        editor->updateRetryButtonState();
+        editor->updateTerryEnablementSnapshot();
+
+        const double selectedDuration = selectedBuffer.getNumSamples()
+            / juce::jmax(1.0, sourceSampleRate);
+        editor->showStatusMessage(
+            "selected " + juce::String(selectionStartTime, 1) + "s to "
+                + juce::String(selectionStartTime + selectedDuration, 1) + "s from output",
+            3500);
+        editor->repaint();
+
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState(0);
+            dialogWindow->setVisible(false);
+        }
+    };
+
+    dialog->onCancel = [dialogWindow]() mutable
+    {
+        if (dialogWindow != nullptr)
+        {
+            dialogWindow->exitModalState(0);
+            dialogWindow->setVisible(false);
+        }
+    };
+}
+
+// ============================================================================
+// FileDragAndDropTarget Interface (for dragging audio INTO recording buffer)
+// ============================================================================
+
+bool Gary4juceAudioProcessorEditor::isInterestedInFileDrag(const juce::StringArray& files)
+{
+    // Only accept single audio files
+    if (files.size() != 1)
+        return false;
+
+    juce::File file(files[0]);
+
+    // Accept common audio formats
+    juce::String extension = file.getFileExtension().toLowerCase();
+    return extension == ".wav" || extension == ".mp3" ||
+           extension == ".aiff" || extension == ".flac" ||
+           extension == ".ogg" || extension == ".m4a";
+}
+
+void Gary4juceAudioProcessorEditor::fileDragEnter(const juce::StringArray& files, int x, int y)
+{
+    // Only show hover if dragging over the recording waveform area
+    if (waveformArea.contains(x, y))
+    {
+        isDragHoveringInput = true;
+        repaint();
+    }
+}
+
+void Gary4juceAudioProcessorEditor::fileDragExit(const juce::StringArray& files)
+{
+    isDragHoveringInput = false;
+    repaint();
+}
+
+void Gary4juceAudioProcessorEditor::filesDropped(const juce::StringArray& files, int x, int y)
+{
+    isDragHoveringInput = false;
+    repaint();
+
+    // Only accept drops on the recording waveform area
+    if (!waveformArea.contains(x, y))
+    {
+        showStatusMessage("drop audio files on the recording buffer", 3000);
+        return;
+    }
+
+    if (files.isEmpty())
+        return;
+
+    // Take the first file only
+    loadAudioFileIntoBuffer(juce::File(files[0]));
+}
+
+// The whole of `reader`'s audio, resampled to the host's rate when it differs.
+bool Gary4juceAudioProcessorEditor::readAudioAtHostRate(juce::AudioFormatReader& reader,
+                                                        juce::AudioBuffer<float>& buffer) const
+{
+    const int channels = (int) reader.numChannels;
+    const int length = (int) reader.lengthInSamples;
+    buffer.setSize(channels, length);
+    if (!reader.read(&buffer, 0, length, 0, true, true))
+        return false;
+
+    const double fileSampleRate = reader.sampleRate;
+    const double hostSampleRate = audioProcessor.getCurrentSampleRate();
+    if (std::abs(fileSampleRate - hostSampleRate) <= 1.0)
+        return true;
+
+    DBG("Resampling from " + juce::String(fileSampleRate) + "Hz to " + juce::String(hostSampleRate) + "Hz");
+    const int resampledLength = (int) ((double) length * hostSampleRate / fileSampleRate);
+    juce::AudioBuffer<float> resampled(channels, resampledLength);
+    for (int channel = 0; channel < channels; ++channel)
+    {
+        juce::LagrangeInterpolator interpolator;
+        interpolator.reset();
+        interpolator.process(fileSampleRate / hostSampleRate, buffer.getReadPointer(channel),
+                             resampled.getWritePointer(channel), resampledLength, length, 0);
+    }
+    buffer = std::move(resampled);
+    return true;
+}
+
+// A plugin that opens with nothing recorded shows the saved buffer, which is what its tools read:
+// myBuffer.wav loaded into the recording buffer, saved as it is.
+void Gary4juceAudioProcessorEditor::restoreSavedBufferIntoRecording()
+{
+    if (audioProcessor.isRecording() || audioProcessor.getRecordedSamples() > 0)
+        return;
+
+    const auto file = getGaryBufferFile();
+    if (!file.existsAsFile())
+        return;
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples <= 0 || reader->numChannels > 2
+        || (double) reader->lengthInSamples / reader->sampleRate > Gary4juceAudioProcessor::kMaximumImportedAudioSeconds)
+        return;
+
+    juce::AudioBuffer<float> buffer;
+    if (!readAudioAtHostRate(*reader, buffer) || !audioProcessor.loadAudioIntoRecordingBuffer(buffer))
+        return;
+
+    audioProcessor.markRecordingSaved(buffer.getNumSamples());
+    savedSamples = audioProcessor.getSavedSamples();
+    DBG("Opened with the saved buffer: " + juce::String(buffer.getNumSamples()) + " samples");
+}
+
+void Gary4juceAudioProcessorEditor::loadAudioFileIntoBuffer(const juce::File& audioFile, bool forceSelectionDialog)
+try
+{
+    // If this is a different file than the last one, reset the selection position
+    if (audioFile != lastDraggedAudioFile)
+    {
+        lastSelectionStartTime = 0.0;
+        DBG("New file detected - resetting selection position to start");
+    }
+
+    // Store for double-click reselection (do this after checking, before any early returns)
+    lastDraggedAudioFile = audioFile;
+
+    if (!audioFile.existsAsFile())
+    {
+        showStatusMessage("file not found", 2000);
+        return;
+    }
+
+    // Use existing format manager pattern from loadOutputAudioFile()
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(audioFile));
+
+    if (!reader)
+    {
+        showStatusMessage("couldn't read audio file", 3000);
+        return;
+    }
+
+    // Calculate duration
+    double fileDuration = (double)reader->lengthInSamples / reader->sampleRate;
+
+    DBG("Dropped file: " + audioFile.getFileName() +
+        " - Duration: " + juce::String(fileDuration, 2) + "s");
+
+    if (!std::isfinite(fileDuration) || fileDuration <= 0.0 || reader->numChannels > 2
+        || reader->lengthInSamples > std::numeric_limits<int>::max())
+    {
+        showStatusMessage("import a readable mono or stereo audio file", 5000);
+        return;
+    }
+    // Import length is independent of the selected generator or backend.
+    // Each request validates its own conditioning limit before reading/uploading audio.
+    const double maxBufferDuration = Gary4juceAudioProcessor::kMaximumImportedAudioSeconds;
+    const double directLoadLimit = maxBufferDuration;
+
+    if (fileDuration <= directLoadLimit && !forceSelectionDialog)
+    {
+        // File is short enough - load directly
+        DBG("File ≤" + juce::String(directLoadLimit, 0) + "s - loading directly into buffer");
+
+        juce::AudioBuffer<float> tempBuffer;
+        if (!readAudioAtHostRate(*reader, tempBuffer))
+        {
+            showStatusMessage("couldn't decode audio file", 5000);
+            return;
+        }
+
+        // Load into processor's recording buffer
+        if (activePlaybackSource == PlaybackSource::Input)
+        {
+            stopInputPlayback();
+            activePlaybackSource = PlaybackSource::None;
+        }
+        inputPlaybackSnapshotSamples = 0;
+        inputPlaybackDuration = 0.0;
+        if (!audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer))
+        {
+            showStatusMessage("couldn't load audio: maximum 10 minutes or insufficient memory", 6000);
+            return;
+        }
+        savedSamples = 0;
+        tempBuffer.setSize(0, 0);   // release the import copy before saving a snapshot
+
+        if (!ensureGaryDataDirectoryAvailable())
+            return;
+        auto bufferFile = getGaryBufferFile();
+
+        // Use the processor's existing saveRecordingToFile method to maintain consistency
+        if (!audioProcessor.saveRecordingToFile(bufferFile))
+        {
+            showStatusMessage("audio loaded, but the input buffer could not be saved", 7000);
+            return;
+        }
+
+        // Update savedSamples and UI state
+        savedSamples = audioProcessor.getSavedSamples();
+
+        showStatusMessage("loaded " + juce::String(fileDuration, 1) + "s from " +
+                         audioFile.getFileNameWithoutExtension(), 3000);
+
+        updateAllGenerationButtonStates();
+        repaint();
+    }
+    else
+    {
+        // File exceeds direct-load limit - show selection dialog
+        DBG("File >" + juce::String(directLoadLimit, 0) + "s (" + juce::String(fileDuration, 1) + "s) - showing selection dialog");
+
+        // Create the AudioSelectionDialog
+        auto* dialog = new AudioSelectionDialog();
+
+        const double selectionLimit = forceSelectionDialog
+            ? getRecordingSelectionMaximumDuration() : maxBufferDuration;
+        const double editableDuration = juce::jmin(fileDuration, selectionLimit);
+        dialog->setSelectionWindowConstraints(1.0, editableDuration, editableDuration);
+
+        // Load the audio file into the dialog
+        if (!dialog->loadAudioFile(audioFile))
+        {
+            delete dialog;
+            showStatusMessage("failed to load audio file", 3000);
+            return;
+        }
+
+        // If we're reopening the same file, restore the previous selection position
+        if (lastSelectionStartTime > 0.0)
+        {
+            dialog->setInitialSelectionStartTime(lastSelectionStartTime);
+            DBG("Restoring previous selection position: " + juce::String(lastSelectionStartTime, 2) + "s");
+        }
+
+        // Store filename for the confirm callback
+        juce::String filename = audioFile.getFileNameWithoutExtension();
+
+        // Create a DialogWindow to hold the dialog
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned(dialog);
+        options.dialogTitle = "Select Audio Segment - " + filename;
+        options.dialogBackgroundColour = juce::Colour(0x1e, 0x1e, 0x1e);
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        options.useBottomRightCornerResizer = false;
+
+        // Launch the dialog and capture the window reference
+        auto dialogWindow = options.launchAsync();
+        trackEditorModalWindow(dialogWindow);
+
+        const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+        auto* editor = this;
+
+        // Set up the confirm callback to process the selected segment and close the dialog
+        dialog->onConfirm = [asyncAlive, editor, filename, dialogWindow](const juce::AudioBuffer<float>& selectedBuffer,
+                                                              double sourceSampleRate,
+                                                              double selectionStartTime) mutable
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            DBG("Processing selected segment from " + filename + " starting at " + juce::String(selectionStartTime, 2) + "s");
+            DBG("Source sample rate: " + juce::String(sourceSampleRate) + " Hz");
+
+            // Store the selection start time for future reopening
+            editor->lastSelectionStartTime = selectionStartTime;
+
+            // Make a copy of the selected buffer
+            juce::AudioBuffer<float> tempBuffer;
+            try
+            {
+                tempBuffer.setSize(selectedBuffer.getNumChannels(), selectedBuffer.getNumSamples());
+            }
+            catch (const std::bad_alloc&)
+            {
+                editor->showStatusMessage("not enough memory to load this selection", 6000);
+                return;
+            }
+            for (int ch = 0; ch < selectedBuffer.getNumChannels(); ++ch)
+            {
+                tempBuffer.copyFrom(ch, 0, selectedBuffer, ch, 0, selectedBuffer.getNumSamples());
+            }
+
+            // Check if resampling is needed (match existing pattern from loadOutputAudioForPlayback)
+            double hostSampleRate = editor->audioProcessor.getCurrentSampleRate();
+            DBG("Host sample rate: " + juce::String(hostSampleRate) + " Hz");
+
+            if (std::abs(sourceSampleRate - hostSampleRate) > 1.0)  // Different sample rates
+            {
+                DBG("Resampling from " + juce::String(sourceSampleRate) +
+                    " Hz to " + juce::String(hostSampleRate) + " Hz");
+
+                // Calculate resampled size
+                double sizeRatio = hostSampleRate / sourceSampleRate;
+                int resampledNumSamples = (int)((double)tempBuffer.getNumSamples() * sizeRatio);
+                double speedRatio = sourceSampleRate / hostSampleRate;
+
+                DBG("Size ratio: " + juce::String(sizeRatio) +
+                    ", Speed ratio: " + juce::String(speedRatio));
+                DBG("Original samples: " + juce::String(tempBuffer.getNumSamples()) +
+                    ", Resampled samples: " + juce::String(resampledNumSamples));
+
+                // Create resampled buffer
+                juce::AudioBuffer<float> resampledBuffer;
+                try
+                {
+                    resampledBuffer.setSize(tempBuffer.getNumChannels(), resampledNumSamples);
+                }
+                catch (const std::bad_alloc&)
+                {
+                    editor->showStatusMessage("not enough memory to resample this selection", 6000);
+                    return;
+                }
+
+                // Resample each channel using JUCE's Lagrange interpolator
+                for (int channel = 0; channel < tempBuffer.getNumChannels(); ++channel)
+                {
+                    juce::LagrangeInterpolator interpolator;
+                    interpolator.reset();
+
+                    const float* readPtr = tempBuffer.getReadPointer(channel);
+                    float* writePtr = resampledBuffer.getWritePointer(channel);
+
+                    interpolator.process(
+                        speedRatio,             // Speed ratio for reading input
+                        readPtr,                // Source data
+                        writePtr,               // Destination data
+                        resampledNumSamples,    // Number of output samples
+                        tempBuffer.getNumSamples(), // Number of input samples available
+                        0                       // Wrap (0 = no wrap)
+                    );
+                }
+
+                DBG("Resampling complete");
+                tempBuffer = std::move(resampledBuffer);
+            }
+            else
+            {
+                DBG("Sample rates match - no resampling needed");
+            }
+
+            // Load into processor's recording buffer (now at correct host rate)
+            if (editor->activePlaybackSource == PlaybackSource::Input)
+            {
+                editor->stopInputPlayback();
+                editor->activePlaybackSource = PlaybackSource::None;
+            }
+            editor->inputPlaybackSnapshotSamples = 0;
+            editor->inputPlaybackDuration = 0.0;
+            const double finalDuration = (double)tempBuffer.getNumSamples() / hostSampleRate;
+            if (!editor->audioProcessor.loadAudioIntoRecordingBuffer(tempBuffer))
+            {
+                editor->showStatusMessage("couldn't load selection: maximum 10 minutes or insufficient memory", 6000);
+                return;
+            }
+            editor->savedSamples = 0;
+            tempBuffer.setSize(0, 0);
+
+            if (!editor->ensureGaryDataDirectoryAvailable())
+                return;
+            auto bufferFile = editor->getGaryBufferFile();
+
+            // Use the processor's existing saveRecordingToFile method
+            if (!editor->audioProcessor.saveRecordingToFile(bufferFile))
+            {
+                editor->showStatusMessage("selection loaded, but the input buffer could not be saved", 7000);
+                return;
+            }
+
+            // Update savedSamples and UI state
+            editor->savedSamples = editor->audioProcessor.getSavedSamples();
+
+            // Calculate actual duration from the final buffer
+            editor->showStatusMessage("loaded " + juce::String(finalDuration, 1) + "s from " + filename, 3000);
+
+            editor->updateAllGenerationButtonStates();
+            editor->repaint();
+
+            // Close the dialog
+            if (dialogWindow != nullptr)
+            {
+                dialogWindow->exitModalState(0);
+                dialogWindow->setVisible(false);
+            }
+        };
+
+        // Set up the cancel callback to close the dialog window
+        dialog->onCancel = [dialogWindow]() mutable
+        {
+            if (dialogWindow != nullptr)
+            {
+                dialogWindow->exitModalState(0);
+                dialogWindow->setVisible(false);
+            }
+        };
+    }
+}
+catch (const std::bad_alloc&)
+{
+    showStatusMessage("not enough memory to import this audio", 6000);
+}
+
 void Gary4juceAudioProcessorEditor::seekToPosition(double timeInSeconds)
 {
+    if (activePlaybackSource != PlaybackSource::Output && outputAudioFile.existsAsFile())
+    {
+        stopInputPlayback();
+        audioProcessor.loadOutputAudioForPlayback(outputAudioFile);
+        activePlaybackSource = PlaybackSource::Output;
+        isPlayingOutput = false;
+        isPausedOutput = false;
+        currentPlaybackPosition = 0.0;
+        pausedPosition = 0.0;
+        updatePlayButtonIcon();
+    }
+
     // Clamp time to valid range
     timeInSeconds = juce::jlimit(0.0, totalAudioDuration, timeInSeconds);
 
@@ -5974,6 +8107,9 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         return;
     }
 
+    if (!ensureGaryDataDirectoryAvailable())
+        return;
+
     if (!outputAudioFile.existsAsFile())
     {
         DBG("No output audio file to drag");
@@ -5997,33 +8133,25 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         // Protect file operations with critical section
         juce::ScopedLock lock(fileLock);
 
-        // Create dragged_audio folder inside Documents/gary4juce
-        auto garyDir = getGaryDir();
-        auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
-        DBG("dragged_audio dir: " + draggedAudioDir.getFullPathName());
+        auto draggedAudioDir = getGaryDraggedAudioDirectory();
 
-        pruneOldDraggedAudioFiles(draggedAudioDir);
-
-        auto dirResult = draggedAudioDir.createDirectory();
-        if (!draggedAudioDir.isDirectory() && !dirResult.wasOk())
+        // Ensure the dragged_audio directory exists
+        if (!draggedAudioDir.exists())
         {
-            DBG("Failed to create dragged_audio directory: " + dirResult.getErrorMessage());
-            showStatusMessage("drag failed - folder creation error", 2000);
-            isDragInProgress.store(false);
-            return;
+            auto result = draggedAudioDir.createDirectory();
+            if (!result.wasOk())
+            {
+                DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
+                showStatusMessage("drag failed - folder creation error", 2000);
+                isDragInProgress.store(false);
+                return;
+            }
         }
 
         // Create a unique filename with timestamp for the drag
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
-        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
-
-        if (!ensureParentDirExists(uniqueDragFile, "startAudioDrag"))
-        {
-            showStatusMessage("drag failed - folder creation error", 2000);
-            isDragInProgress.store(false);
-            return;
-        }
+        auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
+        uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName).getNonexistentSibling(false);
 
         // SAFETY: More robust file copy with validation
         if (!outputAudioFile.existsAsFile())
@@ -6033,27 +8161,26 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
             return;
         }
 
-        // Copy the current output file to the unique drag file
-        if (!outputAudioFile.copyFileTo(uniqueDragFile))
+        // The canonical output remains WAV. Only this user-facing drag artifact
+        // is converted when FLAC has explicitly been selected in storage settings.
+        if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
-            DBG("Failed to create unique copy for dragging");
-            showStatusMessage("drag failed - file copy error", 2000);
+            DBG("Failed to create dragged audio file");
+            showStatusMessage("drag failed - could not create "
+                + getDraggedAudioFileExtension().substring(1).toUpperCase()
+                + " file", 3000);
             isDragInProgress.store(false);
             return;
         }
 
         // SAFETY: Validate the copy was successful
-        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() <= 0)
         {
             DBG("Copy validation failed");
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
             isDragInProgress.store(false);
             return;
-        }
-        else
-        {
-            DBG("Prepared drag copy: " + uniqueDragFile.getFullPathName()
-                + " (" + juce::String(uniqueDragFile.getSize()) + " bytes)");
         }
 
     } // Release lock after file operations are complete
@@ -6068,52 +8195,41 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
     // Small delay to ensure file is fully written
     juce::Thread::sleep(50); // Increased from 10ms
 
-    // Create array of files to drag (must stay alive for the OS while drag is active)
-    currentExternalDragFiles.clear();
-    currentExternalDragFiles.add(uniqueDragFile.getFullPathName());
+    // Create array of files to drag
+    auto filesToDrag = std::make_shared<juce::StringArray>();
+    filesToDrag->add(uniqueDragFile.getFullPathName());
     DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
-    auto dragCallback = [this, uniqueDragFile]()
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+
+    // SAFETY: Enhanced callback with multiple safety checks
+    auto success = performExternalDragDropOfFiles(*filesToDrag, false, this, [asyncAlive, editor, uniqueDragFile, filesToDrag]()
         {
             // SAFETY CHECK 1: Component validity
-            if (!isEditorValid.load())
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
             {
                 DBG("Drag callback ignored - editor no longer valid");
-                isDragInProgress.store(false);
-                currentExternalDragFiles.clear();
-                // Still try to clean up the file
-                if (uniqueDragFile.existsAsFile())
-                {
-                    uniqueDragFile.deleteFile();
-                }
                 return;
             }
 
             // SAFETY CHECK 2: Use MessageManager to ensure main thread execution
-            juce::MessageManager::callAsync([this, uniqueDragFile]()
+            juce::MessageManager::callAsync([asyncAlive, editor, uniqueDragFile]()
                 {
                     // SAFETY CHECK 3: Double-check component validity on main thread
-                    if (!isEditorValid.load())
+                    const auto alive = asyncAlive.lock();
+                    if (alive == nullptr || !alive->load(std::memory_order_acquire))
                     {
                         DBG("Drag callback ignored on main thread - editor no longer valid");
-                        isDragInProgress.store(false);
-                        currentExternalDragFiles.clear();
-                        if (uniqueDragFile.existsAsFile())
-                        {
-                            uniqueDragFile.deleteFile();
-                        }
                         return;
                     }
 
                     DBG("Drag operation completed successfully");
-                    showStatusMessage("audio drag ready (" + uniqueDragFile.getFileName() + ")", 2500);
-                    isDragInProgress.store(false);
-
-                    DBG("Drag file retained for host import: " + uniqueDragFile.getFullPathName());
-                    currentExternalDragFiles.clear();
+                    editor->showStatusMessage("audio dragged successfully!", 2000);
+                    editor->isDragInProgress.store(false);
                 });
-        };
-
-    auto success = performExternalDragDropOfFiles(currentExternalDragFiles, false, this, dragCallback);
+        });
 
     if (!success)
     {
@@ -6125,180 +8241,136 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         {
             juce::ScopedLock lock(fileLock);
             uniqueDragFile.deleteFile();
+            uniqueDragFile.withFileExtension(".json").deleteFile();
         }
         catch (...)
         {
             DBG("Exception during drag cleanup - ignoring");
         }
         isDragInProgress.store(false);
-        currentExternalDragFiles.clear();
     }
 }
 
 #if JUCE_LINUX
 void Gary4juceAudioProcessorEditor::copyDraggedAudioFileToClipboard()
 {
-    if (!outputAudioFile.existsAsFile())
+    if (!ensureGaryDataDirectoryAvailable() || !hasOutputAudio || !outputAudioFile.existsAsFile())
     {
         showStatusMessage("no output audio to copy", 2500);
         return;
     }
-
-    if (outputAudioFile.getSize() < 1000)
-    {
-        showStatusMessage("output audio too small to copy", 2500);
-        return;
-    }
-
-    auto prepared = prepareFileForDrag();
+    juce::ScopedLock lock(fileLock);
+    const auto prepared = prepareFileForDrag();
     if (!prepared.first || !prepared.second.existsAsFile())
     {
         showStatusMessage("copy failed - unable to create file", 2500);
         return;
     }
-
-    lastCopiedDragFile = prepared.second.getFullPathName();
-    DBG("Saved Linux copy to dragged_audio: " + lastCopiedDragFile);
-
     prepared.second.revealToUser();
     showStatusMessage("saved to dragged_audio: " + prepared.second.getFileName()
-                      + " (drag from Bitwig browser / file manager)", 4500);
+        + " (drag from your DAW browser or file manager)", 4500);
 }
 #endif
 
 std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 {
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    auto postDragFailure = [asyncAlive, editor](const juce::String& message)
+    {
+        juce::MessageManager::callAsync([asyncAlive, editor, message]()
+        {
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire))
+                return;
+
+            editor->showStatusMessage(message, 2000);
+        });
+    };
+
     try
     {
-        // Create dragged_audio folder
-        auto garyDir = getGaryDir();
-        auto draggedAudioDir = garyDir.getChildFile("dragged_audio");
-        DBG("prepareFileForDrag dir: " + draggedAudioDir.getFullPathName());
+        auto draggedAudioDir = getGaryDraggedAudioDirectory();
 
-        pruneOldDraggedAudioFiles(draggedAudioDir);
-
-        auto mk = draggedAudioDir.createDirectory();
-        if (!draggedAudioDir.isDirectory() && !mk.wasOk())
+        if (!draggedAudioDir.exists())
         {
-            DBG("Failed to create dragged_audio directory: " + mk.getErrorMessage());
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - folder creation error", 2000);
-                });
-            return { false, juce::File{} };
+            auto result = draggedAudioDir.createDirectory();
+            if (!result.wasOk())
+            {
+                DBG("Failed to create dragged_audio directory: " + result.getErrorMessage());
+                postDragFailure("drag failed - folder creation error");
+                return { false, juce::File{} };
+            }
         }
 
         // Create unique filename with timestamp
         auto timestamp = juce::String(juce::Time::getCurrentTime().toMilliseconds());
-        auto uniqueFileName = "gary4juce_" + timestamp + ".wav";
-        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName);
+        auto uniqueFileName = "gary4juce_" + timestamp + getDraggedAudioFileExtension();
+        auto uniqueDragFile = draggedAudioDir.getChildFile(uniqueFileName).getNonexistentSibling(false);
 
-        if (!ensureParentDirExists(uniqueDragFile, "prepareFileForDrag"))
+        if (!createDraggedAudioFile(outputAudioFile, uniqueDragFile))
         {
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - folder creation error", 2000);
-                });
+            DBG("Failed to create dragged audio file");
+            postDragFailure("drag failed - audio conversion error");
             return { false, juce::File{} };
         }
-
-        // THREAD SAFETY: Use a more robust file copy approach
-        juce::FileInputStream sourceStream(outputAudioFile);
-        if (!sourceStream.openedOk())
-        {
-            DBG("Failed to open source file for reading");
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - source file locked", 2000);
-                });
-            return { false, juce::File{} };
-        }
-
-        juce::FileOutputStream destStream(uniqueDragFile);
-        if (!destStream.openedOk())
-        {
-            DBG("Failed to open destination file for writing");
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - destination error", 2000);
-                });
-            return { false, juce::File{} };
-        }
-
-        // Copy file data in chunks to avoid locking issues
-        const int bufferSize = 8192;
-        char buffer[bufferSize];
-
-        while (!sourceStream.isExhausted())
-        {
-            auto bytesRead = sourceStream.read(buffer, bufferSize);
-            if (bytesRead > 0)
-            {
-                destStream.write(buffer, bytesRead);
-            }
-        }
-
-        destStream.flush();
 
         // Verify the copy worked
-        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() < 1000)
+        if (!uniqueDragFile.existsAsFile() || uniqueDragFile.getSize() <= 0)
         {
             DBG("File copy verification failed");
             uniqueDragFile.deleteFile();
-            juce::MessageManager::callAsync([this]() {
-                showStatusMessage("drag failed - copy verification failed", 2000);
-                });
+            uniqueDragFile.withFileExtension(".json").deleteFile();
+            postDragFailure("drag failed - copy verification failed");
             return { false, juce::File{} };
         }
 
-        DBG("File prepared for drag: " + uniqueDragFile.getFullPathName()
-            + " (" + juce::String(uniqueDragFile.getSize()) + " bytes)");
+        DBG("File prepared for drag: " + uniqueDragFile.getFullPathName());
         return { true, uniqueDragFile };
     }
     catch (const std::exception& e)
     {
         DBG("Exception in prepareFileForDrag: " + juce::String(e.what()));
-        juce::MessageManager::callAsync([this]() {
-            showStatusMessage("drag failed - exception occurred", 2000);
-            });
+        postDragFailure("drag failed - exception occurred");
         return { false, juce::File{} };
     }
 }
 
 bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragFile)
 {
-    currentExternalDragFiles.clear();
-    currentExternalDragFiles.add(dragFile.getFullPathName());
+    auto filesToDrag = std::make_shared<juce::StringArray>();
+    filesToDrag->add(dragFile.getFullPathName());
 
     DBG("Starting thread-safe drag for: " + dragFile.getFullPathName());
 
     // THREAD SAFETY: Use WeakReference to avoid accessing deleted component
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
-    auto dragCallback = [safeThis, dragFile]()
-        {
-            if (auto* editor = safeThis.getComponent())
-            {
-                juce::MessageManager::callAsync([safeThis, dragFile]()
-                    {
-                        if (auto* editor2 = safeThis.getComponent())
-                        {
-                            editor2->showStatusMessage("audio drag ready (" + dragFile.getFileName() + ")", 2500);
-                            DBG("Drag operation completed successfully; file retained: " + dragFile.getFullPathName());
-                        editor2->currentExternalDragFiles.clear();
-                    }
-                });
-            }
-            else
-            {
-                DBG("Component deleted during drag - cleaning up file");
-                dragFile.deleteFile();
-            }
-        };
 
-    auto success = performExternalDragDropOfFiles(currentExternalDragFiles, false, this, dragCallback);
+    auto success = performExternalDragDropOfFiles(*filesToDrag, false, this,
+        [safeThis, dragFile, filesToDrag]() {
+            // THREAD SAFETY: Always check if component still exists
+            if (safeThis.getComponent() == nullptr)
+            {
+                DBG("Component deleted during drag - preserving handed-off drag file");
+                return;
+            }
+
+            // THREAD SAFETY: Call UI updates on message thread
+            juce::MessageManager::callAsync([safeThis, dragFile]() {
+                if (auto* editor = safeThis.getComponent())
+                {
+                    editor->showStatusMessage("audio dragged successfully!", 2000);
+                    DBG("Drag operation completed successfully");
+                }
+                });
+        });
 
     if (!success)
     {
         DBG("Failed to start drag operation");
         showStatusMessage("drag failed - try again", 2000);
         dragFile.deleteFile();
-        currentExternalDragFiles.clear();
+        dragFile.withFileExtension(".json").deleteFile();
         return false;
     }
 
@@ -6333,6 +8405,24 @@ void Gary4juceAudioProcessorEditor::updatePlayButtonIcon()
             playOutputButton.setTooltip("resume");
         else
             playOutputButton.setTooltip("play output...duh");
+    }
+}
+
+void Gary4juceAudioProcessorEditor::updateInputPlayButtonIcon()
+{
+    if (!playIcon || !pauseIcon)
+        return;
+
+    if (isPlayingInput)
+    {
+        playInputButton.setIcon(pauseIcon->createCopy());
+        playInputButton.setTooltip("pause recording buffer");
+    }
+    else
+    {
+        playInputButton.setIcon(playIcon->createCopy());
+        playInputButton.setTooltip(isPausedInput ? "resume recording buffer"
+                                                 : "play recording buffer");
     }
 }
 
@@ -6402,6 +8492,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     // Create a COPY of the file path to avoid any reference issues
     juce::File sourceFile = outputAudioFile;
+    const auto sourceMetadata = loadOutputGenerationMetadata();
 
     DBG("Reading source file: " + sourceFile.getFullPathName());
     DBG("File exists: " + juce::String(sourceFile.exists() ? "yes" : "no"));
@@ -6454,13 +8545,6 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     DBG("Writing to temporary file: " + tempFile.getFullPathName());
 
-    if (!ensureParentDirExists(tempFile, "cropAudioAtCurrentPosition"))
-    {
-        showStatusMessage("failed to access temp folder", 3000);
-        DBG("ERROR: Cannot create parent for " + tempFile.getFullPathName());
-        return;
-    }
-
     // Write to temporary file
     auto wavFormat = formatManager.findFormatForFileExtension("wav");
     if (!wavFormat)
@@ -6480,7 +8564,7 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     auto writer = std::unique_ptr<juce::AudioFormatWriter>(
         wavFormat->createWriterFor(fileStream.get(), reader->sampleRate,
-            (unsigned int)reader->numChannels, 24, {}, 0));
+            (unsigned int)reader->numChannels, 16, {}, 0));
 
     if (!writer)
     {
@@ -6539,6 +8623,8 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
     DBG("Moved temp file to original location");
     DBG("Final file size: " + juce::String(sourceFile.getSize()) + " bytes");
 
+    persistOutputGenerationMetadata(generation_metadata::cropped(sourceMetadata, 0.0,
+        samplesToKeep / reader->sampleRate));
     // Reload the cropped audio (this will update currentAudioSampleRate)
     loadOutputAudioFile();
 
@@ -6553,6 +8639,10 @@ void Gary4juceAudioProcessorEditor::cropAudioAtCurrentPosition()
 
     showStatusMessage("audio cropped at " + juce::String(cropPosition, 1) + "s", 3000);
     DBG("Crop operation completed successfully");
+
+    // The composition is still the one the user rendered, but bar 1 has moved,
+    // so the midi no longer lines up with what they will hear; it is dropped.
+    markYueyScoreUnaligned();
 
     // Store previous state for logging
     juce::String previousSessionId = audioProcessor.getCurrentSessionId();
@@ -6617,13 +8707,30 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     }
 
     // Connection status display (left side of connection area)
-    g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
-    
+
     // Calculate the text area (left side, leaving space for button stack on right)
-    auto connectionTextArea = connectionStatusArea.withTrimmedRight(120); // Reduced space for buttons, more for text
-    
-    if (isConnected)
+    auto connectionTextArea = connectionStatusArea.withTrimmedRight(96);
+
+    if (audioProcessor.getIsUsingLocalhost())
     {
+        g.setFont(juce::FontOptions(13.5f, juce::Font::bold));
+        const auto lineOne = getLocalConnectionLineOne();
+        const auto lineTwo = juce::String(localOnlineCount) + "/7 online";
+        const bool anyOnline = localOnlineCount > 0;
+        const bool activeOnline = isActiveLocalServiceOnline();
+
+        if (!anyOnline)
+            g.setColour(juce::Colour(0xff666666));
+        else if (activeOnline)
+            g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffb7ffd1));
+        else
+            g.setColour(juce::Colour(0xffe1c46d)); // Yellow/amber for partial
+
+        g.drawFittedText(lineOne + "\n" + lineTwo, connectionTextArea, juce::Justification::centredLeft, 2);
+    }
+    else if (isConnected)
+    {
+        g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
         // White flashing for connected state
         g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffcccccc));
         juce::String statusText = "connected (" + audioProcessor.getCurrentBackendType() + ")";
@@ -6631,6 +8738,7 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     }
     else
     {
+        g.setFont(juce::FontOptions(16.0f, juce::Font::bold));
         // Static grey for disconnected state
         g.setColour(juce::Colour(0xff666666));
         juce::String statusText = "disconnected (" + audioProcessor.getCurrentBackendType() + ")";
@@ -6644,6 +8752,39 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 
     // Draw the INPUT waveform
     drawWaveform(g, waveformArea);
+
+    // Add drag hover feedback for input waveform
+    if (isDragHoveringInput)
+    {
+        g.setColour(juce::Colours::yellow.withAlpha(0.3f));
+        g.fillRoundedRectangle(waveformArea.toFloat(), 4.0f);
+
+        g.setColour(juce::Colours::yellow);
+        g.drawRoundedRectangle(waveformArea.toFloat(), 4.0f, 2.0f);
+
+        g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        g.setColour(juce::Colours::white);
+        g.drawText("drop audio file here", waveformArea, juce::Justification::centred);
+    }
+
+    // Draw upload icon overlay on recording waveform
+    if (uploadIcon && !isRecording)
+    {
+        auto uploadBounds = uploadButton.getBounds();
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(uploadBounds.toFloat(), 3.0f);
+
+        if (uploadButton.isOver() || uploadButton.isDown())
+        {
+            g.setColour(juce::Colours::orange.withAlpha(0.8f));
+            g.drawRoundedRectangle(uploadBounds.toFloat(), 3.0f, 1.5f);
+        }
+
+        auto iconArea = uploadBounds.reduced(6);
+        uploadIcon->drawWithin(g, iconArea.toFloat(),
+            juce::RectanglePlacement::centred, 1.0f);
+    }
 
     // Status text below input waveform (using reserved area)
     g.setFont(juce::FontOptions(12.0f));
@@ -6663,15 +8804,21 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         }
         else if (recordedSamples > 0)
         {
-            statusText = "READY";
-            g.setColour(juce::Colours::white);
+            statusText = getInputDurationHint();
+            const bool oversized = statusText.isNotEmpty();
+            if (!oversized)
+                statusText = "READY";
+            g.setColour(oversized ? juce::Colours::orange : juce::Colours::white);
         }
         else
         {
-            statusText = "press PLAY in DAW to start recording";
+            bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+            statusText = isStandalone
+                ? "drag an audio file here to use with gary, carey, terry, or darius"
+                : "press PLAY in DAW to start recording";
             g.setColour(juce::Colours::grey);
         }
-        g.drawText(statusText, inputStatusArea, juce::Justification::centred);
+        g.drawFittedText(statusText, inputStatusArea, juce::Justification::centred, 1, 0.75f);
     }
 
     if (recordedSamples > 0)
@@ -6682,14 +8829,16 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         double savedSeconds = (double)savedSamples / currentSampleRate;
 
         juce::String infoText;
-        if (savedSamples < recordedSamples)
+        if (isRecording || audioProcessor.isRecordingUnsaved())
         {
-            infoText = juce::String::formatted("%.1fs recorded (%.1fs saved) - %d samples",
-                recordedSeconds, savedSeconds, recordedSamples);
+            const double savedBufferSeconds = savedBufferPreview.peaks.empty() ? savedSeconds : savedBufferPreview.seconds;
+            infoText = savedBufferSeconds > 0.0
+                ? juce::String::formatted("%.1fs - unsaved (saved buffer %.1fs)", recordedSeconds, savedBufferSeconds)
+                : juce::String::formatted("%.1fs - unsaved", recordedSeconds);
         }
         else
         {
-            infoText = juce::String::formatted("%.1fs - %d samples - Saved",
+            infoText = juce::String::formatted("%.1fs - %d samples - saved",
                 recordedSeconds, recordedSamples);
         }
 
@@ -6704,26 +8853,12 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0x15, 0x15, 0x15));
     g.fillRoundedRectangle(fullTabArea.toFloat(), 5.0f);
 
-    // Tab section border (color depends on current tab and connection)
-    if (isConnected)
-    {
-        switch (currentTab)
-        {
-        case ModelTab::Gary:
-            g.setColour(juce::Colours::darkred.withAlpha(0.6f));
-            break;
-        case ModelTab::Jerry:
-            g.setColour(juce::Colours::darkgreen.withAlpha(0.6f));
-            break;
-        case ModelTab::Terry:
-            g.setColour(juce::Colours::darkblue.withAlpha(0.6f));
-            break;
-        }
-    }
-    else
-    {
-        g.setColour(juce::Colour(0x30, 0x30, 0x30));
-    }
+    // Tab section border - gary's red for every tab. Giving each model its own colour
+    // meant wide mode drew, say, a green divider down the middle of a red plugin.
+    const bool tabBorderOnline = audioProcessor.getIsUsingLocalhost() ? isActiveLocalServiceOnline() : isConnected;
+    g.setColour(tabBorderOnline
+        ? juce::Colours::darkred.withAlpha(0.6f)
+        : juce::Colour(0x30, 0x30, 0x30));
     g.drawRoundedRectangle(fullTabArea.toFloat(), 5.0f, 1.0f);
 
     // Draw the OUTPUT waveform
@@ -6760,12 +8895,79 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         cropIcon->drawWithin(g, iconArea.toFloat(),
             juce::RectanglePlacement::centred, 1.0f);
     }
+
+    // The score handles, drawn the same way as the crop overlay opposite them.
+    const auto drawScoreHandle = [&g](const juce::DrawableButton& button,
+                                      const juce::String& text)
+    {
+        if (!button.isVisible())
+            return;
+
+        auto bounds = button.getBounds().toFloat();
+        const bool lit = button.isOver() || button.isDown();
+        // Dimmed while it cannot run: stems before setup (a click opens its settings) or during a
+        // generation (disabled). Its tooltip says why.
+        const bool enabled = button.isEnabled() && !(bool) button.getProperties()["needsSetup"];
+
+        g.setColour(juce::Colours::black.withAlpha(0.6f));
+        g.fillRoundedRectangle(bounds, 3.0f);
+        g.setColour(lit ? juce::Colours::orange.withAlpha(0.85f)
+                        : juce::Colours::white.withAlpha(enabled ? 0.35f : 0.15f));
+        g.drawRoundedRectangle(bounds, 3.0f, 1.0f);
+
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.setColour(lit ? juce::Colours::orange : juce::Colours::white.withAlpha(enabled ? 0.85f : 0.3f));
+        g.drawText(text, button.getBounds(), juce::Justification::centred);
+    };
+
+    drawScoreHandle(yueyMidiButton, "midi");
+    drawScoreHandle(yueyScoreButton, "score");
+    drawScoreHandle(stemsButton, "stems");
+    drawScoreHandle(stemsInputButton, "stems");
 }
 
 // ========== UPDATED RESIZED METHOD ==========
 void Gary4juceAudioProcessorEditor::resized()
 {
     auto bounds = getLocalBounds();
+
+    // Automation lanes take a column on the right; the layouts keep their size beside it.
+    const bool lanesShown = sa3LanePanelShown();
+    if (sa3LaneEditor != nullptr)
+    {
+        sa3LaneEditor->setVisible(lanesShown);
+        if (lanesShown)
+            sa3LaneEditor->setBounds(bounds.removeFromRight(kSA3LanePanelWidth).reduced(6, 10));
+    }
+
+    if (usingWideLayout())
+    {
+        auto leftColumn = bounds.removeFromLeft(kWideLeftColumnWidth);
+        bounds.removeFromLeft(kWideColumnGap);
+
+        layoutInputSection(leftColumn.removeFromTop(kWideInputSectionHeight));
+        layoutOutputSection(leftColumn);
+        layoutModelSection(bounds);
+        return;
+    }
+
+    const auto availableHeight = bounds.getHeight();
+    const auto inputSectionHeight = juce::jmin(320, availableHeight - 380);
+
+    // The model section takes whatever is left rather than a fixed 320, so the
+    // slack under the panel goes to the panel instead of sitting empty above
+    // the output divider. Output is pinned to its own minimum (waveform
+    // minHeight 80 plus 100 of fixed rows), so it is claimed from the bottom
+    // first and never squeezed.
+    layoutInputSection(bounds.removeFromTop(inputSectionHeight));
+    auto outputSectionBounds = bounds.removeFromBottom(200);
+    layoutModelSection(bounds);
+    layoutOutputSection(outputSectionBounds);
+}
+
+void Gary4juceAudioProcessorEditor::layoutInputSection(juce::Rectangle<int> sectionBounds)
+{
+    auto topSectionBounds = sectionBounds;
 
     // ========== TOP SECTION (FlexBox Implementation) ==========
 // This replaces the manual "removeFromTop(300)" approach
@@ -6781,10 +8983,10 @@ void Gary4juceAudioProcessorEditor::resized()
     titleItem.height = 40;  // Title + some padding
     titleItem.margin = juce::FlexItem::Margin(8, 0, 0, 0);  // 10px top margin
 
-    // 2. Connection status area (fixed height) - now includes check button
+    // 2. Connection status area (fixed height) - backend toggle + check connection icon
     juce::Component connectionComponent;
     juce::FlexItem connectionItem(connectionComponent);
-    connectionItem.height = 35;  // Taller to accommodate button
+    connectionItem.height = 60;
     connectionItem.margin = juce::FlexItem::Margin(5, 20, 5, 20);
 
     // 3. Recording label area (fixed height)
@@ -6828,12 +9030,6 @@ void Gary4juceAudioProcessorEditor::resized()
     topSectionFlexBox.items.add(inputInfoItem);
     topSectionFlexBox.items.add(bufferControlsItem);
 
-    // Calculate how much space the top section needs (flexible based on content)
-    auto availableHeight = bounds.getHeight();
-    auto estimatedTopSectionHeight = juce::jmin(320, availableHeight - 380);  // Leave 380px for tabs+output
-
-    auto topSectionBounds = bounds.removeFromTop(estimatedTopSectionHeight);
-
     // Perform the layout for top section
     topSectionFlexBox.performLayout(topSectionBounds);
 
@@ -6842,17 +9038,47 @@ void Gary4juceAudioProcessorEditor::resized()
     connectionStatusArea = topSectionFlexBox.items[1].currentBounds.toNearestInt();
     recordingLabelArea = topSectionFlexBox.items[2].currentBounds.toNearestInt();
     waveformArea = topSectionFlexBox.items[3].currentBounds.toNearestInt();
+
+    auto updatesButtonBounds = juce::Rectangle<int>(
+        titleArea.getX() + 16,
+        titleArea.getY() + (titleArea.getHeight() - 24) / 2,
+        112,
+        24);
+    checkUpdatesButton.setBounds(updatesButtonBounds);
+
+    auto licenseButtonBounds = juce::Rectangle<int>(
+        titleArea.getRight() - 72,
+        titleArea.getY() + (titleArea.getHeight() - 24) / 2,
+        56,
+        24);
+    licenseButton.setBounds(licenseButtonBounds);
+
+    auto settingsButtonBounds = juce::Rectangle<int>(
+        licenseButtonBounds.getX() - 38,
+        titleArea.getY() + (titleArea.getHeight() - 30) / 2,
+        30,
+        30);
+    settingsButton.setBounds(settingsButtonBounds);
+
+    // Upload button overlay on recording waveform (top-right corner, matching crop button style)
+    auto uploadOverlayArea = juce::Rectangle<int>(
+        waveformArea.getRight() - 50,
+        waveformArea.getY() + 5,
+        45, 25
+    );
+    uploadButton.setBounds(uploadOverlayArea);
+
     inputStatusArea = topSectionFlexBox.items[4].currentBounds.toNearestInt();
     inputInfoArea = topSectionFlexBox.items[5].currentBounds.toNearestInt();
 
     // Manual layout for connection status area: stacked buttons on the right
-    auto buttonStackArea = connectionStatusArea.removeFromRight(120); // Reserve space for buttons
-    
-    // Stack the buttons vertically in the button area
-    auto toggleButtonBounds = buttonStackArea.removeFromTop(25).withSizeKeepingCentre(80, 25);
-    buttonStackArea.removeFromTop(5); // Small gap
-    auto checkButtonBounds = buttonStackArea.removeFromTop(28).withSizeKeepingCentre(120, 28);
-    
+    auto buttonStackArea = connectionStatusArea.removeFromRight(96).reduced(0, 2);
+    constexpr int stackGap = 4;
+
+    auto toggleButtonBounds = buttonStackArea.removeFromTop(22).withSizeKeepingCentre(82, 22);
+    buttonStackArea.removeFromTop(stackGap);
+    auto checkButtonBounds = buttonStackArea.removeFromTop(34).withSizeKeepingCentre(40, 34);
+
     // Position the buttons
     backendToggleButton.setBounds(toggleButtonBounds);
     checkConnectionButton.setBounds(checkButtonBounds);
@@ -6860,17 +9086,36 @@ void Gary4juceAudioProcessorEditor::resized()
     // Layout buffer control buttons within their allocated space
     auto bufferControlsBounds = topSectionFlexBox.items[6].currentBounds.toNearestInt();
 
-    // Layout buffer control buttons (only Save and Clear now)
+    // Keep the audition controls compact so Save Buffer remains the primary
+    // action in this single-row layout.
     juce::FlexBox bufferButtonsFlexBox;
     bufferButtonsFlexBox.flexDirection = juce::FlexBox::Direction::row;
     bufferButtonsFlexBox.justifyContent = juce::FlexBox::JustifyContent::center;
     bufferButtonsFlexBox.alignItems = juce::FlexBox::AlignItems::center;
 
-    // Save buffer button (left side)
-    juce::FlexItem saveItem(saveBufferButton);
-    saveItem.width = 150;  // Fixed width
-    saveItem.height = 35;
-    saveItem.margin = juce::FlexItem::Margin(0, 10, 0, 0);
+    bool isStandalone = juce::JUCEApplicationBase::isStandaloneApp();
+
+    juce::FlexItem playInputItem(playInputButton);
+    playInputItem.width = 30;
+    playInputItem.height = 30;
+    playInputItem.margin = juce::FlexItem::Margin(0, 4, 0, 0);
+    bufferButtonsFlexBox.items.add(playInputItem);
+
+    juce::FlexItem stopInputItem(stopInputButton);
+    stopInputItem.width = 30;
+    stopInputItem.height = 30;
+    stopInputItem.margin = juce::FlexItem::Margin(0, 12, 0, 0);
+    bufferButtonsFlexBox.items.add(stopInputItem);
+
+    // Save buffer button (only in plugin mode - not needed in standalone with drag & drop)
+    if (!isStandalone)
+    {
+        juce::FlexItem saveItem(saveBufferButton);
+        saveItem.width = 150;  // Fixed width
+        saveItem.height = 35;
+        saveItem.margin = juce::FlexItem::Margin(0, 10, 0, 0);
+        bufferButtonsFlexBox.items.add(saveItem);
+    }
 
     // Clear buffer button (right side) - more square proportions
     juce::FlexItem clearBufferItem(clearBufferButton);
@@ -6878,24 +9123,130 @@ void Gary4juceAudioProcessorEditor::resized()
     clearBufferItem.height = 35;  // Same height
     clearBufferItem.margin = juce::FlexItem::Margin(0, 0, 0, 10);
 
-    bufferButtonsFlexBox.items.add(saveItem);
     bufferButtonsFlexBox.items.add(clearBufferItem);
     bufferButtonsFlexBox.performLayout(bufferControlsBounds);
 
+}
+
+void Gary4juceAudioProcessorEditor::layoutModelSection(juce::Rectangle<int> sectionBounds)
+{
     // ========== TAB AREA ==========
-    auto tabSectionBounds = bounds.removeFromTop(320).reduced(20, 10);
+    auto tabSectionBounds = sectionBounds.reduced(20, 10);
+
+    if (usingWideLayout())
+    {
+        int preferredHeight = tabSectionBounds.getHeight();
+
+        switch (currentTab)
+        {
+        case ModelTab::Gary:
+            // Gary's advanced block is only three rows, so grow to fit it rather than
+            // swallowing the whole section the way sa3 and carey do. The 45 covers the
+            // tab row and the vertical inset taken off below.
+            preferredHeight = garyUI != nullptr
+                ? juce::jmax(310, garyUI->getPreferredHeight() + 45)
+                : 310;
+            break;
+        case ModelTab::Carey:
+        {
+            bool advancedOpen = false;
+            if (careyUI != nullptr)
+            {
+                switch (careyUI->getCurrentSubTab())
+                {
+                case CareyUI::SubTab::Lego:     advancedOpen = careyUI->getLegoAdvancedOpen(); break;
+                case CareyUI::SubTab::Continue:
+                case CareyUI::SubTab::Generate: advancedOpen = careyUI->getCompleteAdvancedOpen(); break;
+                case CareyUI::SubTab::Cover:    advancedOpen = careyUI->getCoverAdvancedOpen(); break;
+                case CareyUI::SubTab::Complete: advancedOpen = careyUI->getArrangeAdvancedOpen(); break;
+                case CareyUI::SubTab::Extract:  advancedOpen = careyUI->getExtractAdvancedOpen(); break;
+                }
+            }
+            preferredHeight = advancedOpen ? tabSectionBounds.getHeight() : 560;
+            break;
+        }
+        case ModelTab::Terry:  preferredHeight = 430; break;
+        case ModelTab::Yuey:
+            preferredHeight = yueyUI != nullptr
+                ? yueyUI->getPreferredHeight(tabSectionBounds.getWidth()) + 45
+                : 470;
+            break;
+        case ModelTab::Darius: break;
+        case ModelTab::Jerry:
+            if (jerrySubTab == JerrySubTab::SA3)
+                preferredHeight = sa3UI != nullptr && sa3UI->getAdvancedOpen()
+                    ? tabSectionBounds.getHeight() : 560;
+            else if (jerrySubTab == JerrySubTab::SAOS)
+                preferredHeight = tabSectionBounds.getHeight();
+            break;
+        }
+
+        preferredHeight = juce::jmin(preferredHeight, tabSectionBounds.getHeight());
+        tabSectionBounds = tabSectionBounds.withSizeKeepingCentre(
+            tabSectionBounds.getWidth(), preferredHeight);
+    }
+
     fullTabAreaRect = tabSectionBounds.expanded(20, 10); // Expand back to account for the reduced margins
 
-    // Tab buttons area
+    // Tab buttons area (6 main tabs)
     tabArea = tabSectionBounds.removeFromTop(35);
-    auto tabButtonWidth = tabArea.getWidth() / 4;
+    auto tabButtonWidth = tabArea.getWidth() / 6;
 
     garyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     jerryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
+    careyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
+    yueyTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     terryTabButton.setBounds(tabArea.removeFromLeft(tabButtonWidth).reduced(2, 2));
     dariusTabButton.setBounds(tabArea.reduced(2, 2));
 
-    // Model controls area (below tabs)
+    // Jerry sub-tab row (between main tabs and model controls — only when Jerry is active)
+    if (currentTab == ModelTab::Jerry)
+    {
+        auto subTabRow = tabSectionBounds.removeFromTop(24);
+        int subPad = subTabRow.getWidth() / 6; // indent to roughly align under jerry tab
+        auto subArea = subTabRow.reduced(subPad / 2, 1);
+        constexpr int helpSize = 20;
+        constexpr int helpInset = 2;
+
+        int btnW = (subArea.getWidth() - 8) / 3;
+        auto sa3Btn = subArea.withWidth(btnW);
+        auto saosBtn = subArea.withLeft(subArea.getX() + btnW + 4).withWidth(btnW);
+        auto foundationBtn = subArea.withLeft(subArea.getX() + (btnW + 4) * 2).withWidth(btnW);
+
+        jerrySubTabSA3.setBounds(sa3Btn);
+        jerrySubTabSAOS.setBounds(saosBtn);
+        jerrySubTabFoundation.setBounds(foundationBtn);
+        jerrySubTabSA3.toFront(false);
+        jerrySubTabSAOS.toFront(false);
+        jerrySubTabFoundation.toFront(false);
+
+        if (helpIcon)
+        {
+            if (jerrySubTab == JerrySubTab::SA3)
+            {
+                sa3HelpButton.setBounds(sa3Btn.getRight() - helpSize - helpInset,
+                                        sa3Btn.getCentreY() - helpSize / 2,
+                                        helpSize, helpSize);
+                sa3HelpButton.toFront(false);
+            }
+            else if (jerrySubTab == JerrySubTab::SAOS)
+            {
+                jerryHelpButton.setBounds(saosBtn.getRight() - helpSize - helpInset,
+                                           saosBtn.getCentreY() - helpSize / 2,
+                                           helpSize, helpSize);
+                jerryHelpButton.toFront(false);
+            }
+            else
+            {
+                foundationHelpButton.setBounds(foundationBtn.getRight() - helpSize - helpInset,
+                                                foundationBtn.getCentreY() - helpSize / 2,
+                                                helpSize, helpSize);
+                foundationHelpButton.toFront(false);
+            }
+        }
+    }
+
+    // Model controls area (below tabs + optional sub-tab row)
     modelControlsArea = tabSectionBounds.reduced(0, 5);
 
     // ========== GARY CONTROLS LAYOUT ==========
@@ -6920,17 +9271,46 @@ void Gary4juceAudioProcessorEditor::resized()
     if (jerryUI)
         jerryUI->setBounds(modelControlsArea);
 
-    if (helpIcon && currentTab == ModelTab::Jerry && jerryUI)
+    // When on Jerry tab, hide the title labels since sub-tab buttons serve as headers
+    if (currentTab == ModelTab::Jerry)
     {
-        auto titleBounds = jerryUI->getTitleBounds().translated(jerryUI->getX(), jerryUI->getY());
+        if (sa3UI) sa3UI->setTitleVisible(false);
+        if (jerryUI) jerryUI->setTitleVisible(false);
+        if (foundationUI) foundationUI->setTitleVisible(false);
+    }
+    else
+    {
+        if (sa3UI) sa3UI->setTitleVisible(true);
+        if (jerryUI) jerryUI->setTitleVisible(true);
+        if (foundationUI) foundationUI->setTitleVisible(true);
+    }
+
+    if (sa3UI)
+        sa3UI->setBounds(modelControlsArea);
+
+    if (careyUI)
+        careyUI->setBounds(modelControlsArea);
+
+    if (yueyUI)
+        yueyUI->setBounds(modelControlsArea);
+
+    if (helpIcon && currentTab == ModelTab::Yuey && yueyUI)
+    {
+        auto bounds = yueyUI->getTitleBounds().translated(yueyUI->getX(), yueyUI->getY());
+        yueyHelpButton.setBounds(bounds.getRight() - 24, bounds.getY() + 2, 20, 20);
+    }
+
+    if (helpIcon && currentTab == ModelTab::Carey && careyUI)
+    {
+        auto titleBounds = careyUI->getTitleBounds().translated(careyUI->getX(), careyUI->getY());
         juce::Font titleFont(juce::FontOptions(16.0f, juce::Font::bold));
-        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("jerry (stable audio open small)"));
+        const int textWidth = juce::roundToInt(titleFont.getStringWidthFloat("carey (ace-step lego)"));
         auto textStartX = titleBounds.getX() + (titleBounds.getWidth() - textWidth) / 2;
         auto helpBounds = juce::Rectangle<int>(
             textStartX + textWidth + 5,
             titleBounds.getY() + (titleBounds.getHeight() - 20) / 2,
             20, 20);
-        jerryHelpButton.setBounds(helpBounds);
+        careyHelpButton.setBounds(helpBounds);
     }
 
     if (terryUI)
@@ -6965,9 +9345,16 @@ void Gary4juceAudioProcessorEditor::resized()
         dariusHelpButton.setBounds(helpBounds);
     }
 
+    if (foundationUI)
+        foundationUI->setBounds(modelControlsArea);
+    // Foundation help button is positioned alongside Jerry sub-tab buttons (handled above)
 
-// ========== OUTPUT SECTION (FlexBox Implementation) ==========
-    auto outputSection = bounds.removeFromTop(200).reduced(20, 10);
+}
+
+void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sectionBounds)
+{
+    // ========== OUTPUT SECTION (FlexBox Implementation) ==========
+    auto outputSection = sectionBounds.reduced(20, 10);
 
     // Create main FlexBox for output section (vertical layout)
     juce::FlexBox outputFlexBox;
@@ -7008,22 +9395,14 @@ void Gary4juceAudioProcessorEditor::resized()
 
     // Extract the calculated bounds
     auto labelBounds = outputFlexBox.items[0].currentBounds.toNearestInt();
-#if JUCE_LINUX
-    if (labelBounds.getWidth() > 90)
-    {
-        auto copyButtonBounds = labelBounds.removeFromRight(80).reduced(2, 2);
-        copyDraggedAudioButton.setBounds(copyButtonBounds);
-    }
-    else
-    {
-        copyDraggedAudioButton.setBounds(labelBounds);
-    }
-#endif
     auto waveformBounds = outputFlexBox.items[1].currentBounds.toNearestInt();
     auto outputInfoBounds = outputFlexBox.items[2].currentBounds.toNearestInt();
     auto buttonContainerBounds = outputFlexBox.items[3].currentBounds.toNearestInt();
 
     // Set component bounds based on FlexBox calculations
+#if JUCE_LINUX
+    copyDraggedAudioButton.setBounds(labelBounds.removeFromRight(64).reduced(2, 0));
+#endif
     outputLabel.setBounds(labelBounds);
     outputWaveformArea = waveformBounds;
     outputInfoArea = outputInfoBounds;  // Store this for use in paint()
@@ -7063,6 +9442,19 @@ void Gary4juceAudioProcessorEditor::resized()
         45, 25
     );
     cropButton.setBounds(cropOverlayArea);
+
+    // Mirrors the crop overlay at the opposite corner. The score belongs to the
+    // render, so it sits on the waveform rather than in the yuey tab.
+    yueyMidiButton.setBounds(outputWaveformArea.getX() + 5,
+                             outputWaveformArea.getY() + 5, 42, 25);
+    yueyScoreButton.setBounds(outputWaveformArea.getX() + 51,
+                              outputWaveformArea.getY() + 5, 48, 25);
+
+    // The stem separator's handles, bottom right of each waveform (the output's below its crop overlay).
+    stemsButton.setBounds(outputWaveformArea.getRight() - 55,
+                          outputWaveformArea.getBottom() - 30, 50, 25);
+    stemsInputButton.setBounds(waveformArea.getRight() - 55,
+                               waveformArea.getBottom() - 30, 50, 25);
 }
 
 void Gary4juceAudioProcessorEditor::updateRetryButtonState()
@@ -7072,7 +9464,7 @@ void Gary4juceAudioProcessorEditor::updateRetryButtonState()
     bool retryAvailable = audioProcessor.getRetryAvailable();  // Get the explicit flag
 
     // FIXED: Include retryAvailable in the canRetry calculation
-    bool canRetry = hasValidSession && retryAvailable && !isGenerating && isConnected;
+    bool canRetry = hasValidSession && retryAvailable && !isGenerating && isServiceReachable(ServiceType::Gary);
 
     updateGaryButtonStates(false);
     if (garyUI)
@@ -7092,297 +9484,4 @@ void Gary4juceAudioProcessorEditor::updateContinueButtonState()
     updateGaryButtonStates(false);
     if (garyUI)
         garyUI->setContinueButtonText("continue");
-}
-
-//==============================================================================
-// Backend Disconnection and Stall Handling Methods
-//==============================================================================
-
-bool Gary4juceAudioProcessorEditor::checkForGenerationStall()
-{
-    if (!isGenerating) return false;
-
-    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
-
-    // If this is our first progress update, initialize the timer
-    if (lastProgressUpdateTime == 0)
-    {
-        lastProgressUpdateTime = currentTime;
-        lastKnownServerProgress = 0;
-        return false;
-    }
-
-    // Check if we've been stuck without progress for too long
-    auto timeSinceLastUpdate = currentTime - lastProgressUpdateTime;
-
-    // Smart timeout: longer for startup (0% progress), shorter once generation begins
-    int timeoutSeconds;
-    juce::String timeoutReason;
-
-    if (lastKnownServerProgress == 0)
-    {
-        // Still at 0% - model might still be loading
-        timeoutSeconds = STARTUP_TIMEOUT_SECONDS;
-        timeoutReason = "startup/model loading";
-    }
-    else
-    {
-        // Generation has started - should be making regular progress
-        timeoutSeconds = GENERATION_TIMEOUT_SECONDS;
-        timeoutReason = "generation progress";
-    }
-
-    bool isStalled = (timeSinceLastUpdate > (timeoutSeconds * 1000));
-
-    if (isStalled && !hasDetectedStall)
-    {
-        DBG("Generation stall detected (" + timeoutReason + ") - no progress for " +
-            juce::String(timeSinceLastUpdate / 1000) + " seconds (timeout: " +
-            juce::String(timeoutSeconds) + "s)");
-        hasDetectedStall = true;
-        return true;
-    }
-
-    return false;
-}
-
-void Gary4juceAudioProcessorEditor::handleGenerationStall()
-{
-    DBG("Handling generation stall - checking backend health");
-    
-    // Stop polling immediately
-    stopPolling();
-    
-    // Show immediate feedback
-    showStatusMessage("checking backend connection...", 3000);
-    
-    // Check if backend is actually down
-    audioProcessor.checkBackendHealth();
-    
-    // Give health check time to complete, then handle result
-    juce::Timer::callAfterDelay(6000, [this]() {
-        if (!audioProcessor.isBackendConnected())
-        {
-            // Backend is confirmed down
-            handleBackendDisconnection();
-        }
-        else
-        {
-            // Backend is up but generation failed for other reasons
-            handleGenerationFailure("generation timed out - try again or check backend logs");
-        }
-    });
-}
-
-void Gary4juceAudioProcessorEditor::handleBackendDisconnection()
-{
-    DBG("=== BACKEND DISCONNECTION CONFIRMED - CLEANING UP STATE ===");
-    
-    // Clean up generation state
-    isGenerating = false;
-    isPolling = false;
-    generationProgress = 0;
-    lastProgressUpdateTime = 0;
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-    
-    // Update connection status
-    updateConnectionStatus(false);
-
-    // Update all button states centrally
-    updateAllGenerationButtonStates();
-
-    // Show user-friendly error with communication options
-    showBackendDisconnectionDialog();
-
-    repaint();
-
-    setActiveOp(ActiveOp::None);
-}
-
-void Gary4juceAudioProcessorEditor::handleGenerationFailure(const juce::String& reason)
-{
-    DBG("Generation failed: " + reason);
-    
-    // Clean up generation state (same as disconnection)
-    isGenerating = false;
-    isPolling = false;
-    generationProgress = 0;
-    lastProgressUpdateTime = 0;
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-    
-    // Update all button states centrally
-    updateAllGenerationButtonStates();
-
-    // Show error message
-    showStatusMessage(reason, 5000);
-
-    repaint();
-
-    setActiveOp(ActiveOp::None);
-}
-
-void Gary4juceAudioProcessorEditor::resetStallDetection()
-{
-    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
-
-    DBG("=== AGGRESSIVE STALL RESET ===");
-    DBG("Old lastProgressUpdateTime: " + juce::String(lastProgressUpdateTime));
-
-    lastProgressUpdateTime = currentTime; // Set to NOW instead of 0
-    lastKnownServerProgress = 0;
-    hasDetectedStall = false;
-    lastKnownProgress = 0;
-    targetProgress = 0;
-    smoothProgressAnimation = false;
-
-    DBG("New lastProgressUpdateTime: " + juce::String(lastProgressUpdateTime));
-    DBG("Stall detection AND animation state aggressively reset");
-}
-
-void Gary4juceAudioProcessorEditor::performSmartHealthCheck()
-{
-    auto currentTime = juce::Time::getCurrentTime().toMilliseconds();
-    
-    // Don't spam health checks
-    if (currentTime - lastHealthCheckTime < MIN_HEALTH_CHECK_INTERVAL_MS)
-    {
-        DBG("Skipping health check - too soon since last check");
-        return;
-    }
-    
-    lastHealthCheckTime = currentTime;
-    audioProcessor.checkBackendHealth();
-    DBG("Performing smart health check");
-}
-
-void Gary4juceAudioProcessorEditor::showBackendDisconnectionDialog()
-{
-    DBG("=== SHOWING BACKEND DISCONNECTION DIALOG ===");
-
-    // Create custom button panel component with safer memory management
-    class CustomButtonPanel : public juce::Component
-    {
-    public:
-        CustomButtonPanel(Gary4juceAudioProcessorEditor* editor)
-            : parentEditor(editor)
-        {
-            // Create Discord button with icon
-            discordButton = std::make_unique<CustomButton>();
-            discordButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
-            if (editor->discordIcon)
-                discordButton->setIcon(editor->discordIcon->createCopy());
-            discordButton->setTooltip("Join Discord server");
-            discordButton->onClick = [this]() {
-                juce::URL("https://discord.gg/VECkyXEnAd").launchInDefaultBrowser();
-                // Note: Don't close modal here - let user choose to close or try Twitter too
-                };
-            addAndMakeVisible(discordButton.get());
-
-            // Create X button with icon
-            xButton = std::make_unique<CustomButton>();
-            xButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
-            if (editor->xIcon)
-                xButton->setIcon(editor->xIcon->createCopy());
-            xButton->setTooltip("Follow on X/Twitter");
-            xButton->onClick = [this]() {
-                juce::URL("https://twitter.com/@thepatch_kev").launchInDefaultBrowser();
-                // Note: Don't close modal here - let user choose to close or try Discord too
-                };
-            addAndMakeVisible(xButton.get());
-
-            // Visual reference area with bar chart icon
-            visualRefLabel = std::make_unique<juce::Label>();
-            visualRefLabel->setText("in a few minutes, click this button in the main window:", juce::dontSendNotification);
-            visualRefLabel->setJustificationType(juce::Justification::centred);
-            visualRefLabel->setColour(juce::Label::textColourId, juce::Colours::white);
-            addAndMakeVisible(visualRefLabel.get());
-
-            // Create visual reference button (non-clickable)
-            if (editor->checkConnectionIcon)
-            {
-                visualRefButton = std::make_unique<CustomButton>();
-                visualRefButton->setButtonStyle(CustomButton::ButtonStyle::Standard);
-                visualRefButton->setIcon(editor->checkConnectionIcon->createCopy());
-                visualRefButton->setEnabled(false); // Make it non-clickable
-                visualRefButton->setTooltip("this is the check connection button in the main UI");
-                addAndMakeVisible(visualRefButton.get());
-            }
-
-            setSize(300, 120);
-        }
-
-        void resized() override
-        {
-            auto area = getLocalBounds();
-
-            // Visual reference section (top part)
-            auto visualRefArea = area.removeFromTop(60);
-            visualRefLabel->setBounds(visualRefArea.removeFromTop(30));
-            if (visualRefButton)
-                visualRefButton->setBounds(visualRefArea.reduced(10).withSizeKeepingCentre(30, 30));
-
-            // Button section (bottom part)  
-            auto buttonArea = area.reduced(10);
-            int buttonWidth = buttonArea.getWidth() / 2 - 5;
-            discordButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
-            buttonArea.removeFromLeft(10); // spacing
-            xButton->setBounds(buttonArea);
-        }
-
-    private:
-        Gary4juceAudioProcessorEditor* parentEditor;
-        std::unique_ptr<CustomButton> discordButton;
-        std::unique_ptr<CustomButton> xButton;
-        std::unique_ptr<CustomButton> visualRefButton;
-        std::unique_ptr<juce::Label> visualRefLabel;
-    };
-
-    // Create alert window with updated message
-    auto* alertWindow = new juce::AlertWindow("backend down",
-        "our backend runs on a spot vm\n"
-        "and azure prolly deallocated it.\n"
-        "hit up kev in discord/twitter or",
-        juce::MessageBoxIconType::WarningIcon,
-        this);
-
-    // Create and add custom button panel - AlertWindow will own it
-    auto* customButtons = new CustomButtonPanel(this);
-    alertWindow->addCustomComponent(customButtons);
-
-    // Add only close button as standard button - this will auto-close the modal
-    alertWindow->addButton("close", 999);
-
-    // Enter modal state - REMOVE the exitModalState call!
-    alertWindow->enterModalState(true,
-        juce::ModalCallbackFunction::create([alertWindow](int result) {
-            // The modal is already closed when this callback runs
-            // Just clean up and handle the result
-            DBG("Modal closed with result: " + juce::String(result));
-            delete alertWindow; // This is all you need!
-            }));
-}
-
-void Gary4juceAudioProcessorEditor::updateModelAvailability()
-{
-    // hoenn_lofi (ID 4) is only available on localhost
-    bool hoennLofiAvailable = isUsingLocalhost;
-
-    if (garyUI)
-    {
-        garyUI->setModelItemEnabled(3, hoennLofiAvailable);
-
-        // If hoenn_lofi is currently selected but no longer available, switch to default model
-        if (!hoennLofiAvailable && garyUI->getSelectedModelIndex() == 3)
-        {
-            currentModelIndex = 0;
-            garyUI->setSelectedModelIndex(currentModelIndex, juce::dontSendNotification);
-
-            DBG("Switched from hoenn_lofi to vanya_ai_dnb_0.1 due to backend change");
-            showStatusMessage("switched to vanya_ai_dnb_0.1 (hoenn_lofi not available on remote)", 4000);
-        }
-    }
-
-    DBG("Model availability updated - hoenn_lofi " + juce::String(hoennLofiAvailable ? "enabled" : "disabled"));
 }

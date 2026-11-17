@@ -1,0 +1,17 @@
+X:1
+T:
+M:2/4
+L:1/64
+Q:1/4=128
+V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
+V: Ins clef=treble name="Ins Melody" snm="Inst."
+K:C
+% instrumental
+V: Vocal
+Z4|
+V: Ins
+B,,4z^G,2z4^d'8=G8z4^c-|^c2z=c'2A,,24-A,,3-|A,,32-|A,,4-A,,D,,24-D,,3-|
+V: Vocal
+Z4|
+V: Ins
+D,,32-|D,,4-D,,^F,,16z8=F,3-|F,24-F,4-F,z3|Z|

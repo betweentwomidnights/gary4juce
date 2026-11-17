@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #include "JerryUI.h"
 #include "../../Utils/Theme.h"
 #include "PromptHelpers.h"
@@ -92,66 +95,6 @@ JerryUI::JerryUI()
     samplerDpmppButton.setVisible(false);
     addAndMakeVisible(samplerDpmppButton);
 
-    // Custom finetune section (localhost only)
-    toggleCustomSectionButton.setButtonText("+");
-    toggleCustomSectionButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    toggleCustomSectionButton.setTooltip("add custom finetune (localhost only)");
-    toggleCustomSectionButton.onClick = [this]() { toggleCustomFinetuneSection(); };
-    toggleCustomSectionButton.setVisible(false);  // Hidden by default
-    addAndMakeVisible(toggleCustomSectionButton);
-
-    customFinetuneLabel.setText("add custom finetune", juce::dontSendNotification);
-    customFinetuneLabel.setFont(juce::FontOptions(11.0f));
-    customFinetuneLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
-    customFinetuneLabel.setJustificationType(juce::Justification::centredLeft);
-    customFinetuneLabel.setVisible(false);
-    addAndMakeVisible(customFinetuneLabel);
-
-    repoTextEditor.setTextToShowWhenEmpty("thepatch/jerry_grunge", juce::Colours::darkgrey);
-    repoTextEditor.setMultiLine(false);
-    repoTextEditor.setReturnKeyStartsNewLine(false);
-    repoTextEditor.setScrollbarsShown(false);
-    repoTextEditor.setBorder(juce::BorderSize<int>(2));
-    repoTextEditor.setVisible(false);
-    addAndMakeVisible(repoTextEditor);
-
-    fetchCheckpointsButton.setButtonText("fetch");
-    fetchCheckpointsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
-    fetchCheckpointsButton.onClick = [this]() {
-        auto repo = repoTextEditor.getText().trim();
-        if (repo.isEmpty()) {
-            repo = "thepatch/jerry_grunge";  // Default
-        }
-        if (onFetchCheckpoints)
-            onFetchCheckpoints(repo);
-    };
-    fetchCheckpointsButton.setVisible(false);
-    addAndMakeVisible(fetchCheckpointsButton);
-
-    checkpointComboBox.setTextWhenNothingSelected("fetch checkpoints first...");
-    checkpointComboBox.setVisible(false);
-    addAndMakeVisible(checkpointComboBox);
-
-    addModelButton.setButtonText("add to models");
-    addModelButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
-    addModelButton.onClick = [this]() {
-        auto repo = repoTextEditor.getText().trim();
-        if (repo.isEmpty()) repo = "thepatch/jerry_grunge";
-
-        auto selectedId = checkpointComboBox.getSelectedId();
-        if (selectedId <= 0) return;
-
-        auto checkpoint = checkpointComboBox.getItemText(selectedId - 1);
-        if (onAddCustomModel)
-            onAddCustomModel(repo, checkpoint);
-
-        // Collapse section after adding
-        toggleCustomFinetuneSection();
-    };
-    addModelButton.setEnabled(false);
-    addModelButton.setVisible(false);
-    addAndMakeVisible(addModelButton);
-
     jerryPromptLabel.setText("text prompt", juce::dontSendNotification);
     jerryPromptLabel.setFont(juce::FontOptions(12.0f));
     jerryPromptLabel.setColour(juce::Label::textColourId, Theme::Colors::TextSecondary);
@@ -235,6 +178,20 @@ JerryUI::JerryUI()
     jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
     addAndMakeVisible(jerryBpmLabel);
 
+    // Compact manual BPM control (hidden by default, shown in standalone).
+    jerryBpmControl.setRange(40.0, 240.0, 1.0);
+    jerryBpmControl.setValue(120.0, false);
+    jerryBpmControl.setAccentColour(Theme::Colors::Jerry);
+    jerryBpmControl.setVisible(false);
+    jerryBpmControl.onValueChange = [this](double value)
+        {
+            const int newBpm = juce::roundToInt(value);
+            bpmValue = newBpm;
+            if (onManualBpmChanged)
+                onManualBpmChanged(newBpm);
+        };
+    addAndMakeVisible(jerryBpmControl);
+
     generateWithJerryButton.setButtonText("generate with jerry");
     generateWithJerryButton.setButtonStyle(CustomButton::ButtonStyle::Jerry);
     generateWithJerryButton.setTooltip("generate audio from text prompt with current daw bpm");
@@ -295,52 +252,17 @@ void JerryUI::resized()
 {
     auto area = getLocalBounds().reduced(kOuterMargin);
 
-    // Title at the very top
-    titleBounds = area.removeFromTop(kTitleHeight);
+    // Title at the very top (skip when sub-tab buttons replace it)
+    titleBounds = area.removeFromTop(titleHidden ? 0 : kTitleHeight);
     jerryLabel.setBounds(titleBounds);
-    area.removeFromTop(kInterRowGap);
+    if (!titleHidden) area.removeFromTop(kInterRowGap);
 
-    // Model selector row with "+" button
+    // Model selector row
     auto modelRow = area.removeFromTop(kRowHeight);
     auto modelLabelBounds = modelRow.removeFromLeft(kLabelWidth);
     jerryModelLabel.setBounds(modelLabelBounds);
-
-    // Reserve space for "+" button if on localhost
-    if (isUsingLocalhost) {
-        auto plusButtonBounds = modelRow.removeFromRight(25);
-        toggleCustomSectionButton.setBounds(plusButtonBounds);
-        modelRow.removeFromRight(3);  // Small gap
-    }
-
     jerryModelComboBox.setBounds(modelRow);
     area.removeFromTop(kInterRowGap);
-
-    // Custom finetune section (collapsible)
-    if (showingCustomFinetuneSection && isUsingLocalhost) {
-        // Label
-        auto customLabelBounds = area.removeFromTop(kPromptLabelHeight);
-        customFinetuneLabel.setBounds(customLabelBounds);
-        area.removeFromTop(kInterRowGap);
-
-        // Repo text + fetch button
-        auto repoRow = area.removeFromTop(kPromptEditorHeight);
-        auto fetchButtonBounds = repoRow.removeFromRight(60);
-        repoRow.removeFromRight(3);  // Gap
-        repoTextEditor.setBounds(repoRow);
-        fetchCheckpointsButton.setBounds(fetchButtonBounds);
-        area.removeFromTop(kInterRowGap);
-
-        // Checkpoint dropdown
-        auto checkpointRow = area.removeFromTop(kRowHeight);
-        checkpointComboBox.setBounds(checkpointRow);
-        area.removeFromTop(kInterRowGap);
-
-        // Add button
-        auto addButtonRow = area.removeFromTop(kButtonHeight);
-        auto addButtonBounds = addButtonRow.withWidth(150).withCentre(addButtonRow.getCentre());
-        addModelButton.setBounds(addButtonBounds);
-        area.removeFromTop(kInterRowGap);
-    }
 
     // Sampler selector row (only visible for finetunes)
     if (showingSamplerSelector)
@@ -418,9 +340,21 @@ void JerryUI::resized()
     }
     area.removeFromTop(kInterRowGap);
 
-    // BPM label
-    auto bpmBounds = area.removeFromTop(kBpmHeight);
-    jerryBpmLabel.setBounds(bpmBounds);
+    // BPM display (conditional: label in plugin mode, label+slider in standalone mode)
+    auto bpmBounds = area.removeFromTop(isStandaloneMode ? kRowHeight : kBpmHeight);
+    if (isStandaloneMode)
+    {
+        jerryBpmLabel.setVisible(false);
+        jerryBpmControl.setBounds(bpmBounds.withSizeKeepingCentre(76, kRowHeight));
+    }
+    else
+    {
+        // Plugin mode: full-width label showing DAW BPM
+        jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+        jerryBpmLabel.setJustificationType(juce::Justification::centred);
+        jerryBpmLabel.setBounds(bpmBounds);
+        jerryBpmLabel.setVisible(true);
+    }
     area.removeFromTop(kInterRowGap);
 
     // Generate button
@@ -887,6 +821,34 @@ void JerryUI::setSelectedModel(int index)
     }
 }
 
+bool JerryUI::selectModelByIdentity(const juce::String& key,
+                                    const juce::String& repo,
+                                    const juce::String& checkpoint)
+{
+    int desiredIndex = -1;
+
+    if (repo.isNotEmpty() || checkpoint.isNotEmpty())
+    {
+        for (int i = 0; i < modelNames.size(); ++i)
+        {
+            if (modelRepos[i] == repo && modelCheckpoints[i] == checkpoint)
+            {
+                desiredIndex = i;
+                break;
+            }
+        }
+    }
+
+    if (desiredIndex < 0 && key.isNotEmpty())
+        desiredIndex = modelKeys.indexOf(key);
+
+    if (desiredIndex < 0)
+        return false;
+
+    setSelectedModel(desiredIndex);
+    return true;
+}
+
 int JerryUI::getSelectedModelIndex() const
 {
     return selectedModelIndex;
@@ -909,6 +871,11 @@ bool JerryUI::getSelectedModelIsFinetune() const
 juce::String JerryUI::getSelectedSamplerType() const
 {
     return currentSamplerType;
+}
+
+void JerryUI::setSelectedSamplerType(const juce::String& samplerType)
+{
+    applySamplerSelection(samplerType);
 }
 
 void JerryUI::updateSamplerVisibility()
@@ -964,7 +931,17 @@ void JerryUI::updateSliderRangesForModel(bool isFinetune)
 void JerryUI::setBpm(int bpm)
 {
     bpmValue = bpm;
-    jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+
+    if (isStandaloneMode)
+    {
+        // In standalone, this updates the manual tempo control.
+        jerryBpmControl.setValue(bpm, false);
+    }
+    else
+    {
+        // In plugin mode, this updates the label with DAW BPM
+        jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+    }
 }
 
 void JerryUI::setPromptText(const juce::String& text)
@@ -1040,6 +1017,13 @@ juce::Rectangle<int> JerryUI::getTitleBounds() const
     return titleBounds;
 }
 
+void JerryUI::setTitleVisible(bool visible)
+{
+    jerryLabel.setVisible(visible);
+    titleHidden = !visible;
+    resized();
+}
+
 void JerryUI::refreshLoopTypeVisibility()
 {
     const bool showLoopButtons = smartLoop;
@@ -1105,8 +1089,8 @@ void JerryUI::applyEnablement(bool canGenerate, bool canSmartLoop, bool isGenera
     lastIsGenerating = isGenerating;
 
     // IMPORTANT: Disable if model is loading
-    const bool allowGenerate = canGenerate && !isGenerating && !isLoadingModel;
-    const bool allowSmartLoop = canSmartLoop && !isGenerating && !isLoadingModel;
+    const bool allowGenerate = canGenerate && !isGenerating;
+    const bool allowSmartLoop = canSmartLoop && !isGenerating;
     const bool allowLoopTypes = allowSmartLoop && smartLoop;
 
     generateWithJerryButton.setEnabled(allowGenerate);
@@ -1116,104 +1100,49 @@ void JerryUI::applyEnablement(bool canGenerate, bool canSmartLoop, bool isGenera
     loopTypeInstrumentsButton.setEnabled(allowLoopTypes);
 }
 
-void JerryUI::setUsingLocalhost(bool localhost)
+void JerryUI::setIsStandalone(bool standalone)
 {
-    isUsingLocalhost = localhost;
-    toggleCustomSectionButton.setVisible(localhost);
+    isStandaloneMode = standalone;
 
-    // If switching away from localhost, hide custom section
-    if (!localhost && showingCustomFinetuneSection) {
-        toggleCustomFinetuneSection();
-    }
-
-    resized();
-}
-
-void JerryUI::toggleCustomFinetuneSection()
-{
-    showingCustomFinetuneSection = !showingCustomFinetuneSection;
-
-    customFinetuneLabel.setVisible(showingCustomFinetuneSection);
-    repoTextEditor.setVisible(showingCustomFinetuneSection);
-    fetchCheckpointsButton.setVisible(showingCustomFinetuneSection);
-    checkpointComboBox.setVisible(showingCustomFinetuneSection);
-    addModelButton.setVisible(showingCustomFinetuneSection);
-
-    // Update button text
-    toggleCustomSectionButton.setButtonText(showingCustomFinetuneSection ? "-" : "+");
-
-    resized();
-}
-
-void JerryUI::setFetchingCheckpoints(bool fetching)
-{
-    isFetchingCheckpoints = fetching;
-    fetchCheckpointsButton.setEnabled(!fetching);
-    fetchCheckpointsButton.setButtonText(fetching ? "fetching..." : "fetch");
-}
-
-void JerryUI::setAvailableCheckpoints(const juce::StringArray& checkpoints)
-{
-    checkpointComboBox.clear();
-
-    for (int i = 0; i < checkpoints.size(); ++i) {
-        checkpointComboBox.addItem(checkpoints[i], i + 1);
-    }
-
-    addModelButton.setEnabled(checkpoints.size() > 0);
-
-    if (checkpoints.size() > 0) {
-        checkpointComboBox.setSelectedId(1);  // Select first by default
-    }
-}
-
-void JerryUI::setLoadingModel(bool loading, const juce::String& modelInfo)
-{
-    isLoadingModel = loading;
-
-    if (loading)
+    // Update component visibility based on mode
+    if (isStandaloneMode)
     {
-        // CRITICAL: Clear the current selection to avoid showing stale model name
-        jerryModelComboBox.setSelectedId(0, juce::dontSendNotification);
+        jerryBpmLabel.setVisible(false);
+        jerryBpmControl.setVisible(true);
+        generateWithJerryButton.setTooltip("generate audio from the text prompt at the selected bpm");
 
-        // Add a temporary "Loading..." item to the dropdown and select it
-        // This ensures the dropdown visibly shows the loading state
-        jerryModelComboBox.clear(juce::dontSendNotification);
-
-        if (!modelInfo.isEmpty())
-        {
-            jerryModelComboBox.addItem("Loading " + modelInfo + "...", 999);
-        }
-        else
-        {
-            jerryModelComboBox.addItem("Loading model...", 999);
-        }
-
-        jerryModelComboBox.setSelectedId(999, juce::dontSendNotification);
-
-        // Disable generation during load
-        generateWithJerryButton.setEnabled(false);
-        generateAsLoopButton.setEnabled(false);
+        DBG("JerryUI: Switched to standalone mode (manual BPM control)");
     }
     else
     {
-        // Loading complete - the model list will be refreshed by fetchJerryAvailableModels()
-        // No need to do anything here, just re-enable buttons
-        applyEnablement(lastCanGenerate, lastCanSmartLoop, lastIsGenerating);
+        // Plugin: hide slider, show full label
+        jerryBpmLabel.setText("bpm: " + juce::String(bpmValue) + " (from daw)", juce::dontSendNotification);
+        jerryBpmLabel.setJustificationType(juce::Justification::centred);
+        jerryBpmLabel.setVisible(true);
+        jerryBpmControl.setVisible(false);
+        generateWithJerryButton.setTooltip("generate audio from text prompt with current daw bpm");
+
+        DBG("JerryUI: Switched to plugin mode (DAW BPM)");
     }
+
+    resized();  // Re-layout to show/hide components
 }
 
-void JerryUI::selectModelByRepo(const juce::String& repo)
+void JerryUI::setManualBpm(int bpm)
 {
-    // Look through the current model list to find a finetune model from the specified repo
-    // and select it as the active model
-    for (int i = 0; i < modelRepos.size(); ++i)
-    {
-        if (modelRepos[i] == repo && modelIsFinetune[i])
-        {
-            DBG("Found and selecting model from repo: " + repo + " at index " + juce::String(i));
-            setSelectedModel(i);
-            break;
-        }
-    }
+    bpmValue = bpm;
+    jerryBpmControl.setValue(bpm, false);
+
+    DBG("JerryUI: Manual BPM set to " + juce::String(bpm));
+}
+
+int JerryUI::getManualBpm() const
+{
+    // In standalone, return the manual value; in plugin, return DAW BPM.
+    int result = isStandaloneMode ? juce::roundToInt(jerryBpmControl.getValue()) : bpmValue;
+
+    DBG("JerryUI: getManualBpm() returning " + juce::String(result) +
+        " (mode: " + juce::String(isStandaloneMode ? "standalone" : "plugin") + ")");
+
+    return result;
 }

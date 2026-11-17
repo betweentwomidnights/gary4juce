@@ -1,9 +1,13 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #pragma once
 
 #include <JuceHeader.h>
 
 #include "../Base/CustomButton.h"
 #include "../Base/CustomSlider.h"
+#include "../Base/BpmControl.h"
 #include "../Base/CustomTextEditor.h"
 
 #include "BeatPrompts.h"
@@ -36,7 +40,13 @@ public:
     bool getSmartLoop() const;
     int getLoopType() const;
 
+    // Standalone BPM control
+    void setIsStandalone(bool standalone);
+    void setManualBpm(int bpm);
+    int getManualBpm() const;
+
     juce::Rectangle<int> getTitleBounds() const;
+    void setTitleVisible(bool visible);
 
     std::function<void(const juce::String&)> onPromptChanged;
     std::function<void(float)> onCfgChanged;
@@ -44,6 +54,7 @@ public:
     std::function<void(bool)> onSmartLoopToggled;
     std::function<void(int)> onLoopTypeChanged;
     std::function<void()> onGenerate;
+    std::function<void(int)> onManualBpmChanged;
 
     // Model selection
     void setAvailableModels(const juce::StringArray& models,
@@ -53,30 +64,22 @@ public:
         const juce::StringArray& repos,
         const juce::StringArray& checkpoints);
     void setSelectedModel(int index);
+    bool selectModelByIdentity(const juce::String& key,
+                               const juce::String& repo,
+                               const juce::String& checkpoint);
     int getSelectedModelIndex() const;
     juce::String getSelectedModelKey() const;
     bool getSelectedModelIsFinetune() const;
     juce::String getSelectedSamplerType() const;
+    void setSelectedSamplerType(const juce::String& samplerType);
 
     // Callbacks
     std::function<void(int, bool)> onModelChanged;  // index, isFinetune
     std::function<void(const juce::String&)> onSamplerTypeChanged;
 
-    // Custom finetune callbacks
-    std::function<void(const juce::String&)> onFetchCheckpoints;
-    std::function<void(const juce::String&, const juce::String&)> onAddCustomModel;
-
     juce::String getSelectedModelType() const;
     juce::String getSelectedFinetuneRepo() const;
     juce::String getSelectedFinetuneCheckpoint() const;
-
-    // Custom finetune methods
-    void setUsingLocalhost(bool localhost);
-    void setFetchingCheckpoints(bool fetching);
-    void setAvailableCheckpoints(const juce::StringArray& checkpoints);
-    void toggleCustomFinetuneSection();
-    void setLoadingModel(bool loading, const juce::String& modelInfo = "");
-    void selectModelByRepo(const juce::String& repo);
 
     void setFinetunePromptBank(const juce::String& repo,
         const juce::String& checkpoint,
@@ -111,6 +114,7 @@ private:
     CustomSlider jerryStepsSlider;
     juce::Label jerryStepsLabel;
     juce::Label jerryBpmLabel;
+    BpmControl jerryBpmControl;         // Manual BPM control (standalone only)
     CustomButton generateWithJerryButton;
     CustomButton generateAsLoopButton;
     CustomButton loopTypeAutoButton;
@@ -123,6 +127,7 @@ private:
     bool smartLoop { false };
     int loopTypeIndex { 0 };
     int bpmValue { 120 };
+    bool isStandaloneMode { false };      // Track plugin vs standalone
 
     bool lastCanGenerate { false };
     bool lastCanSmartLoop { false };
@@ -153,18 +158,6 @@ private:
     void updateSliderRangesForModel(bool isFinetune);
     void applySamplerSelection(const juce::String& samplerType);
 
-    // Custom finetune UI (only shown on localhost)
-    juce::Label customFinetuneLabel;
-    juce::TextEditor repoTextEditor;
-    CustomButton fetchCheckpointsButton;
-    juce::ComboBox checkpointComboBox;
-    CustomButton addModelButton;
-    CustomButton toggleCustomSectionButton;  // "+" button
-
-    bool showingCustomFinetuneSection = false;
-    bool isUsingLocalhost = false;
-    bool isFetchingCheckpoints = false;
-    bool isLoadingModel = false;
-
     juce::Rectangle<int> titleBounds;
+    bool titleHidden = false;
 };

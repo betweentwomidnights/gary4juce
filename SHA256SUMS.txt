@@ -1,0 +1,2 @@
+b96036dc06873bb63749fb22c8f68af703360b3c8221bda2ff2cc48c70f901bc  gary4juce-v5.0.5-win-standalone.zip
+5fa4487f7b601b19e940adefdcecac9f97cb8d3203ffd7d49b3984e180be3e3b  gary4juce-v5.0.5-win-vst3.zip

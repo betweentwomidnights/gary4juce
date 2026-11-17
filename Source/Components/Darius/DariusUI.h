@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
+// SPDX-License-Identifier: AGPL-3.0-only
+
 #pragma once
 
 #include <JuceHeader.h>
@@ -62,12 +65,15 @@ public:
     void setMeanValue(double mean);
     void setSteeringOpen(bool open);
     void setAdvancedOpen(bool open);
+    juce::String serializeState() const;
+    void restoreState(const juce::String& json);
 
     // View getters
     juce::String getBackendUrl() const;
     bool getUsingBaseModel() const;
     juce::String getFinetuneRepo() const;
     juce::String getSelectedCheckpointStep() const;
+    SubTab getCurrentSubTab() const { return currentSubTab; }
     juce::String getStylesCSV() const;
     juce::String getStyleWeightsCSV() const;
     double getLoopInfluence() const;
@@ -153,6 +159,7 @@ private:
 
     // Subtabs
     SubTab currentSubTab = SubTab::Backend;
+    SubTab requestedSubTab = SubTab::Backend;
     CustomButton dariusBackendTabButton;
     CustomButton dariusModelTabButton;
     CustomButton dariusGenerationTabButton;
