@@ -252,8 +252,9 @@ private:
     juce::String getDraggedAudioFileExtension() const;
     void setDraggedAudioFormat(DraggedAudioFormat format);
     bool createDraggedAudioFile(const juce::File& source, const juce::File& destination) const;
-    bool saveDraggedAudioMetadata = false;
-    void setSaveDraggedAudioMetadata(bool enabled);
+    enum class DraggedAudioMetadata { Off = 1, Json = 2, Embedded = 3 };
+    DraggedAudioMetadata draggedAudioMetadata = DraggedAudioMetadata::Off;
+    void setDraggedAudioMetadata(DraggedAudioMetadata mode);
     juce::var loadOutputGenerationMetadata() const;
     bool persistOutputGenerationMetadata(const juce::var& metadata);
     bool writeDraggedAudioMetadata(const juce::File& source, const juce::File& destination,

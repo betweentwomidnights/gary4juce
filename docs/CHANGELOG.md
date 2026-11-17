@@ -3,6 +3,23 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.5 - embedded generation details
+
+audio storage now lets you choose off, a matching JSON file, or embedded audio
+tags for dragged WAV and FLAC files. both metadata modes keep the successful
+render's model, reported seed, prompt, supplied lyrics and request settings.
+embedded mode carries those details inside the audio file without creating an
+export JSON. WAV uses RIFF comments and ID3 tags; FLAC uses Vorbis comments.
+
+lyrics retain line breaks and Unicode. crops keep the source render's details
+and edit history, and untracked audio is marked as having unavailable generation
+details. tagging preserves the WAV audio bytes and the FLAC export's encoded
+frames. tag visibility varies by audio app; Explorer may expose only some
+fields. the setting still defaults to off, and an existing enabled JSON
+preference stays on JSON after upgrading.
+
+pair this Windows release with gary4local v0.7.3.
+
 ## v5.0.4 - SA3 LoRA automation lanes
 
 SA3 has an automation panel beside the editor, with a lane for each active

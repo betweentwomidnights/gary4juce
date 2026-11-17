@@ -57,20 +57,17 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.4 - 11/11
+### upcoming v5.0.5 - 11/17
 
-**draw SA3's LoRA automation beside the editor.** each active LoRA gets its
-own lane: draw its strength across the output, snap points to beats or bars,
-and give it a prompt. the dice beside a lane draw from that LoRA's own prompts.
-a curve replaces the fixed strength slider, and the four-stop blend slider
-runs from smooth to responsive.
+**keep generation details inside your audio.** in audio storage, choose a
+matching JSON file or embedded audio tags for dragged WAV and FLAC files.
+both keep the render's model, reported seed, prompt, supplied lyrics and
+request settings. embedded mode travels with the audio and creates no export
+JSON; the default remains off, and existing JSON users keep their choice.
 
-the lanes work for generate, transform and continue, follow output playback,
-and save with the editor state. local automation needs gary4local v0.7.1 and
-sa3.cpp v0.2.3 on Windows: update the app, then press `update all runtimes`. on
-macOS it needs [gary4local mac v0.4.1](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.1),
-which also serves Carey's new API. a backend without lane support is refused
-rather than ignoring the curves.
+lyrics keep line breaks and Unicode, and crops retain the source render's
+details. tag visibility depends on the audio app: Windows Explorer may show
+only some fields. pair this Windows release with gary4local v0.7.3.
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 

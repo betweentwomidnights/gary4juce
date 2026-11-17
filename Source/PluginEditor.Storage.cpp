@@ -5,6 +5,7 @@
 #include "PluginEditor.h"
 #include "Stems/StemsRuntime.h"
 #include "Utils/GenerationMetadata.h"
+#include "Utils/EmbeddedAudioMetadata.h"
 
 #include <array>
 #include <unordered_map>
@@ -16,7 +17,8 @@ namespace
     constexpr auto kStorageInitializedKey = "dataDirectoryInitialized";
     constexpr auto kDraggedAudioFormatKey = "draggedAudioFormat";
     constexpr auto kDraggedAudioFormatComboName = "draggedAudioFormat";
-    constexpr auto kDraggedAudioMetadataKey = "draggedAudioMetadata";
+    constexpr auto kDraggedAudioMetadataKey = "draggedAudioMetadata"; // Legacy boolean.
+    constexpr auto kDraggedAudioMetadataModeKey = "draggedAudioMetadataMode";
 
     juce::File storageTestDirectoryOverride()
     {
@@ -545,7 +547,12 @@ namespace
 void Gary4juceAudioProcessorEditor::initializeGaryDataDirectory()
 {
     auto& preferences = getUpdatePreferences();
-    saveDraggedAudioMetadata = preferences.getBoolValue(kDraggedAudioMetadataKey, false);
+    const auto metadataMode = preferences.getValue(kDraggedAudioMetadataModeKey);
+    draggedAudioMetadata = metadataMode == "embedded" ? DraggedAudioMetadata::Embedded
+        : metadataMode == "json" ? DraggedAudioMetadata::Json
+        : metadataMode == "off" ? DraggedAudioMetadata::Off
+        : preferences.getBoolValue(kDraggedAudioMetadataKey, false)
+            ? DraggedAudioMetadata::Json : DraggedAudioMetadata::Off;
     draggedAudioFormat = preferences.getValue(kDraggedAudioFormatKey, "wav")
             .equalsIgnoreCase("flac")
         ? DraggedAudioFormat::Flac
@@ -918,11 +925,13 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
         "FLAC works with Ableton Live, Bitwig, and REAPER. "
         "Use WAV for Logic Pro, GarageBand, and Fender Studio.");
     alert->addComboBox(kDraggedAudioMetadataKey,
-        { "off - audio only", "on - save matching JSON generation details" }, "generation details");
+        { "off - audio only", "JSON - save matching generation details",
+          "embedded - save generation details in audio tags" }, "generation details");
     alert->getComboBoxComponent(kDraggedAudioMetadataKey)->setSelectedId(
-        saveDraggedAudioMetadata ? 2 : 1, juce::dontSendNotification);
-    alert->addTextBlock("JSON keeps the model, reported seed, prompt and generation settings. "
-                       "Timestamped audio filenames stay the same; crops retain the source render's details.");
+        static_cast<int>(draggedAudioMetadata), juce::dontSendNotification);
+    alert->addTextBlock("Keep the model, reported seed, prompt, lyrics and generation settings "
+                       "in a matching JSON or inside the audio file. Tag visibility depends on your audio app. "
+                       "Crops retain the source render's details.");
     alert->addButton("change / migrate", 1);
     if (usingGaryDataFallback && configuredGaryDataDirectory != juce::File{})
         alert->addButton("retry configured", 2);
@@ -938,7 +947,8 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
         [asyncAlive, editor, alert](int result)
         {
             auto selectedFormatId = 1;
-            const bool saveMetadata = alert->getComboBoxComponent(kDraggedAudioMetadataKey)->getSelectedId() == 2;
+            const auto metadataMode = static_cast<DraggedAudioMetadata>(
+                alert->getComboBoxComponent(kDraggedAudioMetadataKey)->getSelectedId());
             if (const auto* formatBox = alert->getComboBoxComponent(
                     kDraggedAudioFormatComboName))
                 selectedFormatId = formatBox->getSelectedId();
@@ -950,7 +960,7 @@ void Gary4juceAudioProcessorEditor::showStorageSettings()
             editor->setDraggedAudioFormat(selectedFormatId == 2
                 ? DraggedAudioFormat::Flac
                 : DraggedAudioFormat::Wav);
-            editor->setSaveDraggedAudioMetadata(saveMetadata);
+            editor->setDraggedAudioMetadata(metadataMode);
 
             if (result == 1)
                 editor->chooseGaryDataDirectory();
@@ -1106,11 +1116,13 @@ void Gary4juceAudioProcessorEditor::migrateGaryDataDirectory(const juce::File& d
     storageMigrationTask->launchThread();
 }
 
-void Gary4juceAudioProcessorEditor::setSaveDraggedAudioMetadata(bool enabled)
+void Gary4juceAudioProcessorEditor::setDraggedAudioMetadata(DraggedAudioMetadata mode)
 {
-    saveDraggedAudioMetadata = enabled;
+    draggedAudioMetadata = mode;
     auto& preferences = getUpdatePreferences();
-    preferences.setValue(kDraggedAudioMetadataKey, enabled);
+    preferences.setValue(kDraggedAudioMetadataModeKey,
+        mode == DraggedAudioMetadata::Embedded ? "embedded"
+        : mode == DraggedAudioMetadata::Json ? "json" : "off");
     preferences.saveIfNeeded();
 }
 
@@ -1192,7 +1204,7 @@ void Gary4juceAudioProcessorEditor::commitGenerationMetadata(const juce::var& re
 bool Gary4juceAudioProcessorEditor::writeDraggedAudioMetadata(const juce::File& source, const juce::File& destination,
     const juce::var& sourceMetadata) const
 {
-    if (!saveDraggedAudioMetadata) return true;
+    if (draggedAudioMetadata == DraggedAudioMetadata::Off) return true;
     // Stems and other sources must never borrow the current output's settings.
     auto metadata = sourceMetadata.clone();
     const auto sourceHash = metadata.getProperty("audio_sha256", {}).toString();
@@ -1210,6 +1222,17 @@ bool Gary4juceAudioProcessorEditor::writeDraggedAudioMetadata(const juce::File& 
     object->removeProperty("audio_sha256");
     object->setProperty("audio_file", destination.getFileName());
     object->setProperty("exported_at", juce::Time::getCurrentTime().toISO8601(true));
+    if (draggedAudioMetadata == DraggedAudioMetadata::Embedded)
+    {
+        // A whole-file hash cannot be embedded in the file it hashes. Keep the
+        // source hash for provenance; JSON exports still hash the final export.
+        if (sourceHash.isNotEmpty() && metadata.hasProperty("service"))
+            object->setProperty("source_audio_sha256", sourceHash);
+        const auto tags = generation_metadata::embeddedTags(metadata);
+        return draggedAudioFormat == DraggedAudioFormat::Wav
+            ? generation_metadata::embedWav(destination, tags)
+            : generation_metadata::embedFlac(destination, tags);
+    }
     object->setProperty("export_audio_sha256", juce::SHA256(destination).toHexString());
     const auto text = juce::JSON::toString(metadata);
     return writeDataToFileSafely(destination.withFileExtension(".json"), text.toRawUTF8(), text.getNumBytesAsUTF8());

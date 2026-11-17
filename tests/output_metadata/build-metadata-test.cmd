@@ -13,7 +13,7 @@ set "DEFS=%DEFS% /DJUCE_STANDALONE_APPLICATION=1 /DJUCE_VST3_CAN_REPLACE_VST2=0"
 for %%M in (juce_audio_basics juce_audio_devices juce_audio_formats juce_audio_processors juce_audio_utils juce_core juce_cryptography juce_data_structures juce_events juce_graphics juce_gui_basics juce_gui_extra) do (
     set "DEFS=!DEFS! /DJUCE_MODULE_AVAILABLE_%%M=1"
 )
-cl /nologo /MDd /std:c++17 /EHsc /Zc:__cplusplus /W3 %DEFS% ^
+cl /nologo /utf-8 /MDd /std:c++17 /EHsc /Zc:__cplusplus /W3 %DEFS% ^
    /I"%ROOT%\JuceLibraryCode" /I"%ROOT%\..\JUCE\modules" ^
    /Fo"%OUT%\\" /Fe"%OUT%\metadata_test.exe" "%HERE%metadata_test.cpp" ^
    "%ROOT%\Builds\VisualStudio2022\x64\Debug\Shared Code\gary4juce.lib" ^
