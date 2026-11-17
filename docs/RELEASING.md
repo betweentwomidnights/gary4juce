@@ -398,3 +398,36 @@ local `main` can be a very long way behind without any obvious warning.
 
 Any license or notice files placed inside a macOS AU or VST3 bundle must be
 added before code signing. Modifying a signed bundle invalidates its signature.
+
+## Linux preview flow (linux branch)
+
+Merge current `main` into `linux`, preserving the host keyboard-focus flag,
+copy-only external drags, stable drag-list lifetime and the export-copy button.
+The current storage helpers replace the old branch's ad-hoc directory helpers;
+do not reintroduce the obsolete backend request implementations while resolving
+those conflicts. `docs/LINUX_PREVIEW.md` documents supported builds and limits.
+
+The Linux CMake build requests keyboard focus and supplies the full
+`GARY4JUCE_RELEASE_VERSION` to the updater. Keep this version, the release tag,
+changelog and preview feed consistent. A bare numeric 5.0.5 would compare newer
+than 5.0.5-linux-preview.2 and prevent preview-to-preview updates.
+
+Commit final source, tag it `vX.Y.Z-linux-preview.N`, and push the Linux branch
+and tag. The Linux preview workflow builds natively on Ubuntu 24.04 x64 and
+ARM64. It does not install plugins into the runner's user directories. Download
+the workflow artifacts, verify every ZIP against its architecture's checksum
+file, and prepare a GitHub draft marked as a prerelease. Check legal/source
+material and executable modes, and retain the workflow's build information.
+
+After publication and public asset verification, add or update
+`docs/updates/gary4juce/preview-linux.json` in a separate commit on **main**.
+GitHub Pages serves main's `docs/`, not the Linux branch. This platform preview
+feed is an explicit exception to the generic prerelease rule above: it promotes
+only Linux previews, never the Windows or macOS stable feeds. Do not change the
+README stable-download links or top-level stable `SHA256SUMS.txt` for a preview.
+Record both architectures' VST3 and standalone hashes in the release and feed.
+Use the real release publication timestamp. Confirm the public feed and its
+release/assets after the Pages deployment completes.
+
+The preview's virtual-display checks do not replace manual DAW typing, Bitwig
+file drag and GPU generation checks with the Linux gary4local desktop build.

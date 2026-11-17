@@ -2905,7 +2905,7 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
 
         inputPlaybackSnapshotSamples = 0;
         inputPlaybackDuration = 0.0;
-        lastDraggedAudioFile = {};
+        lastDraggedAudioFile = juce::File();
         lastSelectionStartTime = 0.0;
     }
 
@@ -6542,7 +6542,7 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     }
     inputPlaybackDuration = 0.0;
     inputPlaybackSnapshotSamples = 0;
-    lastDraggedAudioFile = {};
+    lastDraggedAudioFile = juce::File();
     lastSelectionStartTime = 0.0;
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
