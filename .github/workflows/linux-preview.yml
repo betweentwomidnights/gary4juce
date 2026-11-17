@@ -1,0 +1,45 @@
+name: Linux preview
+on:
+  push:
+    tags: ['v*-linux-preview.*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install build and virtual-display dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build cmake pkg-config libasound2-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libfreetype-dev libfontconfig1-dev libcurl4-openssl-dev libgl1-mesa-dev xvfb xauth x11-utils openbox
+      - name: Configure pinned JUCE and Release build
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: 2
+        run: cmake -S . -B build-linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - name: Build VST3 and standalone
+        run: cmake --build build-linux-release --parallel 2
+      - name: Smoke test standalone in Xvfb
+        run: xvfb-run -a python3 tests/linux/with_window_manager.py python3 tests/linux/standalone_smoke.py build-linux-release/gary4juce_artefacts/Release/Standalone/gary4juce
+      - name: Package and verify the clean tagged build
+        run: python3 packaging/linux/package.py --build-dir build-linux-release --juce-dir build-linux-release/_deps/juce-src --tag "${GITHUB_REF_NAME}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-${{ matrix.arch }}
+          if-no-files-found: error
+          include-hidden-files: true
+          path: |
+            .release/*.zip
+            .release/SHA256SUMS-linux-*.txt
+            .release/BUILD-INFO-linux-*.json
