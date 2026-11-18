@@ -3,6 +3,33 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.6 - 11/18
+
+Windows and Linux now build from the same source on main. Linux keeps host
+keyboard focus, copy-only audio drags and the export-copy fallback for Bitwig
+and file-manager workflows. Windows and macOS keep their existing Projucer
+settings and drag behavior. Linux builds read the native version from the
+shared project file; its preview updater stays separate from the Windows and
+macOS stable feeds.
+
+the stems separator attaches beside the compact editor. in wide mode it uses
+the model column until you close it, keeping the window the same width.
+six-stem results scroll inside the panel. opening stems keeps automation
+settings, and closing it restores the automation panel. storage, error and
+other editor popups use gary's black/red palette. built-in stem separation
+still needs a pinned runtime before it can run on Linux.
+
+embedded WAV and FLAC generation records use compact JSON, so metadata viewers
+don't turn indentation and line breaks into large gaps. prompts, lyrics and
+SA3 automation curves keep their values. separate JSON exports stay formatted
+for reading. FLAC puts the complete record in matching `COMMENT` and
+`DESCRIPTION` fields so tag editors and Windows Comments can show it.
+
+pair the Windows and Linux builds with
+[gary4local v0.7.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4).
+that release includes the Windows installer and Ubuntu 24.04 `.deb` packages
+for amd64 and arm64; Linux remains a preview.
+
 ## v5.0.5-linux-preview.1 - Linux desktop refresh
 
 merge main through v5.0.5 into the old Linux branch, retaining host keyboard
