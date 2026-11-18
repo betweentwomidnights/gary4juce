@@ -11,6 +11,9 @@ class CustomLookAndFeel : public juce::LookAndFeel_V4
 public:
     CustomLookAndFeel();
 
+    // Shared by plugin-owned top-level windows, without changing the host's default theme.
+    static juce::LookAndFeel& popupLookAndFeel();
+
     // Set custom accent color for scrollbars (defaults to red)
     void setScrollbarAccentColour(juce::Colour colour);
 

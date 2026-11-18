@@ -1030,6 +1030,11 @@ void Gary4juceAudioProcessorEditor::chooseGaryDataDirectory()
 
 void Gary4juceAudioProcessorEditor::migrateGaryDataDirectory(const juce::File& destination)
 {
+    if (stemsPanel != nullptr)
+    {
+        showStatusMessage("close stems before changing the audio storage folder", 3500);
+        return;
+    }
     if (storageMigrationInProgress.exchange(true))
     {
         showStatusMessage("storage migration already in progress", 3000);

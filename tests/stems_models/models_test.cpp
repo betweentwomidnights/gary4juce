@@ -45,11 +45,14 @@ juce::int64 frames(const juce::File& file) {
 // The visible "split kit" buttons on the popup's stem cells (StemCell is private to the dialog).
 std::vector<juce::Button*> splitButtons(juce::Component& dialog) {
     std::vector<juce::Button*> found;
-    for (auto* cell : dialog.getChildren())
-        for (auto* child : cell->getChildren())
-            if (auto* button = dynamic_cast<juce::Button*>(child); button != nullptr && button->isVisible()
-                && button->getButtonText() == "split kit")
-                found.push_back(button);
+    for (auto* child : dialog.getChildren())
+    {
+        if (auto* button = dynamic_cast<juce::Button*>(child); button != nullptr && button->isVisible()
+            && button->getButtonText() == "split kit")
+            found.push_back(button);
+        const auto nested = splitButtons(*child);
+        found.insert(found.end(), nested.begin(), nested.end());
+    }
     return found;
 }
 }

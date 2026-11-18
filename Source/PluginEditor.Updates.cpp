@@ -527,6 +527,7 @@ void Gary4juceAudioProcessorEditor::showPluginUpdatePrompt(const juce::String& l
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     updatePromptWindow = alertWindow;
+    trackEditorModalWindow(alertWindow);
     alertWindow->enterModalState(true,
         juce::ModalCallbackFunction::create([safeThis, alertWindow, optionsComponent, latestVersion, downloadUrl](int result)
         {
@@ -576,6 +577,8 @@ void Gary4juceAudioProcessorEditor::trackEditorModalWindow(juce::Component* wind
 {
     if (window == nullptr)
         return;
+
+    window->setLookAndFeel(&CustomLookAndFeel::popupLookAndFeel());
 
     for (auto it = editorModalWindows.begin(); it != editorModalWindows.end();)
     {

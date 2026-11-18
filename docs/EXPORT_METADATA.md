@@ -24,10 +24,16 @@ with embedded selected, no export JSON is created. WAV stores the full record
 in its RIFF INFO comment (`ICMT`) and in an ID3v2.4 `GARY4JUCE_METADATA` custom
 text tag. ID3 custom text tags also expose `PROMPT`, `SEED`, `MODEL` and `SOFTWARE`;
 lyrics use the standard unsynchronised lyrics (`USLT`) frame. FLAC stores the
-full record in the `GARY4JUCE_METADATA` Vorbis comment, alongside `PROMPT`,
-`SEED`, `MODEL`, `SOFTWARE` and `LYRICS` comments. lyrics retain line breaks and
-Unicode, including non-Latin scripts. only lyrics supplied with the render are
-included; this does not transcribe audio.
+full record in its Comments field: identical `COMMENT` and `DESCRIPTION` Vorbis
+comments support tag editors and Windows Explorer, respectively. `PROMPT`, `SEED`,
+`MODEL`, `SOFTWARE` and `LYRICS` remain available as individual tags. lyrics retain
+line breaks and Unicode, including non-Latin scripts. only lyrics supplied with
+the render are included; this does not transcribe audio.
+
+embedded records use compact JSON without indentation or formatting line breaks,
+so metadata viewers don't turn that padding into large gaps. prompt and lyric
+line breaks remain intact when the JSON is read. separate JSON files stay formatted
+for reading.
 
 which tags an audio app displays or preserves when it re-exports varies.
 WAV tagging copies the audio bytes without re-encoding. FLAC tagging preserves

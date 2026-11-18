@@ -34,42 +34,6 @@ void Gary4juceAudioProcessorEditor::showStemsSettings()
     trackEditorModalWindow(options.launchAsync());
 }
 
-// --- the stems popup's window --------------------------------------------------------------------
-
-namespace
-{
-    // A DialogWindow like LaunchOptions::launchAsync makes (modal, deleted when closed), with one
-    // exception to the modality. JUCE delivers a file drag's hover to a component a modal window
-    // blocks, but not its drop, which left the recording buffer stuck in its yellow drop state when
-    // a stem was dragged onto it. While a stem drag from the popup is in progress, the editor may
-    // receive it; clicks stay blocked, which is what keeps generations from starting mid-separation.
-    class StemsWindow final : public juce::DialogWindow
-    {
-    public:
-        StemsWindow(juce::Component* content, juce::Component& editorToAllow, std::function<bool()> stemDragActive)
-            : juce::DialogWindow("stems", juce::Colour(0x1e, 0x1e, 0x1e), true, true,
-                                 juce::Component::getApproximateScaleFactorForComponent(&editorToAllow)),
-              editor(&editorToAllow), dragActive(std::move(stemDragActive))
-        {
-            setContentOwned(content, true);
-            centreAroundComponent(&editorToAllow, getWidth(), getHeight());
-            setResizable(false, false);
-            setUsingNativeTitleBar(true);
-        }
-
-        void closeButtonPressed() override { setVisible(false); }   // hiding ends the modal state and deletes it
-
-        bool canModalEventBeSentToComponent(const juce::Component* target) override
-        {
-            return target != nullptr && target == editor.getComponent() && dragActive();
-        }
-
-    private:
-        juce::Component::SafePointer<juce::Component> editor;
-        std::function<bool()> dragActive;
-    };
-}
-
 // --- the "stems" handle --------------------------------------------------------------------------
 
 juce::String Gary4juceAudioProcessorEditor::stemsSetupStep()
@@ -106,7 +70,7 @@ void Gary4juceAudioProcessorEditor::updateStemsButtonState()
     const auto apply = [&](juce::DrawableButton& handle, bool haveAudio, const juce::String& readyTip)
     {
         const bool visible = available && haveAudio;
-        const bool enabled = needsSetup || !isGenerating;
+        const bool enabled = stemsPanel != nullptr || needsSetup || !isGenerating;
         const auto tip = needsSetup ? "click to " + setupStep + " (also in gary settings > stem separator...)"
                        : isGenerating ? juce::String("wait for the current generation to finish")
                                       : readyTip;
@@ -131,8 +95,30 @@ bool Gary4juceAudioProcessorEditor::hasSavedRecordingBuffer() const
     return !isRecording && savedSamples > 0 && getGaryBufferFile().existsAsFile();
 }
 
+void Gary4juceAudioProcessorEditor::restoreStemsCoveredControls()
+{
+    for (auto& control : modelControlsCoveredByStems)
+        if (control != nullptr)
+            control->setVisible(true);
+    modelControlsCoveredByStems.clear();
+}
+
+void Gary4juceAudioProcessorEditor::closeStemsPanel()
+{
+    stemsPanel.reset();
+    updateSA3LanePanel();
+    repaint();
+}
+
 void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
 {
+    if (stemsPanel != nullptr)
+    {
+        stemsPanel->toFront(true);
+        if (stemsPanelFromRecordingBuffer != fromRecordingBuffer)
+            showStatusMessage("close the current stems panel first to separate another source", 3500);
+        return;
+    }
     if (isGenerating)
     {
         showStatusMessage("wait for the current generation to finish", 2500);
@@ -165,7 +151,7 @@ void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
     host.isGenerating = [this] { return isGenerating; };
     host.releasePlayback = [this] { releaseStemPlayback(); };
 
-    // The popup separates a copy, so whatever happens to the buffer or the output afterwards (a
+    // The panel separates a copy, so whatever happens to the buffer or the output afterwards (a
     // stem dropped back onto the buffer, say) leaves its stems alone.
     const juce::File sourceFile = fromRecordingBuffer ? getGaryBufferFile() : outputAudioFile;
     std::function<bool(const juce::File&)> writeSource = [sourceFile](const juce::File& destination)
@@ -174,14 +160,21 @@ void Gary4juceAudioProcessorEditor::showStemsDialog(bool fromRecordingBuffer)
     };
 
     getStemsService();
-    auto* dialog = new StemsDialog(stemsService, getUpdatePreferences(), std::move(host), writeSource,
-                                   fromRecordingBuffer ? "recording buffer" : "output");
-
-    // Dropping a stem on the recording buffer, as the output can be dropped there.
-    auto* window = new StemsWindow(dialog, *this, [this] { return isDragInProgress.load(); });
-    window->setVisible(true);
-    window->enterModalState(true, nullptr, true);
-    trackEditorModalWindow(window);
+    stemsPanel = std::make_unique<StemsDialog>(stemsService, getUpdatePreferences(), std::move(host),
+        writeSource, fromRecordingBuffer ? "recording buffer" : "output");
+    stemsPanelFromRecordingBuffer = fromRecordingBuffer;
+    juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
+    stemsPanel->onClose = [safeThis]
+    {
+        if (safeThis != nullptr)
+            safeThis->closeStemsPanel();
+    };
+    stemsPanel->setAlwaysOnTop(true);
+    stemsPanel->setFocusContainerType(juce::Component::FocusContainerType::keyboardFocusContainer);
+    addAndMakeVisible(*stemsPanel);
+    updateSA3LanePanel();
+    stemsPanel->toFront(true);
+    repaint();
 }
 
 // --- stem playback, through the same player as the output ----------------------------------------

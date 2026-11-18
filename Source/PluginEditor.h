@@ -22,6 +22,8 @@
 #include "Components/Foundation/FoundationUI.h"
 #include "Components/AudioSelectionDialog.h"
 #include "Utils/Theme.h"
+#include "Utils/CustomLookAndFeel.h"
+#include "Components/Stems/StemsDialog.h"
 #include "Utils/IconFactory.h"
 
 #include <atomic>
@@ -43,6 +45,7 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
 {
     friend struct FullTrackAudioTest;
     friend struct StemsModelsTest;
+    friend struct PopupLayoutTest;
     friend struct OutputMetadataTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
@@ -656,15 +659,20 @@ private:
     double stemPausedPosition = 0.0;
     bool stemPlaybackRunning = false;   // started and not paused or stopped by the user
     // Where each stem not in the player was left (path -> seconds), so switching stems pauses the
-    // one you leave rather than forgetting it. Cleared when the stems popup closes.
+    // one you leave rather than forgetting it. Cleared when the stems panel closes.
     std::map<juce::String, double> stemPositions;
     double currentStemPosition() const;
     double stemPosition(const juce::File& stem) const;
     void updateStemsButtonState();
     // What the stem separator needs before it can run ("install the stem separator", ...), or empty.
     juce::String stemsSetupStep();
-    void stemsHandleClicked(bool fromRecordingBuffer);   // the popup, or its settings until set up
+    void stemsHandleClicked(bool fromRecordingBuffer);   // the panel, or its settings until set up
     void checkStemPlaybackStatus();
+    std::unique_ptr<StemsDialog> stemsPanel;
+    bool stemsPanelFromRecordingBuffer = false;
+    std::vector<juce::Component::SafePointer<juce::Component>> modelControlsCoveredByStems;
+    void restoreStemsCoveredControls();
+    void closeStemsPanel();
     void showStemsDialog(bool fromRecordingBuffer);
     bool hasSavedRecordingBuffer() const;
     void loadStemIntoPlayer(const juce::File& stem);   // takes the shared player over, without playing
@@ -1024,6 +1032,10 @@ private:
     bool dragStarted = false;
     juce::Point<int> dragStartPosition;
     void startAudioDrag();
+#if JUCE_LINUX
+    CustomButton copyDraggedAudioButton;
+    void copyDraggedAudioFileToClipboard();
+#endif
     bool isMouseOverOutputWaveform(const juce::Point<int>& position) const;
 
     // Drag and drop functionality (input)

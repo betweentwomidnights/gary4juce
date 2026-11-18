@@ -1,7 +1,16 @@
 name: Linux preview
 on:
   push:
+    branches: [main]
     tags: ['v*-linux-preview.*']
+  pull_request:
+    paths:
+      - 'Source/**'
+      - 'CMakeLists.txt'
+      - 'gary4juce.jucer'
+      - 'packaging/linux/**'
+      - 'tests/**'
+      - '.github/workflows/linux-preview.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,14 +36,27 @@ jobs:
       - name: Configure pinned JUCE and Release build
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: 2
-        run: cmake -S . -B build-linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+        run: |
+          version_args=()
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version_args+=("-DGARY4JUCE_RELEASE_VERSION=${GITHUB_REF_NAME#v}")
+          fi
+          cmake -S . -B build-linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "${version_args[@]}"
       - name: Build VST3 and standalone
         run: cmake --build build-linux-release --parallel 2
       - name: Smoke test standalone in Xvfb
         run: xvfb-run -a python3 tests/linux/with_window_manager.py python3 tests/linux/standalone_smoke.py build-linux-release/gary4juce_artefacts/Release/Standalone/gary4juce
+      - name: Build and run Debug metadata regressions
+        if: matrix.arch == 'x64'
+        run: |
+          cmake -S . -B build-linux-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DJUCE_SOURCE_DIR="$PWD/build-linux-release/_deps/juce-src"
+          cmake --build build-linux-debug --target gary_output_metadata_test --parallel 2
+          xvfb-run -a ctest --test-dir build-linux-debug --output-on-failure
       - name: Package and verify the clean tagged build
+        if: startsWith(github.ref, 'refs/tags/')
         run: python3 packaging/linux/package.py --build-dir build-linux-release --juce-dir build-linux-release/_deps/juce-src --tag "${GITHUB_REF_NAME}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: linux-${{ matrix.arch }}
           if-no-files-found: error
@@ -43,3 +65,11 @@ jobs:
             .release/*.zip
             .release/SHA256SUMS-linux-*.txt
             .release/BUILD-INFO-linux-*.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: linux-${{ matrix.arch }}-build-check
+          if-no-files-found: error
+          path: |
+            build-linux-release/gary4juce_artefacts/Release/VST3/gary4juce.vst3
+            build-linux-release/gary4juce_artefacts/Release/Standalone/gary4juce

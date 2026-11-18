@@ -13,6 +13,23 @@ void check(bool ok, const char* message)
     ++checks;
     if (!ok) { ++failures; std::cout << "FAIL: " << message << '\n'; }
 }
+// Inspect the exported text, allowing meaningful whitespace inside JSON string values.
+bool hasFormattingWhitespace(const juce::String& json)
+{
+    bool quoted = false, escaped = false;
+    for (auto ch : json)
+    {
+        if (quoted)
+        {
+            if (escaped) escaped = false;
+            else if (ch == '\\') escaped = true;
+            else if (ch == '"') quoted = false;
+        }
+        else if (ch == '"') quoted = true;
+        else if (juce::CharacterFunctions::isWhitespace(ch)) return true;
+    }
+    return false;
+}
 juce::var request(const char* model, const char* prompt, int seed)
 {
     auto value = juce::DynamicObject::Ptr(new juce::DynamicObject());
@@ -104,6 +121,33 @@ int OutputMetadataTest::run(const juce::File& root)
         Gary4juceAudioProcessorEditor editor(processor);
         editor.stopAllBackgroundOperations();
         check(editor.draggedAudioMetadata == Gary4juceAudioProcessorEditor::DraggedAudioMetadata::Off, "metadata export defaults off in isolated preferences");
+#if JUCE_LINUX
+        check(JucePlugin_EditorRequiresKeyboardFocus == 1, "Linux plugin requests host keyboard focus");
+        editor.addToDesktop(juce::ComponentPeer::windowIsTemporary);
+        editor.setVisible(true);
+        std::function<juce::TextEditor*(juce::Component&)> findPrompt = [&](juce::Component& component) -> juce::TextEditor*
+        {
+            if (auto* text = dynamic_cast<juce::TextEditor*>(&component))
+                if (text->isShowing() && !text->isReadOnly()) return text;
+            for (auto* child : component.getChildren())
+                if (auto* text = findPrompt(*child)) return text;
+            return nullptr;
+        };
+        auto* prompt = findPrompt(editor);
+        check(prompt != nullptr, "Linux editor exposes a visible editable prompt box");
+        if (prompt != nullptr)
+        {
+            const auto before = prompt->getText();
+            prompt->grabKeyboardFocus();
+            prompt->keyPressed(juce::KeyPress('x', {}, 'x'));
+            check(prompt->getText() != before, "Linux prompt box accepts typed characters");
+            prompt->setText(before, false);
+        }
+        const auto image = editor.createComponentSnapshot(editor.getLocalBounds());
+        auto screenshot = root.getChildFile("linux-preview.png").createOutputStream();
+        if (screenshot != nullptr) juce::PNGImageFormat().writeImageToStream(image, *screenshot);
+#endif
+
         juce::AudioBuffer<float> tone(1, 48000 * 2);
         for (int i = 0; i < tone.getNumSamples(); ++i) tone.setSample(0, i, 0.2f * std::sin(i * 0.03f));
         const auto fixture = root.getChildFile("fixture.wav");
@@ -114,6 +158,8 @@ int OutputMetadataTest::run(const juce::File& root)
 
         const auto token = editor.beginGenerationAsyncWork();
         auto original = request("model-one", "original prompt", -1);
+        const auto automation = juce::JSON::parse(R"json([{"loras":[{"name":"test","strength":0.75}],"envelope":[[0.0,0.0],[1.25,0.625]],"prompt":"warm pads, \"quoted\" phrase"}])json");
+        original.getDynamicObject()->setProperty("lora_lanes", automation);
         editor.captureGenerationRequest(token, "gary", "generate", original);
         original.getDynamicObject()->setProperty("description", "changed before render completed");
         auto response = juce::DynamicObject::Ptr(new juce::DynamicObject());
@@ -132,6 +178,7 @@ int OutputMetadataTest::run(const juce::File& root)
         const auto firstExport = root.getChildFile("first.wav");
         check(editor.createDraggedAudioFile(editor.getGaryOutputFile(), firstExport), "WAV plus JSON exported");
         const auto firstJson = firstExport.withFileExtension(".json").loadFileAsString();
+        check(firstJson.containsChar('\n') && hasFormattingWhitespace(firstJson), "separate JSON remains formatted for reading");
         check(exported(firstExport)["audio_file"].toString() == "first.wav", "JSON names exact dragged audio file");
         check(exported(firstExport)["export_audio_sha256"].toString() == juce::SHA256(firstExport).toHexString(), "export hash matches actual WAV");
 
@@ -139,7 +186,11 @@ int OutputMetadataTest::run(const juce::File& root)
         editor.setDraggedAudioMetadata(Gary4juceAudioProcessorEditor::DraggedAudioMetadata::Embedded);
         const auto taggedWav = root.getChildFile("tagged.wav");
         check(editor.createDraggedAudioFile(editor.getGaryOutputFile(), taggedWav), "WAV with embedded tags exported");
-        const auto wavDetails = juce::JSON::parse(embedded(taggedWav)["GARY4JUCE_METADATA"]);
+        const auto wavComment = embedded(taggedWav)["GARY4JUCE_METADATA"];
+        check(!hasFormattingWhitespace(wavComment), "WAV embedded JSON has no formatting whitespace");
+        const auto wavDetails = juce::JSON::parse(wavComment);
+        check(automation.isArray() && juce::JSON::toString(wavDetails["parameters"]["lora_lanes"])
+              == juce::JSON::toString(automation), "compact WAV retains nested automation points and quoted prompts");
         check(wavDetails["prompt"].toString() == "original prompt" && wavDetails["seed"].toString() == "1234567890", "WAV comment retains render snapshot");
         check(wavDetails["parameters"]["lyrics"].toString() == original["lyrics"].toString(), "WAV retains multiline Unicode lyrics");
         check(!wavDetails["parameters"].hasProperty("hf_token") && !wavDetails["parameters"].hasProperty("audio_data"), "embedded metadata excludes secrets and audio payloads");
@@ -198,7 +249,19 @@ int OutputMetadataTest::run(const juce::File& root)
         const auto flacTags = embedded(taggedFlac);
         check(flacTags["PROMPT"] == "original prompt" && flacTags["SEED"] == "1234567890", "FLAC exposes prompt and seed as ordinary tags");
         check(flacTags["LYRICS"] == original["lyrics"].toString(), "FLAC exposes full Unicode lyrics tag");
-        check(juce::JSON::parse(flacTags["GARY4JUCE_METADATA"])["service"].toString() == "gary", "FLAC retains complete structured snapshot");
+        check(!hasFormattingWhitespace(flacTags["COMMENT"]), "FLAC embedded JSON has no formatting whitespace");
+        const auto flacDetails = juce::JSON::parse(flacTags["COMMENT"]);
+        check(juce::JSON::toString(flacDetails["parameters"]["lora_lanes"])
+              == juce::JSON::toString(automation), "compact FLAC retains nested automation points and quoted prompts");
+        check(flacDetails["service"].toString() == "gary"
+              && flacDetails["prompt"].toString() == "original prompt"
+              && flacDetails["seed"].toString() == "1234567890", "FLAC Comments contains the complete render snapshot");
+        check(flacDetails["parameters"]["lyrics"].toString() == original["lyrics"].toString()
+              && (int)flacDetails["parameters"]["max_tokens"] == 512, "FLAC Comments retains Unicode lyrics and request settings");
+        check(flacTags["DESCRIPTION"] == flacTags["COMMENT"], "Windows Comments and tag-editor Comment contain identical records");
+        check(!flacTags.containsKey("GARY4JUCE_METADATA"), "FLAC full record uses Comments instead of the custom Gary field");
+        check(!flacDetails["parameters"].hasProperty("hf_token")
+              && !flacDetails["parameters"].hasProperty("audio_data"), "FLAC Comments excludes secrets and uploaded audio");
         check(!taggedFlac.withFileExtension(".json").exists(), "FLAC embedded mode writes no sidecar");
         check(sameAudio(flac, taggedFlac), "FLAC tagging preserves sample format and every sample");
         editor.setDraggedAudioMetadata(Gary4juceAudioProcessorEditor::DraggedAudioMetadata::Json);
@@ -214,12 +277,18 @@ int OutputMetadataTest::run(const juce::File& root)
         editor.setDraggedAudioMetadata(Gary4juceAudioProcessorEditor::DraggedAudioMetadata::Embedded);
         const auto longWav = root.getChildFile("long.wav");
         check(editor.createDraggedAudioFile(editor.getGaryOutputFile(), longWav), "long WAV metadata exports");
-        check(juce::JSON::parse(embedded(longWav)["GARY4JUCE_METADATA"])["prompt"].toString() == longPrompt, "large WAV snapshot is not truncated");
+        const auto longWavComment = embedded(longWav)["GARY4JUCE_METADATA"];
+        check(!hasFormattingWhitespace(longWavComment), "multiline WAV prompt is escaped inside a compact JSON record");
+        check(juce::JSON::parse(longWavComment)["prompt"].toString() == longPrompt, "large WAV snapshot is not truncated");
        #if JUCE_USE_FLAC
         editor.setDraggedAudioFormat(Gary4juceAudioProcessorEditor::DraggedAudioFormat::Flac);
         const auto longFlac = root.getChildFile("long.flac");
         check(editor.createDraggedAudioFile(editor.getGaryOutputFile(), longFlac), "long FLAC metadata exports");
-        check(embedded(longFlac)["PROMPT"] == longPrompt, "large FLAC tag is not truncated");
+        const auto longFlacTags = embedded(longFlac);
+        check(!hasFormattingWhitespace(longFlacTags["COMMENT"]), "multiline FLAC prompt is escaped inside a compact JSON record");
+        check(longFlacTags["PROMPT"] == longPrompt, "large FLAC tag is not truncated");
+        check(juce::JSON::parse(longFlacTags["COMMENT"])["prompt"].toString() == longPrompt
+              && longFlacTags["DESCRIPTION"] == longFlacTags["COMMENT"], "large FLAC Comments snapshot is not truncated in either field");
         editor.setDraggedAudioFormat(Gary4juceAudioProcessorEditor::DraggedAudioFormat::Wav);
        #endif
         const auto malformed = root.getChildFile("malformed.wav");

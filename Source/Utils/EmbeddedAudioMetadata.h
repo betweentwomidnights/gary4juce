@@ -10,7 +10,10 @@ inline juce::StringPairArray embeddedTags(const juce::var& metadata)
 {
     juce::StringPairArray tags;
     tags.set("SOFTWARE", "gary4juce " + juce::String(ProjectInfo::versionString));
-    tags.set("GARY4JUCE_METADATA", juce::JSON::toString(metadata));
+    // Embedded comments are displayed as one field by tag viewers. Keep JSON compact;
+    // the serializer still escapes real line breaks in prompts and lyrics losslessly.
+    tags.set("GARY4JUCE_METADATA", juce::JSON::toString(metadata,
+        juce::JSON::FormatOptions{}.withSpacing(juce::JSON::Spacing::none)));
     for (auto key : { "model", "prompt", "seed" })
     {
         const auto value = metadata.getProperty(key, {}).toString();
@@ -95,16 +98,26 @@ inline bool embedWav(const juce::File& file, const juce::StringPairArray& tags)
 
 // JUCE's FLAC encoder ignores metadataValues. Replace its Vorbis comment block
 // in a temporary file, retaining STREAMINFO, other blocks and encoded frames.
+// Put the full record in the user-facing comment: tag editors commonly use COMMENT,
+// while Windows exposes DESCRIPTION as System.Comment. Both carry the same snapshot.
 inline bool embedFlac(const juce::File& file, const juce::StringPairArray& tags)
 {
+    auto flacTags = tags;
+    if (tags.containsKey("GARY4JUCE_METADATA"))
+    {
+        flacTags.set("COMMENT", tags["GARY4JUCE_METADATA"]);
+        flacTags.set("DESCRIPTION", tags["GARY4JUCE_METADATA"]);
+        flacTags.remove("GARY4JUCE_METADATA");
+    }
+
     juce::MemoryOutputStream comments;
-    const auto vendor = tags["SOFTWARE"];
+    const auto vendor = flacTags["SOFTWARE"];
     comments.writeInt(static_cast<int>(vendor.getNumBytesAsUTF8()));
     comments.write(vendor.toRawUTF8(), vendor.getNumBytesAsUTF8());
-    comments.writeInt(tags.size());
-    for (int i = 0; i < tags.size(); ++i)
+    comments.writeInt(flacTags.size());
+    for (int i = 0; i < flacTags.size(); ++i)
     {
-        const auto field = tags.getAllKeys()[i] + "=" + tags.getAllValues()[i];
+        const auto field = flacTags.getAllKeys()[i] + "=" + flacTags.getAllValues()[i];
         comments.writeInt(static_cast<int>(field.getNumBytesAsUTF8()));
         comments.write(field.toRawUTF8(), field.getNumBytesAsUTF8());
     }
