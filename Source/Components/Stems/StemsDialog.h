@@ -5,18 +5,18 @@
   ==============================================================================
     StemsDialog.h
 
-    The popup behind the "stems" button on the output waveform. Pick an
+    The attached panel behind the "stems" button on the output waveform. Pick an
     installed model, press separate, then audition each stem on its own
     waveform and drag the ones you want into the DAW. Playback, seeking,
     progress and drag-out behave like the output waveform's.
 
-    Everything here is ephemeral: the popup copies the output into its own
+    Everything here is ephemeral: the panel copies the output into its own
     session folder when it opens, separates into that folder, and deletes it
     when it closes. Only a stem you drag out is kept, as a copy in
     dragged_audio.
 
     A model that splits a stem further (DrumSep, for "drums") separates either
-    the popup's audio or that stem of a separation already made here: a "from"
+    the panel's audio or that stem of a separation already made here: a "from"
     menu beside the model menu picks which, and "split kit" on a drums stem
     goes straight there.
   ==============================================================================
@@ -36,6 +36,7 @@ class StemsDialog : public juce::Component,
                     private juce::Timer
 {
     friend struct StemsModelsTest;
+    friend struct PopupLayoutTest;
 
 public:
     // What the dialog needs from the editor: the shared output player, and dragging into the DAW.
@@ -53,10 +54,12 @@ public:
     };
 
     // writeSource puts the audio to separate (the output, or the recording buffer) into a WAV file
-    // in the popup's session; sourceTitle titles the popup ("output", "recording buffer").
+    // in the panel's session; sourceTitle titles the panel ("output", "recording buffer").
     StemsDialog(std::shared_ptr<stems::StemsService> service, juce::PropertiesFile& preferences, Host host,
                 const std::function<bool(const juce::File&)>& writeSource, const juce::String& sourceTitle);
     ~StemsDialog() override;
+
+    std::function<void()> onClose;
 
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -75,14 +78,13 @@ private:
     void rebuildInputs();
     void separate();
     juce::String currentModelId() const;
-    // A model's separation of the popup's audio is keyed by its id; a split of another model's
+    // A model's separation of the panel's audio is keyed by its id; a split of another model's
     // stem by "<model><<parent>", e.g. "mdx23c_drumsep<htdemucs".
     juce::String currentKey() const;
     bool currentModelSplits() const;
     const stems::ModelInfo* splitterFor(const juce::String& stemName) const;   // installed, or null
     void splitStem(const juce::String& stemName);
     juce::String emptyCellHint() const;
-    void layoutWindow();
     void updateControls();
 
     std::shared_ptr<stems::StemsService> service;
@@ -90,13 +92,13 @@ private:
     Host host;
 
     juce::File session;
-    juce::File source;                 // the audio being separated, as it was when the popup opened
+    juce::File source;                 // the audio being separated, as it was when the panel opened
     bool sourceReady = false;
 
     juce::Label title;
     CustomComboBox modelBox;
     juce::StringArray modelIds;        // modelBox item i + 1
-    // What a splitting model separates: the popup's audio (""), or the stem of a parent model's
+    // What a splitting model separates: the panel's audio (""), or the stem of a parent model's
     // separation. Shown only for such a model.
     CustomComboBox inputBox;
     juce::StringArray inputParents;    // inputBox item i + 1
@@ -104,10 +106,13 @@ private:
     bool inputChosen = false;          // picked by the user or by split kit, not defaulted
     juce::String sourceName;
     CustomButton separateButton { "separate" };
+    CustomButton closeButton { "close" };
+    juce::Component cellsContent;
+    juce::Viewport cellsViewport;
     std::vector<std::unique_ptr<StemCell>> cells;
     juce::Label status, hint;
 
-    std::map<juce::String, Separation> separations;   // by currentKey(), for this popup only
+    std::map<juce::String, Separation> separations;   // by currentKey(), for this panel only
     int separationCount = 0;
     bool separating = false;
     juce::String separatingKey;

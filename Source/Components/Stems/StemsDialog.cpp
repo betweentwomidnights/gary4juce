@@ -13,8 +13,7 @@ namespace
     constexpr int kCellHeight = 104;
     constexpr int kCellGap = 10;
     constexpr int kNameHeight = 24;
-    constexpr int kFooterHeight = 46;
-    constexpr int kDialogWidth = 720;
+    constexpr int kFooterHeight = 72;
     constexpr auto kDefaultHint = "choose a model and press separate";
 
     double audioDuration(const juce::File& file)
@@ -294,6 +293,22 @@ StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::Propertie
                          const std::function<bool(const juce::File&)>& writeSource, const juce::String& sourceTitle)
     : service(std::move(s)), preferences(prefs), host(std::move(h)), sourceName(sourceTitle)
 {
+    setOpaque(true);
+    setLookAndFeel(&CustomLookAndFeel::popupLookAndFeel());
+    cellsViewport.setViewedComponent(&cellsContent, false);
+    cellsViewport.setScrollBarsShown(true, false);
+    // A waveform drag exports a stem; scrolling uses the wheel or scrollbar.
+    cellsViewport.setScrollOnDragMode(juce::Viewport::ScrollOnDragMode::never);
+    cellsViewport.setScrollBarThickness(12);
+    addAndMakeVisible(cellsViewport);
+    closeButton.onClick = [this]
+    {
+        // Closing destroys this component. Run the editor callback after this button unwinds.
+        if (onClose)
+            juce::MessageManager::callAsync(onClose);
+    };
+    addAndMakeVisible(closeButton);
+
     // The stems belong to the audio as it is now, not to whatever replaces it later.
     session = service->createSessionDirectory();
     source = session.getChildFile("source.wav");
@@ -366,12 +381,14 @@ StemsDialog::StemsDialog(std::shared_ptr<stems::StemsService> s, juce::Propertie
     rebuildInputs();
     rebuildCells();
     updateControls();
+    setSize(468, 830);
     startTimerHz(30);
 }
 
 StemsDialog::~StemsDialog()
 {
     stopTimer();
+    setLookAndFeel(nullptr);
     if (separating)
         service->cancelJob();
     // Nothing may still be reading a stem when its folder goes.
@@ -496,23 +513,10 @@ void StemsDialog::rebuildCells()
     {
         const juce::File file = separated ? found->second.files[i] : juce::File();
         cells.push_back(std::make_unique<StemCell>(*this, names[i], file));
-        addAndMakeVisible(*cells.back());
+        cellsContent.addAndMakeVisible(*cells.back());
     }
-    layoutWindow();
-}
-
-void StemsDialog::layoutWindow()
-{
-    // One column up to four stems; six (htdemucs_6s) as two columns of three.
-    const int columns = cells.size() > 4 ? 2 : 1;
-    const int rows = juce::jmax(1, ((int) cells.size() + columns - 1) / columns);
-    const int height = kMargin + 30 + 8 + kTopBarHeight + 12 + rows * kCellHeight + (rows - 1) * kCellGap
-                     + 8 + kFooterHeight + kMargin;
-    const int width = columns == 2 ? kDialogWidth + 260 : kDialogWidth;
-    if (getWidth() != width || getHeight() != height)
-        setSize(width, height);   // a DialogWindow follows its content's size
-    else
-        resized();
+    resized();
+    cellsViewport.setViewPosition(0, 0);
 }
 
 void StemsDialog::separate()
@@ -609,7 +613,7 @@ void StemsDialog::timerCallback()
     for (auto& cell : cells)
         cell->update();
 
-    // A generation can start or end while this is open only before it took focus; keep the button honest.
+    // The attached panel stays open while the main editor starts or finishes a generation.
     const bool canSeparate = separating || (!host.isGenerating() && currentModelId().isNotEmpty()
                                             && sourceReady);
     if (separateButton.isEnabled() != canSeparate)
@@ -618,40 +622,42 @@ void StemsDialog::timerCallback()
 
 void StemsDialog::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1e1e1e));
+    g.fillAll(Theme::Colors::Background);
+    g.setColour(Theme::Colors::AccentRed);
+    g.drawRect(getLocalBounds(), 1);
+    g.setColour(Theme::Colors::PrimaryRed);
+    g.fillRect(0, 0, 3, getHeight());
 }
 
 void StemsDialog::resized()
 {
     auto area = getLocalBounds().reduced(kMargin);
-    title.setBounds(area.removeFromTop(30));
-    area.removeFromTop(8);
+    auto header = area.removeFromTop(30);
+    closeButton.setBounds(header.removeFromRight(64));
+    title.setBounds(header);
+    area.removeFromTop(10);
 
-    auto bar = area.removeFromTop(kTopBarHeight);
-    separateButton.setBounds(bar.removeFromRight(120));
-    bar.removeFromRight(10);
+    // Model names and the optional source menu each get a full row in the narrow dock.
+    modelBox.setBounds(area.removeFromTop(kTopBarHeight));
+    area.removeFromTop(8);
     if (inputBox.isVisible())
     {
-        inputBox.setBounds(bar.removeFromRight(260));
-        bar.removeFromRight(10);
+        inputBox.setBounds(area.removeFromTop(kTopBarHeight));
+        area.removeFromTop(8);
     }
-    modelBox.setBounds(bar);
+    separateButton.setBounds(area.removeFromTop(kTopBarHeight));
     area.removeFromTop(12);
 
     auto footer = area.removeFromBottom(kFooterHeight);
-    status.setBounds(footer.removeFromTop(22));
+    status.setBounds(footer.removeFromTop(32));
     hint.setBounds(footer);
     area.removeFromBottom(8);
 
-    const int columns = cells.size() > 4 ? 2 : 1;
-    const int rows = juce::jmax(1, ((int) cells.size() + columns - 1) / columns);
-    const int cellWidth = (area.getWidth() - (columns - 1) * kCellGap) / columns;
+    cellsViewport.setBounds(area);
+    const int height = juce::jmax(1, (int) cells.size()) * (kCellHeight + kCellGap) - kCellGap;
+    const int width = juce::jmax(1, area.getWidth()
+        - (height > area.getHeight() ? cellsViewport.getScrollBarThickness() : 0));
+    cellsContent.setSize(width, height);
     for (size_t i = 0; i < cells.size(); ++i)
-    {
-        const int column = (int) i / rows;   // fill down the first column, then the second
-        const int row = (int) i % rows;
-        cells[i]->setBounds(area.getX() + column * (cellWidth + kCellGap),
-                            area.getY() + row * (kCellHeight + kCellGap),
-                            cellWidth, kCellHeight);
-    }
+        cells[i]->setBounds(0, (int) i * (kCellHeight + kCellGap), width, kCellHeight);
 }

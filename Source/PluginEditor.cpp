@@ -33,6 +33,7 @@ namespace
     constexpr int kWideLeftColumnWidth = 470;
     constexpr int kWideColumnGap = 10;
     constexpr int kSA3LanePanelWidth = 480;
+    constexpr int kStemsPanelWidth = 480;
     constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
 }
 
@@ -508,6 +509,7 @@ void Gary4juceAudioProcessorEditor::applyProcessorStateToEditor()
         return;
 
     const juce::ScopedValueSetter<bool> applyingState(applyingProcessorState, true);
+    restoreStemsCoveredControls();
 
     restorePersistentState(audioProcessor.getEditorState());
     savedSamples = audioProcessor.getSavedSamples();
@@ -742,6 +744,7 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     };
 
     juce::PopupMenu menu;
+    menu.setLookAndFeel(&CustomLookAndFeel::popupLookAndFeel());
     menu.addSectionHeader("layout");
     menu.addItem(compactLayout, "compact", true,
         !usingWideLayout());
@@ -789,7 +792,8 @@ void Gary4juceAudioProcessorEditor::applyEditorSize()
 {
     const bool wide = usingWideLayout();
     const int width = (wide ? kWideEditorWidth : kCompactEditorWidth)
-        + (sa3LanePanelShown() ? kSA3LanePanelWidth : 0);
+        + (sa3LanePanelShown() ? kSA3LanePanelWidth : 0)
+        + (stemsPanel != nullptr && !wide ? kStemsPanelWidth : 0);
     const int height = wide ? kWideEditorHeight : kCompactEditorHeight;
     if (getWidth() == width && getHeight() == height)
         resized();   // the panel may still have to show or hide
@@ -2451,6 +2455,8 @@ Gary4juceAudioProcessorEditor::~Gary4juceAudioProcessorEditor()
     // modal or native chooser can block host shutdown after its parent is gone.
     dismissPluginUpdatePrompt();
     dismissEditorModalWindows();
+    // Its destructor releases stem playback while the editor and service are still intact.
+    stemsPanel.reset();
     uploadFileChooser.reset();
     storageFolderChooser.reset();
     // A download or test still running finishes on its own thread, which holds the service.
@@ -2483,6 +2489,7 @@ void Gary4juceAudioProcessorEditor::switchToTab(ModelTab tab)
 {
     if (currentTab == tab) return; // Already on this tab
 
+    restoreStemsCoveredControls();
     currentTab = tab;
     updateTabButtonStates();
 
@@ -8896,6 +8903,10 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
 // ========== UPDATED RESIZED METHOD ==========
 void Gary4juceAudioProcessorEditor::resized()
 {
+    // Restore model controls before laying out either mode. Wide stems hides the controls it
+    // covers so keyboard navigation and accessibility cannot reach fields behind the panel.
+    restoreStemsCoveredControls();
+
     auto bounds = getLocalBounds();
 
     // Automation lanes take a column on the right; the layouts keep their size beside it.
@@ -8907,6 +8918,9 @@ void Gary4juceAudioProcessorEditor::resized()
             sa3LaneEditor->setBounds(bounds.removeFromRight(kSA3LanePanelWidth).reduced(6, 10));
     }
 
+    if (stemsPanel != nullptr && !usingWideLayout())
+        stemsPanel->setBounds(bounds.removeFromRight(kStemsPanelWidth).reduced(6, 10));
+
     if (usingWideLayout())
     {
         auto leftColumn = bounds.removeFromLeft(kWideLeftColumnWidth);
@@ -8915,6 +8929,18 @@ void Gary4juceAudioProcessorEditor::resized()
         layoutInputSection(leftColumn.removeFromTop(kWideInputSectionHeight));
         layoutOutputSection(leftColumn);
         layoutModelSection(bounds);
+        // Wide mode borrows the model column; closing stems reveals the current tab again.
+        if (stemsPanel != nullptr)
+        {
+            for (auto* child : getChildren())
+                if (child != stemsPanel.get() && child->isVisible()
+                    && bounds.contains(child->getBounds().getCentre()))
+                {
+                    modelControlsCoveredByStems.emplace_back(child);
+                    child->setVisible(false);
+                }
+            stemsPanel->setBounds(bounds.reduced(6, 10));
+        }
         return;
     }
 

@@ -146,6 +146,8 @@ void Gary4juceAudioProcessorEditor::switchJerrySubTab(JerrySubTab sub)
 {
     if (jerrySubTab == sub && currentTab == ModelTab::Jerry) return;
 
+    restoreStemsCoveredControls();
+
     jerrySubTab = sub;
 
     // If we're not on the Jerry tab, switch to it first
@@ -2045,7 +2047,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
 
 bool Gary4juceAudioProcessorEditor::sa3LanePanelShown() const
 {
-    return sa3Lanes.open && sa3LaneEditor != nullptr
+    return stemsPanel == nullptr && sa3Lanes.open && sa3LaneEditor != nullptr
         && currentTab == ModelTab::Jerry && jerrySubTab == JerrySubTab::SA3;
 }
 

@@ -331,15 +331,17 @@ the stem separator settings, which also live in the settings menu under
 runtime is small (about 19 MB on windows, 6 MB on mac). the models download
 from Hugging Face.
 
+- stems attaches to the right in compact layout. in wide layout, it uses the
+  model area until you close it, keeping the window the same width.
 - pick a model, press separate. every stem gets its own waveform you can play,
   pause and seek.
 - drag the stems you want into your DAW. only a stem you drag out is kept. the
-  rest are deleted when you close the popup.
+  rest are deleted when you close the stems panel.
 - drop a stem on the recording buffer to replace what's in it. that's how you
   pull the drums out of something you dragged in from the DAW.
 - with `mdx23c_drumsep` downloaded, a drums stem gets a `split kit` button that
   splits it into kick, snare, toms, hi-hat, ride and crash, right there in the
-  popup. pick DrumSep from the menu to split the audio itself instead, which is
+  panel. pick DrumSep from the menu to split the audio itself instead, which is
   what you want for a drum loop. a `from` menu beside it switches between the
   two.
 - it's disabled while a generation is running.
