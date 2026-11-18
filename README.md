@@ -88,7 +88,6 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 - [x] bring local yuey to macOS (gary4local mac v0.4.0)
 - [ ] unify gary4local into one cross-platform app through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
 - [x] introduce optional lightweight native stem separator
-- [ ] revisit Carey complete mode so it can do the upstream-style accompaniment workflow (if it actually works like it should...)
 
 ---
 
