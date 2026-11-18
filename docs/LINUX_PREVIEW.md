@@ -1,8 +1,8 @@
 # Linux desktop preview
 
 Linux support lives on `main` with the Windows and macOS source. The experimental
-Ubuntu 24.04 build is for testing with the separately supplied gary4local Linux
-desktop preview. Packages are available for x64 Linux PCs and ARM64 systems such
+Ubuntu 24.04 build is for testing with
+[gary4local v0.7.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4). Packages are available for x64 Linux PCs and ARM64 systems such
 as DGX Spark. GPU drivers,
 models and backend runtimes are separate downloads.
 
@@ -45,8 +45,7 @@ The updater reads `preview-linux.json`, published from `main`. Windows and macOS
 stable feeds stay separate. CMake reads the numeric plugin version from
 `gary4juce.jucer`; local builds default to `<version>-linux-preview.1`, and release
 builds can set `GARY4JUCE_RELEASE_VERSION` to the full preview version. The current
-published Linux feed remains on `5.0.5-linux-preview.1` until a new preview is
-packaged, tested and published.
+published Linux preview is `5.0.6-linux-preview.1`, paired with gary4local v0.7.4.
 
 ## Build
 

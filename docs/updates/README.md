@@ -9,8 +9,8 @@ See the [release flow](../RELEASING.md) for packaging and publication order.
 - [Legacy maintainer preview](https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview.json)
 
 Linux preview builds select `preview-linux.json` by default and compare the
-full preview version, such as `5.0.5-linux-preview.1`. The numeric native plugin
-version can still be 5.0.5. The optional build definition `GARY4JUCE_UPDATE_VERSION`
+full preview version, such as `5.0.6-linux-preview.1`. The numeric native plugin
+version can still be 5.0.6. The optional build definition `GARY4JUCE_UPDATE_VERSION`
 provides the full updater version; the Linux CMake build supplies it from
 `GARY4JUCE_RELEASE_VERSION`.
 
