@@ -34,6 +34,11 @@ namespace
     constexpr int kWideColumnGap = 10;
     constexpr int kSA3LanePanelWidth = 480;
     constexpr int kStemsPanelWidth = 480;
+   #if JUCE_LINUX
+    constexpr bool kExternalAudioDragCanMove = false;
+   #else
+    constexpr bool kExternalAudioDragCanMove = true;
+   #endif
     constexpr auto kRecordingBufferFileChooserDirectoryKey = "recordingBufferFileChooserDirectory";
 }
 
@@ -1990,6 +1995,13 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
     outputLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     outputLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(outputLabel);
+#if JUCE_LINUX
+    copyDraggedAudioButton.setButtonText("copy");
+    copyDraggedAudioButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
+    copyDraggedAudioButton.setTooltip("save a copy and reveal it in the file manager for DAWs that cannot accept a plugin drag");
+    copyDraggedAudioButton.onClick = [this]() { copyDraggedAudioFileToClipboard(); };
+    addAndMakeVisible(copyDraggedAudioButton);
+#endif
 
     // Play output button
     playOutputButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
@@ -2683,6 +2695,11 @@ void Gary4juceAudioProcessorEditor::setGaryLastSeed(const juce::String& seed)
 
 void Gary4juceAudioProcessorEditor::updateGaryButtonStates(bool resetTexts)
 {
+#if JUCE_LINUX
+    copyDraggedAudioButton.setEnabled(hasOutputAudio && outputAudioFile.existsAsFile()
+        && outputAudioFile.getSize() > 0);
+#endif
+
     if (!garyUI)
         return;
 
@@ -2900,7 +2917,7 @@ void Gary4juceAudioProcessorEditor::updateRecordingStatus()
 
         inputPlaybackSnapshotSamples = 0;
         inputPlaybackDuration = 0.0;
-        lastDraggedAudioFile = {};
+        lastDraggedAudioFile = juce::File();
         lastSelectionStartTime = 0.0;
     }
 
@@ -6537,7 +6554,7 @@ void Gary4juceAudioProcessorEditor::clearRecordingBuffer()
     }
     inputPlaybackDuration = 0.0;
     inputPlaybackSnapshotSamples = 0;
-    lastDraggedAudioFile = {};
+    lastDraggedAudioFile = juce::File();
     lastSelectionStartTime = 0.0;
     audioProcessor.clearRecordingBuffer();
     savedSamples = audioProcessor.getSavedSamples();  // Will be 0 after clear
@@ -8191,15 +8208,15 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
     juce::Thread::sleep(50); // Increased from 10ms
 
     // Create array of files to drag
-    juce::StringArray filesToDrag;
-    filesToDrag.add(uniqueDragFile.getFullPathName());
+    auto filesToDrag = std::make_shared<juce::StringArray>();
+    filesToDrag->add(uniqueDragFile.getFullPathName());
     DBG("Starting drag for persistent file: " + uniqueDragFile.getFullPathName());
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
 
     // SAFETY: Enhanced callback with multiple safety checks
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this, [asyncAlive, editor, uniqueDragFile]()
+    auto success = performExternalDragDropOfFiles(*filesToDrag, kExternalAudioDragCanMove, this, [asyncAlive, editor, uniqueDragFile, filesToDrag]()
         {
             // SAFETY CHECK 1: Component validity
             const auto alive = asyncAlive.lock();
@@ -8245,6 +8262,27 @@ void Gary4juceAudioProcessorEditor::startAudioDrag()
         isDragInProgress.store(false);
     }
 }
+
+#if JUCE_LINUX
+void Gary4juceAudioProcessorEditor::copyDraggedAudioFileToClipboard()
+{
+    if (!ensureGaryDataDirectoryAvailable() || !hasOutputAudio || !outputAudioFile.existsAsFile())
+    {
+        showStatusMessage("no output audio to copy", 2500);
+        return;
+    }
+    juce::ScopedLock lock(fileLock);
+    const auto prepared = prepareFileForDrag();
+    if (!prepared.first || !prepared.second.existsAsFile())
+    {
+        showStatusMessage("copy failed - unable to create file", 2500);
+        return;
+    }
+    prepared.second.revealToUser();
+    showStatusMessage("saved to dragged_audio: " + prepared.second.getFileName()
+        + " (drag from your DAW browser or file manager)", 4500);
+}
+#endif
 
 std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 {
@@ -8312,16 +8350,16 @@ std::pair<bool, juce::File> Gary4juceAudioProcessorEditor::prepareFileForDrag()
 
 bool Gary4juceAudioProcessorEditor::performDragOperation(const juce::File& dragFile)
 {
-    juce::StringArray filesToDrag;
-    filesToDrag.add(dragFile.getFullPathName());
+    auto filesToDrag = std::make_shared<juce::StringArray>();
+    filesToDrag->add(dragFile.getFullPathName());
 
     DBG("Starting thread-safe drag for: " + dragFile.getFullPathName());
 
     // THREAD SAFETY: Use WeakReference to avoid accessing deleted component
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis = this;
 
-    auto success = performExternalDragDropOfFiles(filesToDrag, true, this,
-        [safeThis, dragFile]() {
+    auto success = performExternalDragDropOfFiles(*filesToDrag, kExternalAudioDragCanMove, this,
+        [safeThis, dragFile, filesToDrag]() {
             // THREAD SAFETY: Always check if component still exists
             if (safeThis.getComponent() == nullptr)
             {
@@ -9393,6 +9431,9 @@ void Gary4juceAudioProcessorEditor::layoutOutputSection(juce::Rectangle<int> sec
     auto buttonContainerBounds = outputFlexBox.items[3].currentBounds.toNearestInt();
 
     // Set component bounds based on FlexBox calculations
+#if JUCE_LINUX
+    copyDraggedAudioButton.setBounds(labelBounds.removeFromRight(64).reduced(2, 0));
+#endif
     outputLabel.setBounds(labelBounds);
     outputWaveformArea = waveformBounds;
     outputInfoArea = outputInfoBounds;  // Store this for use in paint()

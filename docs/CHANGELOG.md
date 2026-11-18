@@ -3,6 +3,16 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## v5.0.5-linux-preview.1 - Linux desktop refresh
+
+merge main through v5.0.5 into the old Linux branch, retaining host keyboard
+focus, copy-only external audio drags and the Bitwig export-copy fallback.
+the copy path now uses the current storage, WAV/FLAC and generation-details
+settings. native Ubuntu 24.04 builds are prepared for x64 and ARM64; a dedicated
+Linux preview updater uses the full preview version. built-in stems remain
+unavailable until a Linux runtime is pinned. real desktop/DAW and GPU generation
+testing is still needed. see [Linux preview](LINUX_PREVIEW.md).
+
 ## v5.0.5 - embedded generation details
 
 audio storage now lets you choose off, a matching JSON file, or embedded audio

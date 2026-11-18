@@ -1032,6 +1032,10 @@ private:
     bool dragStarted = false;
     juce::Point<int> dragStartPosition;
     void startAudioDrag();
+#if JUCE_LINUX
+    CustomButton copyDraggedAudioButton;
+    void copyDraggedAudioFileToClipboard();
+#endif
     bool isMouseOverOutputWaveform(const juce::Point<int>& position) const;
 
     // Drag and drop functionality (input)

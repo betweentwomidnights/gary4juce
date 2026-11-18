@@ -121,6 +121,33 @@ int OutputMetadataTest::run(const juce::File& root)
         Gary4juceAudioProcessorEditor editor(processor);
         editor.stopAllBackgroundOperations();
         check(editor.draggedAudioMetadata == Gary4juceAudioProcessorEditor::DraggedAudioMetadata::Off, "metadata export defaults off in isolated preferences");
+#if JUCE_LINUX
+        check(JucePlugin_EditorRequiresKeyboardFocus == 1, "Linux plugin requests host keyboard focus");
+        editor.addToDesktop(juce::ComponentPeer::windowIsTemporary);
+        editor.setVisible(true);
+        std::function<juce::TextEditor*(juce::Component&)> findPrompt = [&](juce::Component& component) -> juce::TextEditor*
+        {
+            if (auto* text = dynamic_cast<juce::TextEditor*>(&component))
+                if (text->isShowing() && !text->isReadOnly()) return text;
+            for (auto* child : component.getChildren())
+                if (auto* text = findPrompt(*child)) return text;
+            return nullptr;
+        };
+        auto* prompt = findPrompt(editor);
+        check(prompt != nullptr, "Linux editor exposes a visible editable prompt box");
+        if (prompt != nullptr)
+        {
+            const auto before = prompt->getText();
+            prompt->grabKeyboardFocus();
+            prompt->keyPressed(juce::KeyPress('x', {}, 'x'));
+            check(prompt->getText() != before, "Linux prompt box accepts typed characters");
+            prompt->setText(before, false);
+        }
+        const auto image = editor.createComponentSnapshot(editor.getLocalBounds());
+        auto screenshot = root.getChildFile("linux-preview.png").createOutputStream();
+        if (screenshot != nullptr) juce::PNGImageFormat().writeImageToStream(image, *screenshot);
+#endif
+
         juce::AudioBuffer<float> tone(1, 48000 * 2);
         for (int i = 0; i < tone.getNumSamples(); ++i) tone.setSample(0, i, 0.2f * std::sin(i * 0.03f));
         const auto fixture = root.getChildFile("fixture.wav");

@@ -414,6 +414,10 @@ Steps:
 3. Open the generated IDE project.
 4. Build release configuration.
 
+Linux uses the shared source with a separate CMake build. See the
+[Linux preview build instructions](docs/LINUX_PREVIEW.md) for x64/ARM64 dependencies,
+builds and regression checks. Windows and macOS continue to use Projucer.
+
 Maintainers: see the [release checklist](docs/RELEASING.md) for packaging and
 verification.
 
