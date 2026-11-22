@@ -101,6 +101,21 @@ target_link_libraries(gary4juce PRIVATE
 
 include(CTest)
 if(BUILD_TESTING)
+    # The real stems installer/inference path, without building or launching the editor.
+    juce_add_console_app(gary_stems_runtime_test PRODUCT_NAME "gary stems runtime test" NEEDS_CURL TRUE)
+    juce_generate_juce_header(gary_stems_runtime_test)
+    target_sources(gary_stems_runtime_test PRIVATE tests/linux/stems_runtime_test.cpp
+        Source/Stems/StemsRuntime.cpp)
+    target_compile_features(gary_stems_runtime_test PRIVATE cxx_std_17)
+    target_compile_definitions(gary_stems_runtime_test PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1)
+    target_link_libraries(gary_stems_runtime_test PRIVATE juce::juce_audio_formats
+        juce::juce_cryptography juce::juce_recommended_config_flags)
+    set(GARY4JUCE_STEMS_TEST_FIXTURES "" CACHE PATH "Verified stems ZIPs and denoise-lite GGUF for the offline runtime test")
+    if(GARY4JUCE_STEMS_TEST_FIXTURES)
+        add_test(NAME stems_runtime COMMAND gary_stems_runtime_test "${GARY4JUCE_STEMS_TEST_FIXTURES}")
+        set_tests_properties(stems_runtime PROPERTIES TIMEOUT 180)
+    endif()
+
     add_executable(gary_output_metadata_test tests/output_metadata/metadata_test.cpp)
     target_link_libraries(gary_output_metadata_test PRIVATE gary4juce
         juce::juce_audio_utils juce::juce_cryptography gary4juce_assets)

@@ -37,9 +37,17 @@ callback; Windows and macOS keep their existing drag policy. The **copy** button
 DAW's browser or file manager when direct plugin dragging is unavailable.
 It uses the selected WAV/FLAC and generation-details settings.
 
-Built-in stem separation has no pinned Linux runtime yet, so its installation
-and separation controls remain unavailable on Linux. Generation backends are
-provided by gary4local or the remote service as on the other platforms.
+Built-in stem separation downloads the pinned stems.cpp v0.1.7 core and Vulkan
+packages for x64 or ARM64 from **gary settings > stem separator**. Models are
+separate downloads in the same panel. Separation runs inside gary4juce; it does
+not need gary4local or Python. The CPU works without a GPU. Vulkan acceleration
+needs the system Vulkan loader (`libvulkan1` on Ubuntu) and a working GPU driver;
+without a supported device the runtime falls back to the CPU.
+
+These runtime packages require GLIBC 2.38 and GLIBCXX 3.4.32 or newer, available
+on Ubuntu 24.04. Real desktop/DAW behavior and GPU separation still need hardware
+validation. Generation backends are provided by gary4local or the remote service
+as on the other platforms.
 
 The updater reads `preview-linux.json`, published from `main`. Windows and macOS
 stable feeds stay separate. CMake reads the numeric plugin version from
@@ -78,8 +86,17 @@ python3 packaging/linux/package.py --build-dir build-linux-release \
   --juce-dir build-linux-release/_deps/juce-src --tag v5.0.6-linux-preview.1
 ```
 
-CI checks `main` and pull requests natively on Ubuntu 24.04 x64 and ARM64, launches the standalone in
-Xvfb, and runs the metadata regression suite on x64. Linux preview tags also
+For the offline stems integration test, put the matching pinned core/Vulkan ZIPs
+and `uvr_denoise_lite-4M-v1.0-F32.gguf` in a fixture directory, then configure with
+`-DBUILD_TESTING=ON -DGARY4JUCE_STEMS_TEST_FIXTURES=/absolute/path/to/fixtures`.
+Build `gary_stems_runtime_test` and run `ctest --test-dir build-linux-release -R stems_runtime --output-on-failure`.
+It checks the fixtures against the compiled package/model hashes, rejects a
+corrupted ZIP, installs into temporary storage and separates on the CPU through
+the real StemsService from outside the runtime folder. It leaves user data alone.
+
+CI checks `main` and pull requests natively on Ubuntu 24.04 x64 and ARM64, verifies
+stems installation and CPU separation on both, launches the standalone in Xvfb,
+and runs the metadata regression suite on x64. Linux preview tags also
 verify archive contents, hashes, dependency resolution and legal files. This does not establish real DAW keyboard routing, Bitwig drag behavior,
 audio-device compatibility or GPU generation. Those are the preview's manual
 test targets.

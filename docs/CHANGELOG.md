@@ -3,6 +3,13 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## Unreleased
+
+Built-in stem separation is available on Linux x64 and ARM64. The settings panel
+installs the pinned stems.cpp v0.1.7 core and Vulkan packages, with CPU fallback
+when no supported GPU is available. Models remain separate downloads. The Linux
+runtime targets Ubuntu 24.04; real GPU and DAW validation is still needed.
+
 ## v5.0.6 - 11/18
 
 Windows and Linux now build from the same source on main. Linux keeps host

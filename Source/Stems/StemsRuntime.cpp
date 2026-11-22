@@ -89,6 +89,26 @@ namespace stems
                 { "stems-v0.1.5-macos-universal.zip",
                   "0876b0328936aede3c5eb2dd65ec9005862b856e6447ace15f3b652728c78071", 6536039 },
             };
+#elif JUCE_LINUX && (defined(__x86_64__) || defined(__aarch64__))
+            // Flat core + Vulkan archives, with private ggml libraries beside libstems.so.
+            // Ubuntu 24.04 builds: GLIBC >= 2.38 and GLIBCXX >= 3.4.32.
+            r.tag = "v0.1.7";
+            r.downloadBaseUrl = "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.7/";
+ #if defined(__aarch64__)
+            r.packages = {
+                { "stems-v0.1.7-linux-arm64-core.zip",
+                  "06dca839ceed827ac17504bf817660a608ab73d933467fe45794768748b86d3b", 5307821 },
+                { "stems-v0.1.7-linux-arm64-vulkan.zip",
+                  "cda24d7e0b2e8dd38f9636d90121f519a0779474218c311306e9d39757ec4c94", 10463457 },
+            };
+ #else
+            r.packages = {
+                { "stems-v0.1.7-linux-x64-core.zip",
+                  "fb13d07ab721548a1e62623970782d365a9ecb3f54f2b1f55f5883543a776243", 9024783 },
+                { "stems-v0.1.7-linux-x64-vulkan.zip",
+                  "e6b44024cd3db825d907eb2a629d3853e500348158adcf9f5a45dd4674d5a4bd", 10482892 },
+            };
+ #endif
 #endif
             return r;
         }();

@@ -44,6 +44,21 @@ jobs:
           cmake -S . -B build-linux-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "${version_args[@]}"
       - name: Build VST3 and standalone
         run: cmake --build build-linux-release --parallel 2
+      - name: Verify stems installation and CPU separation
+        run: |
+          fixtures="$PWD/build-linux-release/stems-fixtures"
+          mkdir -p "$fixtures"
+          for part in core vulkan; do
+            file="stems-v0.1.7-linux-${{ matrix.arch }}-$part.zip"
+            curl -fL --retry 3 --connect-timeout 15 --max-time 180 -o "$fixtures/$file" \
+              "https://github.com/betweentwomidnights/stems.cpp/releases/download/v0.1.7/$file"
+          done
+          model="uvr_denoise_lite-4M-v1.0-F32.gguf"
+          curl -fL --retry 3 --connect-timeout 15 --max-time 180 -o "$fixtures/$model" \
+            "https://huggingface.co/thepatch/uvr-vr-GGUF/resolve/main/$model"
+          cmake -S . -B build-linux-release -DBUILD_TESTING=ON -DGARY4JUCE_STEMS_TEST_FIXTURES="$fixtures"
+          cmake --build build-linux-release --target gary_stems_runtime_test --parallel 2
+          ctest --test-dir build-linux-release -R '^stems_runtime$' --output-on-failure
       - name: Smoke test standalone in Xvfb
         run: xvfb-run -a python3 tests/linux/with_window_manager.py python3 tests/linux/standalone_smoke.py build-linux-release/gary4juce_artefacts/Release/Standalone/gary4juce
       - name: Build and run Debug metadata regressions
