@@ -13,6 +13,9 @@
 #include "PluginEditorTerryHelpers.h"
 #include "PluginEditorTextHelpers.h"
 #include "./Utils/BarTrim.h"
+#if JUCE_MAC
+#include "./Utils/MacDockIcon.h"
+#endif
 #include "./Components/Base/CustomComboBox.h"
 #include "./Stems/StemsRuntime.h"
 #include <limits>
@@ -907,6 +910,9 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     applyEditorSize();
 
+#if JUCE_MAC
+    applyStandaloneDockIconIfAvailable();
+#endif
     audioProcessor.addChangeListener(this);
 
     // Check initial backend connection status
