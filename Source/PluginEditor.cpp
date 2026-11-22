@@ -4472,7 +4472,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 
                 if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    errorMsg = "cannot connect to gary on localhost - ensure gary is running in gary4local";
                     safeThis->markBackendDisconnectedFromRequestFailure("gary request");
                 }
                 else if (statusCode == 0)
@@ -4735,7 +4735,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 
                 if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    errorMsg = "cannot connect to gary on localhost - ensure gary is running in gary4local";
                     safeThis->markBackendDisconnectedFromRequestFailure("continue request");
                 }
                 else if (statusCode == 0)
@@ -4970,7 +4970,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 
                 if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "Cannot connect to localhost - ensure Docker Compose is running";
+                    errorMsg = "cannot connect to gary on localhost - ensure gary is running in gary4local";
                     safeThis->markBackendDisconnectedFromRequestFailure("retry request");
                 }
                 else if (statusCode == 0)
