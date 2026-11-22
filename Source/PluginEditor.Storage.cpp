@@ -891,7 +891,7 @@ void Gary4juceAudioProcessorEditor::updateStorageButtonState()
     settingsButton.setButtonStyle(usingGaryDataFallback
         ? CustomButton::ButtonStyle::Terry
         : CustomButton::ButtonStyle::Standard);
-    settingsButton.setTooltip("gary settings: layout, storage & stem separator\n"
+    settingsButton.setTooltip("gary settings: layout, storage, stem separator & gary4local host\n"
         + juce::String(usingGaryDataFallback ? "recovery storage: " : "audio storage: ")
         + activeGaryDataDirectory.getFullPathName());
 }

@@ -745,7 +745,8 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
         compactLayout = 1,
         wideLayout,
         audioStorage,
-        stemSeparator
+        stemSeparator,
+        localHost
     };
 
     juce::PopupMenu menu;
@@ -759,6 +760,7 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
     menu.addItem(audioStorage,
         usingGaryDataFallback ? "audio storage (recovery)..." : "audio storage...");
     menu.addItem(stemSeparator, "stem separator...");
+    menu.addItem(localHost, "gary4local host...");
 
     juce::Component::SafePointer<Gary4juceAudioProcessorEditor> safeThis(this);
     menu.showMenuAsync(
@@ -778,6 +780,8 @@ void Gary4juceAudioProcessorEditor::showGarySettingsMenu()
                 safeThis->showStorageSettings();
             else if (result == stemSeparator)
                 safeThis->showStemsSettings();
+            else if (result == localHost)
+                safeThis->showLocalHostSettings();
         });
 }
 
@@ -1915,10 +1919,12 @@ Gary4juceAudioProcessorEditor::Gary4juceAudioProcessorEditor(Gary4juceAudioProce
 
     settingsButton.setButtonStyle(CustomButton::ButtonStyle::Standard);
     settingsButton.setIcon(IconFactory::createSettingsIcon());
-    settingsButton.setTooltip("gary settings: layout, storage & stem separator");
+    settingsButton.setTooltip("gary settings: layout, storage, stem separator & gary4local host");
     settingsButton.onClick = [this]() { showGarySettingsMenu(); };
 
-    // Backend toggle button setup
+    // Backend toggle button setup. The gary4local host is restored first: it clears a
+    // health snapshot taken against a different machine before it is restored below.
+    restoreLocalHostPreference();
     isUsingLocalhost = audioProcessor.getIsUsingLocalhost(); // Sync with processor
     if (isUsingLocalhost)
         restoreLocalServiceHealthSnapshot();

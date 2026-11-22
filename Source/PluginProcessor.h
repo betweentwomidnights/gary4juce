@@ -63,6 +63,17 @@ public:
     juce::String getCurrentBackendType() const { return isUsingLocalhost ? "local" : "remote"; }
     juce::String getServiceUrl(ServiceType service, const juce::String& endpoint) const;
 
+    // The machine running gary4local for the local backend. Empty means this computer.
+    // Per-service ports stay fixed; only the host changes. It is a machine preference
+    // the editor restores, not part of the DAW project state.
+    void setLocalHost(const juce::String& host);
+    juce::String getLocalHost() const;
+    static int getLocalServicePort(ServiceType service);
+    // Accepts a hostname or IP, with or without http:// or a trailing slash. Returns
+    // false for anything else (a port, a path, spaces). "localhost" and 127.0.0.1
+    // normalise to the empty "this computer" value; bare IPv6 gains brackets.
+    static bool normaliseLocalHost(const juce::String& input, juce::String& normalised);
+
     // Session ID management for undo functionality
     // Enhanced session management with timestamps
     void setCurrentSessionId(const juce::String& sessionId);  // Update signature
@@ -187,6 +198,8 @@ private:
     // Backend URL management
     bool isUsingLocalhost = false;
     juce::String backendBaseUrl = "https://g4l.thecollabagepatch.com"; // Default to remote
+    mutable juce::SpinLock localHostLock;
+    juce::String localHost; // empty = this computer
     mutable juce::SpinLock localHealthSnapshotLock;
     LocalServiceHealthSnapshot localHealthSnapshot;
 

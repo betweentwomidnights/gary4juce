@@ -275,7 +275,7 @@ void Gary4juceAudioProcessorEditor::updateCareyTabAvailability()
         refreshCareyAvailableLoras(false);
 
     if (audioProcessor.getIsUsingLocalhost())
-        careyTabButton.setTooltip("carey (ace-step 1.5) - localhost:8003");
+        careyTabButton.setTooltip("carey (ace-step 1.5) - " + getLocalHostLabel() + ":8003");
     else
         careyTabButton.setTooltip("carey (ace-step 1.5) - remote backend");
 

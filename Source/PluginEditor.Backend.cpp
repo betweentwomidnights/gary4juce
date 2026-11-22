@@ -93,7 +93,9 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
     {
         backendToggleButton.setButtonText("local");
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Gary); // Red style for local
-        backendToggleButton.setTooltip("using localhost backend (gary:8000 terry:8002 jerry:8005 sa3:8006 yuey:8007 carey:8003 foundation:8015) - click to switch to remote");
+        backendToggleButton.setTooltip("using gary4local on " + getLocalHostLabel()
+            + " (gary:8000 terry:8002 jerry:8005 sa3:8006 yuey:8007 carey:8003 foundation:8015)"
+              " - click to switch to remote. change the host in gary settings");
     }
     else
     {
@@ -101,6 +103,108 @@ void Gary4juceAudioProcessorEditor::updateBackendToggleButton()
         backendToggleButton.setButtonStyle(CustomButton::ButtonStyle::Standard); // Standard style for remote
         backendToggleButton.setTooltip("using remote backend (g4l.thecollabagepatch.com) - click to switch to localhost");
     }
+}
+
+// ========== GARY4LOCAL HOST ==========
+// Which machine runs gary4local is a property of the studio, not of one DAW project, so it
+// lives in the shared preferences file rather than plugin state.
+
+namespace
+{
+    constexpr auto kLocalHostPreferenceKey = "gary4localHost";
+}
+
+juce::String Gary4juceAudioProcessorEditor::getLocalHostLabel() const
+{
+    const auto host = audioProcessor.getLocalHost();
+    return host.isEmpty() ? juce::String("localhost") : host;
+}
+
+void Gary4juceAudioProcessorEditor::restoreLocalHostPreference()
+{
+    audioProcessor.setLocalHost(getUpdatePreferences().getValue(kLocalHostPreferenceKey));
+}
+
+void Gary4juceAudioProcessorEditor::applyLocalHost(const juce::String& host)
+{
+    juce::String normalised;
+    if (!Gary4juceAudioProcessor::normaliseLocalHost(host, normalised))
+        return;
+
+    auto& preferences = getUpdatePreferences();
+    preferences.setValue(kLocalHostPreferenceKey, normalised);
+    preferences.saveIfNeeded();
+
+    if (normalised == audioProcessor.getLocalHost())
+        return;
+
+    audioProcessor.setLocalHost(normalised);
+    updateBackendToggleButton();
+
+    if (!isUsingLocalhost)
+        return;
+
+    // Same revalidation as a backend switch: the new machine may run different
+    // services, models and LoRAs.
+    updateConnectionStatus(false);
+    availableSA3Loras.clear();
+    sa3LoraFetchBackendUrl.clear();
+    sa3LoraLastFetchMs = 0;
+    syncSA3LoraUi();
+    updateCareyTabAvailability();
+    resetLocalServiceHealthSnapshot();
+    triggerLocalServiceHealthPoll(true);
+}
+
+void Gary4juceAudioProcessorEditor::showLocalHostSettings()
+{
+    auto* alert = new juce::AlertWindow("gary settings > gary4local host",
+        "Which computer runs gary4local? Leave empty for this computer.\n\n"
+        "To use another machine, enter its name or IP address, for example 192.168.1.50. "
+        "The service ports stay the same (8000-8015), so they must be reachable from here: "
+        "an SSH tunnel, Tailscale, or a gary4local listener opened to your network.",
+        juce::MessageBoxIconType::NoIcon, this);
+    alert->addTextEditor("host", audioProcessor.getLocalHost(), "host");
+    alert->addButton("save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("this computer", 2);
+    alert->addButton("cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    trackEditorModalWindow(alert);
+
+    const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
+    auto* editor = this;
+    alert->enterModalState(true, juce::ModalCallbackFunction::create(
+        [asyncAlive, editor, alert](int result)
+        {
+            const auto entered = alert->getTextEditorContents("host");
+            std::unique_ptr<juce::AlertWindow> cleanup(alert);
+            const auto alive = asyncAlive.lock();
+            if (alive == nullptr || !alive->load(std::memory_order_acquire) || result == 0)
+                return;
+
+            if (result == 2)
+            {
+                editor->applyLocalHost({});
+                return;
+            }
+
+            juce::String normalised;
+            if (!Gary4juceAudioProcessor::normaliseLocalHost(entered, normalised))
+            {
+                juce::AlertWindow::showAsync(
+                    juce::MessageBoxOptions()
+                        .withIconType(juce::MessageBoxIconType::WarningIcon)
+                        .withTitle("gary4local host")
+                        .withMessage("\"" + entered.trim() + "\" is not a host name or IP address.\n\n"
+                                     "Enter only the host, without a port or path - "
+                                     "for example 192.168.1.50 or studio-box.local.")
+                        .withButton("ok")
+                        .withAssociatedComponent(editor),
+                    nullptr);
+                return;
+            }
+
+            editor->applyLocalHost(normalised);
+        }));
 }
 
 // ========== LOCAL SERVICE HEALTH POLLING ==========
@@ -184,18 +288,25 @@ static bool rawHealthResponseLooksOnline(
 }
 #endif
 
-static bool probeLocalhostHealth(int port)
+// host is the processor's normalised local host: empty for this computer, a name,
+// an IPv4 address, or a bracketed IPv6 address.
+static bool probeLocalhostHealth(const juce::String& host, int port)
 {
     const auto startedAtMs = juce::Time::getMillisecondCounterHiRes();
     juce::ignoreUnused(startedAtMs);
 
+    // Loopback answers in milliseconds; another machine over wifi needs more room.
+    const bool onThisComputer = host.isEmpty();
+    const auto urlHost = onThisComputer ? juce::String("127.0.0.1") : host;
+
     try
     {
        #if JUCE_WINDOWS
-        constexpr int connectTimeoutMs = 400;
-        constexpr int responseTimeoutMs = 1000;
+        const int connectTimeoutMs = onThisComputer ? 400 : 1500;
+        const int responseTimeoutMs = onThisComputer ? 1000 : 2500;
+        const auto socketHost = urlHost.removeCharacters("[]");
         juce::StreamingSocket socket;
-        if (!socket.connect("127.0.0.1", port, connectTimeoutMs))
+        if (!socket.connect(socketHost, port, connectTimeoutMs))
         {
             DBG("[local health] port " + juce::String(port) + " offline after "
                 + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
@@ -204,7 +315,7 @@ static bool probeLocalhostHealth(int port)
 
         const juce::String request =
             "GET /health HTTP/1.1\r\n"
-            "Host: 127.0.0.1:" + juce::String(port) + "\r\n"
+            "Host: " + urlHost + ":" + juce::String(port) +"\r\n"
             "Accept: application/json\r\n"
             "Connection: close\r\n\r\n";
         const auto requestUtf8 = request.toRawUTF8();
@@ -247,10 +358,10 @@ static bool probeLocalhostHealth(int port)
             + juce::String(juce::Time::getMillisecondCounterHiRes() - startedAtMs, 1) + " ms");
         return online;
        #else
-        juce::URL healthUrl("http://127.0.0.1:" + juce::String(port) + "/health");
+        juce::URL healthUrl("http://" + urlHost + ":" + juce::String(port) + "/health");
         int statusCode = 0;
         auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
-            .withConnectionTimeoutMs(1500)
+            .withConnectionTimeoutMs(onThisComputer ? 1500 : 3000)
             .withStatusCode(&statusCode)
             .withExtraHeaders("Accept: application/json");
         auto stream = healthUrl.createInputStream(options);
@@ -463,12 +574,14 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
     auto* editor = this;
     const auto completedProbes = std::make_shared<std::atomic<int>>(0);
 
-    auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes](
+    const auto host = audioProcessor.getLocalHost();
+
+    auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes, host](
         ServiceType service, int port)
     {
-        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, port]()
+        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, port, host]()
         {
-            const bool online = probeLocalhostHealth(port);
+            const bool online = probeLocalhostHealth(host, port);
 
             juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, completedProbes, service, online]()
             {

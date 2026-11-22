@@ -273,6 +273,10 @@ private:
     juce::var terrySourceGenerationMetadata;
     void showStorageSettings();
     void showStemsSettings();
+    void showLocalHostSettings();
+    void restoreLocalHostPreference();
+    void applyLocalHost(const juce::String& host);
+    juce::String getLocalHostLabel() const;
     stems::StemsService& getStemsService();   // created on first use, in the active data folder
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);

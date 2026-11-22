@@ -210,7 +210,7 @@ void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
     jerrySubTabSA3.setButtonStyle(sa3Selected
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
     jerrySubTabSA3.setTooltip(audioProcessor.getIsUsingLocalhost() && !isLocalServiceOnline(ServiceType::SA3)
-        ? "sa3 localhost:8006 offline" : "");
+        ? "sa3 " + getLocalHostLabel() + ":8006 offline" : juce::String());
 
     jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);

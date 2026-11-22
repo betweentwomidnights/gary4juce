@@ -286,25 +286,10 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
 {
     if (isUsingLocalhost)
     {
-        switch (service)
-        {
-            case ServiceType::Gary:
-                return "http://localhost:8000" + endpoint;
-            case ServiceType::Terry:
-                return "http://localhost:8002" + endpoint;
-            case ServiceType::Jerry:
-                return "http://localhost:8005" + endpoint;
-            case ServiceType::Carey:
-                return "http://localhost:8003" + endpoint;
-            case ServiceType::Foundation:
-                return "http://localhost:8015" + endpoint;
-            case ServiceType::SA3:
-                return "http://localhost:8006" + endpoint;
-            case ServiceType::Yuey:
-                return "http://localhost:8007" + endpoint;
-            default:
-                return "http://localhost:8000" + endpoint;
-        }
+        auto host = getLocalHost();
+        if (host.isEmpty())
+            host = "localhost";
+        return "http://" + host + ":" + juce::String(getLocalServicePort(service)) + endpoint;
     }
 
     // Remote backend
@@ -320,6 +305,85 @@ juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const j
             return "https://g4l.thecollabagepatch.com/yuey" + endpoint;
         default:
             return "https://g4l.thecollabagepatch.com" + endpoint;
+    }
+}
+
+int Gary4juceAudioProcessor::getLocalServicePort(ServiceType service)
+{
+    switch (service)
+    {
+        case ServiceType::Gary:       return 8000;
+        case ServiceType::Terry:      return 8002;
+        case ServiceType::Jerry:      return 8005;
+        case ServiceType::Carey:      return 8003;
+        case ServiceType::Foundation: return 8015;
+        case ServiceType::SA3:        return 8006;
+        case ServiceType::Yuey:       return 8007;
+        default:                      return 8000;
+    }
+}
+
+bool Gary4juceAudioProcessor::normaliseLocalHost(const juce::String& input, juce::String& normalised)
+{
+    auto host = input.trim();
+    if (host.startsWithIgnoreCase("http://"))
+        host = host.substring(7);
+    else if (host.startsWithIgnoreCase("https://"))
+        host = host.substring(8);
+    while (host.endsWithChar('/'))
+        host = host.dropLastCharacters(1);
+    host = host.toLowerCase();
+
+    if (host.isEmpty() || host == "localhost" || host == "127.0.0.1"
+        || host == "::1" || host == "[::1]")
+    {
+        normalised.clear();
+        return true;
+    }
+
+    if (!host.containsOnly("abcdefghijklmnopqrstuvwxyz0123456789.-:[]"))
+        return false;
+
+    const bool bracketed = host.startsWithChar('[') && host.endsWithChar(']');
+    const auto inner = bracketed ? host.substring(1, host.length() - 1) : host;
+    if (inner.isEmpty() || inner.containsAnyOf("[]"))
+        return false;
+
+    const int colons = inner.retainCharacters(":").length();
+    if (colons == 1 || (bracketed && colons == 0))
+        return false; // host:port, or brackets around a name - the ports are fixed
+
+    normalised = colons > 1 ? "[" + inner + "]" : inner;
+    return true;
+}
+
+juce::String Gary4juceAudioProcessor::getLocalHost() const
+{
+    const juce::SpinLock::ScopedLockType lock(localHostLock);
+    return localHost;
+}
+
+void Gary4juceAudioProcessor::setLocalHost(const juce::String& host)
+{
+    juce::String normalised;
+    if (!normaliseLocalHost(host, normalised))
+        normalised.clear();
+
+    {
+        const juce::SpinLock::ScopedLockType lock(localHostLock);
+        if (localHost == normalised)
+            return;
+        localHost = normalised;
+    }
+
+    // Health from the previous machine says nothing about the new one.
+    clearLocalServiceHealthSnapshot();
+
+    if (isUsingLocalhost)
+    {
+        backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
+        setBackendConnectionStatus(false);
+        checkBackendHealth();
     }
 }
 
