@@ -187,6 +187,13 @@ Windows supports CUDA or Vulkan. SA3 is available on all three platforms.
 
 the stem separator isn't one of these services. it runs inside the plugin.
 
+gary4local doesn't have to run on the same computer as your DAW. builds newer
+than v5.0.6 have a `gary4local host...` option in gary settings: point it at
+another machine's name or IP, and local mode talks to gary4local there on the
+usual ports. leave it empty for this computer. the gary4local services only
+listen on loopback, so the other machine needs a bridge for now; the headless
+guide covers [Tailscale and SSH](https://github.com/betweentwomidnights/gary-localhost-installer/blob/main/control-center/runtime-core/README.md#using-gary-from-another-computer).
+
 Recommended hardware:
 
 - 10 GB+ GPU VRAM minimum
