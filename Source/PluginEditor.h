@@ -47,6 +47,7 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     friend struct StemsModelsTest;
     friend struct PopupLayoutTest;
     friend struct OutputMetadataTest;
+    friend struct PlaybackStateTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;

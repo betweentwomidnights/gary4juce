@@ -217,6 +217,10 @@ void Gary4juceAudioProcessorEditor::loadStemIntoPlayer(const juce::File& stem)
         updateInputPlayButtonIcon();
         isPlayingOutput = false;
         isPausedOutput = false;
+        // A callback for this stem must not confirm an earlier output playback request.
+        isOutputPlaybackPending = false;
+        hasShownPlaybackPendingHint = false;
+        outputPlaybackRequestTimeMs = 0;
         currentPlaybackPosition = 0.0;
         pausedPosition = 0.0;
         updatePlayButtonIcon();

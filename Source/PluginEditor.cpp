@@ -7107,6 +7107,12 @@ void Gary4juceAudioProcessorEditor::playOutputAudio()
 // take you just recorded is one you just heard.
 bool Gary4juceAudioProcessorEditor::loadSavedBufferForInputPlayback()
 {
+    // This player is leaving output, including any request still waiting for a host callback.
+    isOutputPlaybackPending = false;
+    hasShownPlaybackPendingHint = false;
+    outputPlaybackRequestTimeMs = 0;
+    updatePlayButtonIcon();
+
     const auto file = getGaryBufferFile();
     audioProcessor.loadOutputAudioForPlayback(file);
     inputPlaybackDuration = audioProcessor.getOutputAudioDuration();
