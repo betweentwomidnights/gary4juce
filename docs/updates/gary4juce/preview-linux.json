@@ -1,43 +1,43 @@
 {
   "channel": "preview-linux",
-  "latest_version": "5.0.6-linux-preview.1",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.6-linux-preview.1",
+  "latest_version": "5.0.7-linux-preview.1",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-linux-preview.1",
   "sha256": null,
-  "published_at": "2026-11-18T17:59:54Z",
+  "published_at": "2026-11-24T16:54:18Z",
   "notes": [
-    "Ubuntu 24.04 VST3 and standalone previews for x64 and ARM64 now share the main source with Windows.",
-    "Prompt keyboard focus and copy-only drags are retained. Use Copy beside output when your DAW cannot accept a plugin drag.",
-    "Embedded WAV/FLAC details use compact JSON and Comments. Built-in stem separation still needs a Linux runtime.",
-    "Pair with gary4local v0.7.4. Choose your CPU architecture and close your DAW before replacing plugin files."
+    "Built-in stem separation works on Linux: install stems.cpp v0.1.7 from gary settings, with Vulkan or CPU fallback.",
+    "Output shows as playing once your DAW renders it. Previewing a stem or the saved buffer cancels a waiting output play.",
+    "Local mode can reach gary4local on another machine, such as a DGX Spark: set gary4local host in gary settings.",
+    "Pair with gary4local v0.7.6. Choose your CPU architecture and close your DAW before replacing plugin files."
   ],
   "artifacts": [
     {
-      "filename": "gary4juce-v5.0.6-linux-preview.1-arm64-standalone.zip",
+      "filename": "gary4juce-v5.0.7-linux-preview.1-arm64-standalone.zip",
       "architecture": "arm64",
       "format": "standalone",
-      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.6-linux-preview.1/gary4juce-v5.0.6-linux-preview.1-arm64-standalone.zip",
-      "sha256": "c715516c8037381705330c32bf907f1b49b68a41a24b69e1ac90ee75c6f01c4d"
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.7-linux-preview.1/gary4juce-v5.0.7-linux-preview.1-arm64-standalone.zip",
+      "sha256": "084ef30b24f0f16b11cb27015e6433cfb3f025a9b24d749b951c8506842a8676"
     },
     {
-      "filename": "gary4juce-v5.0.6-linux-preview.1-arm64-vst3.zip",
+      "filename": "gary4juce-v5.0.7-linux-preview.1-arm64-vst3.zip",
       "architecture": "arm64",
       "format": "vst3",
-      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.6-linux-preview.1/gary4juce-v5.0.6-linux-preview.1-arm64-vst3.zip",
-      "sha256": "e80bb28491e332b3c4f817967623bfbdd494fd8572936da6fe2ac208d745e036"
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.7-linux-preview.1/gary4juce-v5.0.7-linux-preview.1-arm64-vst3.zip",
+      "sha256": "b0ba64ca8e3fb1c12b8c35659fa65af17233ab07f9608ee6e90926743ac99bb2"
     },
     {
-      "filename": "gary4juce-v5.0.6-linux-preview.1-x64-standalone.zip",
+      "filename": "gary4juce-v5.0.7-linux-preview.1-x64-standalone.zip",
       "architecture": "x64",
       "format": "standalone",
-      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.6-linux-preview.1/gary4juce-v5.0.6-linux-preview.1-x64-standalone.zip",
-      "sha256": "9332b277236b4b2ae97c95105d0572fbdb0ba4780b3051f719d34c06520c80da"
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.7-linux-preview.1/gary4juce-v5.0.7-linux-preview.1-x64-standalone.zip",
+      "sha256": "7fe34751cf075185fa4b74621864c67947eefc2bbed546faa2c1753eaacfe20d"
     },
     {
-      "filename": "gary4juce-v5.0.6-linux-preview.1-x64-vst3.zip",
+      "filename": "gary4juce-v5.0.7-linux-preview.1-x64-vst3.zip",
       "architecture": "x64",
       "format": "vst3",
-      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.6-linux-preview.1/gary4juce-v5.0.6-linux-preview.1-x64-vst3.zip",
-      "sha256": "f1bb1ff74ea4ccc314f3e6f7651829041e438d7b7efe2bf4b873883ca1338be4"
+      "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/download/v5.0.7-linux-preview.1/gary4juce-v5.0.7-linux-preview.1-x64-vst3.zip",
+      "sha256": "e097671ad107b4ce9128b38075c873fe542a8eae09b22752f0101761d9d09069"
     }
   ]
 }

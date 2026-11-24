@@ -15,12 +15,12 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **Linux preview:**
 
-- [gary4juce v5.0.6-linux-preview.1 (x64 + ARM64 VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.6-linux-preview.1)
+- [gary4juce v5.0.7-linux-preview.1 (x64 + ARM64 VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-linux-preview.1)
 
 **recommended local companions:**
 
 - windows: [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
-- Linux (preview): [gary4local v0.7.4 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4)
+- Linux (preview): [gary4local v0.7.6 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 - macOS (Apple Silicon): [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 
 the old MLX/Swift gary4local-mac is retired. its last update,
@@ -137,7 +137,7 @@ and documented the exact Windows alpha environment here:
 
 ### linux (preview)
 
-both gary4juce and [gary4local v0.7.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4)
+both gary4juce and [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 have Ubuntu 24.04 builds for x64 PCs and ARM64 systems such as DGX Spark.
 choose the architecture that matches your machine.
 
@@ -147,13 +147,14 @@ the whole `gary4juce-standalone` folder and run `./gary4juce` inside it.
 
 for local generation, install the matching gary4local `.deb` and a Vulkan
 runtime through its UI, then download the models you want. see the
-[gary4local Linux install guide](https://github.com/betweentwomidnights/gary-localhost-installer/blob/v0.7.4/docs/linux-desktop.md).
+[gary4local Linux install guide](https://github.com/betweentwomidnights/gary-localhost-installer/blob/v0.7.6/docs/linux-desktop.md).
 GPU drivers, models and backend runtimes are separate downloads.
 
 Linux remains a preview. the gary4local arm64 build has been tested end to end
 on a DGX Spark; amd64 has CI checks and still needs real desktop feedback.
 gary4juce has a **copy** button beside output for DAWs that can't accept a
-plugin drag. built-in stem separation isn't available on Linux yet. see the
+plugin drag. built-in stem separation works on Linux too, with Vulkan or CPU
+fallback; install its runtime from gary settings. see the
 [Linux preview guide](docs/LINUX_PREVIEW.md) for dependencies and testing notes.
 
 ### macOS AU/VST3/standalone
