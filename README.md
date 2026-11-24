@@ -22,14 +22,17 @@ https://thepatch.gumroad.com/l/gary4juce
 - windows: [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 - Linux (preview): [gary4local v0.7.4 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4)
 - macOS (Apple Silicon): [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
-  (still on the retired gary4local-mac? update it to [v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2))
+
+the old MLX/Swift gary4local-mac is retired. its last update,
+[v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2), should still work with v5.0.7
+if you haven't switched yet.
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
-localhost backend source repos:
+localhost backend source repo:
 
-- windows and Linux: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
-- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
+- [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer), for windows, macOS (Apple Silicon) and Linux
+- the retired MLX/Swift [gary4local-mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
 
 videos about it here when i can: https://youtube.com/@thepatch_dev
 
@@ -57,7 +60,7 @@ gary's output or your recording buffer into stems on your own machine.
 
 Put it on your master, press play, record some audio, and start iterating.
 
-> yuey runs on the remote backend for everyone, and locally through gary4local v0.4.0 on Windows and macOS.
+> yuey runs on the remote backend for everyone, and locally through gary4local on Windows, macOS and Linux.
 
 ---
 
@@ -92,7 +95,7 @@ older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 ## roadmap
 
 - [x] bring local yuey to macOS (gary4local mac v0.4.0)
-- [ ] unify gary4local into one cross-platform app through the [native gary4local migration](https://github.com/betweentwomidnights/gary-localhost-installer#roadmap)
+- [x] unify gary4local into one cross-platform app ([gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6))
 - [x] introduce optional lightweight native stem separator
 
 ---
@@ -182,14 +185,11 @@ Remote base URL: `https://g4l.thecollabagepatch.com`
 
 ### gary4local
 
-Use the dedicated apps for localhost:
-
-- windows and Linux: [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer)
-- macOS: [gary4local mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac)
-
-They manage local runtimes for gary, terry, jerry, carey, foundation-1, SA3,
-and yuey. Model coverage varies by platform. Linux generation uses Vulkan;
-Windows supports CUDA or Vulkan. SA3 is available on all three platforms.
+Use [gary4local](https://github.com/betweentwomidnights/gary-localhost-installer) for localhost. it's one app on windows, macOS (Apple
+Silicon) and Linux, and it manages local runtimes for gary, terry, jerry,
+carey, foundation-1, SA3 and yuey on all three. windows supports CUDA or
+Vulkan, Linux uses Vulkan, and macOS uses Metal. the retired MLX/Swift
+[gary4local-mac](https://github.com/betweentwomidnights/gary-localhost-installer-mac) isn't developed anymore.
 
 the stem separator isn't one of these services. it runs inside the plugin.
 
@@ -307,7 +307,7 @@ Learn more: https://huggingface.co/stabilityai/stable-audio-open-small
 - Uses structured prompt assembly through knobs, toggles, and tag controls.
 - Randomize builds coherent presets through the backend prompt engine.
 - Presets can be saved/loaded as `.f1preset` files.
-- Available on remote, gary4local windows, and gary4local mac on Apple silicon.
+- Available on remote and in gary4local on windows, macOS (Apple Silicon) and Linux.
 
 Learn more: https://huggingface.co/RoyalCities/Foundation-1
 
