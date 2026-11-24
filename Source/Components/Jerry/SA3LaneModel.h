@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: 2025-2026 Kevin Griffing
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Ported from sa3-iplug2-demo's Shared/SA3LaneModel.h, so both plugins draw and send automation
-// lanes the same way. The blend differs: here it's a slider over how long the take shares one
-// arrangement, where the demo toggles between two presets.
+// Shared with sa3-iplug2-demo's Shared/SA3LaneModel.h, so both plugins draw and send automation
+// lanes the same way, down to the blend's stops. Keep the two in step.
 
 #pragma once
 
