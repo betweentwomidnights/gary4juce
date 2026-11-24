@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.6 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.6)
+- [gary4juce v5.0.7 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7)
 - [gary4juce v5.0.4-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4-mac)
 
 **Linux preview:**
@@ -19,7 +19,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **recommended local companions:**
 
-- windows: [gary4local v0.7.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4)
+- windows: [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 - Linux (preview): [gary4local v0.7.4 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4)
 - macOS: [gary4local mac v0.4.1](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.1)
 
@@ -62,7 +62,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.7
+### v5.0.7 - 11/24
 
 **one gary4juce on every platform.** macOS builds from main now, like Windows
 and Linux, and local mode on a Mac pairs with the new unified
