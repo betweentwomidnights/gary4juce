@@ -3,12 +3,41 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
-## Unreleased
+## v5.0.7 - 11/24
 
-Built-in stem separation is available on Linux x64 and ARM64. The settings panel
-installs the pinned stems.cpp v0.1.7 core and Vulkan packages, with CPU fallback
-when no supported GPU is available. Models remain separate downloads. The Linux
-runtime targets Ubuntu 24.04; real GPU and DAW validation is still needed.
+macOS builds from main now, like Windows and Linux. the macOS differences are
+guarded in the source: the standalone's Dock icon, the `stable-mac.json` update
+feed and the infinite tail that keeps GarageBand's master track processing.
+local mode on a Mac pairs with the unified
+[gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6),
+which replaces gary4local-mac. the old app's localhost code (sampler profiles,
+`request_id` polling, the saomlx finetune section and MLX quantization) is
+gone, so local jerry doesn't work against gary4local-mac v0.4.1. gary4local
+v0.7.6 needs an Apple Silicon Mac; the plugin stays universal, and Intel Macs
+can still use the remote backend.
+
+output shows as playing once the host has actually rendered it, not as soon as
+you press play. if no audio callback arrives, gary shows a hint (on macOS, the
+GarageBand master-track one). previewing a stem or playing the saved buffer
+cancels an output play that's still waiting for the host, so a callback for
+the new source can't light up output's play button or move its cursor.
+
+local mode can reach gary4local on another machine. the new `gary4local
+host...` setting takes a hostname or IP; empty keeps this computer. it's a
+machine preference, not DAW project state, and changing it rechecks services
+and LoRAs like a backend switch.
+
+localhost connection errors for gary, terry and jerry point at gary4local
+instead of Docker Compose.
+
+built-in stem separation is available on Linux x64 and ARM64. the settings
+panel installs the pinned stems.cpp v0.1.7 core and Vulkan packages, with CPU
+fallback when no supported GPU is available. models remain separate downloads.
+the Linux runtime targets Ubuntu 24.04; real GPU and DAW validation is still
+needed.
+
+pair every platform with
+[gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6).
 
 ## v5.0.6 - 11/18
 

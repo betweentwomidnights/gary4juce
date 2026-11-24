@@ -62,22 +62,25 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.6 - 11/18
+### upcoming v5.0.7
 
-**stems stays with gary.** the separator attaches beside the compact editor,
-and uses the model column in wide mode until you close it. storage and error
-popups now use gary's black/red colors too.
+**one gary4juce on every platform.** macOS builds from main now, like Windows
+and Linux, and local mode on a Mac pairs with the new unified
+[gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
+instead of gary4local-mac. if you're still on gary4local-mac v0.4.1, local
+jerry won't work with this version. gary4local v0.7.6 needs an Apple Silicon
+Mac; on an Intel Mac the plugin still works with the remote backend.
 
-embedded WAV and FLAC generation details use compact JSON, without the
-indentation that turned into big gaps in metadata viewers. FLAC's full record
-shows in Comments, and prompts, lyrics and automation curves keep their values.
-separate JSON files stay formatted for reading.
+output shows as playing once your DAW actually renders it, and previewing a
+stem or the saved buffer cancels an output play that's still waiting on the
+host. in GarageBand, put gary on the master track; it keeps processing there.
 
-Windows and Linux now share main. Linux has Ubuntu 24.04 VST3 and standalone
-builds for x64 and ARM64, with the copy fallback for DAWs that can't accept a
-plugin drag. it's still a preview, and built-in stem separation isn't available
-on Linux yet. pair either platform with
-[gary4local v0.7.4](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4).
+local mode can talk to gary4local on another machine: set `gary4local host...`
+in gary settings. localhost errors point at gary4local now instead of Docker
+Compose, and Linux gets built-in stem separation.
+
+pair every platform with
+[gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6).
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
