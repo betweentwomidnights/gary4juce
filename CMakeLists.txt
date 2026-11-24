@@ -121,6 +121,11 @@ if(BUILD_TESTING)
         juce::juce_audio_utils juce::juce_cryptography gary4juce_assets)
     target_include_directories(gary_output_metadata_test PRIVATE
         "${CMAKE_BINARY_DIR}/gary4juce_artefacts/JuceLibraryCode")
+    add_executable(gary_playback_state_test tests/playback/playback_test.cpp)
+    target_link_libraries(gary_playback_state_test PRIVATE gary4juce
+        juce::juce_audio_utils juce::juce_cryptography gary4juce_assets)
+    target_include_directories(gary_playback_state_test PRIVATE
+        "${CMAKE_BINARY_DIR}/gary4juce_artefacts/JuceLibraryCode")
     # The storage isolation override is deliberately available only in Debug.
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -130,5 +135,11 @@ if(BUILD_TESTING)
             "${CMAKE_BINARY_DIR}/metadata-test-data")
         set_tests_properties(output_metadata PROPERTIES ENVIRONMENT
             "GARY4JUCE_STORAGE_TEST_DIRECTORY=${CMAKE_BINARY_DIR}/metadata-test-data")
+        add_test(NAME playback_state COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/linux/with_window_manager.py"
+            "$<TARGET_FILE:gary_playback_state_test>"
+            "${CMAKE_BINARY_DIR}/playback-test-data")
+        set_tests_properties(playback_state PROPERTIES ENVIRONMENT
+            "GARY4JUCE_STORAGE_TEST_DIRECTORY=${CMAKE_BINARY_DIR}/playback-test-data")
     endif()
 endif()

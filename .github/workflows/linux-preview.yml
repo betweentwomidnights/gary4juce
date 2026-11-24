@@ -61,11 +61,11 @@ jobs:
           ctest --test-dir build-linux-release -R '^stems_runtime$' --output-on-failure
       - name: Smoke test standalone in Xvfb
         run: xvfb-run -a python3 tests/linux/with_window_manager.py python3 tests/linux/standalone_smoke.py build-linux-release/gary4juce_artefacts/Release/Standalone/gary4juce
-      - name: Build and run Debug metadata regressions
+      - name: Build and run Debug metadata and playback regressions
         if: matrix.arch == 'x64'
         run: |
           cmake -S . -B build-linux-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DJUCE_SOURCE_DIR="$PWD/build-linux-release/_deps/juce-src"
-          cmake --build build-linux-debug --target gary_output_metadata_test --parallel 2
+          cmake --build build-linux-debug --target gary_output_metadata_test gary_playback_state_test --parallel 2
           xvfb-run -a ctest --test-dir build-linux-debug --output-on-failure
       - name: Package and verify the clean tagged build
         if: startsWith(github.ref, 'refs/tags/')

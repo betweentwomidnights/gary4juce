@@ -943,7 +943,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
 
                 if (statusCode == 0 && editor->audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect to jerry on localhost - ensure docker compose is running";
+                    errorMsg = "cannot connect to jerry on localhost - ensure jerry is running in gary4local";
                     editor->markBackendDisconnectedFromRequestFailure("jerry request");
                 }
                 else if (statusCode == 0)

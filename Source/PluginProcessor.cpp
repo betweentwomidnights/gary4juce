@@ -912,7 +912,13 @@ bool Gary4juceAudioProcessor::isMidiEffect() const
 
 double Gary4juceAudioProcessor::getTailLengthSeconds() const
 {
+#if JUCE_MAC
+    // An infinite tail keeps processBlock running, so output playback works on
+    // GarageBand's master track without the transport rolling.
+    return std::numeric_limits<double>::infinity();
+#else
     return 0.0;
+#endif
 }
 
 int Gary4juceAudioProcessor::getNumPrograms()
@@ -1169,6 +1175,7 @@ void Gary4juceAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juc
                 }
 
                 const int newReadPosition = readPosition + numSamplesToMix;
+                outputPlaybackRenderPulse.fetch_add(1, std::memory_order_release);
 
                 if (newReadPosition >= totalPlaybackSamples)
                 {
@@ -1464,6 +1471,7 @@ void Gary4juceAudioProcessor::loadOutputAudioForPlayback(const juce::File& audio
         isPausedOutputAudio.store(false);
         outputPlaybackReadPosition.store(0);
         outputPlaybackPosition.store(0.0);
+        outputPlaybackRenderPulse.store(0);
 
         DBG("Loaded output audio for playback successfully");
     }

@@ -387,7 +387,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 
                 if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect to terry on localhost - ensure docker compose is running";
+                    errorMsg = "cannot connect to terry on localhost - ensure terry is running in gary4local";
                     safeThis->markBackendDisconnectedFromRequestFailure("terry request");
                 }
                 else if (statusCode == 0)
@@ -612,7 +612,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 juce::String errorMsg;
                 if (statusCode == 0 && safeThis->audioProcessor.getIsUsingLocalhost())
                 {
-                    errorMsg = "cannot connect for undo on localhost - ensure docker compose is running";
+                    errorMsg = "cannot connect for undo on localhost - ensure terry is running in gary4local";
                     safeThis->markBackendDisconnectedFromRequestFailure("terry undo request");
                 }
                 else if (statusCode == 0)

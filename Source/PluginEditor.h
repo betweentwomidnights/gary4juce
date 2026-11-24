@@ -47,6 +47,7 @@ class Gary4juceAudioProcessorEditor : public juce::AudioProcessorEditor,
     friend struct StemsModelsTest;
     friend struct PopupLayoutTest;
     friend struct OutputMetadataTest;
+    friend struct PlaybackStateTest;
 public:
     Gary4juceAudioProcessorEditor(Gary4juceAudioProcessor&);
     ~Gary4juceAudioProcessorEditor() override;
@@ -958,6 +959,11 @@ private:
 
     bool isPausedOutput = false;       // True when paused (different from stopped)
     double pausedPosition = 0.0;       // Position where we paused
+    bool isOutputPlaybackPending = false;
+    bool hasShownPlaybackPendingHint = false;
+    juce::int64 outputPlaybackRequestTimeMs = 0;
+    int outputPlaybackStartRenderPulse = 0;
+    double requestedPlaybackPosition = 0.0;
 
     void fullStopOutputPlayback();     // Complete stop (different from pause)
 

@@ -14,6 +14,9 @@ namespace
 #if JUCE_LINUX
     static constexpr auto kDefaultUpdateManifestUrl =
         "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/preview-linux.json";
+#elif JUCE_MAC
+    static constexpr auto kDefaultUpdateManifestUrl =
+        "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable-mac.json";
 #else
     static constexpr auto kDefaultUpdateManifestUrl =
         "https://betweentwomidnights.github.io/gary4juce/updates/gary4juce/stable.json";
