@@ -11,7 +11,7 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v5.0.7 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7)
-- [gary4juce v5.0.4-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4-mac)
+- [gary4juce v5.0.7-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-mac)
 
 **Linux preview:**
 
@@ -21,7 +21,8 @@ https://thepatch.gumroad.com/l/gary4juce
 
 - windows: [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 - Linux (preview): [gary4local v0.7.4 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.4)
-- macOS: [gary4local mac v0.4.1](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.1)
+- macOS (Apple Silicon): [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
+  (still on the retired gary4local-mac? update it to [v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2))
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
 
@@ -67,9 +68,11 @@ Put it on your master, press play, record some audio, and start iterating.
 **one gary4juce on every platform.** macOS builds from main now, like Windows
 and Linux, and local mode on a Mac pairs with the new unified
 [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
-instead of gary4local-mac. if you're still on gary4local-mac v0.4.1, local
-jerry won't work with this version. gary4local v0.7.6 needs an Apple Silicon
-Mac; on an Intel Mac the plugin still works with the remote backend.
+instead of gary4local-mac. if you're staying on gary4local-mac for now, update
+it to [v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2)
+so local jerry keeps working; v0.4.1 and earlier don't work with this version.
+gary4local v0.7.6 needs an Apple Silicon Mac; on an Intel Mac the plugin still
+works with the remote backend.
 
 output shows as playing once your DAW actually renders it, and previewing a
 stem or the saved buffer cancels an output play that's still waiting on the

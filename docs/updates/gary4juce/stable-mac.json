@@ -1,14 +1,14 @@
 {
   "channel": "stable-mac",
-  "latest_version": "5.0.4-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.4-mac",
+  "latest_version": "5.0.7-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-mac",
   "sha256": null,
-  "published_at": "2026-11-12T10:17:30Z",
+  "published_at": "2026-11-24T16:21:36Z",
   "notes": [
-    "Draw SA3 LoRA automation beside the editor: a strength curve, snap and prompt per LoRA.",
-    "Carey on the new job API, with generate and complete tabs.",
-    "Eight more stem models, including DrumSep kit splitting. Update the stems runtime when asked.",
-    "Universal x86_64/arm64 downloads. Pair with gary4local-mac v0.4.1 for local Carey and lanes.",
+    "macOS now builds from the same source as Windows and Linux.",
+    "Local mode pairs with gary4local v0.7.6. Staying on gary4local-mac? Update it to v0.4.2 for local jerry.",
+    "Output shows as playing once your DAW renders it. Previewing a stem or the saved buffer cancels a waiting output play.",
+    "Local mode can reach gary4local on another machine: set gary4local host in gary settings.",
     "Close your DAW and the standalone app before replacing files with a downloaded update."
   ]
 }
