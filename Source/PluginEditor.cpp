@@ -3403,12 +3403,13 @@ void Gary4juceAudioProcessorEditor::pollForResults()
 
             try
             {
-                // Opened by hand rather than through URL::createInputStream so the
-                // watchdog can reach the stream and cancel it.
+                // Opened by hand rather than through ServiceRequests::open so the watchdog
+                // can reach the stream and cancel it; the headers still come from there.
                 auto open = [&]() -> std::shared_ptr<juce::WebInputStream>
                     {
                         auto web = std::make_shared<juce::WebInputStream>(pollUrl, false);
-                        web->withExtraHeaders("Accept: application/json\r\nContent-Type: application/json")
+                        web->withExtraHeaders(ServiceRequests::headersFor(pollUrl.toString(false),
+                                "Accept: application/json\r\nContent-Type: application/json"))
                             .withConnectionTimeout(connectionTimeoutMs)
                             .withNumRedirectsToFollow(3);
                         {
@@ -4359,7 +4360,7 @@ void Gary4juceAudioProcessorEditor::sendToGary()
                 .withConnectionTimeoutMs(30000)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
 
             auto requestTime = juce::Time::getCurrentTime() - startTime;
             DBG("HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
@@ -4633,7 +4634,7 @@ void Gary4juceAudioProcessorEditor::sendContinueRequest(const juce::String& audi
                 .withConnectionTimeoutMs(30000)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
 
             auto requestTime = juce::Time::getCurrentTime() - startTime;
             DBG("Continue HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
@@ -4883,7 +4884,7 @@ void Gary4juceAudioProcessorEditor::retryLastContinuation()
                 .withConnectionTimeoutMs(30000)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
 
             if (stream != nullptr)
             {
@@ -5076,7 +5077,7 @@ void Gary4juceAudioProcessorEditor::fetchGaryAvailableModels()
         {
             juce::URL url(modelsUrl);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url,
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(10000)
             ));
@@ -5433,7 +5434,7 @@ void Gary4juceAudioProcessorEditor::checkDariusHealth()
     juce::Thread::launch([asyncAlive, editor, healthUrl]() {
         juce::URL url(healthUrl);
 
-        std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+        std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url,
             juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
             .withConnectionTimeoutMs(10000)  // 10 second timeout
         ));
@@ -5570,7 +5571,7 @@ void Gary4juceAudioProcessorEditor::fetchDariusConfig()
         {
             juce::URL url(full);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url,
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(10000) // 10s like health
             ));
@@ -5687,7 +5688,7 @@ void Gary4juceAudioProcessorEditor::fetchDariusCheckpoints(const juce::String& r
             url = url.withParameter("repo_id", repo)
                 .withParameter("revision", revision);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url,
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(10000) // same 10s as health
             ));
@@ -5882,7 +5883,7 @@ void Gary4juceAudioProcessorEditor::postDariusSelect(const juce::var& requestObj
                     .withConnectionTimeoutMs(180000)
                     .withExtraHeaders("Content-Type: application/json");
 
-                auto stream = postUrl.createInputStream(options);
+                auto stream = ServiceRequests::open(postUrl, options);
 
                 if (auto* web = dynamic_cast<juce::WebInputStream*>(stream.get()))
                     statusCode = web->getStatusCode();
@@ -6282,7 +6283,7 @@ void Gary4juceAudioProcessorEditor::postDariusGenerate()
                     .withHttpRequestCmd("POST")
                     .withConnectionTimeoutMs(180000);
 
-                auto stream = url.createInputStream(options);
+                auto stream = ServiceRequests::open(url, options);
 
                 if (auto* web = dynamic_cast<juce::WebInputStream*>(stream.get()))
                     statusCode = web->getStatusCode();
@@ -6399,7 +6400,7 @@ void Gary4juceAudioProcessorEditor::pollDariusProgress()
         {
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(10000);
-            std::unique_ptr<juce::InputStream> s(url.createInputStream(options));
+            std::unique_ptr<juce::InputStream> s(ServiceRequests::open(url, options));
             if (!s) return;
 
             auto jsonText = s->readEntireStreamAsString();
@@ -6463,7 +6464,7 @@ void Gary4juceAudioProcessorEditor::fetchDariusAssetsStatus()
             juce::String responseText;
             int statusCode = 0;
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url,
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(10000)
             ));

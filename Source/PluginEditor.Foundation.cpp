@@ -204,7 +204,7 @@ void Gary4juceAudioProcessorEditor::sendToFoundation()
 
         try
         {
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
             if (stream != nullptr)
             {
                 responseText = stream->readEntireStreamAsString();
@@ -313,7 +313,7 @@ void Gary4juceAudioProcessorEditor::randomizeFoundation()
                 .withConnectionTimeoutMs(10000)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
             if (stream != nullptr)
             {
                 responseText = stream->readEntireStreamAsString();

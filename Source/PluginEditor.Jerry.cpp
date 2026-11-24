@@ -210,7 +210,7 @@ void Gary4juceAudioProcessorEditor::updateJerrySubTabStates()
     jerrySubTabSA3.setButtonStyle(sa3Selected
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
     jerrySubTabSA3.setTooltip(audioProcessor.getIsUsingLocalhost() && !isLocalServiceOnline(ServiceType::SA3)
-        ? "sa3 " + getLocalHostLabel() + ":8006 offline" : juce::String());
+        ? "sa3 " + getLocalServiceLabel(ServiceType::SA3) + " offline" : juce::String());
 
     jerrySubTabSAOS.setButtonStyle(jerrySubTab == JerrySubTab::SAOS
         ? CustomButton::ButtonStyle::Jerry : CustomButton::ButtonStyle::Inactive);
@@ -247,7 +247,7 @@ void Gary4juceAudioProcessorEditor::fetchJerryAvailableModels(bool force)
         {
             juce::URL url(modelsUrl);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url,
                 juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(10000)
             ));
@@ -521,7 +521,7 @@ void Gary4juceAudioProcessorEditor::fetchJerryPrompts(const juce::String& repo,
                 .withStatusCode(&statusCode)
                 .withResponseHeaders(&responseHeaders);
 
-            std::unique_ptr<juce::InputStream> stream(url.createInputStream(options));
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(url, options));
             juce::String responseText;
             if (stream) responseText = stream->readEntireStreamAsString();
 
@@ -584,7 +584,7 @@ void Gary4juceAudioProcessorEditor::maybeFetchJerryPrompts()
             auto options = juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                 .withConnectionTimeoutMs(8000);
 
-            std::unique_ptr<juce::InputStream> stream(promptsUrl.createInputStream(options));
+            std::unique_ptr<juce::InputStream> stream(ServiceRequests::open(promptsUrl, options));
             juce::String responseText;
             if (stream) responseText = stream->readEntireStreamAsString();
 
@@ -811,7 +811,7 @@ void Gary4juceAudioProcessorEditor::sendToJerry()
                 .withConnectionTimeoutMs(30000)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
 
             auto requestTime = juce::Time::getCurrentTime() - startTime;
             DBG("Jerry HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
@@ -1105,7 +1105,7 @@ void Gary4juceAudioProcessorEditor::refreshSA3AvailableLoras(bool force)
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Accept: application/json");
 
-            auto stream = url.createInputStream(options);
+            auto stream = ServiceRequests::open(url, options);
             if (stream)
                 responseText = stream->readEntireStreamAsString();
         }
@@ -1211,7 +1211,7 @@ void Gary4juceAudioProcessorEditor::requestSA3DicePrompt(SA3UI::SubTab targetTab
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Accept: application/json");
 
-            auto stream = promptsUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(promptsUrl, options);
             if (stream)
                 responseText = stream->readEntireStreamAsString();
         }
@@ -1434,7 +1434,7 @@ void Gary4juceAudioProcessorEditor::sendToSA3()
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
             if (stream != nullptr)
             {
                 responseText = stream->readEntireStreamAsString();
@@ -1681,7 +1681,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Transform()
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
             if (stream != nullptr)
             {
                 responseText = stream->readEntireStreamAsString();
@@ -1953,7 +1953,7 @@ void Gary4juceAudioProcessorEditor::sendSA3Continue()
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
             if (stream != nullptr)
             {
                 responseText = stream->readEntireStreamAsString();
@@ -2179,7 +2179,7 @@ void Gary4juceAudioProcessorEditor::rollSA3LanePrompt(size_t laneIndex)
                     .withConnectionTimeoutMs(15000)
                     .withStatusCode(&statusCode)
                     .withExtraHeaders("Accept: application/json");
-                if (auto stream = url.createInputStream(options))
+                if (auto stream = ServiceRequests::open(url, options))
                     responseText = stream->readEntireStreamAsString();
             }
             catch (...) {}
@@ -2255,7 +2255,7 @@ void Gary4juceAudioProcessorEditor::checkSA3LaneSupport(const juce::String& heal
                 .withConnectionTimeoutMs(8000)
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Accept: application/json");
-            if (auto stream = juce::URL(healthUrl).createInputStream(options))
+            if (auto stream = ServiceRequests::open(juce::URL(healthUrl), options))
                 responseText = stream->readEntireStreamAsString();
         }
         catch (...) {}

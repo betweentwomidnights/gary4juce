@@ -4,6 +4,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "Utils/ServiceRequests.h"
 
 #include <algorithm>
 #include <functional>
@@ -150,7 +151,7 @@ namespace carey_native
                 .withResponseHeaders(&headers)
                 .withExtraHeaders(extraHeaders);
 
-            auto stream = target.createInputStream(options);
+            auto stream = ServiceRequests::open(target, options);
             if (stream == nullptr)
                 return response;
 

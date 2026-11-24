@@ -134,7 +134,7 @@ public:
             int statusCode = 0;
 
             std::unique_ptr<juce::InputStream> stream(
-                healthUrl.createInputStream(
+                ServiceRequests::open(healthUrl,
                     juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
                         .withConnectionTimeoutMs(3000)
                         .withStatusCode(&statusCode)
@@ -284,12 +284,27 @@ void Gary4juceAudioProcessor::clearLocalServiceHealthSnapshot()
 
 juce::String Gary4juceAudioProcessor::getServiceUrl(ServiceType service, const juce::String& endpoint) const
 {
-    if (isUsingLocalhost)
+    juce::String host, token;
     {
-        auto host = getLocalHost();
-        if (host.isEmpty())
-            host = "localhost";
-        return "http://" + host + ":" + juce::String(getLocalServicePort(service)) + endpoint;
+        const juce::SpinLock::ScopedLockType lock(localHostLock);
+        host = localHost;
+        token = localToken;
+    }
+    return buildServiceUrl(isUsingLocalhost, host, token, service, endpoint);
+}
+
+juce::String Gary4juceAudioProcessor::buildServiceUrl(bool usingLocalhost, const juce::String& host,
+    const juce::String& token, ServiceType service, const juce::String& endpoint)
+{
+    if (usingLocalhost)
+    {
+        // A token only means something for another computer: this one keeps its own ports.
+        if (host.isNotEmpty() && token.isNotEmpty())
+            return "http://" + host + ":" + juce::String(ServiceRequests::kListenerPort) + "/"
+                + getListenerRoute(service) + endpoint;
+
+        return "http://" + (host.isEmpty() ? juce::String("localhost") : host) + ":"
+            + juce::String(getLocalServicePort(service)) + endpoint;
     }
 
     // Remote backend
@@ -376,7 +391,17 @@ void Gary4juceAudioProcessor::setLocalHost(const juce::String& host)
         localHost = normalised;
     }
 
-    // Health from the previous machine says nothing about the new one.
+    localTargetChanged();
+}
+
+void Gary4juceAudioProcessor::localTargetChanged()
+{
+    {
+        const juce::SpinLock::ScopedLockType lock(localHostLock);
+        ServiceRequests::setListener(localHost, localToken);
+    }
+
+    // Health from the previous machine, or through the previous token, says nothing about this one.
     clearLocalServiceHealthSnapshot();
 
     if (isUsingLocalhost)
@@ -384,6 +409,77 @@ void Gary4juceAudioProcessor::setLocalHost(const juce::String& host)
         backendBaseUrl = getServiceUrl(ServiceType::Gary, "");
         setBackendConnectionStatus(false);
         checkBackendHealth();
+    }
+}
+
+bool Gary4juceAudioProcessor::normaliseLocalToken(const juce::String& input, juce::String& normalised)
+{
+    // gary4local's listener ignores case, spaces and dashes, and so does this.
+    const auto compact = input.removeCharacters(" \t\r\n-").toLowerCase();
+    if (compact.isEmpty())
+    {
+        normalised.clear();
+        return true;
+    }
+
+    // "gary" and 20 Crockford base32 symbols: 100 random bits, no i, l, o or u.
+    constexpr int kSymbols = 20;
+    if (!compact.startsWith("gary") || compact.length() != 4 + kSymbols)
+        return false;
+    const auto symbols = compact.substring(4);
+    if (!symbols.containsOnly("0123456789abcdefghjkmnpqrstvwxyz"))
+        return false;
+
+    normalised = "gary";
+    for (int i = 0; i < kSymbols; i += 5)
+        normalised << "-" << symbols.substring(i, i + 5);
+    return true;
+}
+
+juce::String Gary4juceAudioProcessor::getLocalToken() const
+{
+    const juce::SpinLock::ScopedLockType lock(localHostLock);
+    return localToken;
+}
+
+void Gary4juceAudioProcessor::setLocalToken(const juce::String& token)
+{
+    juce::String normalised;
+    if (!normaliseLocalToken(token, normalised))
+        normalised.clear();
+
+    bool hostIsElsewhere = false;
+    {
+        const juce::SpinLock::ScopedLockType lock(localHostLock);
+        if (localToken == normalised)
+            return;
+        localToken = normalised;
+        hostIsElsewhere = localHost.isNotEmpty();
+    }
+
+    // For this computer the token changes nothing that is sent.
+    if (hostIsElsewhere)
+        localTargetChanged();
+}
+
+bool Gary4juceAudioProcessor::isUsingListener() const
+{
+    const juce::SpinLock::ScopedLockType lock(localHostLock);
+    return isUsingLocalhost && localHost.isNotEmpty() && localToken.isNotEmpty();
+}
+
+juce::String Gary4juceAudioProcessor::getListenerRoute(ServiceType service)
+{
+    switch (service)
+    {
+        case ServiceType::Gary:       return "gary";
+        case ServiceType::Terry:      return "terry";
+        case ServiceType::Jerry:      return "jerry";
+        case ServiceType::Carey:      return "carey";
+        case ServiceType::Foundation: return "foundation";
+        case ServiceType::SA3:        return "sa3";
+        case ServiceType::Yuey:       return "yuey";
+        default:                      return "gary";
     }
 }
 

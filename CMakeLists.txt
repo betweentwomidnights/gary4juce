@@ -121,6 +121,12 @@ if(BUILD_TESTING)
         juce::juce_audio_utils juce::juce_cryptography gary4juce_assets)
     target_include_directories(gary_output_metadata_test PRIVATE
         "${CMAKE_BINARY_DIR}/gary4juce_artefacts/JuceLibraryCode")
+    # gary4local host and pairing token: every service URL, and the header on the wire.
+    add_executable(gary_local_host_test tests/local_host/local_host_test.cpp)
+    target_link_libraries(gary_local_host_test PRIVATE gary4juce
+        juce::juce_audio_utils juce::juce_cryptography gary4juce_assets)
+    target_include_directories(gary_local_host_test PRIVATE
+        "${CMAKE_BINARY_DIR}/gary4juce_artefacts/JuceLibraryCode")
     add_executable(gary_playback_state_test tests/playback/playback_test.cpp)
     target_link_libraries(gary_playback_state_test PRIVATE gary4juce
         juce::juce_audio_utils juce::juce_cryptography gary4juce_assets)
@@ -141,5 +147,10 @@ if(BUILD_TESTING)
             "${CMAKE_BINARY_DIR}/playback-test-data")
         set_tests_properties(playback_state PROPERTIES ENVIRONMENT
             "GARY4JUCE_STORAGE_TEST_DIRECTORY=${CMAKE_BINARY_DIR}/playback-test-data")
+        add_test(NAME local_host COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/linux/with_window_manager.py"
+            "$<TARGET_FILE:gary_local_host_test>")
+        add_test(NAME service_request_call_sites COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tests/service_requests/check_call_sites.py")
     endif()
 endif()
