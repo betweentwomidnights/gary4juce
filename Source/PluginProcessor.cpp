@@ -349,6 +349,17 @@ bool Gary4juceAudioProcessor::normaliseLocalHost(const juce::String& input, juce
         host = host.dropLastCharacters(1);
     host = host.toLowerCase();
 
+    // The listener's own address, as Gary prints it or a browser shows it: keep the host.
+    // Only for a name, an IPv4 address or a bracketed IPv6 address, where the port can't
+    // be part of the address itself.
+    const auto listenerPort = ":" + juce::String(ServiceRequests::kListenerPort);
+    if (host.endsWith(listenerPort))
+    {
+        const auto withoutPort = host.dropLastCharacters(listenerPort.length());
+        if (!withoutPort.containsChar(':') || withoutPort.endsWithChar(']'))
+            host = withoutPort;
+    }
+
     if (host.isEmpty() || host == "localhost" || host == "127.0.0.1"
         || host == "::1" || host == "[::1]")
     {

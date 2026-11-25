@@ -130,8 +130,17 @@ int main() {
     accepts("fd7a:115c:a1e0::1", "[fd7a:115c:a1e0::1]");
     accepts("[fd7a:115c:a1e0::1]", "[fd7a:115c:a1e0::1]");
 
+    // The listener's address pasted whole, port included, still means its host.
+    accepts("192.168.0.18:8020", "192.168.0.18");
+    accepts("http://192.168.0.18:8020", "192.168.0.18");
+    accepts("http://192.168.0.18:8020/", "192.168.0.18");
+    accepts("spark-c7ca:8020", "spark-c7ca");
+    accepts("[fd7a:115c:a1e0::1]:8020", "[fd7a:115c:a1e0::1]");
+    accepts("fd7a:115c:a1e0::8020", "[fd7a:115c:a1e0::8020]");
+
     // Ports are fixed per service, and anything URL-shaped beyond a host is refused.
     rejects("192.168.1.50:8000");
+    rejects("192.168.1.50:8020/sa3");
     rejects("http://192.168.1.50:8000/");
     rejects("192.168.1.50/gary");
     rejects("studio box");
