@@ -193,17 +193,21 @@ void Gary4juceAudioProcessorEditor::reportPairingTokenRejected()
         return;
     pairingRejectionReportedFor = key;
 
-    juce::AlertWindow::showAsync(
-        juce::MessageBoxOptions()
-            .withIconType(juce::MessageBoxIconType::WarningIcon)
-            .withTitle("gary4local pairing token")
-            .withMessage("gary4local on " + getLocalHostLabel() + " refused the pairing token.\n\n"
-                         "On that machine, type listen in Gary to check that the listener is on. "
-                         "listen rotate prints a new token; enter it in "
-                         "gary settings > gary4local host.")
-            .withButton("ok")
-            .withAssociatedComponent(this),
-        nullptr);
+    showGaryNotice("gary4local pairing token",
+        "gary4local on " + getLocalHostLabel() + " refused the pairing token.\n\n"
+        "On that machine, type listen in Gary to check that the listener is on. "
+        "listen rotate prints a new token; enter it in "
+        "gary settings > gary4local host.");
+}
+
+void Gary4juceAudioProcessorEditor::showGaryNotice(const juce::String& title, const juce::String& message)
+{
+    auto* alert = new juce::AlertWindow(title, message, juce::MessageBoxIconType::WarningIcon, this);
+    alert->addButton("ok", 1, juce::KeyPress(juce::KeyPress::returnKey),
+                     juce::KeyPress(juce::KeyPress::escapeKey));
+    trackEditorModalWindow(alert);
+    alert->enterModalState(true, juce::ModalCallbackFunction::create(
+        [alert](int) { std::unique_ptr<juce::AlertWindow> cleanup(alert); }));
 }
 
 void Gary4juceAudioProcessorEditor::showLocalHostSettings()
@@ -237,14 +241,7 @@ void Gary4juceAudioProcessorEditor::showLocalHostSettings()
 
             auto warn = [editor](const juce::String& message)
             {
-                juce::AlertWindow::showAsync(
-                    juce::MessageBoxOptions()
-                        .withIconType(juce::MessageBoxIconType::WarningIcon)
-                        .withTitle("gary4local host")
-                        .withMessage(message)
-                        .withButton("ok")
-                        .withAssociatedComponent(editor),
-                    nullptr);
+                editor->showGaryNotice("gary4local host", message);
             };
 
             juce::String token;
@@ -356,7 +353,9 @@ static bool rawHealthResponseLooksOnline(
 }
 #endif
 
-enum class LocalHealth { Offline, Online, TokenRejected };
+// ServiceStopped: gary4local's listener accepted the token and said the service isn't
+// running (502). Offline for that service, but proof the listener and pairing work.
+enum class LocalHealth { Offline, Online, TokenRejected, ServiceStopped };
 
 #if JUCE_WINDOWS
 // The status code once the status line has arrived, else 0.
@@ -428,8 +427,11 @@ static LocalHealth probeLocalhostHealth(const juce::String& host, int port, cons
 
             response.write(buffer, static_cast<size_t>(bytesRead));
 
-            if (rawResponseStatusCode(response.toString()) == 401)
+            const int statusCode = rawResponseStatusCode(response.toString());
+            if (statusCode == 401)
                 return LocalHealth::TokenRejected;
+            if (statusCode == 502)
+                return LocalHealth::ServiceStopped;
 
             if (rawHealthResponseLooksOnline(response.toString(), false))
             {
@@ -454,6 +456,8 @@ static LocalHealth probeLocalhostHealth(const juce::String& host, int port, cons
         auto stream = ServiceRequests::open(healthUrl, options);
         if (statusCode == 401)
             return LocalHealth::TokenRejected;
+        if (statusCode == 502)
+            return LocalHealth::ServiceStopped;
         if (stream == nullptr || statusCode >= 400)
             return LocalHealth::Offline;
 
@@ -511,11 +515,13 @@ bool Gary4juceAudioProcessorEditor::isActiveLocalServiceOnline() const
 
 juce::String Gary4juceAudioProcessorEditor::getLocalConnectionLineOne() const
 {
+    const auto host = audioProcessor.getLocalHost();
+    const auto where = " (" + (host.isEmpty() ? juce::String("local") : host) + ")";
     if (localOnlineCount <= 0)
-        return "disconnected (local)";
+        return (localListenerAnswered ? "paired" : "disconnected") + where;
     if (isActiveLocalServiceOnline())
-        return "connected (local)";
-    return "partial (local)";
+        return "connected" + where;
+    return "partial" + where;
 }
 
 bool Gary4juceAudioProcessorEditor::isServiceReachable(ServiceType service) const
@@ -535,6 +541,7 @@ void Gary4juceAudioProcessorEditor::resetLocalServiceHealthSnapshot()
     localSA3Online = false;
     localYueyOnline = false;
     localOnlineCount = 0;
+    localListenerAnswered = false;
     localHealthLastPollMs = 0;
     localHealthPollCounter = 0;
     localHealthPollNonce.fetch_add(1);
@@ -663,12 +670,13 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
     const auto completedProbes = std::make_shared<std::atomic<int>>(0);
+    const auto listenerAnswered = std::make_shared<std::atomic<bool>>(false);
 
     const auto host = audioProcessor.getLocalHost();
     // Through gary4local's listener every service answers on one port, under its own prefix.
     const bool viaListener = audioProcessor.isUsingListener();
 
-    auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes, host, viaListener](
+    auto launchProbe = [asyncAlive, editor, pollNonce, completedProbes, listenerAnswered, host, viaListener](
         ServiceType service, int port)
     {
         const auto path = viaListener
@@ -677,11 +685,13 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
         if (viaListener)
             port = ServiceRequests::kListenerPort;
 
-        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, service, port, host, path]()
+        juce::Thread::launch([asyncAlive, editor, pollNonce, completedProbes, listenerAnswered,
+                              viaListener, service, port, host, path]()
         {
             const auto health = probeLocalhostHealth(host, port, path);
 
-            juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, completedProbes, service, health]()
+            juce::MessageManager::callAsync([asyncAlive, editor, pollNonce, completedProbes, listenerAnswered,
+                                             viaListener, service, health]()
             {
                 const auto alive = asyncAlive.lock();
                 if (alive == nullptr || !alive->load(std::memory_order_acquire))
@@ -691,6 +701,13 @@ void Gary4juceAudioProcessorEditor::triggerLocalServiceHealthPoll(bool force)
                     return;
 
                 const bool pollComplete = completedProbes->fetch_add(1) + 1 == 7;
+                if (viaListener && (health == LocalHealth::Online || health == LocalHealth::ServiceStopped))
+                    listenerAnswered->store(true);
+                if (pollComplete && editor->localListenerAnswered != listenerAnswered->load())
+                {
+                    editor->localListenerAnswered = listenerAnswered->load();
+                    editor->repaint();
+                }
                 if (health == LocalHealth::TokenRejected)
                     editor->reportPairingTokenRejected();
                 editor->applyLocalServiceHealthResult(service, health == LocalHealth::Online, pollComplete);

@@ -8814,7 +8814,8 @@ void Gary4juceAudioProcessorEditor::paint(juce::Graphics& g)
         const bool activeOnline = isActiveLocalServiceOnline();
 
         if (!anyOnline)
-            g.setColour(juce::Colour(0xff666666));
+            // Paired with gary4local's listener but no service running yet: lit, not green.
+            g.setColour(localListenerAnswered ? juce::Colour(0xffa9c4dc) : juce::Colour(0xff666666));
         else if (activeOnline)
             g.setColour(connectionFlashState ? juce::Colours::white : juce::Colour(0xffb7ffd1));
         else
