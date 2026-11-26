@@ -3,7 +3,7 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
-## unreleased
+## v5.0.8 - 11/25
 
 `gary4local host...` takes an optional pairing token. headless gary4local can
 open a listener to your network (`listen on` in Gary) that prints one; with
@@ -14,6 +14,25 @@ machines over Tailscale or SSH, use the usual service ports. the token stays in
 gary's preferences, never in a DAW project, and is only sent to that listener.
 if the listener refuses it, gary says so instead of showing the services as
 offline.
+
+the host field accepts the address exactly as Gary prints it, with `:8020` on
+the end. any other port is still refused. while the listener answers but
+nothing has been started on that machine yet, the status line reads `paired`
+and names the host, instead of `disconnected` as if pairing had failed. the
+refused-token and bad-host popups use gary's colors now.
+
+yuey won't upload a source it can't continue. gary4local v0.7.7's yuey holds a
+continuation to its natural length as a whole, the source plus what it adds,
+so continuing an output that's already a couple of minutes long used to run
+for ten minutes, and now gets refused. gary reads that limit from yuey before
+uploading, and an over-long source gets a popup saying how long it is, what the
+limit is and what to crop. a remix is as long as its source, so its source is
+held to the whole natural length. on gary4local the limit is yuey's natural
+length setting. when yuey does refuse a request, gary shows yuey's reason
+instead of `yuey submit failed (HTTP 400)`.
+
+pair every platform with
+[gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7).
 
 ## v5.0.7 - 11/24
 

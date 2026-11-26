@@ -66,27 +66,21 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### v5.0.7 - 11/24
+### upcoming v5.0.8
 
-**one gary4juce on every platform.** macOS builds from main now, like Windows
-and Linux, and local mode on a Mac pairs with the new unified
-[gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
-instead of gary4local-mac. if you're staying on gary4local-mac for now, update
-it to [v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2)
-so local jerry keeps working; v0.4.1 and earlier don't work with this version.
-gary4local v0.7.6 needs an Apple Silicon Mac; on an Intel Mac the plugin still
-works with the remote backend.
+**pair gary with headless gary4local over your network.** type `listen on` in
+headless Gary, then enter the address and pairing token it prints in
+`gary4local host...`. every service goes through that one port, so you don't
+need Tailscale or an SSH tunnel on a trusted network. paste the address with
+its `:8020`; gary takes it as printed. without a token nothing changes.
 
-output shows as playing once your DAW actually renders it, and previewing a
-stem or the saved buffer cancels an output play that's still waiting on the
-host. in GarageBand, put gary on the master track; it keeps processing there.
-
-local mode can talk to gary4local on another machine: set `gary4local host...`
-in gary settings. localhost errors point at gary4local now instead of Docker
-Compose, and Linux gets built-in stem separation.
+yuey checks a source's length before uploading it. continuing an output that's
+already a couple of minutes long gets a popup saying what to crop, instead of
+rendering for ten minutes. when yuey refuses a request, gary shows yuey's
+reason instead of an HTTP code.
 
 pair every platform with
-[gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6).
+[gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7).
 
 older release notes now live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
