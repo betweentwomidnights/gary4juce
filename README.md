@@ -11,7 +11,7 @@ https://thepatch.gumroad.com/l/gary4juce
 **latest stable releases:**
 
 - [gary4juce v5.0.7 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7)
-- [gary4juce v5.0.7-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-mac)
+- [gary4juce v5.0.8-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.8-mac)
 
 **Linux preview:**
 
@@ -21,7 +21,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 - windows: [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 - Linux (preview): [gary4local v0.7.6 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
-- macOS (Apple Silicon): [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
+- macOS (Apple Silicon): [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
 
 the old MLX/Swift gary4local-mac is retired. its last update,
 [v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2), should still work with v5.0.7

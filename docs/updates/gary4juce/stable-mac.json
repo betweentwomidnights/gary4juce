@@ -1,14 +1,14 @@
 {
   "channel": "stable-mac",
-  "latest_version": "5.0.7-mac",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-mac",
+  "latest_version": "5.0.8-mac",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.8-mac",
   "sha256": null,
-  "published_at": "2026-11-24T16:21:36Z",
+  "published_at": "2026-11-26T06:37:23Z",
   "notes": [
-    "macOS now builds from the same source as Windows and Linux.",
-    "Local mode pairs with gary4local v0.7.6. Staying on gary4local-mac? Update it to v0.4.2 for local jerry.",
-    "Output shows as playing once your DAW renders it. Previewing a stem or the saved buffer cancels a waiting output play.",
-    "Local mode can reach gary4local on another machine: set gary4local host in gary settings.",
+    "Pair with headless gary4local over your network: type listen on in Gary, then enter its address and pairing token in gary4local host.",
+    "Yuey checks a source's length before uploading and tells you what to crop.",
+    "When yuey refuses a request, gary shows its reason instead of an HTTP code.",
+    "Pairs with gary4local v0.7.7.",
     "Close your DAW and the standalone app before replacing files with a downloaded update."
   ]
 }
