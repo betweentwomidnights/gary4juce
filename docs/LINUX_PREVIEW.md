@@ -53,7 +53,7 @@ The updater reads `preview-linux.json`, published from `main`. Windows and macOS
 stable feeds stay separate. CMake reads the numeric plugin version from
 `gary4juce.jucer`; local builds default to `<version>-linux-preview.1`, and release
 builds can set `GARY4JUCE_RELEASE_VERSION` to the full preview version. The current
-published Linux preview is `5.0.7-linux-preview.1`, paired with gary4local v0.7.6.
+published Linux preview is `5.0.8-linux-preview.1`, paired with gary4local v0.7.7.
 
 ## Build
 
@@ -83,7 +83,7 @@ A clean tagged source can be packaged with (the tag must match the version in
 
 ```sh
 python3 packaging/linux/package.py --build-dir build-linux-release \
-  --juce-dir build-linux-release/_deps/juce-src --tag v5.0.7-linux-preview.1
+  --juce-dir build-linux-release/_deps/juce-src --tag v5.0.8-linux-preview.1
 ```
 
 For the offline stems integration test, put the matching pinned core/Vulkan ZIPs

@@ -15,16 +15,16 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **Linux preview:**
 
-- [gary4juce v5.0.7-linux-preview.1 (x64 + ARM64 VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7-linux-preview.1)
+- [gary4juce v5.0.8-linux-preview.1 (x64 + ARM64 VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.8-linux-preview.1)
 
 **recommended local companions:**
 
 - windows: [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
-- Linux (preview): [gary4local v0.7.6 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
+- Linux (preview): [gary4local v0.7.7 (amd64 + arm64 .deb, or the headless console)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
 - macOS (Apple Silicon): [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
 
 the old MLX/Swift gary4local-mac is retired. its last update,
-[v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2), should still work with v5.0.7
+[v0.4.2](https://github.com/betweentwomidnights/gary-localhost-installer-mac/releases/tag/v0.4.2), should still work with v5.0.8
 if you haven't switched yet.
 
 ![gary4juce demo](docs/media/gary_v3_readme_720w.gif)
@@ -131,7 +131,7 @@ and documented the exact Windows alpha environment here:
 
 ### linux (preview)
 
-both gary4juce and [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
+both gary4juce and [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
 have Ubuntu 24.04 builds for x64 PCs and ARM64 systems such as DGX Spark.
 choose the architecture that matches your machine.
 
@@ -141,7 +141,7 @@ the whole `gary4juce-standalone` folder and run `./gary4juce` inside it.
 
 for local generation, install the matching gary4local `.deb` and a Vulkan
 runtime through its UI, then download the models you want. see the
-[gary4local Linux install guide](https://github.com/betweentwomidnights/gary-localhost-installer/blob/v0.7.6/docs/linux-desktop.md).
+[gary4local Linux install guide](https://github.com/betweentwomidnights/gary-localhost-installer/blob/v0.7.7/docs/linux-desktop.md).
 GPU drivers, models and backend runtimes are separate downloads.
 
 Linux remains a preview. the gary4local arm64 build has been tested end to end
@@ -188,12 +188,21 @@ Vulkan, Linux uses Vulkan, and macOS uses Metal. the retired MLX/Swift
 
 the stem separator isn't one of these services. it runs inside the plugin.
 
-gary4local doesn't have to run on the same computer as your DAW. builds newer
-than v5.0.6 have a `gary4local host...` option in gary settings: point it at
-another machine's name or IP, and local mode talks to gary4local there on the
-usual ports. leave it empty for this computer. the gary4local services only
-listen on loopback, so the other machine needs a bridge for now; the headless
-guide covers [Tailscale and SSH](https://github.com/betweentwomidnights/gary-localhost-installer/blob/main/control-center/runtime-core/README.md#using-gary-from-another-computer).
+gary4local doesn't have to run on the same computer as your DAW. set
+`gary4local host...` in gary settings to the other machine's name or IP; leave
+it empty for this computer. the gary4local services only listen on loopback,
+so the other machine needs a way in:
+
+- **headless gary4local can open one itself.** type `listen on` in its console,
+  then enter the address and pairing token it prints in `gary4local host...`.
+  everything goes through one port, 8020, and requests without the token are
+  refused. this needs gary4juce v5.0.8 and
+  [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
+  or newer, and it's meant for networks you trust. see
+  [the LAN listener](https://github.com/betweentwomidnights/gary-localhost-installer/blob/main/control-center/runtime-core/README.md#the-lan-listener).
+- **otherwise, bridge the usual ports** with Tailscale or SSH, which also works
+  for the desktop app. the headless guide covers
+  [both](https://github.com/betweentwomidnights/gary-localhost-installer/blob/main/control-center/runtime-core/README.md#using-gary-from-another-computer).
 
 Recommended hardware:
 
