@@ -158,6 +158,7 @@
       <FILE id="J4Up1n" name="MacDockIcon.mm" compile="1" resource="0" file="Source/Utils/MacDockIcon.mm"/>
       <FILE id="W3bQo2" name="MacDockIcon.h" compile="0" resource="0" file="Source/Utils/MacDockIcon.h"/>
       <FILE id="kqT1iT" name="Theme.h" compile="0" resource="0" file="Source/Utils/Theme.h"/>
+      <FILE id="sReQ01" name="ServiceRequests.h" compile="0" resource="0" file="Source/Utils/ServiceRequests.h"/>
     </GROUP>
     <FILE id="EdSVM4" name="IconFactory.cpp" compile="1" resource="0" file="Source/Utils/IconFactory.cpp"/>
     <FILE id="O8iT9g" name="IconFactory.h" compile="0" resource="0" file="Source/Utils/IconFactory.h"/>

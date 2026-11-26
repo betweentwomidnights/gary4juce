@@ -8,6 +8,7 @@
 */
 #pragma once
 #include <JuceHeader.h>
+#include "Utils/ServiceRequests.h"
 #include <atomic>  // ADD THIS FOR ATOMIC TYPES
 #include <cstdint>
 #include <memory>
@@ -73,6 +74,23 @@ public:
     // false for anything else (a port, a path, spaces). "localhost" and 127.0.0.1
     // normalise to the empty "this computer" value; bare IPv6 gains brackets.
     static bool normaliseLocalHost(const juce::String& input, juce::String& normalised);
+
+    // A pairing token from gary4local's network listener (gary `listen on`). With a token and
+    // another computer as the host, every service is reached through the listener's one port as
+    // /<service>/..., carrying Authorization: Bearer <token>. Without both, nothing changes: the
+    // per-service ports and no header, as before. Like the host, a machine preference.
+    void setLocalToken(const juce::String& token);
+    juce::String getLocalToken() const;
+    bool isUsingListener() const;
+    // Accepts the token gary4local printed in any case, with or without spaces or dashes.
+    // Empty is valid and means no token. Normalises to gary-xxxxx-xxxxx-xxxxx-xxxxx.
+    static bool normaliseLocalToken(const juce::String& input, juce::String& normalised);
+    // The listener's prefix for a service: gary4juce's tab names.
+    static juce::String getListenerRoute(ServiceType service);
+    // The pure part of getServiceUrl, so tests can cover every combination. Requests to these
+    // URLs open through ServiceRequests::open, which adds the token for the listener.
+    static juce::String buildServiceUrl(bool usingLocalhost, const juce::String& host,
+        const juce::String& token, ServiceType service, const juce::String& endpoint);
 
     // Session ID management for undo functionality
     // Enhanced session management with timestamps
@@ -201,6 +219,8 @@ private:
     juce::String backendBaseUrl = "https://g4l.thecollabagepatch.com"; // Default to remote
     mutable juce::SpinLock localHostLock;
     juce::String localHost; // empty = this computer
+    juce::String localToken; // empty = no listener; guarded by localHostLock
+    void localTargetChanged();
     mutable juce::SpinLock localHealthSnapshotLock;
     LocalServiceHealthSnapshot localHealthSnapshot;
 

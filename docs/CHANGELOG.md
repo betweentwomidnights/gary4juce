@@ -3,6 +3,18 @@
 release history for gary4juce. the README keeps the current release notes near
 the top so it does not turn into a museum hallway.
 
+## unreleased
+
+`gary4local host...` takes an optional pairing token. headless gary4local can
+open a listener to your network (`listen on` in Gary) that prints one; with
+the host set to that machine and its token entered, every service goes through
+the listener's one port, 8020, so you don't need Tailscale or an SSH tunnel on a
+trusted network. without a token nothing changes: this computer, and other
+machines over Tailscale or SSH, use the usual service ports. the token stays in
+gary's preferences, never in a DAW project, and is only sent to that listener.
+if the listener refuses it, gary says so instead of showing the services as
+offline.
+
 ## v5.0.7 - 11/24
 
 macOS builds from main now, like Windows and Linux. the macOS differences are

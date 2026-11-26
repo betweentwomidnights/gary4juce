@@ -816,7 +816,7 @@ void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
                 .withConnectionTimeoutMs(20000)
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json");
-            if (auto stream = postUrl.createInputStream(options))
+            if (auto stream = ServiceRequests::open(postUrl, options))
                 responseText = stream->readEntireStreamAsString();
         }
         catch (...) {}
@@ -1140,7 +1140,7 @@ void Gary4juceAudioProcessorEditor::refreshYueyDicePrompts()
                 .withConnectionTimeoutMs(4000)
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Accept: application/json");
-            if (auto stream = juce::URL(requestUrl).createInputStream(options))
+            if (auto stream = ServiceRequests::open(juce::URL(requestUrl), options))
                 responseText = stream->readEntireStreamAsString();
         }
         catch (...) {}
@@ -1289,7 +1289,7 @@ void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
                 .withConnectionTimeoutMs(4000)
                 .withStatusCode(&statusCode)
                 .withExtraHeaders("Accept: application/json");
-            if (auto stream = juce::URL(requestUrl).createInputStream(options))
+            if (auto stream = ServiceRequests::open(juce::URL(requestUrl), options))
                 responseText = stream->readEntireStreamAsString();
         }
         catch (...) {}
@@ -2035,7 +2035,7 @@ private:
                     .withConnectionTimeoutMs(4000)
                     .withStatusCode(&statusCode)
                     .withExtraHeaders("Accept: application/json");
-                if (auto stream = juce::URL(url).createInputStream(options))
+                if (auto stream = ServiceRequests::open(juce::URL(url), options))
                     text = stream->readEntireStreamAsString();
             }
             catch (...) {}
@@ -2096,7 +2096,7 @@ private:
                     .withConnectionTimeoutMs(10000)
                     .withStatusCode(&statusCode)
                     .withExtraHeaders("Content-Type: application/json\r\nAccept: application/json");
-                if (auto stream = juce::URL(url).withPOSTData(json).createInputStream(options))
+                if (auto stream = ServiceRequests::open(juce::URL(url).withPOSTData(json), options))
                     text = stream->readEntireStreamAsString();
             }
             catch (...) {}

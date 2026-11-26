@@ -280,7 +280,7 @@ void Gary4juceAudioProcessorEditor::sendToTerry()
                 .withConnectionTimeoutMs(30000)
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
 
             auto requestTime = juce::Time::getCurrentTime() - startTime;
             DBG("Terry HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");
@@ -499,7 +499,7 @@ void Gary4juceAudioProcessorEditor::undoTerryTransform()
                 .withConnectionTimeoutMs(15000)  // Shorter timeout for undo - should be quick
                 .withExtraHeaders("Content-Type: application/json");
 
-            auto stream = postUrl.createInputStream(options);
+            auto stream = ServiceRequests::open(postUrl, options);
 
             auto requestTime = juce::Time::getCurrentTime() - startTime;
             DBG("Terry undo HTTP connection established in " + juce::String(requestTime.inMilliseconds()) + "ms");

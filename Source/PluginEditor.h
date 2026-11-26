@@ -128,6 +128,9 @@ private:
     bool localSA3Online = false;
     bool localYueyOnline = false;
     int localOnlineCount = 0;
+    // gary4local's listener answered the last health poll with the token accepted, even if
+    // no service runs yet: the pairing works.
+    bool localListenerAnswered = false;
     int localHealthPollCounter = 0;
     juce::int64 localHealthLastPollMs = 0;
     std::atomic<bool> localHealthPollInFlight{ false };
@@ -276,8 +279,16 @@ private:
     void showStemsSettings();
     void showLocalHostSettings();
     void restoreLocalHostPreference();
-    void applyLocalHost(const juce::String& host);
+    void applyLocalHost(const juce::String& host, const juce::String& token);
     juce::String getLocalHostLabel() const;
+    // Where a service answers: host:port, or host:8020/<service> through gary4local's listener.
+    juce::String getLocalServiceLabel(ServiceType service) const;
+    static Gary4juceAudioProcessor::ServiceType toProcessorService(ServiceType service);
+    // A health probe got 401 from the listener. Says so once per host and token.
+    void reportPairingTokenRejected();
+    juce::String pairingRejectionReportedFor;
+    // A one-button notice in gary's popup look, instead of JUCE's default alert.
+    void showGaryNotice(const juce::String& title, const juce::String& message);
     stems::StemsService& getStemsService();   // created on first use, in the active data folder
     void chooseGaryDataDirectory();
     void migrateGaryDataDirectory(const juce::File& destination);
