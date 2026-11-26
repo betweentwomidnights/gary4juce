@@ -605,7 +605,16 @@ private:
     // Whether this backend answers audio_format "flac", read from the same
     // /health response. Unknown counts as no: older servers reject the value.
     bool yueyAcceptsFlac = false;
+    // The longest source this backend will continue or remix, read from the
+    // same response. A continuation is held to the ceiling as a whole, source
+    // plus what it adds; a remix is as long as its source. Negative until a
+    // backend reports continue_max_source_seconds, so older backends, which
+    // enforce neither, are left to answer for themselves; 0 is unbounded.
+    double yueyContinueMaxSourceSeconds = -1.0;
+    double yueyRemixMaxSourceSeconds = -1.0;
     void refreshYueyNaturalMax();
+    // Refuses, with a notice saying why, a source the backend would refuse.
+    bool yueySourceFitsBackend(const juce::File& file, bool remixing);
 
     // The dice pool, fetched once per backend. Two buckets, chosen by the
     // instrumental toggle of whichever tab rolled: an instrumental job has a

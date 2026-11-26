@@ -22,6 +22,18 @@ juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
     return payload;
 }
 
+// The text of a yuey error. yuey.cpp answers a refused request with
+// {"error": {"message", "type"}}; a plain string is read as it is.
+juce::String yueyErrorText(const juce::DynamicObject* object)
+{
+    if (object == nullptr)
+        return {};
+    const auto error = object->getProperty("error");
+    if (auto* detail = error.getDynamicObject())
+        return detail->getProperty("message").toString().trim();
+    return error.isString() ? error.toString().trim() : juce::String();
+}
+
 
 // Builds a YuE2 score from nothing but the controls the user already sets:
 // tempo, key, meter and bar count. This is what `create` sends instead of a
@@ -494,6 +506,8 @@ void Gary4juceAudioProcessorEditor::sendToYuey()
     const auto sourceFile = transformRecording ? getGaryBufferFile() : getGaryOutputFile();
     if (!validateAudioDurationForModel(sourceFile, 240.0, "yuey"))
         return;
+    if (!yueySourceFitsBackend(sourceFile, remixing))
+        return;
     juce::MemoryBlock audioBytes;
     if (!sourceFile.existsAsFile() || !sourceFile.loadFileAsData(audioBytes) || audioBytes.getSize() == 0)
     {
@@ -842,6 +856,18 @@ void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
 
             if (statusCode < 200 || statusCode >= 300 || responseText.isEmpty())
             {
+                // yuey explains a refusal in its error field, such as a source
+                // too long to continue. Show that rather than a bare status.
+                // A 401 is the listener's pairing token, which the health
+                // poll already reports in its own notice.
+                const auto reason = yueyErrorText(juce::JSON::parse(responseText).getDynamicObject());
+                if (statusCode >= 400 && statusCode < 500 && statusCode != 401
+                    && reason.isNotEmpty())
+                {
+                    fail("yuey refused the request");
+                    editor->showGaryNotice("yuey", reason);
+                    return;
+                }
                 fail(statusCode > 0 ? "yuey submit failed (HTTP " + juce::String(statusCode) + ")"
                                     : "yuey backend not responding");
                 return;
@@ -851,8 +877,8 @@ void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
             auto* object = response.getDynamicObject();
             if (object == nullptr || !static_cast<bool>(object->getProperty("success")))
             {
-                const auto error = object != nullptr
-                    ? object->getProperty("error").toString() : juce::String("invalid response");
+                const auto error = object != nullptr ? yueyErrorText(object)
+                                                     : juce::String("invalid response");
                 fail("yuey error: " + (error.isEmpty() ? juce::String("unknown error") : error));
                 return;
             }
@@ -1259,6 +1285,43 @@ void Gary4juceAudioProcessorEditor::rollYueyDicePrompt(YueyUI::SubTab tab)
         yueyUI->onPromptChanged(tab, prompt);
 }
 
+bool Gary4juceAudioProcessorEditor::yueySourceFitsBackend(const juce::File& file, bool remixing)
+{
+    const double limit = remixing ? yueyRemixMaxSourceSeconds : yueyContinueMaxSourceSeconds;
+    if (limit <= 0.0)
+        return true;  // unknown or unbounded: the backend answers for itself
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (reader == nullptr || reader->sampleRate <= 0.0)
+        return true;  // already vetted by validateAudioDurationForModel
+    const double seconds = (double)reader->lengthInSamples / reader->sampleRate;
+    if (seconds <= limit + 0.05)
+        return true;
+
+    const auto secondsText = [](double value) { return juce::String(value, 0) + "s"; };
+    juce::String message;
+    if (remixing)
+    {
+        message = "This audio is " + secondsText(seconds) + " long. A yuey remix is as long as "
+            "its source, and this backend holds yuey to " + secondsText(limit) + ".\n\n"
+            "Crop the output to " + secondsText(limit) + " or less and remix that.";
+    }
+    else
+    {
+        message = "This audio is " + secondsText(seconds) + " long. This backend holds a yuey "
+            "continuation to " + secondsText(yueyNaturalMaxSeconds) + " in all, the source plus "
+            "what it adds, so the source can be at most " + secondsText(limit) + ".\n\n"
+            "Crop the output to its last " + secondsText(limit) + " or less and continue from "
+            "that. A long source also renders slowly and continues poorly.";
+    }
+    if (audioProcessor.getIsUsingLocalhost())
+        message += "\n\nThe limit is yuey's natural length in gary4local's settings.";
+    showGaryNotice(remixing ? "yuey remix" : "yuey continue", message);
+    return false;  // never upload a source the backend would refuse
+}
+
 void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
 {
     if (!yueyUI || !isServiceReachable(ServiceType::Yuey))
@@ -1273,8 +1336,11 @@ void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
 
     yueyNaturalMaxSource = requestUrl;
     yueyNaturalMaxLastAttemptMs = nowMs;
-    // A different backend has to say it takes FLAC before it is asked for it.
+    // A different backend has to say it takes FLAC before it is asked for it,
+    // and what it will continue before a source is measured against it.
     yueyAcceptsFlac = false;
+    yueyContinueMaxSourceSeconds = -1.0;
+    yueyRemixMaxSourceSeconds = -1.0;
 
     const std::weak_ptr<std::atomic<bool>> asyncAlive = editorAsyncAlive;
     auto* editor = this;
@@ -1319,6 +1385,17 @@ void Gary4juceAudioProcessorEditor::refreshYueyNaturalMax()
                 if (auto* formats = object->getProperty("audio_formats").getArray())
                     flac = formats->contains("flac");
             editor->yueyAcceptsFlac = flac;
+
+            // Only a backend that reports the source limit enforces it, and
+            // the remix limit is its whole ceiling.
+            if (object != nullptr && object->hasProperty("continue_max_source_seconds")
+                && object->hasProperty("natural_max_seconds"))
+            {
+                editor->yueyContinueMaxSourceSeconds =
+                    static_cast<double>(object->getProperty("continue_max_source_seconds"));
+                editor->yueyRemixMaxSourceSeconds =
+                    static_cast<double>(object->getProperty("natural_max_seconds"));
+            }
 
             if (object == nullptr || !object->hasProperty("natural_max_seconds"))
             {
@@ -2112,8 +2189,7 @@ private:
                 auto* object = response.getDynamicObject();
                 if (object == nullptr || !static_cast<bool>(object->getProperty("success")))
                 {
-                    auto error = object != nullptr ? object->getProperty("error").toString()
-                                                   : juce::String();
+                    auto error = yueyErrorText(object);
                     if (error.isEmpty())
                         error = statusCode > 0 ? "HTTP " + juce::String(statusCode)
                                                : juce::String("yuey did not answer");
