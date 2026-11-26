@@ -399,36 +399,74 @@ the finished AU/VST3 with ordinary `codesign --verify --deep`, Gatekeeper and
 the notarized DMG instead. The standalone uses its embedded signed icon and
 should continue to pass strict verification.
 
-## Linux preview flow (linux branch)
+## Linux Preview Flow
 
-Merge current `main` into `linux`, preserving the host keyboard-focus flag,
-copy-only external drags, stable drag-list lifetime and the export-copy button.
-The current storage helpers replace the old branch's ad-hoc directory helpers;
-do not reintroduce the obsolete backend request implementations while resolving
-those conflicts. `docs/LINUX_PREVIEW.md` documents supported builds and limits.
+Linux builds come from `main`, like Windows and macOS. The Linux differences are
+guarded with `JUCE_LINUX` (copy-only external drags, the output `copy` button
+and the `preview-linux.json` update feed) or set in `CMakeLists.txt` (host
+keyboard focus). A `vX.Y.Z-linux-preview.N` release is
+the same source as `vX.Y.Z`, built by CI. `docs/LINUX_PREVIEW.md` documents
+supported builds and limits. There's no `linux` branch anymore.
 
-The Linux CMake build requests keyboard focus and supplies the full
-`GARY4JUCE_RELEASE_VERSION` to the updater. Keep this version, the release tag,
-changelog and preview feed consistent. A bare numeric 5.0.5 would compare newer
-than 5.0.5-linux-preview.2 and prevent preview-to-preview updates.
+### 1. Tag the source-release commit
 
-Commit final source, tag it `vX.Y.Z-linux-preview.N`, and push the Linux branch
-and tag. Register the workflow definition on main before its first use; manual
-dispatch should select the exact Linux preview tag. The Linux preview workflow builds natively on Ubuntu 24.04 x64 and
-ARM64. It does not install plugins into the runner's user directories. Download
-the workflow artifacts, verify every ZIP against its architecture's checksum
-file, and prepare a GitHub draft marked as a prerelease. Check legal/source
-material and executable modes, and retain the workflow's build information.
+Put the Linux tag on the same commit as the Windows tag, then push it:
 
-After publication and public asset verification, add or update
-`docs/updates/gary4juce/preview-linux.json` in a separate commit on **main**.
-GitHub Pages serves main's `docs/`, not the Linux branch. This platform preview
-feed is an explicit exception to the generic prerelease rule above: it promotes
-only Linux previews, never the Windows or macOS stable feeds. Do not change the
-README stable-download links or top-level stable `SHA256SUMS.txt` for a preview.
-Record both architectures' VST3 and standalone hashes in the release and feed.
-Use the real release publication timestamp. Confirm the public feed and its
-release/assets after the Pages deployment completes.
+```bash
+git tag -a vX.Y.Z-linux-preview.1 -m "gary4juce vX.Y.Z-linux-preview.1" <source-release commit>
+git push origin vX.Y.Z-linux-preview.1
+```
+
+Pushing the tag starts the `Linux preview` workflow. A dispatch isn't needed.
+CMake reads the numeric version from `gary4juce.jucer`, and the workflow passes
+the full tag as `GARY4JUCE_RELEASE_VERSION`, which is what the updater compares.
+Keep it, the release tag, changelog and preview feed consistent. A bare numeric
+5.0.5 would compare newer than 5.0.5-linux-preview.2 and prevent
+preview-to-preview updates. The `.N` only goes up when the same version needs a
+second Linux build.
+
+### 2. Verify the artifacts
+
+The workflow builds natively on Ubuntu 24.04 x64 and ARM64, runs the standalone
+under Xvfb, installs the stems runtime and runs a CPU separation, and runs the
+Debug regressions. It doesn't install plugins into the runner's user
+directories. A tag run uploads two artifacts, `linux-x64` and `linux-arm64`,
+each holding the VST3 and standalone ZIPs, `SHA256SUMS-linux-<arch>.txt` and
+`BUILD-INFO-linux-<arch>.json`.
+
+Download both into `.release/linux-ci-vX.Y.Z-preview.N/` and check, before
+creating anything:
+
+- each artifact ZIP matches the `digest` GitHub lists for it;
+- every ZIP matches its line in the architecture's checksum file;
+- `BUILD-INFO` names the tag and the source-release commit;
+- each ZIP has one top-level folder (`gary4juce.vst3` or
+  `gary4juce-standalone`), `SOURCE.md` names the tag, `licenses/` has its
+  files, and the `.so` and the standalone binary are executable.
+
+### 3. Draft, publish and promote
+
+Create the GitHub release as a draft prerelease from the four ZIPs, with the
+hashes in the notes, then publish it without taking Latest from the Windows
+release:
+
+```bash
+gh release create vX.Y.Z-linux-preview.N --draft --prerelease --verify-tag \
+  --title "gary4juce vX.Y.Z-linux-preview.N" --notes-file .release/release-notes-vX.Y.Z-linux-preview.N.md \
+  .release/linux-ci-vX.Y.Z-preview.N/linux-*/gary4juce-*.zip
+gh release edit vX.Y.Z-linux-preview.N --draft=false --prerelease --latest=false
+```
+
+Download the four public ZIPs and check their SHA-256 again. Then, in one
+commit on **main**, update `docs/updates/gary4juce/preview-linux.json` with the
+real publication timestamp and all four hashes, the README's Linux preview link
+and Linux companion, and the current preview named in `docs/LINUX_PREVIEW.md`.
+Confirm the public feed after the Pages deployment completes.
+
+This platform preview feed is an explicit exception to the generic prerelease
+rule above: it promotes only Linux previews, never the Windows or macOS stable
+feeds. Don't change the README's stable-download links or the top-level stable
+`SHA256SUMS.txt` for a preview.
 
 The preview's virtual-display checks do not replace manual DAW typing, Bitwig
 file drag and GPU generation checks with the Linux gary4local desktop build.
