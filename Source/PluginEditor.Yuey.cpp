@@ -22,6 +22,18 @@ juce::DynamicObject::Ptr makeYueySongPayload(const juce::String& style,
     return payload;
 }
 
+// The text of a yuey error. yuey.cpp answers a refused request with
+// {"error": {"message", "type"}}; a plain string is read as it is.
+juce::String yueyErrorText(const juce::DynamicObject* object)
+{
+    if (object == nullptr)
+        return {};
+    const auto error = object->getProperty("error");
+    if (auto* detail = error.getDynamicObject())
+        return detail->getProperty("message").toString().trim();
+    return error.isString() ? error.toString().trim() : juce::String();
+}
+
 
 // Builds a YuE2 score from nothing but the controls the user already sets:
 // tempo, key, meter and bar count. This is what `create` sends instead of a
@@ -848,9 +860,7 @@ void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
                 // too long to continue. Show that rather than a bare status.
                 // A 401 is the listener's pairing token, which the health
                 // poll already reports in its own notice.
-                juce::String reason;
-                if (auto* refusal = juce::JSON::parse(responseText).getDynamicObject())
-                    reason = refusal->getProperty("error").toString().trim();
+                const auto reason = yueyErrorText(juce::JSON::parse(responseText).getDynamicObject());
                 if (statusCode >= 400 && statusCode < 500 && statusCode != 401
                     && reason.isNotEmpty())
                 {
@@ -867,8 +877,8 @@ void Gary4juceAudioProcessorEditor::submitYueyJson(const juce::String& endpoint,
             auto* object = response.getDynamicObject();
             if (object == nullptr || !static_cast<bool>(object->getProperty("success")))
             {
-                const auto error = object != nullptr
-                    ? object->getProperty("error").toString() : juce::String("invalid response");
+                const auto error = object != nullptr ? yueyErrorText(object)
+                                                     : juce::String("invalid response");
                 fail("yuey error: " + (error.isEmpty() ? juce::String("unknown error") : error));
                 return;
             }
@@ -2179,8 +2189,7 @@ private:
                 auto* object = response.getDynamicObject();
                 if (object == nullptr || !static_cast<bool>(object->getProperty("success")))
                 {
-                    auto error = object != nullptr ? object->getProperty("error").toString()
-                                                   : juce::String();
+                    auto error = yueyErrorText(object);
                     if (error.isEmpty())
                         error = statusCode > 0 ? "HTTP " + juce::String(statusCode)
                                                : juce::String("yuey did not answer");
