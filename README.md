@@ -10,7 +10,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **latest stable releases:**
 
-- [gary4juce v5.0.7 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7)
+- [gary4juce v5.0.8 (windows VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.8)
 - [gary4juce v5.0.8-mac (macOS AU/VST3 + standalone)](https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.8-mac)
 
 **Linux preview:**
@@ -19,7 +19,7 @@ https://thepatch.gumroad.com/l/gary4juce
 
 **recommended local companions:**
 
-- windows: [gary4local v0.7.6](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
+- windows: [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
 - Linux (preview): [gary4local v0.7.6 (amd64 + arm64 .deb)](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.6)
 - macOS (Apple Silicon): [gary4local v0.7.7](https://github.com/betweentwomidnights/gary-localhost-installer/releases/tag/v0.7.7)
 
@@ -66,7 +66,7 @@ Put it on your master, press play, record some audio, and start iterating.
 
 ## latest update
 
-### upcoming v5.0.8
+### v5.0.8 - 11/25
 
 **pair gary with headless gary4local over your network.** type `listen on` in
 headless Gary, then enter the address and pairing token it prints in

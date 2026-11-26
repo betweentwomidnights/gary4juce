@@ -1,13 +1,13 @@
 {
   "channel": "stable",
-  "latest_version": "5.0.7",
-  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.7",
-  "sha256": "4b9f18117cadacde7964c828c7f587201424662a1c35c2e92cd956d4abe53b28",
-  "published_at": "2026-11-24T15:52:15Z",
+  "latest_version": "5.0.8",
+  "download_url": "https://github.com/betweentwomidnights/gary4juce/releases/tag/v5.0.8",
+  "sha256": "d8ae0aa01e4a0a19119938d9c6242269f910292a398100eb23675413c822f22d",
+  "published_at": "2026-11-26T06:49:22Z",
   "notes": [
-    "Output shows as playing once your DAW renders it. Previewing a stem or the saved buffer cancels a waiting output play.",
-    "Local mode can reach gary4local on another machine: set gary4local host in gary settings.",
-    "Localhost errors point at gary4local instead of Docker Compose. macOS now builds from the same source.",
-    "Pair with gary4local v0.7.6. Close your DAW before replacing plugin files."
+    "Pair with headless gary4local over your network: enter the address and pairing token from its listen on command in gary4local host.",
+    "Yuey checks a source's length before uploading, and says what to crop instead of rendering one too long to continue.",
+    "When yuey refuses a request, gary shows yuey's reason instead of an HTTP code.",
+    "Pair with gary4local v0.7.7. Close your DAW before replacing plugin files."
   ]
 }
